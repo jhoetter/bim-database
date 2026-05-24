@@ -17,16 +17,16 @@
 | 7 | <img src="house-7/kopenhagen_exterior_01.original.avif" width="100"> | Danhaus Deutschland | Kopenhagen | 182 m²* | 8* | 1.5* | €523,810* | EH 55* | Zweifamilienhaus | [↓](house-7.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/kopenhagen-mit-einliegerwohnung/) |
 | 8 | <img src="house-8/weiott_bungalow353_exterior1.original.avif" width="100"> | WEIOTT-Massiv-Haus | Bunganlow 353 | 127 m²* | 4* | 1* | auf Anfrage* | EH 55* | Bungalow | [↓](house-8.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/weiott-bun353/) |
 | 9 | <img src="house-9/invivo-bauhaus115_exterior1.original.avif" width="100"> | invivo haus | EFH Bauhaus 115 | 188 m²* | 4* | 2* | €533,895* | EH 55* | Massivhaus | [↓](house-9.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/invivo-bauhaus115/) |
-| 10 | <img src="house-10/baudirekt_dh120_exterior1.original.avif" width="100"> | Baudirekt Architektenhäuser | DH 120 Basis | 119 m²* | —* | —* | auf Anfrage* | —* | Doppelhaus | [↓](house-10.pdf) | — |
+| 10 | <img src="house-10/baudirekt_dh120_exterior1.original.avif" width="100"> | Baudirekt Architektenhäuser | DH 120 Basis | 119 m²* | 4* | 1.5* | auf Anfrage* | EH 55* | Doppelhaus | [↓](house-10.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/baudirekt-doppelhaus-dh-120-basis/) |
 | 11 | <img src="house-11/grombach_exterior_0.original.avif" width="100"> | Rems-Murr-Holzhaus | Grombach | 115 m²* | 5* | 1* | €318,397* | EH 55* | Blockhaus | [↓](house-11.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/grombach/) |
 | 12 | <img src="house-12/dammann_isa_exterior1.original.avif" width="100"> | Dammann-Haus | ISA (KfW-EH 40 EE) | 116 m²* | 7* | 1.5* | €297,700* | EH 40 EE* | EFH | [↓](house-12.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/isa-3-kfw-effizienzhaus-55/) |
 | 13 | <img src="house-13/fingerhut_mhbadvilbel1_exterior3.original.avif" width="100"> | Fingerhut Haus | Bad Vilbel – Musterhaus NEU | 205 m²* | 6* | 1.5* | €593,766* | EH 55* | EFH | [↓](house-13.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/fingerhuthaus-mhbadvilbel1/) |
 | 14 | <img src="house-14/holzbau-rustikal_bh-bodensee_exterior1.original.avif" width="100"> | Holzbau Rustikal | Blockhaus Bodensee | 151 m²* | 6* | 1* | €182,558* | EH 55* | Doppelhaus (Blockhaus) | [↓](house-14.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/holzbau-rustikal-blockhhaus-bodensee/) |
 | 15 | <img src="house-15/kbs_illner_exterior1.original.avif" width="100"> | KBS Bau | Illner | 162 m²* | —* | 2* | auf Anfrage* | EH 55* | Massivhaus | [↓](house-15.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/kbs-illner/) |
 | 16 | <img src="house-16/kbs_nolte_exterior1.original.avif" width="100"> | KBS Bau | Nolte | 200 m²* | —* | 2* | auf Anfrage* | EH 55* | Massivhaus | [↓](house-16.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/kbs-nolte/) |
-| 17 | <img src="house-17/mh_il-6-143_1876_exterior.original.avif" width="100"> | Elbe-Haus BauinformationsZentrum Dresden | IL-6-143 | — | — | — | — | — | — | [↓](house-17.pdf) | — |
+| 17 | <img src="house-17/mh_il-6-143_1876_exterior.original.avif" width="100"> | Elbe-Haus BauinformationsZentrum Dresden | IL-6-143 | 135 m²* | 6* | 2* | auf Anfrage* | EH 55* | Massivhaus | [↓](house-17.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/elbe-haus-ost-il-6-143/) |
 | 18 | <img src="house-18/mhstyle_exterior2.original.avif" width="100"> | Fertighaus WEISS | MH STYLE | 220 m²* | 4* | 2* | €609,419* | EH 55* | EFH | [↓](house-18.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/style-sonnenenergiehaus/) |
-| 19 | <img src="house-19/mymassivhaus_efh-brand_exterior1.original.avif" width="100"> | MYMassivhaus | Einfamilienhaus Brand | — | — | — | — | — | Massivhaus | [↓](house-19.pdf) | — |
+| 19 | <img src="house-19/mymassivhaus_efh-brand_exterior1.original.avif" width="100"> | MYMassivhaus | Einfamilienhaus Brand | 190 m²* | 5* | 2.5* | auf Anfrage* | EH 55* | Massivhaus | [↓](house-19.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/mymassiv-efhbrand/) |
 | 20 | <img src="house-20/schneider-mh_sv-topline1_exterior1.original.avif" width="100"> | Schneider Massivhaus | Stadtvilla TOP-Line 1 | 125 m²* | 5* | 2* | auf Anfrage* | EH 55* | Massivhaus | [↓](house-20.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/schneider-massivhaus-sv-topline1/) |
 
 ---
@@ -242,10 +242,14 @@ Identified from browser history — images not yet in repository.
 | Manufacturer | Baudirekt Architektenhäuser |
 | Model | DH 120 Basis |
 | Living area | 119 m² |
+| Rooms | 4 |
+| Floors | 1.5 |
 | Price | auf Anfrage |
+| Energy standard | Effizienzhaus 55 |
 | Building type | Doppelhaus |
+| Construction | Massivhaus |
 | PDF | [house-10.pdf](house-10.pdf) |
-| Source | — |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/baudirekt-doppelhaus-dh-120-basis/) |
 
 ---
 
@@ -379,8 +383,15 @@ Identified from browser history — images not yet in repository.
 |-------|-------|
 | Manufacturer | Elbe-Haus BauinformationsZentrum Dresden |
 | Model | IL-6-143 |
+| Living area | 135 m² |
+| Rooms | 6 |
+| Floors | 2 |
+| Price | auf Anfrage |
+| Energy standard | Effizienzhaus 55 |
+| Building type | Massivhaus |
+| Roof | Walmdach |
 | PDF | [house-17.pdf](house-17.pdf) |
-| Source | — |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/elbe-haus-ost-il-6-143/) |
 
 ---
 
@@ -413,9 +424,16 @@ Identified from browser history — images not yet in repository.
 |-------|-------|
 | Manufacturer | MYMassivhaus |
 | Model | Einfamilienhaus Brand |
+| Living area | 190 m² |
+| Rooms | 5 |
+| Floors | 2.5 |
+| Price | auf Anfrage |
+| Energy standard | Effizienzhaus 55 |
+| Building type | Einfamilienhaus |
 | Construction | Massivhaus |
+| Roof | Satteldach |
 | PDF | [house-19.pdf](house-19.pdf) |
-| Source | — |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/mymassiv-efhbrand/) |
 
 ---
 
