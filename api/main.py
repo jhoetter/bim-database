@@ -9,13 +9,17 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE = Path(__file__).parent.parent
-DATA_FILE = BASE / "houses.json"
+HOUSES_FILE = BASE / "houses.json"
 TESTHOUSES_FILE = BASE / "testhouses.json"
+
+IMAGE_EXTS = ("*.avif", "*.jpg", "*.jpeg", "*.png")
 
 app = FastAPI(
     title="BIM House Database",
-    description="REST API for prefab/solid-construction house data, floor plans and exterior images.",
-    version="1.0.0",
+    description="REST API for prefab/solid-construction house data, floor plans and exterior images. "
+                "Catalog houses and dev-fixture testhouses share one unified record shape and one /houses endpoint, "
+                "discriminated by `category`.",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -25,13 +29,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve house image folders and PDFs as static files
+# Serve image folders and PDFs as static files
 app.mount("/static", StaticFiles(directory=str(BASE)), name="static")
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── image discovery ─────────────────────────────────────────────────────────
 
 _TYPE_RE = re.compile(
-    r"[_-](?:exterior|floorplan|floor_plans?|floor|innen|grundriss|aussen|fassade)",
+    r"[_-](?:exterior|floorplan|floor_plans?|floor|innen|grundriss|aussen|fassade|section|schnitt)",
     re.IGNORECASE,
 )
 
@@ -40,36 +44,113 @@ def _image_sort_key(p: Path) -> tuple:
     stem = re.sub(r"\.original$", "", p.stem).lower()
     m = _TYPE_RE.search(stem)
     if m:
-        kind = 1 if any(w in m.group().lower() for w in ("floor", "grundriss")) else 0
+        kw = m.group().lower()
+        is_plan = any(w in kw for w in ("floor", "grundriss", "section", "schnitt"))
+        kind = 1 if is_plan else 0
         nums = re.findall(r"\d+", stem[m.end():])
     else:
         kind = 0
         nums = re.findall(r"\d+", stem)
-    return (kind, int(nums[0]) if nums else 0)
+    return (kind, int(nums[0]) if nums else 0, stem)
 
 
-def _house_images(house_id: int) -> dict:
-    folder = BASE / f"house-{house_id}"
-    avifs = sorted(folder.glob("*.avif"), key=_image_sort_key) if folder.exists() else []
+def _folder_images(folder: Path, url_prefix: str) -> dict:
+    if not folder.exists():
+        return {"exteriors": [], "floorplans": []}
+    files: list[Path] = []
+    for pat in IMAGE_EXTS:
+        files.extend(folder.glob(pat))
+    files.sort(key=_image_sort_key)
     exteriors, floorplans = [], []
-    for f in avifs:
-        url = f"/static/house-{house_id}/{f.name}"
+    for f in files:
+        url = f"{url_prefix}/{f.name}"
         (floorplans if _image_sort_key(f)[0] == 1 else exteriors).append(url)
     return {"exteriors": exteriors, "floorplans": floorplans}
 
 
-def _enrich(house: dict) -> dict:
-    hid = house["id"]
-    pdf = BASE / f"house-{hid}.pdf"
+# ── unified record assembly ─────────────────────────────────────────────────
+
+# Fields a "house" has that a testhouse doesn't, and vice versa. Both kinds
+# are returned as the same shape — missing fields are set to None — so callers
+# can render or filter without branching on category.
+_HOUSE_ONLY = (
+    "manufacturer", "model", "area_m2", "rooms", "floors",
+    "price_eur", "price_on_request", "energy_standard", "source_url",
+)
+_TESTHOUSE_ONLY = (
+    "slug", "name", "character", "year_built", "levels",
+    "site", "source_origin", "agent_notes",
+)
+
+
+def _unified_skeleton() -> dict:
     return {
-        **house,
-        "images": _house_images(hid),
-        "pdf_url": f"/static/house-{hid}.pdf" if pdf.exists() else None,
+        "id": None, "key": None, "category": None,
+        "building_type": None, "construction": None,
+        **{f: None for f in _HOUSE_ONLY},
+        **{f: None for f in _TESTHOUSE_ONLY},
+        "images": {"exteriors": [], "floorplans": []},
+        "pdf_url": None,
+        "source_pdfs": [],
     }
 
 
-def _load() -> list[dict]:
-    return json.loads(DATA_FILE.read_text())
+def _enrich_house(house: dict) -> dict:
+    hid = house["id"]
+    pdf = BASE / f"house-{hid}.pdf"
+    rec = _unified_skeleton()
+    rec.update(house)
+    rec["key"] = f"house-{hid}"
+    rec["category"] = "house"
+    rec["images"] = _folder_images(BASE / f"house-{hid}", f"/static/house-{hid}")
+    rec["pdf_url"] = f"/static/house-{hid}.pdf" if pdf.exists() else None
+    rec["price_on_request"] = bool(house.get("price_on_request"))
+    return rec
+
+
+def _enrich_testhouse(th: dict) -> dict:
+    slug = th["slug"]
+    folder = BASE / slug
+    pdf = BASE / f"{slug}.pdf"
+    rec = _unified_skeleton()
+    rec.update(th)
+    rec["key"] = slug
+    rec["category"] = "testhouse"
+    # Project testhouse-shaped fields onto house-shaped fields so the same
+    # card renderer / table can pick them up without branching.
+    rec["manufacturer"] = "Testhouse"
+    rec["model"] = th.get("name") or slug
+    rec["floors"] = float(len(th["levels"])) if th.get("levels") else None
+    rec["images"] = _folder_images(folder, f"/static/{slug}")
+    rec["pdf_url"] = f"/static/{slug}.pdf" if pdf.exists() else None
+    rec["source_pdfs"] = (
+        sorted(f"/static/{slug}/{p.name}" for p in folder.glob("*.pdf"))
+        if folder.exists() else []
+    )
+    rec["price_on_request"] = False
+    return rec
+
+
+def _load_houses() -> list[dict]:
+    return [_enrich_house(h) for h in json.loads(HOUSES_FILE.read_text())]
+
+
+def _load_testhouses() -> list[dict]:
+    if not TESTHOUSES_FILE.exists():
+        return []
+    return [_enrich_testhouse(t) for t in json.loads(TESTHOUSES_FILE.read_text())]
+
+
+def _load_all() -> list[dict]:
+    return _load_houses() + _load_testhouses()
+
+
+def _by_key(key: str) -> Optional[dict]:
+    # Accept new globally-unique key ("house-3", "testhouse-1") or a bare
+    # integer (legacy: catalog house).
+    if key.isdigit():
+        key = f"house-{key}"
+    return next((r for r in _load_all() if r["key"] == key), None)
 
 
 # ── routes ───────────────────────────────────────────────────────────────────
@@ -81,93 +162,74 @@ def root():
 
 @app.get("/houses", tags=["houses"])
 def list_houses(
+    category: Optional[str] = Query(None, description="house | testhouse (omit for both)"),
     building_type: Optional[str] = Query(None, description="Filter by building type, e.g. EFH, Doppelhaus, Bungalow"),
     construction: Optional[str] = Query(None, description="Filter by construction method, e.g. Massivhaus, Fertighaus"),
-    min_area: Optional[float] = Query(None, description="Minimum living area in m²"),
-    max_area: Optional[float] = Query(None, description="Maximum living area in m²"),
-    max_price: Optional[float] = Query(None, description="Maximum price in €"),
-    energy_standard: Optional[str] = Query(None, description="Filter by energy standard substring, e.g. '40', '55'"),
+    min_area: Optional[float] = Query(None, description="Minimum living area in m² (excludes records without area)"),
+    max_area: Optional[float] = Query(None, description="Maximum living area in m² (excludes records without area)"),
+    max_price: Optional[float] = Query(None, description="Maximum price in € (excludes price-on-request and testhouses)"),
+    energy_standard: Optional[str] = Query(None, description="Substring match on energy standard, e.g. '40', '55'"),
 ):
-    houses = _load()
-
+    recs = _load_all()
+    if category:
+        recs = [r for r in recs if r["category"] == category.lower()]
     if building_type:
-        houses = [h for h in houses if h["building_type"].lower() == building_type.lower()]
+        recs = [r for r in recs if (r.get("building_type") or "").lower() == building_type.lower()]
     if construction:
-        houses = [h for h in houses if h["construction"].lower() == construction.lower()]
+        recs = [r for r in recs if (r.get("construction") or "").lower() == construction.lower()]
     if min_area is not None:
-        houses = [h for h in houses if h["area_m2"] is not None and h["area_m2"] >= min_area]
+        recs = [r for r in recs if r.get("area_m2") is not None and r["area_m2"] >= min_area]
     if max_area is not None:
-        houses = [h for h in houses if h["area_m2"] is not None and h["area_m2"] <= max_area]
+        recs = [r for r in recs if r.get("area_m2") is not None and r["area_m2"] <= max_area]
     if max_price is not None:
-        houses = [h for h in houses if h["price_eur"] is not None and h["price_eur"] <= max_price]
+        recs = [r for r in recs if r.get("price_eur") is not None and r["price_eur"] <= max_price]
     if energy_standard:
-        houses = [h for h in houses if energy_standard.lower() in (h["energy_standard"] or "").lower()]
-
-    return [_enrich(h) for h in houses]
-
-
-@app.get("/houses/{house_id}", tags=["houses"])
-def get_house(house_id: int):
-    house = next((h for h in _load() if h["id"] == house_id), None)
-    if not house:
-        raise HTTPException(status_code=404, detail=f"House {house_id} not found")
-    return _enrich(house)
+        recs = [r for r in recs if energy_standard.lower() in (r.get("energy_standard") or "").lower()]
+    return recs
 
 
-@app.get("/houses/{house_id}/pdf", tags=["houses"])
-def get_pdf(house_id: int):
-    pdf = BASE / f"house-{house_id}.pdf"
+@app.get("/houses/{key}", tags=["houses"])
+def get_house(key: str):
+    rec = _by_key(key)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"House {key!r} not found")
+    return rec
+
+
+@app.get("/houses/{key}/pdf", tags=["houses"])
+def get_pdf(key: str):
+    rec = _by_key(key)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"House {key!r} not found")
+    pdf = BASE / f"{rec['key']}.pdf"
     if not pdf.exists():
         raise HTTPException(status_code=404, detail="PDF not found")
-    return FileResponse(str(pdf), media_type="application/pdf", filename=f"house-{house_id}.pdf")
+    return FileResponse(str(pdf), media_type="application/pdf", filename=pdf.name)
 
 
-@app.get("/houses/{house_id}/images", tags=["houses"])
-def get_images(house_id: int):
-    if not any(h["id"] == house_id for h in _load()):
-        raise HTTPException(status_code=404, detail=f"House {house_id} not found")
-    return _house_images(house_id)
+@app.get("/houses/{key}/images", tags=["houses"])
+def get_images(key: str):
+    rec = _by_key(key)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"House {key!r} not found")
+    return rec["images"]
 
 
-# ── testhouses (dev fixtures for bim-agent's convergence loop) ──────────────
-
-def _load_testhouses() -> list[dict]:
-    return json.loads(TESTHOUSES_FILE.read_text()) if TESTHOUSES_FILE.exists() else []
-
-
-def _enrich_testhouse(th: dict) -> dict:
-    slug = th["slug"]
-    folder = BASE / slug
-    pdf = BASE / f"{slug}.pdf"
-    source_pdfs = []
-    if folder.exists():
-        source_pdfs = sorted([f"/static/{slug}/{p.name}" for p in folder.glob("*.pdf")])
-    return {
-        **th,
-        "pdf_url": f"/static/{slug}.pdf" if pdf.exists() else None,
-        "source_pdfs": source_pdfs,
-    }
-
+# ── testhouses: thin aliases for back-compat ────────────────────────────────
 
 @app.get("/testhouses", tags=["testhouses"])
 def list_testhouses():
-    return [_enrich_testhouse(th) for th in _load_testhouses()]
+    return [r for r in _load_all() if r["category"] == "testhouse"]
 
 
 @app.get("/testhouses/{testhouse_id}", tags=["testhouses"])
 def get_testhouse(testhouse_id: int):
-    th = next((t for t in _load_testhouses() if t["id"] == testhouse_id), None)
-    if not th:
+    rec = _by_key(f"testhouse-{testhouse_id}")
+    if not rec:
         raise HTTPException(status_code=404, detail=f"Testhouse {testhouse_id} not found")
-    return _enrich_testhouse(th)
+    return rec
 
 
 @app.get("/testhouses/{testhouse_id}/pdf", tags=["testhouses"])
 def get_testhouse_pdf(testhouse_id: int):
-    th = next((t for t in _load_testhouses() if t["id"] == testhouse_id), None)
-    if not th:
-        raise HTTPException(status_code=404, detail=f"Testhouse {testhouse_id} not found")
-    pdf = BASE / f"{th['slug']}.pdf"
-    if not pdf.exists():
-        raise HTTPException(status_code=404, detail="PDF not found")
-    return FileResponse(str(pdf), media_type="application/pdf", filename=f"{th['slug']}.pdf")
+    return get_pdf(f"testhouse-{testhouse_id}")

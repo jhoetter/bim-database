@@ -79,51 +79,6 @@
       color: var(--muted);
     }
 
-    .tabs {
-      background: white;
-      border-bottom: 1px solid var(--border);
-      padding: 0 24px;
-      display: flex;
-      gap: 4px;
-    }
-    .tab {
-      background: none; border: none;
-      padding: 10px 16px;
-      font-size: 0.875rem;
-      color: var(--muted);
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-    }
-    .tab.active {
-      color: var(--accent);
-      border-bottom-color: var(--accent);
-      font-weight: 600;
-    }
-    .tab:hover { color: var(--text); }
-    .tab-count {
-      display: inline-block;
-      margin-left: 6px;
-      padding: 1px 8px;
-      background: #f0f0e8;
-      color: var(--muted);
-      border-radius: 99px;
-      font-size: 0.75rem;
-      font-weight: 600;
-    }
-    .tab.active .tab-count {
-      background: var(--accent);
-      color: white;
-    }
-
-    .b-testhouse {
-      background: #fef9c3; color: #854d0e;
-    }
-    .card-character {
-      font-size: 0.75rem; color: var(--muted);
-      margin-bottom: 8px; line-height: 1.4;
-    }
-
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -138,22 +93,42 @@
       overflow: hidden;
       cursor: pointer;
       transition: box-shadow .15s, transform .1s;
+      position: relative;
     }
     .card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.1); transform: translateY(-1px); }
 
     .card-img {
       width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;
     }
+    /* Testhouse drawings are portrait scans of plans/elevations — show the
+       whole page rather than cropping out the facade. */
+    .card.is-testhouse .card-img {
+      object-fit: contain;
+      background: #fafaf5;
+      padding: 6px;
+    }
     .card-no-img {
       width: 100%; aspect-ratio: 4/3; background: #eee;
       display: flex; align-items: center; justify-content: center;
       color: var(--muted); font-size: 0.75rem;
+    }
+    .card-corner-badge {
+      position: absolute; top: 8px; left: 8px;
+      background: #fef9c3; color: #854d0e;
+      font-size: 0.625rem; font-weight: 700; letter-spacing: .04em;
+      padding: 3px 8px; border-radius: 99px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1);
+      z-index: 1;
     }
     .card-body { padding: 11px 13px; }
     .card-mfr  { font-size: 0.6875rem; color: var(--muted); margin-bottom: 1px; }
     .card-name { font-weight: 600; font-size: 0.9375rem; margin-bottom: 6px; }
     .card-specs {
       display: flex; gap: 12px; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px;
+    }
+    .card-character {
+      font-size: 0.75rem; color: var(--muted);
+      margin-bottom: 6px; line-height: 1.4;
     }
     .card-price { font-weight: 600; font-size: 0.9rem; }
     .badges { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
@@ -195,6 +170,9 @@
     .gallery img { width: 100%; object-fit: cover; display: block; }
     .gallery.g1 img { max-height: 380px; }
     .gallery.g2 img { max-height: 260px; }
+    /* For testhouse drawings, never crop. */
+    .gallery.testhouse { background: #fafaf5; }
+    .gallery.testhouse img { object-fit: contain; background: #fff; }
 
     .modal-body { padding: 18px 22px; }
     .spec-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -203,7 +181,7 @@
     .spec-table td:first-child { color: var(--muted); width: 38%; }
     .spec-table td:last-child  { font-weight: 500; }
 
-    .modal-actions { display: flex; gap: 9px; margin-top: 15px; }
+    .modal-actions { display: flex; gap: 9px; margin-top: 15px; flex-wrap: wrap; }
     .btn {
       padding: 7px 16px; border-radius: 6px; font-size: 0.8125rem;
       text-decoration: none; cursor: pointer; display: inline-block;
@@ -218,7 +196,7 @@
       letter-spacing: .05em; margin-bottom: 9px;
     }
     .fp-grid { display: flex; gap: 8px; flex-wrap: wrap; }
-    .fp-grid img { height: 130px; border-radius: 4px; border: 1px solid var(--border); cursor: zoom-in; }
+    .fp-grid img { height: 130px; border-radius: 4px; border: 1px solid var(--border); cursor: zoom-in; background: #fff; }
   </style>
 </head>
 <body>
@@ -228,18 +206,21 @@
   <span id="hdr-count"></span>
 </header>
 
-<div class="tabs">
-  <button class="tab active" id="tab-catalog" onclick="setTab('catalog')">Catalog <span class="tab-count" id="tab-catalog-count"></span></button>
-  <button class="tab" id="tab-testhouses" onclick="setTab('testhouses')">Testhouses <span class="tab-count" id="tab-testhouses-count"></span></button>
-</div>
-
-<div class="filters" id="filters-catalog">
+<div class="filters">
+  <label>Kategorie
+    <select id="f-cat">
+      <option value="">Alle</option>
+      <option value="house">Katalog</option>
+      <option value="testhouse">Testhouses</option>
+    </select>
+  </label>
   <label>Gebäudetyp
     <select id="f-type">
       <option value="">Alle</option>
       <option>EFH</option>
       <option>Bungalow</option>
       <option>Doppelhaus</option>
+      <option>Doppelhaushälfte</option>
       <option>MFH</option>
       <option>Zweifamilienhaus</option>
       <option>Blockhaus</option>
@@ -278,7 +259,7 @@
         <div class="mfr" id="m-mfr"></div>
         <h2 id="m-name"></h2>
       </div>
-      <button class="close-btn" onclick="close()">×</button>
+      <button class="close-btn" onclick="closeModal()">×</button>
     </div>
     <div class="gallery" id="m-gallery"></div>
     <div class="modal-body">
@@ -288,15 +269,20 @@
         <h4>Grundrisse</h4>
         <div class="fp-grid" id="m-fp-grid"></div>
       </div>
+      <div class="fp-section" id="m-source-pdfs" style="display:none">
+        <h4>Source PDFs</h4>
+        <div class="fp-grid" id="m-source-pdf-list"></div>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-function fmt(n, suf='') { return n != null ? n.toLocaleString('de-DE') + suf : '–'; }
+const fmt = (n, suf='') => n != null ? n.toLocaleString('de-DE') + suf : '–';
 function fmtPrice(h) {
+  if (h.category === 'testhouse') return '';
   if (h.price_on_request) return 'Preis auf Anfrage';
-  return h.price_eur != null ? '€ ' + h.price_eur.toLocaleString('de-DE') : '–';
+  return h.price_eur != null ? '€ ' + h.price_eur.toLocaleString('de-DE') : '–';
 }
 function bClass(c) {
   if (!c) return 'b-type';
@@ -312,181 +298,122 @@ function renderCard(h) {
   const img = src
     ? `<img class="card-img" src="${src}" loading="lazy" onerror="this.parentNode.innerHTML='<div class=card-no-img>Kein Bild</div>'">`
     : `<div class="card-no-img">Kein Bild</div>`;
+  const isTh = h.category === 'testhouse';
+  const subline = isTh
+    ? `<div class="card-character">${h.character || ''}</div>`
+    : `<div class="card-specs">
+         <span>${fmt(h.area_m2, ' m²')}</span>
+         ${h.rooms  != null ? `<span>${h.rooms} Zi.</span>`      : ''}
+         ${h.floors != null ? `<span>${h.floors} Gesch.</span>`  : ''}
+       </div>
+       <div class="card-price">${fmtPrice(h)}</div>`;
   return `
-    <div class="card" onclick="openModal(${h.id})">
+    <div class="card ${isTh ? 'is-testhouse' : ''}" onclick="openModal('${h.key}')">
+      ${isTh ? `<div class="card-corner-badge">TESTHOUSE</div>` : ''}
       ${img}
       <div class="card-body">
-        <div class="card-mfr">${h.manufacturer}</div>
-        <div class="card-name">${h.model}</div>
-        <div class="card-specs">
-          <span>${fmt(h.area_m2, ' m²')}</span>
-          ${h.rooms != null ? `<span>${h.rooms} Zi.</span>` : ''}
-          ${h.floors != null ? `<span>${h.floors} Gesch.</span>` : ''}
-        </div>
-        <div class="card-price">${fmtPrice(h)}</div>
+        <div class="card-mfr">${h.manufacturer || ''}</div>
+        <div class="card-name">${h.model || h.name || ''}</div>
+        ${subline}
         <div class="badges">
-          <span class="badge b-type">${h.building_type || ''}</span>
+          ${h.building_type ? `<span class="badge b-type">${h.building_type}</span>` : ''}
           ${h.construction ? `<span class="badge ${bClass(h.construction)}">${h.construction}</span>` : ''}
         </div>
       </div>
     </div>`;
 }
 
-let currentTab = 'catalog';
-
-function setTab(tab) {
-  currentTab = tab;
-  document.getElementById('tab-catalog').classList.toggle('active', tab === 'catalog');
-  document.getElementById('tab-testhouses').classList.toggle('active', tab === 'testhouses');
-  document.getElementById('filters-catalog').style.display = tab === 'catalog' ? '' : 'none';
-  load();
-}
-
-// Eager-fetch counts so the tab badges are populated on first paint.
-async function loadCounts() {
-  try {
-    const [catalog, testhouses] = await Promise.all([
-      fetch('/houses').then(r => r.json()),
-      fetch('/testhouses').then(r => r.json()),
-    ]);
-    document.getElementById('tab-catalog-count').textContent = catalog.length;
-    document.getElementById('tab-testhouses-count').textContent = testhouses.length;
-  } catch {}
-}
-loadCounts();
-
-function renderTesthouseCard(t) {
-  return `
-    <div class="card" onclick="openTesthouseModal(${t.id})">
-      <div class="card-no-img" style="background:#fef9c3;color:#854d0e;font-size:.85rem;font-weight:600">
-        ${t.slug} · ${t.levels.length} level${t.levels.length !== 1 ? 's' : ''}
-      </div>
-      <div class="card-body">
-        <div class="card-mfr">testhouse</div>
-        <div class="card-name">${t.name}</div>
-        <div class="card-character">${t.character}</div>
-        <div class="badges">
-          <span class="badge b-testhouse">TESTHOUSE</span>
-          <span class="badge b-type">${t.building_type || ''}</span>
-          ${t.construction ? `<span class="badge ${bClass(t.construction)}">${t.construction}</span>` : ''}
-        </div>
-      </div>
-    </div>`;
-}
-
 async function load() {
-  if (currentTab === 'testhouses') {
-    const ths = await fetch('/testhouses').then(r => r.json());
-    const n = ths.length;
-    document.getElementById('hdr-count').textContent = `${n} Testhouses`;
-    document.getElementById('results-bar').textContent =
-      `${n} dev fixture${n !== 1 ? 's' : ''} for the bim-agent convergence loop`;
-    document.getElementById('grid').innerHTML = ths.map(renderTesthouseCard).join('');
-    return;
-  }
   const p = new URLSearchParams();
   const v = id => document.getElementById(id).value;
-  if (v('f-type'))   p.set('building_type', v('f-type'));
-  if (v('f-constr')) p.set('construction',  v('f-constr'));
-  if (v('f-min'))    p.set('min_area',       v('f-min'));
-  if (v('f-max'))    p.set('max_area',       v('f-max'));
-  if (v('f-price'))  p.set('max_price',      v('f-price'));
-  if (v('f-energy')) p.set('energy_standard',v('f-energy'));
+  if (v('f-cat'))    p.set('category',        v('f-cat'));
+  if (v('f-type'))   p.set('building_type',   v('f-type'));
+  if (v('f-constr')) p.set('construction',    v('f-constr'));
+  if (v('f-min'))    p.set('min_area',        v('f-min'));
+  if (v('f-max'))    p.set('max_area',        v('f-max'));
+  if (v('f-price'))  p.set('max_price',       v('f-price'));
+  if (v('f-energy')) p.set('energy_standard', v('f-energy'));
 
-  const houses = await fetch(`/houses?${p}`).then(r => r.json());
-  const n = houses.length;
-  document.getElementById('hdr-count').textContent = `${n} Häuser`;
-  document.getElementById('results-bar').textContent = `${n} Haus${n !== 1 ? 'häuser' : ''} gefunden`;
-  document.getElementById('grid').innerHTML = houses.map(renderCard).join('');
-}
-
-const testhouseCache = {};
-async function openTesthouseModal(id) {
-  if (!testhouseCache[id]) testhouseCache[id] = await fetch(`/testhouses/${id}`).then(r => r.json());
-  const t = testhouseCache[id];
-  document.getElementById('m-mfr').textContent = `testhouse · ${t.slug}`;
-  document.getElementById('m-name').textContent = t.name;
-  const gEl = document.getElementById('m-gallery');
-  gEl.className = '';
-  gEl.innerHTML = '';
-  const specs = [
-    ['Slug', t.slug],
-    ['Character', t.character],
-    ['Building type', t.building_type || '–'],
-    ['Construction', t.construction || '–'],
-    ['Year built', t.year_built ?? '–'],
-    ['Levels', t.levels.join(' → ')],
-    ['Site', t.site || '–'],
-    ['Source origin', t.source_origin || '–'],
-    ['Agent notes', t.agent_notes || '–'],
-  ];
-  document.getElementById('m-specs').innerHTML =
-    specs.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
-  const acts = document.getElementById('m-actions');
-  acts.innerHTML = '';
-  if (t.pdf_url) acts.innerHTML += `<a class="btn btn-primary" href="${t.pdf_url}" target="_blank">Combined PDF öffnen</a>`;
-  const fpSec = document.getElementById('m-fps');
-  if (t.source_pdfs && t.source_pdfs.length) {
-    fpSec.style.display = '';
-    fpSec.querySelector('h4').textContent = `Source PDFs (${t.source_pdfs.length})`;
-    document.getElementById('m-fp-grid').innerHTML =
-      t.source_pdfs.map(s => `<a href="${s}" target="_blank" class="btn btn-secondary" style="height:auto;padding:5px 10px;font-size:.7rem">${s.split('/').pop()}</a>`).join('');
-  } else {
-    fpSec.style.display = 'none';
-  }
-  document.getElementById('overlay').classList.add('open');
-  document.body.style.overflow = 'hidden';
+  const recs = await fetch(`/houses?${p}`).then(r => r.json());
+  const n = recs.length;
+  const nHouses = recs.filter(r => r.category === 'house').length;
+  const nTh     = recs.filter(r => r.category === 'testhouse').length;
+  document.getElementById('hdr-count').textContent =
+    `${n} Einträge${nTh ? ` (${nHouses} Katalog · ${nTh} Testhouses)` : ''}`;
+  document.getElementById('results-bar').textContent =
+    n === 1 ? '1 Eintrag gefunden' : `${n} Einträge gefunden`;
+  document.getElementById('grid').innerHTML = recs.map(renderCard).join('');
 }
 
 const cache = {};
+async function openModal(key) {
+  if (!cache[key]) cache[key] = await fetch(`/houses/${key}`).then(r => r.json());
+  const h = cache[key];
+  const isTh = h.category === 'testhouse';
 
-async function openModal(id) {
-  if (!cache[id]) cache[id] = await fetch(`/houses/${id}`).then(r => r.json());
-  const h = cache[id];
-
-  document.getElementById('m-mfr').textContent  = h.manufacturer;
-  document.getElementById('m-name').textContent = h.model;
+  document.getElementById('m-mfr').textContent  = isTh
+    ? `Testhouse · ${h.slug}` : h.manufacturer;
+  document.getElementById('m-name').textContent = h.model || h.name || '';
 
   const exts = (h.images?.exteriors || []).slice(0, 2);
   const gEl = document.getElementById('m-gallery');
-  gEl.className = 'gallery g' + (exts.length || 1);
-  gEl.innerHTML = exts.map(s => `<img src="${s}" loading="lazy">`).join('');
+  gEl.className = 'gallery g' + (exts.length || 1) + (isTh ? ' testhouse' : '');
+  gEl.innerHTML = exts.length
+    ? exts.map(s => `<img src="${s}" loading="lazy">`).join('')
+    : `<div class="card-no-img">Kein Bild</div>`;
 
-  const specs = [
-    ['Hersteller', h.manufacturer],
-    ['Modell', h.model],
-    ['Wohnfläche', fmt(h.area_m2, ' m²')],
-    ['Zimmer', h.rooms != null ? h.rooms : '–'],
-    ['Geschosse', h.floors != null ? h.floors : '–'],
-    ['Preis', fmtPrice(h)],
-    ['Energiestandard', h.energy_standard || '–'],
-    ['Gebäudetyp', h.building_type || '–'],
-    ['Bauweise', h.construction || '–'],
+  const specs = isTh ? [
+    ['Slug',          h.slug],
+    ['Character',     h.character],
+    ['Building type', h.building_type],
+    ['Construction',  h.construction],
+    ['Year built',    h.year_built],
+    ['Levels',        h.levels?.join(' → ')],
+    ['Site',          h.site],
+    ['Source origin', h.source_origin],
+    ['Agent notes',   h.agent_notes],
+  ] : [
+    ['Hersteller',      h.manufacturer],
+    ['Modell',          h.model],
+    ['Wohnfläche',      fmt(h.area_m2, ' m²')],
+    ['Zimmer',          h.rooms],
+    ['Geschosse',       h.floors],
+    ['Preis',           fmtPrice(h)],
+    ['Energiestandard', h.energy_standard],
+    ['Gebäudetyp',      h.building_type],
+    ['Bauweise',        h.construction],
   ];
   document.getElementById('m-specs').innerHTML =
-    specs.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+    specs.map(([k,v]) => `<tr><td>${k}</td><td>${v ?? '–'}</td></tr>`).join('');
 
   const acts = document.getElementById('m-actions');
   acts.innerHTML = '';
   if (h.source_url) acts.innerHTML += `<a class="btn btn-secondary" href="${h.source_url}" target="_blank">fertighaus.de ↗</a>`;
-  if (h.pdf_url)    acts.innerHTML += `<a class="btn btn-primary"   href="${h.pdf_url}"    target="_blank">PDF öffnen</a>`;
+  if (h.pdf_url)    acts.innerHTML += `<a class="btn btn-primary"   href="${h.pdf_url}"    target="_blank">${isTh ? 'Combined PDF' : 'PDF'} öffnen</a>`;
 
   const fps = h.images?.floorplans || [];
   const fpSec = document.getElementById('m-fps');
   fpSec.style.display = fps.length ? '' : 'none';
-  document.getElementById('m-fp-grid').innerHTML = fps.map(s => `<img src="${s}">`).join('');
+  document.getElementById('m-fp-grid').innerHTML =
+    fps.map(s => `<a href="${s}" target="_blank"><img src="${s}"></a>`).join('');
+
+  const src = h.source_pdfs || [];
+  const srcSec = document.getElementById('m-source-pdfs');
+  srcSec.style.display = src.length ? '' : 'none';
+  document.getElementById('m-source-pdf-list').innerHTML =
+    src.map(s => `<a href="${s}" target="_blank" class="btn btn-secondary" style="height:auto;padding:5px 10px;font-size:.7rem">${s.split('/').pop()}</a>`).join('');
 
   document.getElementById('overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
 }
 
-function close() {
+function closeModal() {
   document.getElementById('overlay').classList.remove('open');
   document.body.style.overflow = '';
 }
-function maybeClose(e) { if (e.target === document.getElementById('overlay')) close(); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
-document.querySelectorAll('.filters input').forEach(el =>
+function maybeClose(e) { if (e.target === document.getElementById('overlay')) closeModal(); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.querySelectorAll('.filters input, .filters select').forEach(el =>
   el.addEventListener('keydown', e => { if (e.key === 'Enter') load(); })
 );
 
