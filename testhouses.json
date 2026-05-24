@@ -1,0 +1,41 @@
+[
+  {
+    "id": 1,
+    "slug": "testhouse-1",
+    "name": "Doppelhaushälfte Schalksmühle Weidenstr. (1956)",
+    "character": "1956 Doppelhaushälfte (semi-detached half) with cellar, gable roof, two shed dormers per long facade",
+    "building_type": "Doppelhaushälfte",
+    "construction": "Massivhaus",
+    "year_built": 1956,
+    "levels": ["KG", "EG", "DG"],
+    "site": "flat lot, urban infill, Schalksmühle (NRW)",
+    "source_origin": "scanned paper Baubeschreibung + Ansichten/Grundrisse/DG/EG PDFs + exposé + cadastral",
+    "agent_notes": "Most architecturally clean of the 3 testhouses — elongated ~2:1 footprint, clear 3-level stack, exposed cellar on Tal side. Good baseline for the convergence loop."
+  },
+  {
+    "id": 2,
+    "slug": "testhouse-2",
+    "name": "Boss SFH on hillside (2007)",
+    "character": "Modern single-family house on steep hillside lot with daylight basement on the east elevation",
+    "building_type": "EFH",
+    "construction": "Massivhaus",
+    "year_built": 2007,
+    "levels": ["UG", "EG", "DG"],
+    "site": "hillside lot, ~3.8 m E-W slope, daylight basement exposed to east",
+    "source_origin": "one combined PDF (Grundrisse, Ansichten, Schnitt)",
+    "agent_notes": "Stress-tests sloped toposolid (heightSamples) and L-shape massing with attached garage. The hillside is the single most visually distinctive feature — flat-toposolid render = 2/10."
+  },
+  {
+    "id": 3,
+    "slug": "testhouse-3",
+    "name": "Historicist Doppelhaus mit Zwerchhaus + Schleppgauben",
+    "character": "Historicist semi-detached house with twin cross-gables (Zwerchhaus / Zwerchgiebel), arched Zwerchgauben, Schleppgauben, carport with spiral stair, 5 stacked levels including Spitzboden",
+    "building_type": "Doppelhaushälfte",
+    "construction": "Massivhaus",
+    "year_built": null,
+    "levels": ["KG", "EG", "OG", "DG", "Spitzboden"],
+    "site": "gentle ~1 m N-S slope",
+    "source_origin": "Kannenofen multi-page PDF",
+    "agent_notes": "Most demanding of the 3 — cross-gables, ornament, 5-level stack push the engine. Currently bim-ai cannot render the cross-gable read (MF-22 dormer mesh, EA-1 half_gable), so this is the bellwether for capability-gap GH issues."
+  }
+]

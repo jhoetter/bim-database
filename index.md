@@ -1,6 +1,24 @@
 # House Database Index
 
-20 houses. Specs marked `*` confirmed from fertighaus.de; others derived from filename.
+20 catalog houses (real prefab/solid-construction listings) + 3
+testhouses (dev fixtures for the bim-agent convergence loop).
+Specs marked `*` confirmed from fertighaus.de; others derived from filename.
+
+- **Catalog** — `house-1` … `house-20`, integer IDs, sourced from fertighaus.de
+- **Testhouses** — `testhouse-1`, `testhouse-2`, `testhouse-3`, sourced from
+  real-world Baubeschreibungen + Grundrisse, used by `bim-agent` as the
+  stress-test corpus for `bim-ai`. See [`testhouse-README.md`](testhouse-README.md)
+  for character / origin per testhouse.
+
+---
+
+## Quick Reference — Testhouses
+
+| # | Slug | Character | Levels | PDF |
+|---|------|-----------|--------|-----|
+| 1 | `testhouse-1` | 1956 Doppelhaushälfte Schalksmühle Weidenstr. (KG/EG/DG, two shed dormers per long facade) | KG, EG, DG | [↓ combined (63p)](testhouse-1.pdf) |
+| 2 | `testhouse-2` | Boss SFH 2007 on hillside (daylight basement east, ~3.8m E-W slope) | UG, EG, DG | [↓ (6p)](testhouse-2.pdf) |
+| 3 | `testhouse-3` | Historicist Doppelhaus with cross-gables (Zwerchhaus + Schleppgauben + Spitzboden, 5 stacked levels) | KG, EG, OG, DG, Spitzboden | [↓ (10p)](testhouse-3.pdf) |
 
 ---
 

@@ -79,6 +79,37 @@
       color: var(--muted);
     }
 
+    .tabs {
+      background: white;
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      gap: 4px;
+    }
+    .tab {
+      background: none; border: none;
+      padding: 10px 16px;
+      font-size: 0.875rem;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 600;
+    }
+    .tab:hover { color: var(--text); }
+
+    .b-testhouse {
+      background: #fef9c3; color: #854d0e;
+    }
+    .card-character {
+      font-size: 0.75rem; color: var(--muted);
+      margin-bottom: 8px; line-height: 1.4;
+    }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -183,7 +214,12 @@
   <span id="hdr-count"></span>
 </header>
 
-<div class="filters">
+<div class="tabs">
+  <button class="tab active" id="tab-catalog" onclick="setTab('catalog')">Catalog</button>
+  <button class="tab" id="tab-testhouses" onclick="setTab('testhouses')">Testhouses</button>
+</div>
+
+<div class="filters" id="filters-catalog">
   <label>Gebäudetyp
     <select id="f-type">
       <option value="">Alle</option>
@@ -282,7 +318,45 @@ function renderCard(h) {
     </div>`;
 }
 
+let currentTab = 'catalog';
+
+function setTab(tab) {
+  currentTab = tab;
+  document.getElementById('tab-catalog').classList.toggle('active', tab === 'catalog');
+  document.getElementById('tab-testhouses').classList.toggle('active', tab === 'testhouses');
+  document.getElementById('filters-catalog').style.display = tab === 'catalog' ? '' : 'none';
+  load();
+}
+
+function renderTesthouseCard(t) {
+  return `
+    <div class="card" onclick="openTesthouseModal(${t.id})">
+      <div class="card-no-img" style="background:#fef9c3;color:#854d0e;font-size:.85rem;font-weight:600">
+        ${t.slug} · ${t.levels.length} level${t.levels.length !== 1 ? 's' : ''}
+      </div>
+      <div class="card-body">
+        <div class="card-mfr">testhouse</div>
+        <div class="card-name">${t.name}</div>
+        <div class="card-character">${t.character}</div>
+        <div class="badges">
+          <span class="badge b-testhouse">TESTHOUSE</span>
+          <span class="badge b-type">${t.building_type || ''}</span>
+          ${t.construction ? `<span class="badge ${bClass(t.construction)}">${t.construction}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
 async function load() {
+  if (currentTab === 'testhouses') {
+    const ths = await fetch('/testhouses').then(r => r.json());
+    const n = ths.length;
+    document.getElementById('hdr-count').textContent = `${n} Testhouses`;
+    document.getElementById('results-bar').textContent =
+      `${n} dev fixture${n !== 1 ? 's' : ''} for the bim-agent convergence loop`;
+    document.getElementById('grid').innerHTML = ths.map(renderTesthouseCard).join('');
+    return;
+  }
   const p = new URLSearchParams();
   const v = id => document.getElementById(id).value;
   if (v('f-type'))   p.set('building_type', v('f-type'));
@@ -297,6 +371,44 @@ async function load() {
   document.getElementById('hdr-count').textContent = `${n} Häuser`;
   document.getElementById('results-bar').textContent = `${n} Haus${n !== 1 ? 'häuser' : ''} gefunden`;
   document.getElementById('grid').innerHTML = houses.map(renderCard).join('');
+}
+
+const testhouseCache = {};
+async function openTesthouseModal(id) {
+  if (!testhouseCache[id]) testhouseCache[id] = await fetch(`/testhouses/${id}`).then(r => r.json());
+  const t = testhouseCache[id];
+  document.getElementById('m-mfr').textContent = `testhouse · ${t.slug}`;
+  document.getElementById('m-name').textContent = t.name;
+  const gEl = document.getElementById('m-gallery');
+  gEl.className = '';
+  gEl.innerHTML = '';
+  const specs = [
+    ['Slug', t.slug],
+    ['Character', t.character],
+    ['Building type', t.building_type || '–'],
+    ['Construction', t.construction || '–'],
+    ['Year built', t.year_built ?? '–'],
+    ['Levels', t.levels.join(' → ')],
+    ['Site', t.site || '–'],
+    ['Source origin', t.source_origin || '–'],
+    ['Agent notes', t.agent_notes || '–'],
+  ];
+  document.getElementById('m-specs').innerHTML =
+    specs.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  const acts = document.getElementById('m-actions');
+  acts.innerHTML = '';
+  if (t.pdf_url) acts.innerHTML += `<a class="btn btn-primary" href="${t.pdf_url}" target="_blank">Combined PDF öffnen</a>`;
+  const fpSec = document.getElementById('m-fps');
+  if (t.source_pdfs && t.source_pdfs.length) {
+    fpSec.style.display = '';
+    fpSec.querySelector('h4').textContent = `Source PDFs (${t.source_pdfs.length})`;
+    document.getElementById('m-fp-grid').innerHTML =
+      t.source_pdfs.map(s => `<a href="${s}" target="_blank" class="btn btn-secondary" style="height:auto;padding:5px 10px;font-size:.7rem">${s.split('/').pop()}</a>`).join('');
+  } else {
+    fpSec.style.display = 'none';
+  }
+  document.getElementById('overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
 }
 
 const cache = {};

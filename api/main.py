@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 BASE = Path(__file__).parent.parent
 DATA_FILE = BASE / "houses.json"
+TESTHOUSES_FILE = BASE / "testhouses.json"
 
 app = FastAPI(
     title="BIM House Database",
@@ -126,3 +127,47 @@ def get_images(house_id: int):
     if not any(h["id"] == house_id for h in _load()):
         raise HTTPException(status_code=404, detail=f"House {house_id} not found")
     return _house_images(house_id)
+
+
+# ── testhouses (dev fixtures for bim-agent's convergence loop) ──────────────
+
+def _load_testhouses() -> list[dict]:
+    return json.loads(TESTHOUSES_FILE.read_text()) if TESTHOUSES_FILE.exists() else []
+
+
+def _enrich_testhouse(th: dict) -> dict:
+    slug = th["slug"]
+    folder = BASE / slug
+    pdf = BASE / f"{slug}.pdf"
+    source_pdfs = []
+    if folder.exists():
+        source_pdfs = sorted([f"/static/{slug}/{p.name}" for p in folder.glob("*.pdf")])
+    return {
+        **th,
+        "pdf_url": f"/static/{slug}.pdf" if pdf.exists() else None,
+        "source_pdfs": source_pdfs,
+    }
+
+
+@app.get("/testhouses", tags=["testhouses"])
+def list_testhouses():
+    return [_enrich_testhouse(th) for th in _load_testhouses()]
+
+
+@app.get("/testhouses/{testhouse_id}", tags=["testhouses"])
+def get_testhouse(testhouse_id: int):
+    th = next((t for t in _load_testhouses() if t["id"] == testhouse_id), None)
+    if not th:
+        raise HTTPException(status_code=404, detail=f"Testhouse {testhouse_id} not found")
+    return _enrich_testhouse(th)
+
+
+@app.get("/testhouses/{testhouse_id}/pdf", tags=["testhouses"])
+def get_testhouse_pdf(testhouse_id: int):
+    th = next((t for t in _load_testhouses() if t["id"] == testhouse_id), None)
+    if not th:
+        raise HTTPException(status_code=404, detail=f"Testhouse {testhouse_id} not found")
+    pdf = BASE / f"{th['slug']}.pdf"
+    if not pdf.exists():
+        raise HTTPException(status_code=404, detail="PDF not found")
+    return FileResponse(str(pdf), media_type="application/pdf", filename=f"{th['slug']}.pdf")
