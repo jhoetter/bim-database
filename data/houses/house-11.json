@@ -1,0 +1,48 @@
+{
+  "id": 11,
+  "model": "Grombach",
+  "manufacturer": "Rems-Murr-Holzhaus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/grombach/",
+  "source_origin": null,
+  "building_type": "Blockhaus",
+  "construction": "Blockhaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 115,
+  "rooms": 5,
+  "floors": 1.0,
+  "price_eur": 318397,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "grombach_exterior_0.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "grombach_exterior_1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "grombach_floor_plans_0.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

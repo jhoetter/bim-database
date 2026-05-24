@@ -1,0 +1,55 @@
+{
+  "id": 15,
+  "model": "Illner",
+  "manufacturer": "KBS Bau",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/kbs-illner/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Massivhaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 162,
+  "rooms": null,
+  "floors": 2.0,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "kbs_illner_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "kbs_illner_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "kbs_illner_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "kbs_illner_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

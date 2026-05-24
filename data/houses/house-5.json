@@ -1,0 +1,48 @@
+{
+  "id": 5,
+  "model": "Bungalow F88-130 Var. Holz",
+  "manufacturer": "EBH Haus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/ebh-bungalowf88-130holz/",
+  "source_origin": null,
+  "building_type": "Bungalow",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 107,
+  "rooms": 3,
+  "floors": 1.0,
+  "price_eur": 277800,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "ebh_f88-130holz_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "ebh_f88-130holz_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "ebh_f88-130holz_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

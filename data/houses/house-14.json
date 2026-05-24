@@ -1,0 +1,55 @@
+{
+  "id": 14,
+  "model": "Blockhaus Bodensee",
+  "manufacturer": "Holzbau Rustikal",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/holzbau-rustikal-blockhhaus-bodensee/",
+  "source_origin": null,
+  "building_type": "Doppelhaus",
+  "construction": "Blockhaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 151,
+  "rooms": 6,
+  "floors": 1.0,
+  "price_eur": 182558,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "holzbau-rustikal_bh-bodensee_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "holzbau-rustikal_bh-bodensee_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "holzbau-rustikal_bh-bodensee_exterior3.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "holzbau-rustikal_bh-bodensee_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

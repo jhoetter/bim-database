@@ -1,0 +1,76 @@
+{
+  "id": 4,
+  "model": "Mehrfamilienhaus Herndl",
+  "manufacturer": "Bau-Fritz",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/baufritzmfh-herndl/",
+  "source_origin": null,
+  "building_type": "MFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 40",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 237,
+  "rooms": null,
+  "floors": 2.5,
+  "price_eur": 1035000,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "baufritz-mfh_herndl_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "baufritz-mfh_herndl_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "baufritz-mfh_herndl_exterior3.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "baufritz-mfh_herndl_exterior4.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "baufritz-mfh_herndl_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "baufritz-mfh_herndl_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "baufritz-mfh_herndl_floorplan3.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

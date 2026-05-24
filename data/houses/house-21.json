@@ -1,0 +1,58 @@
+{
+  "id": 21,
+  "model": "Doppelhaushälfte Schalksmühle Weidenstr. (1956)",
+  "manufacturer": null,
+  "source": "documentation",
+  "source_url": null,
+  "source_origin": "scanned paper Baubeschreibung + Ansichten/Grundrisse/DG/EG PDFs + exposé + cadastral",
+  "building_type": "Doppelhaushälfte",
+  "construction": "Massivhaus",
+  "roof_type": "Satteldach",
+  "style": "nachkriegsbau",
+  "energy_standard": null,
+  "year_built": 1956,
+  "has_basement": true,
+  "levels": [
+    "KG",
+    "EG",
+    "DG"
+  ],
+  "area_m2": null,
+  "rooms": null,
+  "floors": 3.0,
+  "price_eur": null,
+  "price_on_request": false,
+  "site": "flat lot, urban infill, Schalksmühle (NRW)",
+  "character": "1956 Doppelhaushälfte (semi-detached half) with cellar, gable roof, two shed dormers per long facade",
+  "agent_notes": "Most architecturally clean of the 3 documentation records — elongated ~2:1 footprint, clear 3-level stack, exposed cellar on Tal side. Good baseline for the convergence loop.",
+  "tags": [],
+  "images": [
+    {
+      "file": "house-21-exterior-1.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "corner",
+      "caption": "Ansichten (Vier Fassaden, 1956 Entwurf)"
+    },
+    {
+      "file": "house-21-floorplan-eg-1.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "EG",
+      "caption": "Grundriss Erdgeschoss"
+    },
+    {
+      "file": "house-21-floorplan-dg-1.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "DG",
+      "caption": "Grundriss Dachgeschoss"
+    },
+    {
+      "file": "house-21-floorplan-grundrisse-1.jpg",
+      "category": "section",
+      "medium": "scan",
+      "caption": "Grundrisse + Schnitt"
+    }
+  ]
+}

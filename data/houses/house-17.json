@@ -1,0 +1,69 @@
+{
+  "id": 17,
+  "model": "IL-6-143",
+  "manufacturer": "Elbe-Haus BauinformationsZentrum Dresden",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/elbe-haus-ost-il-6-143/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Massivhaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 135,
+  "rooms": 6,
+  "floors": 2.0,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "mh_il-6-143_1876_exterior.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "mh_il-6-143_1876_exterior_2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "mh_il-6-143_1876_exterior_3.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "mh_il-6-143_1876_exterior_4.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "mh_il-6-143_1876_floorplan.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "mh_il-6-143_1876_floorplan_2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

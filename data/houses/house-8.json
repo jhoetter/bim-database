@@ -1,0 +1,48 @@
+{
+  "id": 8,
+  "model": "Bunganlow 353",
+  "manufacturer": "WEIOTT-Massiv-Haus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/weiott-bun353/",
+  "source_origin": null,
+  "building_type": "Bungalow",
+  "construction": "Massivhaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 127,
+  "rooms": 4,
+  "floors": 1.0,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "weiott_bungalow353_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "weiott_bungalow353_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "weiott_bungalow353_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

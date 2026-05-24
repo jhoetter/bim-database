@@ -1,0 +1,48 @@
+{
+  "id": 1,
+  "model": "Variant 35-172",
+  "manufacturer": "Hanse Haus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/hanse-variant35172/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 40 Plus",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 156,
+  "rooms": 7,
+  "floors": 1.5,
+  "price_eur": 448014,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "hanse_variant35172_exterior10.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "hanse_variant35172_floorplan10.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "hanse_variant35172_floorplan11.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

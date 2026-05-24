@@ -27,9 +27,7 @@
       background: white;
       border-bottom: 1px solid var(--border);
       padding: 14px 24px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
+      display: flex; align-items: center; gap: 12px;
     }
     header h1 { font-size: 1.125rem; font-weight: 600; }
     header span { color: var(--muted); font-size: 0.8125rem; }
@@ -38,165 +36,116 @@
       background: white;
       border-bottom: 1px solid var(--border);
       padding: 10px 24px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      align-items: flex-end;
+      display: flex; gap: 10px;
+      flex-wrap: wrap; align-items: flex-end;
     }
     .filters label {
-      font-size: 0.6875rem;
-      color: var(--muted);
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
+      font-size: 0.6875rem; color: var(--muted);
+      display: flex; flex-direction: column; gap: 3px;
     }
     .filters select, .filters input {
       border: 1px solid var(--border);
       border-radius: 5px;
       padding: 5px 8px;
       font-size: 0.8125rem;
-      background: white;
-      color: var(--text);
+      background: white; color: var(--text);
       height: 30px;
     }
     .filters input[type=number] { width: 90px; }
     .filters input[type=text]   { width: 90px; }
-    .filters button {
-      height: 30px;
-      padding: 0 14px;
-      background: var(--accent);
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 0.8125rem;
+    .filters button, .filters .reset {
+      height: 30px; padding: 0 14px;
+      border-radius: 5px; cursor: pointer; font-size: 0.8125rem;
     }
+    .filters button { background: var(--accent); color: white; border: none; }
     .filters button:hover { background: #1d4ed8; }
+    .filters .reset { background: white; color: var(--muted); border: 1px solid var(--border); }
 
-    .results-bar {
-      padding: 10px 24px 0;
-      font-size: 0.8125rem;
-      color: var(--muted);
-    }
+    .results-bar { padding: 10px 24px 0; font-size: 0.8125rem; color: var(--muted); }
 
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 14px;
-      padding: 12px 24px 24px;
+      gap: 14px; padding: 12px 24px 24px;
     }
 
     .card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 10px;
-      overflow: hidden;
-      cursor: pointer;
+      overflow: hidden; cursor: pointer;
       transition: box-shadow .15s, transform .1s;
       position: relative;
     }
     .card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.1); transform: translateY(-1px); }
-
-    .card-img {
-      width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;
-    }
-    /* Testhouse drawings are portrait scans of plans/elevations — show the
-       whole page rather than cropping out the facade. */
-    .card.is-testhouse .card-img {
-      object-fit: contain;
-      background: #fafaf5;
-      padding: 6px;
-    }
+    .card-img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
+    /* Hand-drawn scans / drawings are portrait-page artefacts — show the
+       whole page rather than crop the middle out. */
+    .card-img.medium-scan, .card-img.medium-drawing { object-fit: contain; background: #fafaf5; padding: 6px; }
     .card-no-img {
       width: 100%; aspect-ratio: 4/3; background: #eee;
       display: flex; align-items: center; justify-content: center;
       color: var(--muted); font-size: 0.75rem;
     }
-    .card-corner-badge {
-      position: absolute; top: 8px; left: 8px;
-      background: #fef9c3; color: #854d0e;
-      font-size: 0.625rem; font-weight: 700; letter-spacing: .04em;
-      padding: 3px 8px; border-radius: 99px;
-      box-shadow: 0 1px 3px rgba(0,0,0,.1);
-      z-index: 1;
-    }
     .card-body { padding: 11px 13px; }
     .card-mfr  { font-size: 0.6875rem; color: var(--muted); margin-bottom: 1px; }
     .card-name { font-weight: 600; font-size: 0.9375rem; margin-bottom: 6px; }
-    .card-specs {
-      display: flex; gap: 12px; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px;
-    }
-    .card-character {
-      font-size: 0.75rem; color: var(--muted);
-      margin-bottom: 6px; line-height: 1.4;
-    }
+    .card-specs { display: flex; gap: 12px; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; flex-wrap: wrap; }
     .card-price { font-weight: 600; font-size: 0.9rem; }
     .badges { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
-    .badge {
-      font-size: 0.625rem; padding: 2px 7px; border-radius: 99px; font-weight: 500;
-    }
+    .badge { font-size: 0.625rem; padding: 2px 7px; border-radius: 99px; font-weight: 500; }
     .b-type   { background: #f3f4f6; color: #374151; }
     .b-fertig { background: #dbeafe; color: #1d4ed8; }
     .b-massiv { background: #dcfce7; color: #15803d; }
     .b-block  { background: #fef3c7; color: #92400e; }
+    .b-roof   { background: #ede9fe; color: #6d28d9; }
+    .b-style  { background: #ffe4e6; color: #be123c; }
 
     /* Modal */
-    .overlay {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,.5); z-index: 100;
-      overflow-y: auto; padding: 40px 16px;
-    }
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; overflow-y: auto; padding: 40px 16px; }
     .overlay.open { display: flex; align-items: flex-start; justify-content: center; }
-    .modal {
-      background: white; border-radius: 12px;
-      width: 100%; max-width: 820px; overflow: hidden;
-    }
-    .modal-hdr {
-      display: flex; justify-content: space-between; align-items: flex-start;
-      padding: 18px 22px; border-bottom: 1px solid var(--border);
-    }
+    .modal { background: white; border-radius: 12px; width: 100%; max-width: 900px; overflow: hidden; }
+    .modal-hdr { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 22px; border-bottom: 1px solid var(--border); }
     .modal-hdr h2 { font-size: 1.2rem; }
     .modal-hdr .mfr { font-size: 0.75rem; color: var(--muted); margin-bottom: 2px; }
-    .close-btn {
-      background: none; border: none; font-size: 1.6rem; cursor: pointer;
-      color: var(--muted); line-height: 1; padding: 0 4px;
-    }
+    .close-btn { background: none; border: none; font-size: 1.6rem; cursor: pointer; color: var(--muted); line-height: 1; padding: 0 4px; }
 
-    .gallery {
-      display: grid; gap: 2px; background: #000;
-    }
+    .gallery { display: grid; gap: 2px; background: #000; }
     .gallery.g1 { grid-template-columns: 1fr; }
     .gallery.g2 { grid-template-columns: 1fr 1fr; }
+    .gallery .gal-tile { position: relative; }
     .gallery img { width: 100%; object-fit: cover; display: block; }
     .gallery.g1 img { max-height: 380px; }
     .gallery.g2 img { max-height: 260px; }
-    /* For testhouse drawings, never crop. */
-    .gallery.testhouse { background: #fafaf5; }
-    .gallery.testhouse img { object-fit: contain; background: #fff; }
+    .gallery.has-scan { background: #fafaf5; }
+    .gallery img.medium-scan, .gallery img.medium-drawing { object-fit: contain; background: #fff; }
+    .gal-badge { position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,.55); color: white; font-size: .65rem; padding: 2px 6px; border-radius: 4px; }
 
     .modal-body { padding: 18px 22px; }
     .spec-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     .spec-table tr { border-bottom: 1px solid var(--border); }
-    .spec-table td { padding: 7px 0; }
-    .spec-table td:first-child { color: var(--muted); width: 38%; }
+    .spec-table td { padding: 7px 0; vertical-align: top; }
+    .spec-table td:first-child { color: var(--muted); width: 30%; }
     .spec-table td:last-child  { font-weight: 500; }
 
     .modal-actions { display: flex; gap: 9px; margin-top: 15px; flex-wrap: wrap; }
-    .btn {
-      padding: 7px 16px; border-radius: 6px; font-size: 0.8125rem;
-      text-decoration: none; cursor: pointer; display: inline-block;
-    }
+    .btn { padding: 7px 16px; border-radius: 6px; font-size: 0.8125rem; text-decoration: none; cursor: pointer; display: inline-block; }
     .btn-primary   { background: var(--accent); color: white; border: none; }
     .btn-secondary { background: white; color: var(--text); border: 1px solid var(--border); }
     .btn:hover { opacity: .88; }
 
-    .fp-section { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
-    .fp-section h4 {
-      font-size: 0.7rem; color: var(--muted); text-transform: uppercase;
-      letter-spacing: .05em; margin-bottom: 9px;
+    .img-section { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .img-section h4 { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 9px; }
+    .img-section h5 { font-size: 0.75rem; color: var(--text); margin: 12px 0 6px; font-weight: 600; }
+    .img-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+    .img-tile { position: relative; display: block; }
+    .img-tile img { height: 130px; border-radius: 4px; border: 1px solid var(--border); cursor: zoom-in; background: #fff; display: block; }
+    .img-tile .cap {
+      position: absolute; bottom: 4px; left: 4px; right: 4px;
+      background: rgba(0,0,0,.55); color: white; font-size: .6rem;
+      padding: 2px 5px; border-radius: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .fp-grid { display: flex; gap: 8px; flex-wrap: wrap; }
-    .fp-grid img { height: 130px; border-radius: 4px; border: 1px solid var(--border); cursor: zoom-in; background: #fff; }
   </style>
 </head>
 <body>
@@ -206,47 +155,10 @@
   <span id="hdr-count"></span>
 </header>
 
-<div class="filters">
-  <label>Kategorie
-    <select id="f-cat">
-      <option value="">Alle</option>
-      <option value="house">Katalog</option>
-      <option value="testhouse">Testhouses</option>
-    </select>
-  </label>
-  <label>Gebäudetyp
-    <select id="f-type">
-      <option value="">Alle</option>
-      <option>EFH</option>
-      <option>Bungalow</option>
-      <option>Doppelhaus</option>
-      <option>Doppelhaushälfte</option>
-      <option>MFH</option>
-      <option>Zweifamilienhaus</option>
-      <option>Blockhaus</option>
-    </select>
-  </label>
-  <label>Bauweise
-    <select id="f-constr">
-      <option value="">Alle</option>
-      <option>Fertighaus</option>
-      <option>Massivhaus</option>
-      <option>Blockhaus</option>
-    </select>
-  </label>
-  <label>Fläche min (m²)
-    <input type="number" id="f-min" placeholder="–">
-  </label>
-  <label>Fläche max (m²)
-    <input type="number" id="f-max" placeholder="–">
-  </label>
-  <label>Max. Preis (€)
-    <input type="number" id="f-price" placeholder="–">
-  </label>
-  <label>Energiestandard
-    <input type="text" id="f-energy" placeholder="z.B. 40, 55">
-  </label>
+<div class="filters" id="filters">
+  <!-- populated from /ontology at load -->
   <button onclick="load()">Filtern</button>
+  <button class="reset" onclick="resetFilters()">Reset</button>
 </div>
 
 <div class="results-bar" id="results-bar"></div>
@@ -265,24 +177,26 @@
     <div class="modal-body">
       <table class="spec-table" id="m-specs"></table>
       <div class="modal-actions" id="m-actions"></div>
-      <div class="fp-section" id="m-fps" style="display:none">
-        <h4>Grundrisse</h4>
-        <div class="fp-grid" id="m-fp-grid"></div>
+      <div class="img-section" id="m-images" style="display:none">
+        <h4>Bilder</h4>
+        <div id="m-image-groups"></div>
       </div>
-      <div class="fp-section" id="m-source-pdfs" style="display:none">
+      <div class="img-section" id="m-source-pdfs" style="display:none">
         <h4>Source PDFs</h4>
-        <div class="fp-grid" id="m-source-pdf-list"></div>
+        <div class="img-grid" id="m-source-pdf-list"></div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
+let ONTOLOGY = null;
+
+// ── helpers ────────────────────────────────────────────────────────────────
 const fmt = (n, suf='') => n != null ? n.toLocaleString('de-DE') + suf : '–';
 function fmtPrice(h) {
-  if (h.category === 'testhouse') return '';
   if (h.price_on_request) return 'Preis auf Anfrage';
-  return h.price_eur != null ? '€ ' + h.price_eur.toLocaleString('de-DE') : '–';
+  return h.price_eur != null ? '€ ' + h.price_eur.toLocaleString('de-DE') : null;
 }
 function bClass(c) {
   if (!c) return 'b-type';
@@ -292,116 +206,200 @@ function bClass(c) {
   if (l.includes('block'))  return 'b-block';
   return 'b-type';
 }
+function esc(s) { return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function ontoLabel(group, key) {
+  return ONTOLOGY?.[group]?.[key] || key;
+}
 
+// ── filter rendering (driven by ontology) ──────────────────────────────────
+const FILTER_DEFS = [
+  ['source',          'Quelle',         'sources'],
+  ['building_type',   'Gebäudetyp',     'building_types'],
+  ['construction',    'Bauweise',       'constructions'],
+  ['roof_type',       'Dachform',       'roof_types'],
+  ['style',           'Stil',           'styles'],
+];
+
+function buildFilters() {
+  const root = document.getElementById('filters');
+  const dropdowns = FILTER_DEFS.map(([field, label, group]) => {
+    const opts = Object.entries(ONTOLOGY[group] || {})
+      .map(([k, lbl]) => `<option value="${esc(k)}">${esc(lbl)}</option>`).join('');
+    return `<label>${label}
+      <select id="f-${field}"><option value="">Alle</option>${opts}</select>
+    </label>`;
+  }).join('');
+  const numeric = `
+    <label>Keller<select id="f-has_basement"><option value="">egal</option><option value="true">mit</option><option value="false">ohne</option></select></label>
+    <label>Fläche min (m²)<input type="number" id="f-min_area" placeholder="–"></label>
+    <label>Fläche max (m²)<input type="number" id="f-max_area" placeholder="–"></label>
+    <label>Max. Preis (€)<input type="number" id="f-max_price" placeholder="–"></label>
+    <label>Baujahr ab<input type="number" id="f-min_year" placeholder="–"></label>
+    <label>Baujahr bis<input type="number" id="f-max_year" placeholder="–"></label>
+    <label>Energie<input type="text" id="f-energy_standard" placeholder="z.B. 40, 55"></label>`;
+  // insert before the two action buttons
+  const btns = root.innerHTML;
+  root.innerHTML = dropdowns + numeric + btns;
+  root.querySelectorAll('input, select').forEach(el =>
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') load(); }));
+}
+
+function resetFilters() {
+  document.querySelectorAll('.filters input, .filters select').forEach(el => el.value = '');
+  load();
+}
+
+// ── card ───────────────────────────────────────────────────────────────────
+function pickThumbnail(h) {
+  // Prefer an exterior; fall back to elevation, perspective, anything visual.
+  const order = ['exterior', 'elevation', 'perspective', 'interior', 'detail', 'floorplan', 'section'];
+  const rank = c => { const i = order.indexOf(c); return i < 0 ? 999 : i; };
+  const sorted = [...(h.images || [])].sort((a, b) => rank(a.category) - rank(b.category));
+  return sorted[0] || null;
+}
 function renderCard(h) {
-  const src = h.images?.exteriors?.[0];
-  const img = src
-    ? `<img class="card-img" src="${src}" loading="lazy" onerror="this.parentNode.innerHTML='<div class=card-no-img>Kein Bild</div>'">`
+  const thumb = pickThumbnail(h);
+  const img = thumb
+    ? `<img class="card-img medium-${thumb.medium}" src="${thumb.url}" loading="lazy"
+            onerror="this.parentNode.innerHTML='<div class=card-no-img>Kein Bild</div>'">`
     : `<div class="card-no-img">Kein Bild</div>`;
-  const isTh = h.category === 'testhouse';
-  const subline = isTh
-    ? `<div class="card-character">${h.character || ''}</div>`
-    : `<div class="card-specs">
-         <span>${fmt(h.area_m2, ' m²')}</span>
-         ${h.rooms  != null ? `<span>${h.rooms} Zi.</span>`      : ''}
-         ${h.floors != null ? `<span>${h.floors} Gesch.</span>`  : ''}
-       </div>
-       <div class="card-price">${fmtPrice(h)}</div>`;
+  const specs = [
+    h.area_m2 != null ? `${fmt(h.area_m2, ' m²')}` : null,
+    h.rooms != null ? `${h.rooms} Zi.` : null,
+    h.floors != null ? `${h.floors} Gesch.` : (h.levels ? `${h.levels.length} Gesch.` : null),
+    h.year_built != null ? `Bj. ${h.year_built}` : null,
+  ].filter(Boolean);
+  const price = fmtPrice(h);
   return `
-    <div class="card ${isTh ? 'is-testhouse' : ''}" onclick="openModal('${h.key}')">
-      ${isTh ? `<div class="card-corner-badge">TESTHOUSE</div>` : ''}
+    <div class="card" onclick="openModal('${h.key}')">
       ${img}
       <div class="card-body">
-        <div class="card-mfr">${h.manufacturer || ''}</div>
-        <div class="card-name">${h.model || h.name || ''}</div>
-        ${subline}
+        <div class="card-mfr">${esc(h.manufacturer ?? '–')}</div>
+        <div class="card-name">${esc(h.model)}</div>
+        ${specs.length ? `<div class="card-specs">${specs.map(s => `<span>${esc(s)}</span>`).join('')}</div>` : ''}
+        ${price ? `<div class="card-price">${esc(price)}</div>` : ''}
         <div class="badges">
-          ${h.building_type ? `<span class="badge b-type">${h.building_type}</span>` : ''}
-          ${h.construction ? `<span class="badge ${bClass(h.construction)}">${h.construction}</span>` : ''}
+          ${h.building_type ? `<span class="badge b-type">${esc(h.building_type)}</span>` : ''}
+          ${h.construction  ? `<span class="badge ${bClass(h.construction)}">${esc(h.construction)}</span>` : ''}
+          ${h.roof_type     ? `<span class="badge b-roof">${esc(h.roof_type)}</span>` : ''}
+          ${h.style         ? `<span class="badge b-style">${esc(ontoLabel('styles', h.style))}</span>` : ''}
         </div>
       </div>
     </div>`;
 }
 
+// ── load ───────────────────────────────────────────────────────────────────
 async function load() {
   const p = new URLSearchParams();
-  const v = id => document.getElementById(id).value;
-  if (v('f-cat'))    p.set('category',        v('f-cat'));
-  if (v('f-type'))   p.set('building_type',   v('f-type'));
-  if (v('f-constr')) p.set('construction',    v('f-constr'));
-  if (v('f-min'))    p.set('min_area',        v('f-min'));
-  if (v('f-max'))    p.set('max_area',        v('f-max'));
-  if (v('f-price'))  p.set('max_price',       v('f-price'));
-  if (v('f-energy')) p.set('energy_standard', v('f-energy'));
-
+  document.querySelectorAll('.filters input, .filters select').forEach(el => {
+    const id = el.id.replace(/^f-/, '');
+    if (el.value !== '') p.set(id, el.value);
+  });
   const recs = await fetch(`/houses?${p}`).then(r => r.json());
-  const n = recs.length;
-  const nHouses = recs.filter(r => r.category === 'house').length;
-  const nTh     = recs.filter(r => r.category === 'testhouse').length;
-  document.getElementById('hdr-count').textContent =
-    `${n} Einträge${nTh ? ` (${nHouses} Katalog · ${nTh} Testhouses)` : ''}`;
-  document.getElementById('results-bar').textContent =
-    n === 1 ? '1 Eintrag gefunden' : `${n} Einträge gefunden`;
+  document.getElementById('hdr-count').textContent = `${recs.length} Häuser`;
+  document.getElementById('results-bar').textContent = `${recs.length} ${recs.length === 1 ? 'Eintrag' : 'Einträge'} gefunden`;
   document.getElementById('grid').innerHTML = recs.map(renderCard).join('');
 }
 
+// ── modal ──────────────────────────────────────────────────────────────────
 const cache = {};
 async function openModal(key) {
   if (!cache[key]) cache[key] = await fetch(`/houses/${key}`).then(r => r.json());
   const h = cache[key];
-  const isTh = h.category === 'testhouse';
 
-  document.getElementById('m-mfr').textContent  = isTh
-    ? `Testhouse · ${h.slug}` : h.manufacturer;
-  document.getElementById('m-name').textContent = h.model || h.name || '';
+  document.getElementById('m-mfr').textContent  = h.manufacturer ? `${h.manufacturer} · ${h.key}` : h.key;
+  document.getElementById('m-name').textContent = h.model;
 
-  const exts = (h.images?.exteriors || []).slice(0, 2);
+  // Gallery: pick top 2 by category preference
+  const order = ['exterior', 'elevation', 'perspective', 'interior'];
+  const rankH = c => { const i = order.indexOf(c); return i < 0 ? 999 : i; };
+  const heroImages = [...(h.images || [])]
+    .filter(i => order.includes(i.category))
+    .sort((a,b) => rankH(a.category) - rankH(b.category))
+    .slice(0, 2);
+  const hasScan = heroImages.some(i => i.medium === 'scan' || i.medium === 'drawing');
   const gEl = document.getElementById('m-gallery');
-  gEl.className = 'gallery g' + (exts.length || 1) + (isTh ? ' testhouse' : '');
-  gEl.innerHTML = exts.length
-    ? exts.map(s => `<img src="${s}" loading="lazy">`).join('')
+  gEl.className = 'gallery g' + (heroImages.length || 1) + (hasScan ? ' has-scan' : '');
+  gEl.innerHTML = heroImages.length
+    ? heroImages.map(i => `<div class="gal-tile">
+        <img class="medium-${i.medium}" src="${i.url}" loading="lazy">
+        <span class="gal-badge">${esc(ontoLabel('image_mediums', i.medium))}${i.view ? ' · ' + esc(ontoLabel('image_views', i.view)) : ''}</span>
+      </div>`).join('')
     : `<div class="card-no-img">Kein Bild</div>`;
 
-  const specs = isTh ? [
-    ['Slug',          h.slug],
-    ['Character',     h.character],
-    ['Building type', h.building_type],
-    ['Construction',  h.construction],
-    ['Year built',    h.year_built],
-    ['Levels',        h.levels?.join(' → ')],
-    ['Site',          h.site],
-    ['Source origin', h.source_origin],
-    ['Agent notes',   h.agent_notes],
-  ] : [
-    ['Hersteller',      h.manufacturer],
-    ['Modell',          h.model],
-    ['Wohnfläche',      fmt(h.area_m2, ' m²')],
-    ['Zimmer',          h.rooms],
-    ['Geschosse',       h.floors],
-    ['Preis',           fmtPrice(h)],
-    ['Energiestandard', h.energy_standard],
-    ['Gebäudetyp',      h.building_type],
-    ['Bauweise',        h.construction],
-  ];
+  // Specs — only fields that have a value
+  const rows = [
+    ['Hersteller',       h.manufacturer],
+    ['Modell',           h.model],
+    ['Quelle',           h.source && ontoLabel('sources', h.source)],
+    ['Gebäudetyp',       h.building_type],
+    ['Bauweise',         h.construction],
+    ['Dachform',         h.roof_type],
+    ['Stil',             h.style && ontoLabel('styles', h.style)],
+    ['Baujahr',          h.year_built],
+    ['Keller',           h.has_basement == null ? null : (h.has_basement ? 'ja' : 'nein')],
+    ['Geschosse',        h.levels?.join(' → ') ?? h.floors],
+    ['Wohnfläche',       h.area_m2 != null ? fmt(h.area_m2, ' m²') : null],
+    ['Zimmer',           h.rooms],
+    ['Energiestandard',  h.energy_standard],
+    ['Preis',            fmtPrice(h)],
+    ['Lage / Standort',  h.site],
+    ['Charakter',        h.character],
+    ['Agent notes',      h.agent_notes],
+  ].filter(([, v]) => v != null && v !== '');
   document.getElementById('m-specs').innerHTML =
-    specs.map(([k,v]) => `<tr><td>${k}</td><td>${v ?? '–'}</td></tr>`).join('');
+    rows.map(([k,v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('');
 
+  // Actions
   const acts = document.getElementById('m-actions');
   acts.innerHTML = '';
-  if (h.source_url) acts.innerHTML += `<a class="btn btn-secondary" href="${h.source_url}" target="_blank">fertighaus.de ↗</a>`;
-  if (h.pdf_url)    acts.innerHTML += `<a class="btn btn-primary"   href="${h.pdf_url}"    target="_blank">${isTh ? 'Combined PDF' : 'PDF'} öffnen</a>`;
+  if (h.source_url) acts.innerHTML += `<a class="btn btn-secondary" href="${esc(h.source_url)}" target="_blank">Quelle ↗</a>`;
+  if (h.pdf_url)    acts.innerHTML += `<a class="btn btn-primary"   href="${esc(h.pdf_url)}"    target="_blank">PDF öffnen</a>`;
 
-  const fps = h.images?.floorplans || [];
-  const fpSec = document.getElementById('m-fps');
-  fpSec.style.display = fps.length ? '' : 'none';
-  document.getElementById('m-fp-grid').innerHTML =
-    fps.map(s => `<a href="${s}" target="_blank"><img src="${s}"></a>`).join('');
+  // Images grouped by category, then by floor for floorplans
+  const groups = {};
+  for (const i of (h.images || [])) {
+    (groups[i.category] ||= []).push(i);
+  }
+  const groupOrder = ['exterior','elevation','interior','perspective','floorplan','section','roof_plan','detail','site_plan'];
+  const sortedCats = Object.keys(groups).sort((a,b) => {
+    const ai = groupOrder.indexOf(a), bi = groupOrder.indexOf(b);
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+  });
+  const imgSec = document.getElementById('m-images');
+  const imgRoot = document.getElementById('m-image-groups');
+  if (sortedCats.length) {
+    imgSec.style.display = '';
+    imgRoot.innerHTML = sortedCats.map(cat => {
+      let list = groups[cat];
+      // For floorplans, group by floor in ontology order
+      if (cat === 'floorplan') {
+        const floorOrder = Object.keys(ONTOLOGY.levels || {});
+        list = [...list].sort((a,b) => {
+          const ai = floorOrder.indexOf(a.floor), bi = floorOrder.indexOf(b.floor);
+          return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+        });
+      }
+      const tiles = list.map(i => {
+        const cap = i.caption || [i.floor && ontoLabel('levels', i.floor), i.view && ontoLabel('image_views', i.view)].filter(Boolean).join(' · ');
+        return `<a class="img-tile" href="${esc(i.url)}" target="_blank">
+          <img class="medium-${i.medium}" src="${esc(i.url)}">
+          ${cap ? `<span class="cap">${esc(cap)}</span>` : ''}
+        </a>`;
+      }).join('');
+      return `<h5>${esc(ontoLabel('image_categories', cat))} <span style="color:var(--muted);font-weight:400">(${list.length})</span></h5>
+              <div class="img-grid">${tiles}</div>`;
+    }).join('');
+  } else {
+    imgSec.style.display = 'none';
+  }
 
+  // Source PDFs
   const src = h.source_pdfs || [];
   const srcSec = document.getElementById('m-source-pdfs');
   srcSec.style.display = src.length ? '' : 'none';
   document.getElementById('m-source-pdf-list').innerHTML =
-    src.map(s => `<a href="${s}" target="_blank" class="btn btn-secondary" style="height:auto;padding:5px 10px;font-size:.7rem">${s.split('/').pop()}</a>`).join('');
+    src.map(s => `<a href="${esc(s)}" target="_blank" class="btn btn-secondary" style="height:auto;padding:5px 10px;font-size:.7rem">${esc(s.split('/').pop())}</a>`).join('');
 
   document.getElementById('overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -413,11 +411,13 @@ function closeModal() {
 }
 function maybeClose(e) { if (e.target === document.getElementById('overlay')) closeModal(); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-document.querySelectorAll('.filters input, .filters select').forEach(el =>
-  el.addEventListener('keydown', e => { if (e.key === 'Enter') load(); })
-);
 
-load();
+// ── bootstrap ──────────────────────────────────────────────────────────────
+(async () => {
+  ONTOLOGY = await fetch('/ontology').then(r => r.json());
+  buildFilters();
+  await load();
+})();
 </script>
 </body>
 </html>

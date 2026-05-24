@@ -1,0 +1,101 @@
+{
+  "id": 23,
+  "model": "Historicist Doppelhaus mit Zwerchhaus + Schleppgauben",
+  "manufacturer": null,
+  "source": "documentation",
+  "source_url": null,
+  "source_origin": "Kannenofen multi-page PDF",
+  "building_type": "Doppelhaushälfte",
+  "construction": "Massivhaus",
+  "roof_type": "Zwerchdach",
+  "style": "historisch",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": true,
+  "levels": [
+    "KG",
+    "EG",
+    "1. OG",
+    "DG",
+    "Spitzboden"
+  ],
+  "area_m2": null,
+  "rooms": null,
+  "floors": 5.0,
+  "price_eur": null,
+  "price_on_request": false,
+  "site": "gentle ~1 m N-S slope",
+  "character": "Historicist semi-detached house with twin cross-gables (Zwerchhaus / Zwerchgiebel), arched Zwerchgauben, Schleppgauben, carport with spiral stair, 5 stacked levels including Spitzboden",
+  "agent_notes": "Most demanding of the 3 documentation records — cross-gables, ornament, 5-level stack push the engine. Currently bim-ai cannot render the cross-gable read (MF-22 dormer mesh, EA-1 half_gable), so this is the bellwether for capability-gap GH issues.",
+  "tags": [],
+  "images": [
+    {
+      "file": "house-23-exterior-strasse-06.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "front",
+      "caption": "Straßenansicht (Zwerchhaus, Zwerchgauben)"
+    },
+    {
+      "file": "house-23-exterior-eingang-07.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "side",
+      "caption": "Eingangsansicht (Blatt 09)"
+    },
+    {
+      "file": "house-23-floorplan-kg-01.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "KG",
+      "caption": "Grundriss Kellergeschoss"
+    },
+    {
+      "file": "house-23-floorplan-eg-02.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "EG",
+      "caption": "Grundriss Erdgeschoss"
+    },
+    {
+      "file": "house-23-floorplan-og-03.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "1. OG",
+      "caption": "Grundriss Obergeschoss"
+    },
+    {
+      "file": "house-23-floorplan-dg-04.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "DG",
+      "caption": "Grundriss Dachgeschoss"
+    },
+    {
+      "file": "house-23-floorplan-spitzboden-05.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "Spitzboden",
+      "caption": "Grundriss Spitzboden"
+    },
+    {
+      "file": "house-23-floorplan-roof-08.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "rear",
+      "caption": "Gartenansicht + Detail Dachgaube (Blatt 08)"
+    },
+    {
+      "file": "house-23-floorplan-section-09.jpg",
+      "category": "section",
+      "medium": "scan",
+      "caption": "Schnitt A-A + B-B"
+    },
+    {
+      "file": "house-23-floorplan-details-10.jpg",
+      "category": "detail",
+      "medium": "scan",
+      "caption": "Architekten-Anschreiben (Übergabe-Brief mit Verzeichnis Blatt 01–09)"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bim-database.local/schema/house.schema.json",
+  "title": "House",
+  "description": "One house record (catalog product or building documentation). Enum values must come from data/ontology.json.",
+  "type": "object",
+  "required": ["id", "model", "source"],
+  "additionalProperties": false,
+  "properties": {
+    "id":            {"type": "integer", "minimum": 1, "description": "Globally unique numeric id. The on-disk key is `house-<id>`."},
+    "model":         {"type": "string", "description": "Human-readable name. For catalog records, the model/variant name; for documentation records, the building's address or descriptor."},
+    "manufacturer":  {"type": ["string", "null"], "description": "Catalog only: producer name (e.g. 'Hanse Haus')."},
+    "source":        {"type": "string", "description": "Where the record came from. Enum: see ontology.sources."},
+    "source_url":    {"type": ["string", "null"], "format": "uri"},
+    "source_origin": {"type": ["string", "null"], "description": "Free-form note on the source documents (e.g. 'scanned 1956 Baubeschreibung + Ansichten')."},
+
+    "building_type":   {"type": ["string", "null"], "description": "Enum: see ontology.building_types."},
+    "construction":    {"type": ["string", "null"], "description": "Enum: see ontology.constructions."},
+    "roof_type":       {"type": ["string", "null"], "description": "Enum: see ontology.roof_types."},
+    "style":           {"type": ["string", "null"], "description": "Enum: see ontology.styles."},
+    "energy_standard": {"type": ["string", "null"], "description": "Enum: see ontology.energy_standards."},
+
+    "year_built":    {"type": ["integer", "null"], "description": "Year of original construction (existing buildings) or product introduction (catalog)."},
+    "has_basement":  {"type": ["boolean", "null"], "description": "Keller vorhanden."},
+    "levels":        {"type": ["array", "null"], "items": {"type": "string"}, "description": "Stack of inhabited levels, top-to-bottom in build order, e.g. ['KG','EG','OG','DG']. Enum values: see ontology.levels."},
+
+    "area_m2":          {"type": ["number", "null"], "description": "Wohnfläche in m²."},
+    "rooms":            {"type": ["integer", "null"], "description": "Zimmeranzahl."},
+    "floors":           {"type": ["number", "null"], "description": "Geschosse (z.B. 1.5 für EG+ausgebautes DG)."},
+    "price_eur":        {"type": ["number", "null"]},
+    "price_on_request": {"type": ["boolean", "null"]},
+
+    "site":          {"type": ["string", "null"], "description": "Grundstück / Lage (z.B. 'Hanglage', 'urbane Baulücke')."},
+    "character":     {"type": ["string", "null"], "description": "Kurzbeschreibung der architektonischen Besonderheiten."},
+    "agent_notes":   {"type": ["string", "null"], "description": "Hinweise für AI-Agenten, die das Haus modellieren."},
+    "tags":          {"type": "array", "items": {"type": "string"}, "description": "Freiform-Tags."},
+
+    "images":        {"type": "array", "items": {"$ref": "#/$defs/Image"}, "description": "Per-image metadata. Empty array if no images yet."},
+    "source_pdfs":   {"type": "array", "items": {"type": "string"}, "description": "List of source-PDF filenames in the house folder (auto-discovered if omitted)."}
+  },
+  "$defs": {
+    "Image": {
+      "type": "object",
+      "required": ["file", "category", "medium"],
+      "additionalProperties": false,
+      "properties": {
+        "file":     {"type": "string", "description": "Filename relative to the house folder (e.g. 'hanse_variant35172_exterior10.original.avif')."},
+        "category": {"type": "string", "description": "Enum: see ontology.image_categories."},
+        "medium":   {"type": "string", "description": "Enum: see ontology.image_mediums."},
+        "view":     {"type": ["string", "null"], "description": "Enum: see ontology.image_views. Only meaningful for exteriors/elevations."},
+        "floor":    {"type": ["string", "null"], "description": "Enum: see ontology.levels. Only meaningful for floorplans."},
+        "caption":  {"type": ["string", "null"], "description": "Kurzbeschreibung."}
+      }
+    }
+  }
+}

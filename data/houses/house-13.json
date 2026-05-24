@@ -1,0 +1,90 @@
+{
+  "id": 13,
+  "model": "Bad Vilbel – Musterhaus NEU",
+  "manufacturer": "Fingerhut Haus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/fingerhuthaus-mhbadvilbel1/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 205,
+  "rooms": 6,
+  "floors": 1.5,
+  "price_eur": 593766,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "fingerhut_mhbadvilbel1_exterior11.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fingerhut_mhbadvilbel1_exterior12.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fingerhut_mhbadvilbel1_exterior3.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fingerhut_mhbadvilbel1_exterior4.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fingerhut_mhbadvilbel1_exterior5.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fingerhut_mhbadvilbel1_exterior6.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fingerhut_mhbadvilbel1_exterior7.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fingerhut_mhbadvilbel1_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "fingerhut_mhbadvilbel1_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

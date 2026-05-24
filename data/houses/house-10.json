@@ -1,0 +1,48 @@
+{
+  "id": 10,
+  "model": "DH 120 Basis",
+  "manufacturer": "Baudirekt Architektenhäuser",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/baudirekt-doppelhaus-dh-120-basis/",
+  "source_origin": null,
+  "building_type": "Doppelhaus",
+  "construction": "Massivhaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 119,
+  "rooms": 4,
+  "floors": 1.5,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "baudirekt_dh120_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "baudirekt_dh120_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "baudirekt_dh120_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

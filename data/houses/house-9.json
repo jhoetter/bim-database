@@ -1,0 +1,55 @@
+{
+  "id": 9,
+  "model": "EFH Bauhaus 115",
+  "manufacturer": "invivo haus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/invivo-bauhaus115/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Massivhaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 188,
+  "rooms": 4,
+  "floors": 2.0,
+  "price_eur": 533895,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "invivo-bauhaus115_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "invivo-bauhaus115_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "invivo-bauhaus115_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "invivo-bauhaus115_floorplan3.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

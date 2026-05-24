@@ -1,0 +1,55 @@
+{
+  "id": 12,
+  "model": "Isa",
+  "manufacturer": "Dammann-Haus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/isa-3-kfw-effizienzhaus-55/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 40 EE",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 116,
+  "rooms": 7,
+  "floors": 1.5,
+  "price_eur": 297700,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "dammann_isa_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "dammann_isa_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "dammann_isa_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "dammann_isa_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

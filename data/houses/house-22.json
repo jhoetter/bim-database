@@ -1,0 +1,72 @@
+{
+  "id": 22,
+  "model": "Boss SFH on hillside (2007)",
+  "manufacturer": null,
+  "source": "documentation",
+  "source_url": null,
+  "source_origin": "one combined PDF (Grundrisse, Ansichten, Schnitt)",
+  "building_type": "EFH",
+  "construction": "Massivhaus",
+  "roof_type": "Satteldach",
+  "style": "modern",
+  "energy_standard": null,
+  "year_built": 2007,
+  "has_basement": true,
+  "levels": [
+    "UG",
+    "EG",
+    "DG"
+  ],
+  "area_m2": null,
+  "rooms": null,
+  "floors": 3.0,
+  "price_eur": null,
+  "price_on_request": false,
+  "site": "hillside lot, ~3.8 m E-W slope, daylight basement exposed to east",
+  "character": "Modern single-family house on steep hillside lot with daylight basement on the east elevation",
+  "agent_notes": "Stress-tests sloped toposolid (heightSamples) and L-shape massing with attached garage. The hillside is the single most visually distinctive feature — flat-toposolid render = 2/10.",
+  "tags": [],
+  "images": [
+    {
+      "file": "house-22-exterior-ostnord-5.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "north",
+      "caption": "Ansicht Ost + Nord"
+    },
+    {
+      "file": "house-22-exterior-suedwest-6.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "south",
+      "caption": "Ansicht Süd + West"
+    },
+    {
+      "file": "house-22-floorplan-kg-1.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "UG",
+      "caption": "Grundriss Untergeschoss (Hang)"
+    },
+    {
+      "file": "house-22-floorplan-eg-2.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "EG",
+      "caption": "Grundriss Erdgeschoss"
+    },
+    {
+      "file": "house-22-floorplan-og-3.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "DG",
+      "caption": "Grundriss Dachgeschoss"
+    },
+    {
+      "file": "house-22-floorplan-section-4.jpg",
+      "category": "section",
+      "medium": "scan",
+      "caption": "Schnitt"
+    }
+  ]
+}

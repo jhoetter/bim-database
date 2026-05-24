@@ -13,122 +13,50 @@ Configure in Claude Desktop (~/Library/Application Support/Claude/claude_desktop
 
 Image / PDF URLs assume the REST API is running on http://localhost:2500 (make dev).
 
-Catalog houses and dev-fixture testhouses are exposed through the same tools
-and share a unified record shape — they are discriminated by the `category`
-field ("house" | "testhouse"). The globally-unique `key` field
-("house-3", "testhouse-1") identifies a record across both categories.
+All records share one schema (see schema/house.schema.json). Enum vocabulary
+for filters comes from get_ontology(); see AGENTS.md for how to add a new
+house.
 """
 import json
-import re
 from pathlib import Path
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
 BASE = Path(__file__).parent
-HOUSES_FILE = BASE / "houses.json"
-TESTHOUSES_FILE = BASE / "testhouses.json"
+HOUSES_DIR = BASE / "data" / "houses"
+ONTOLOGY_FILE = BASE / "data" / "ontology.json"
 API_BASE = "http://localhost:2500"
 
-IMAGE_EXTS = ("*.avif", "*.jpg", "*.jpeg", "*.png")
 
-_TYPE_RE = re.compile(
-    r"[_-](?:exterior|floorplan|floor_plans?|floor|innen|grundriss|aussen|fassade|section|schnitt)",
-    re.IGNORECASE,
-)
-
-
-def _image_sort_key(p: Path) -> tuple:
-    stem = re.sub(r"\.original$", "", p.stem).lower()
-    m = _TYPE_RE.search(stem)
-    if m:
-        kw = m.group().lower()
-        is_plan = any(w in kw for w in ("floor", "grundriss", "section", "schnitt"))
-        kind = 1 if is_plan else 0
-        nums = re.findall(r"\d+", stem[m.end():])
-    else:
-        kind = 0
-        nums = re.findall(r"\d+", stem)
-    return (kind, int(nums[0]) if nums else 0, stem)
-
-
-def _folder_images(folder: Path, url_prefix: str) -> dict:
-    if not folder.exists():
-        return {"exteriors": [], "floorplans": []}
-    files: list[Path] = []
-    for pat in IMAGE_EXTS:
-        files.extend(folder.glob(pat))
-    files.sort(key=_image_sort_key)
-    exteriors, floorplans = [], []
-    for f in files:
-        url = f"{url_prefix}/{f.name}"
-        (floorplans if _image_sort_key(f)[0] == 1 else exteriors).append(url)
-    return {"exteriors": exteriors, "floorplans": floorplans}
-
-
-_HOUSE_ONLY = (
-    "manufacturer", "model", "area_m2", "rooms", "floors",
-    "price_eur", "price_on_request", "energy_standard", "source_url",
-)
-_TESTHOUSE_ONLY = (
-    "slug", "name", "character", "year_built", "levels",
-    "site", "source_origin", "agent_notes",
-)
-
-
-def _unified_skeleton() -> dict:
-    return {
-        "id": None, "key": None, "category": None,
-        "building_type": None, "construction": None,
-        **{f: None for f in _HOUSE_ONLY},
-        **{f: None for f in _TESTHOUSE_ONLY},
-        "images": {"exteriors": [], "floorplans": []},
-        "pdf_url": None,
-        "source_pdfs": [],
-    }
-
-
-def _enrich_house(house: dict) -> dict:
-    hid = house["id"]
+def _enrich(rec: dict) -> dict:
+    hid = rec["id"]
+    folder = BASE / f"house-{hid}"
+    out = dict(rec)
+    out["key"] = f"house-{hid}"
+    out["images"] = [
+        {**img, "url": f"{API_BASE}/static/house-{hid}/{img['file']}"}
+        for img in rec.get("images") or []
+    ]
     pdf = BASE / f"house-{hid}.pdf"
-    rec = _unified_skeleton()
-    rec.update(house)
-    rec["key"] = f"house-{hid}"
-    rec["category"] = "house"
-    rec["images"] = _folder_images(BASE / f"house-{hid}", f"{API_BASE}/static/house-{hid}")
-    rec["pdf_url"] = f"{API_BASE}/static/house-{hid}.pdf" if pdf.exists() else None
-    rec["price_on_request"] = bool(house.get("price_on_request"))
-    return rec
-
-
-def _enrich_testhouse(th: dict) -> dict:
-    slug = th["slug"]
-    folder = BASE / slug
-    pdf = BASE / f"{slug}.pdf"
-    rec = _unified_skeleton()
-    rec.update(th)
-    rec["key"] = slug
-    rec["category"] = "testhouse"
-    rec["manufacturer"] = "Testhouse"
-    rec["model"] = th.get("name") or slug
-    rec["floors"] = float(len(th["levels"])) if th.get("levels") else None
-    rec["images"] = _folder_images(folder, f"{API_BASE}/static/{slug}")
-    rec["pdf_url"] = f"{API_BASE}/static/{slug}.pdf" if pdf.exists() else None
-    rec["source_pdfs"] = (
-        sorted(f"{API_BASE}/static/{slug}/{p.name}" for p in folder.glob("*.pdf"))
+    out["pdf_url"] = f"{API_BASE}/static/house-{hid}.pdf" if pdf.exists() else None
+    out["source_pdfs"] = (
+        sorted(f"{API_BASE}/static/house-{hid}/{p.name}" for p in folder.glob("*.pdf"))
         if folder.exists() else []
     )
-    rec["price_on_request"] = False
-    return rec
+    return out
 
 
 def _load_all() -> list[dict]:
-    houses = [_enrich_house(h) for h in json.loads(HOUSES_FILE.read_text())]
-    testhouses = (
-        [_enrich_testhouse(t) for t in json.loads(TESTHOUSES_FILE.read_text())]
-        if TESTHOUSES_FILE.exists() else []
-    )
-    return houses + testhouses
+    if not HOUSES_DIR.exists():
+        return []
+    recs = []
+    for p in sorted(HOUSES_DIR.glob("house-*.json"), key=lambda q: int(q.stem.split("-")[1])):
+        try:
+            recs.append(_enrich(json.loads(p.read_text())))
+        except (json.JSONDecodeError, KeyError, ValueError):
+            continue
+    return recs
 
 
 def _by_key(key: str) -> Optional[dict]:
@@ -141,85 +69,99 @@ mcp = FastMCP("BIM House Database")
 
 
 @mcp.tool()
-def get_database_summary() -> dict:
-    """Return an overview of the database: total count by category, available
-    building types, construction methods, manufacturers, price range, and area
-    range. Call this first to understand what filters make sense.
+def get_ontology() -> dict:
+    """Return the enum vocabulary used by all records and image metadata —
+    building types, construction methods, roof types, styles, sources,
+    levels, image categories/mediums/views. Call this to know what filter
+    values are valid."""
+    return json.loads(ONTOLOGY_FILE.read_text())
 
-    Catalog houses (category='house') are real prefab/solid-construction
-    products with prices and full specs. Testhouses (category='testhouse') are
-    dev fixtures from real building documentation (Baupläne) — they have
-    architectural character but no price/area metadata.
-    """
+
+@mcp.tool()
+def get_database_summary() -> dict:
+    """Return a high-level overview: total count, distribution across sources
+    and building types, price/area ranges. Call this first to understand the
+    shape of the data."""
     recs = _load_all()
-    catalog = [r for r in recs if r["category"] == "house"]
-    testhouses = [r for r in recs if r["category"] == "testhouse"]
-    prices = [r["price_eur"] for r in catalog if r["price_eur"] is not None]
-    areas = [r["area_m2"] for r in catalog if r["area_m2"] is not None]
+    by_source: dict[str, int] = {}
+    by_building_type: dict[str, int] = {}
+    by_construction: dict[str, int] = {}
+    by_roof: dict[str, int] = {}
+    for r in recs:
+        for field, bucket in (("source", by_source), ("building_type", by_building_type),
+                              ("construction", by_construction), ("roof_type", by_roof)):
+            v = r.get(field)
+            if v: bucket[v] = bucket.get(v, 0) + 1
+    prices = [r["price_eur"] for r in recs if r.get("price_eur") is not None]
+    areas = [r["area_m2"] for r in recs if r.get("area_m2") is not None]
+    years = [r["year_built"] for r in recs if r.get("year_built") is not None]
     return {
         "total_records": len(recs),
-        "by_category": {"house": len(catalog), "testhouse": len(testhouses)},
-        "building_types": sorted({r["building_type"] for r in recs if r["building_type"]}),
-        "construction_methods": sorted({r["construction"] for r in recs if r["construction"]}),
-        "manufacturers": sorted({r["manufacturer"] for r in catalog if r["manufacturer"]}),
+        "by_source": by_source,
+        "by_building_type": by_building_type,
+        "by_construction": by_construction,
+        "by_roof_type": by_roof,
         "price_range_eur": {"min": min(prices), "max": max(prices)} if prices else None,
-        "area_range_m2": {"min": min(areas), "max": max(areas)} if areas else None,
-        "houses_with_price": len(prices),
-        "houses_price_on_request": sum(1 for r in catalog if r.get("price_on_request")),
+        "area_range_m2":   {"min": min(areas),  "max": max(areas)}  if areas  else None,
+        "year_built_range": {"min": min(years), "max": max(years)} if years else None,
+        "records_with_price": len(prices),
+        "records_price_on_request": sum(1 for r in recs if r.get("price_on_request")),
     }
 
 
 @mcp.tool()
 def list_houses(
-    category: Optional[str] = None,
+    source: Optional[str] = None,
     building_type: Optional[str] = None,
     construction: Optional[str] = None,
+    roof_type: Optional[str] = None,
+    style: Optional[str] = None,
+    has_basement: Optional[bool] = None,
     min_area: Optional[float] = None,
     max_area: Optional[float] = None,
     max_price: Optional[float] = None,
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
     energy_standard: Optional[str] = None,
 ) -> list[dict]:
-    """List records with optional filters. Returns the unified shape (catalog
-    houses and testhouses share fields, missing values are null), including
-    image URLs and a `key` field that is globally unique across categories.
+    """List house records with optional filters. Records missing a filtered
+    field are excluded — i.e. roof_type='Satteldach' excludes records where
+    roof_type hasn't been filled in. Use get_ontology() for valid enum values.
 
     Args:
-        category: 'house' for catalog only, 'testhouse' for dev fixtures only,
-                  omit for both
-        building_type: e.g. EFH, Bungalow, Doppelhaus, MFH, Zweifamilienhaus, Doppelhaushälfte, Blockhaus
+        source: 'catalog' (prefab listings) | 'documentation' (Baupläne) | …
+        building_type: e.g. EFH, Doppelhaushälfte, Bungalow
         construction: e.g. Fertighaus, Massivhaus, Blockhaus
-        min_area: minimum living area in m² (excludes records without area, including testhouses)
-        max_area: maximum living area in m² (excludes records without area, including testhouses)
-        max_price: maximum price in € (excludes price-on-request and testhouses)
-        energy_standard: substring match, e.g. '40', '55', 'Plus'
+        roof_type: e.g. Satteldach, Walmdach, Flachdach, Zwerchdach
+        style: e.g. modern, historisch, nachkriegsbau
+        has_basement: True/False
+        min_area / max_area: Wohnfläche range in m²
+        max_price: € (excludes price-on-request)
+        min_year / max_year: Baujahr range
+        energy_standard: substring match, e.g. '40', '55'
     """
     recs = _load_all()
-    if category:
-        recs = [r for r in recs if r["category"] == category.lower()]
-    if building_type:
-        recs = [r for r in recs if (r.get("building_type") or "").lower() == building_type.lower()]
-    if construction:
-        recs = [r for r in recs if (r.get("construction") or "").lower() == construction.lower()]
-    if min_area is not None:
-        recs = [r for r in recs if r.get("area_m2") is not None and r["area_m2"] >= min_area]
-    if max_area is not None:
-        recs = [r for r in recs if r.get("area_m2") is not None and r["area_m2"] <= max_area]
-    if max_price is not None:
-        recs = [r for r in recs if r.get("price_eur") is not None and r["price_eur"] <= max_price]
-    if energy_standard:
-        recs = [r for r in recs if energy_standard.lower() in (r.get("energy_standard") or "").lower()]
+    def eq(field, val):
+        return [r for r in recs if (r.get(field) or "").lower() == val.lower()] if val else recs
+    if source:          recs = eq("source",        source)
+    if building_type:   recs = eq("building_type", building_type)
+    if construction:    recs = eq("construction",  construction)
+    if roof_type:       recs = eq("roof_type",     roof_type)
+    if style:           recs = eq("style",         style)
+    if energy_standard: recs = [r for r in recs if energy_standard.lower() in (r.get("energy_standard") or "").lower()]
+    if has_basement is not None: recs = [r for r in recs if r.get("has_basement") is has_basement]
+    if min_area is not None: recs = [r for r in recs if r.get("area_m2") is not None and r["area_m2"] >= min_area]
+    if max_area is not None: recs = [r for r in recs if r.get("area_m2") is not None and r["area_m2"] <= max_area]
+    if max_price is not None: recs = [r for r in recs if r.get("price_eur") is not None and r["price_eur"] <= max_price]
+    if min_year is not None: recs = [r for r in recs if r.get("year_built") is not None and r["year_built"] >= min_year]
+    if max_year is not None: recs = [r for r in recs if r.get("year_built") is not None and r["year_built"] <= max_year]
     return recs
 
 
 @mcp.tool()
 def get_house(key: str) -> dict:
-    """Get full details for a single record by its globally-unique key,
-    including image URLs and PDF URL.
-
-    Args:
-        key: 'house-<N>' or 'testhouse-<N>' (a bare integer is accepted as
-             shorthand for 'house-<N>'). See list_houses results for valid keys.
-    """
+    """Get one record by key (e.g. 'house-3' or '3'). Returns full record
+    with image URLs and PDF URL."""
     rec = _by_key(str(key))
     if not rec:
         raise ValueError(f"Record {key!r} not found")

@@ -4,7 +4,7 @@ PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip
 UV     := $(VENV)/bin/uvicorn
 
-.PHONY: install dev dev-forwarded mcp
+.PHONY: install dev dev-forwarded mcp validate new-house
 
 install:
 	python3 -m venv $(VENV)
@@ -23,3 +23,15 @@ dev-forwarded: dev
 
 mcp:
 	$(PYTHON) mcp_server.py
+
+# Scaffold a new house record. Usage:
+#   make new-house ID=24 MODEL="EFH Sonnenhang"
+new-house:
+	@test -n "$(ID)"    || (echo "usage: make new-house ID=<int> MODEL=\"<name>\""; exit 1)
+	@test -n "$(MODEL)" || (echo "usage: make new-house ID=<int> MODEL=\"<name>\""; exit 1)
+	$(PYTHON) scripts/new_house.py --id $(ID) --model "$(MODEL)"
+
+# Validate every data/houses/*.json against schema/house.schema.json and
+# the ontology in data/ontology.json.
+validate:
+	$(PYTHON) scripts/validate.py

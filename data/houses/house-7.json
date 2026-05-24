@@ -1,0 +1,55 @@
+{
+  "id": 7,
+  "model": "Kopenhagen",
+  "manufacturer": "Danhaus Deutschland",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/kopenhagen-mit-einliegerwohnung/",
+  "source_origin": null,
+  "building_type": "ZFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": "Effizienzhaus 55",
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 182,
+  "rooms": 8,
+  "floors": 1.5,
+  "price_eur": 523810,
+  "price_on_request": false,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "einliegerwohnung-kopenhagen.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "kopenhagen_exterior_01.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "kopenhagen_floorplan_01.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "kopenhagen_floorplan_02.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}
