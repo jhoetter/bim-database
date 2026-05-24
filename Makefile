@@ -4,7 +4,7 @@ PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip
 UV     := $(VENV)/bin/uvicorn
 
-.PHONY: install dev
+.PHONY: install dev mcp
 
 install:
 	python3 -m venv $(VENV)
@@ -14,3 +14,6 @@ install:
 
 dev:
 	$(UV) api.main:app --reload --port $(PORT)
+
+mcp:
+	$(PYTHON) mcp_server.py
