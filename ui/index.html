@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BIM House Database</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f4f4f0;
+      --card: #ffffff;
+      --border: #e0e0d8;
+      --text: #1a1a1a;
+      --muted: #666;
+      --accent: #2563eb;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      background: white;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.125rem; font-weight: 600; }
+    header span { color: var(--muted); font-size: 0.8125rem; }
+
+    .filters {
+      background: white;
+      border-bottom: 1px solid var(--border);
+      padding: 10px 24px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+    .filters label {
+      font-size: 0.6875rem;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .filters select, .filters input {
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 0.8125rem;
+      background: white;
+      color: var(--text);
+      height: 30px;
+    }
+    .filters input[type=number] { width: 90px; }
+    .filters input[type=text]   { width: 90px; }
+    .filters button {
+      height: 30px;
+      padding: 0 14px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.8125rem;
+    }
+    .filters button:hover { background: #1d4ed8; }
+
+    .results-bar {
+      padding: 10px 24px 0;
+      font-size: 0.8125rem;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+      padding: 12px 24px 24px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: box-shadow .15s, transform .1s;
+    }
+    .card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.1); transform: translateY(-1px); }
+
+    .card-img {
+      width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;
+    }
+    .card-no-img {
+      width: 100%; aspect-ratio: 4/3; background: #eee;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 0.75rem;
+    }
+    .card-body { padding: 11px 13px; }
+    .card-mfr  { font-size: 0.6875rem; color: var(--muted); margin-bottom: 1px; }
+    .card-name { font-weight: 600; font-size: 0.9375rem; margin-bottom: 6px; }
+    .card-specs {
+      display: flex; gap: 12px; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px;
+    }
+    .card-price { font-weight: 600; font-size: 0.9rem; }
+    .badges { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+    .badge {
+      font-size: 0.625rem; padding: 2px 7px; border-radius: 99px; font-weight: 500;
+    }
+    .b-type   { background: #f3f4f6; color: #374151; }
+    .b-fertig { background: #dbeafe; color: #1d4ed8; }
+    .b-massiv { background: #dcfce7; color: #15803d; }
+    .b-block  { background: #fef3c7; color: #92400e; }
+
+    /* Modal */
+    .overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.5); z-index: 100;
+      overflow-y: auto; padding: 40px 16px;
+    }
+    .overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+    .modal {
+      background: white; border-radius: 12px;
+      width: 100%; max-width: 820px; overflow: hidden;
+    }
+    .modal-hdr {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      padding: 18px 22px; border-bottom: 1px solid var(--border);
+    }
+    .modal-hdr h2 { font-size: 1.2rem; }
+    .modal-hdr .mfr { font-size: 0.75rem; color: var(--muted); margin-bottom: 2px; }
+    .close-btn {
+      background: none; border: none; font-size: 1.6rem; cursor: pointer;
+      color: var(--muted); line-height: 1; padding: 0 4px;
+    }
+
+    .gallery {
+      display: grid; gap: 2px; background: #000;
+    }
+    .gallery.g1 { grid-template-columns: 1fr; }
+    .gallery.g2 { grid-template-columns: 1fr 1fr; }
+    .gallery img { width: 100%; object-fit: cover; display: block; }
+    .gallery.g1 img { max-height: 380px; }
+    .gallery.g2 img { max-height: 260px; }
+
+    .modal-body { padding: 18px 22px; }
+    .spec-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .spec-table tr { border-bottom: 1px solid var(--border); }
+    .spec-table td { padding: 7px 0; }
+    .spec-table td:first-child { color: var(--muted); width: 38%; }
+    .spec-table td:last-child  { font-weight: 500; }
+
+    .modal-actions { display: flex; gap: 9px; margin-top: 15px; }
+    .btn {
+      padding: 7px 16px; border-radius: 6px; font-size: 0.8125rem;
+      text-decoration: none; cursor: pointer; display: inline-block;
+    }
+    .btn-primary   { background: var(--accent); color: white; border: none; }
+    .btn-secondary { background: white; color: var(--text); border: 1px solid var(--border); }
+    .btn:hover { opacity: .88; }
+
+    .fp-section { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .fp-section h4 {
+      font-size: 0.7rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .05em; margin-bottom: 9px;
+    }
+    .fp-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+    .fp-grid img { height: 130px; border-radius: 4px; border: 1px solid var(--border); cursor: zoom-in; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>BIM House Database</h1>
+  <span id="hdr-count"></span>
+</header>
+
+<div class="filters">
+  <label>Gebäudetyp
+    <select id="f-type">
+      <option value="">Alle</option>
+      <option>EFH</option>
+      <option>Bungalow</option>
+      <option>Doppelhaus</option>
+      <option>MFH</option>
+      <option>Zweifamilienhaus</option>
+      <option>Blockhaus</option>
+    </select>
+  </label>
+  <label>Bauweise
+    <select id="f-constr">
+      <option value="">Alle</option>
+      <option>Fertighaus</option>
+      <option>Massivhaus</option>
+      <option>Blockhaus</option>
+    </select>
+  </label>
+  <label>Fläche min (m²)
+    <input type="number" id="f-min" placeholder="–">
+  </label>
+  <label>Fläche max (m²)
+    <input type="number" id="f-max" placeholder="–">
+  </label>
+  <label>Max. Preis (€)
+    <input type="number" id="f-price" placeholder="–">
+  </label>
+  <label>Energiestandard
+    <input type="text" id="f-energy" placeholder="z.B. 40, 55">
+  </label>
+  <button onclick="load()">Filtern</button>
+</div>
+
+<div class="results-bar" id="results-bar"></div>
+<div class="grid" id="grid"></div>
+
+<div class="overlay" id="overlay" onclick="maybeClose(event)">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div>
+        <div class="mfr" id="m-mfr"></div>
+        <h2 id="m-name"></h2>
+      </div>
+      <button class="close-btn" onclick="close()">×</button>
+    </div>
+    <div class="gallery" id="m-gallery"></div>
+    <div class="modal-body">
+      <table class="spec-table" id="m-specs"></table>
+      <div class="modal-actions" id="m-actions"></div>
+      <div class="fp-section" id="m-fps" style="display:none">
+        <h4>Grundrisse</h4>
+        <div class="fp-grid" id="m-fp-grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function fmt(n, suf='') { return n != null ? n.toLocaleString('de-DE') + suf : '–'; }
+function fmtPrice(h) {
+  if (h.price_on_request) return 'Preis auf Anfrage';
+  return h.price_eur != null ? '€ ' + h.price_eur.toLocaleString('de-DE') : '–';
+}
+function bClass(c) {
+  if (!c) return 'b-type';
+  const l = c.toLowerCase();
+  if (l.includes('fertig')) return 'b-fertig';
+  if (l.includes('massiv')) return 'b-massiv';
+  if (l.includes('block'))  return 'b-block';
+  return 'b-type';
+}
+
+function renderCard(h) {
+  const src = h.images?.exteriors?.[0];
+  const img = src
+    ? `<img class="card-img" src="${src}" loading="lazy" onerror="this.parentNode.innerHTML='<div class=card-no-img>Kein Bild</div>'">`
+    : `<div class="card-no-img">Kein Bild</div>`;
+  return `
+    <div class="card" onclick="openModal(${h.id})">
+      ${img}
+      <div class="card-body">
+        <div class="card-mfr">${h.manufacturer}</div>
+        <div class="card-name">${h.model}</div>
+        <div class="card-specs">
+          <span>${fmt(h.area_m2, ' m²')}</span>
+          ${h.rooms != null ? `<span>${h.rooms} Zi.</span>` : ''}
+          ${h.floors != null ? `<span>${h.floors} Gesch.</span>` : ''}
+        </div>
+        <div class="card-price">${fmtPrice(h)}</div>
+        <div class="badges">
+          <span class="badge b-type">${h.building_type || ''}</span>
+          ${h.construction ? `<span class="badge ${bClass(h.construction)}">${h.construction}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+async function load() {
+  const p = new URLSearchParams();
+  const v = id => document.getElementById(id).value;
+  if (v('f-type'))   p.set('building_type', v('f-type'));
+  if (v('f-constr')) p.set('construction',  v('f-constr'));
+  if (v('f-min'))    p.set('min_area',       v('f-min'));
+  if (v('f-max'))    p.set('max_area',       v('f-max'));
+  if (v('f-price'))  p.set('max_price',      v('f-price'));
+  if (v('f-energy')) p.set('energy_standard',v('f-energy'));
+
+  const houses = await fetch(`/houses?${p}`).then(r => r.json());
+  const n = houses.length;
+  document.getElementById('hdr-count').textContent = `${n} Häuser`;
+  document.getElementById('results-bar').textContent = `${n} Haus${n !== 1 ? 'häuser' : ''} gefunden`;
+  document.getElementById('grid').innerHTML = houses.map(renderCard).join('');
+}
+
+const cache = {};
+
+async function openModal(id) {
+  if (!cache[id]) cache[id] = await fetch(`/houses/${id}`).then(r => r.json());
+  const h = cache[id];
+
+  document.getElementById('m-mfr').textContent  = h.manufacturer;
+  document.getElementById('m-name').textContent = h.model;
+
+  const exts = (h.images?.exteriors || []).slice(0, 2);
+  const gEl = document.getElementById('m-gallery');
+  gEl.className = 'gallery g' + (exts.length || 1);
+  gEl.innerHTML = exts.map(s => `<img src="${s}" loading="lazy">`).join('');
+
+  const specs = [
+    ['Hersteller', h.manufacturer],
+    ['Modell', h.model],
+    ['Wohnfläche', fmt(h.area_m2, ' m²')],
+    ['Zimmer', h.rooms != null ? h.rooms : '–'],
+    ['Geschosse', h.floors != null ? h.floors : '–'],
+    ['Preis', fmtPrice(h)],
+    ['Energiestandard', h.energy_standard || '–'],
+    ['Gebäudetyp', h.building_type || '–'],
+    ['Bauweise', h.construction || '–'],
+  ];
+  document.getElementById('m-specs').innerHTML =
+    specs.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+
+  const acts = document.getElementById('m-actions');
+  acts.innerHTML = '';
+  if (h.source_url) acts.innerHTML += `<a class="btn btn-secondary" href="${h.source_url}" target="_blank">fertighaus.de ↗</a>`;
+  if (h.pdf_url)    acts.innerHTML += `<a class="btn btn-primary"   href="${h.pdf_url}"    target="_blank">PDF öffnen</a>`;
+
+  const fps = h.images?.floorplans || [];
+  const fpSec = document.getElementById('m-fps');
+  fpSec.style.display = fps.length ? '' : 'none';
+  document.getElementById('m-fp-grid').innerHTML = fps.map(s => `<img src="${s}">`).join('');
+
+  document.getElementById('overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function close() {
+  document.getElementById('overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function maybeClose(e) { if (e.target === document.getElementById('overlay')) close(); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+document.querySelectorAll('.filters input').forEach(el =>
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') load(); })
+);
+
+load();
+</script>
+</body>
+</html>

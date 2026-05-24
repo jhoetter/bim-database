@@ -73,14 +73,9 @@ def _load() -> list[dict]:
 
 # ── routes ───────────────────────────────────────────────────────────────────
 
-@app.get("/", tags=["meta"])
+@app.get("/", tags=["meta"], response_class=FileResponse)
 def root():
-    return {
-        "name": "BIM House Database",
-        "version": "1.0.0",
-        "houses": len(_load()),
-        "docs": "/docs",
-    }
+    return FileResponse(str(BASE / "ui" / "index.html"))
 
 
 @app.get("/houses", tags=["houses"])
