@@ -101,6 +101,20 @@
       font-weight: 600;
     }
     .tab:hover { color: var(--text); }
+    .tab-count {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 8px;
+      background: #f0f0e8;
+      color: var(--muted);
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .tab.active .tab-count {
+      background: var(--accent);
+      color: white;
+    }
 
     .b-testhouse {
       background: #fef9c3; color: #854d0e;
@@ -215,8 +229,8 @@
 </header>
 
 <div class="tabs">
-  <button class="tab active" id="tab-catalog" onclick="setTab('catalog')">Catalog</button>
-  <button class="tab" id="tab-testhouses" onclick="setTab('testhouses')">Testhouses</button>
+  <button class="tab active" id="tab-catalog" onclick="setTab('catalog')">Catalog <span class="tab-count" id="tab-catalog-count"></span></button>
+  <button class="tab" id="tab-testhouses" onclick="setTab('testhouses')">Testhouses <span class="tab-count" id="tab-testhouses-count"></span></button>
 </div>
 
 <div class="filters" id="filters-catalog">
@@ -327,6 +341,19 @@ function setTab(tab) {
   document.getElementById('filters-catalog').style.display = tab === 'catalog' ? '' : 'none';
   load();
 }
+
+// Eager-fetch counts so the tab badges are populated on first paint.
+async function loadCounts() {
+  try {
+    const [catalog, testhouses] = await Promise.all([
+      fetch('/houses').then(r => r.json()),
+      fetch('/testhouses').then(r => r.json()),
+    ]);
+    document.getElementById('tab-catalog-count').textContent = catalog.length;
+    document.getElementById('tab-testhouses-count').textContent = testhouses.length;
+  } catch {}
+}
+loadCounts();
 
 function renderTesthouseCard(t) {
   return `
