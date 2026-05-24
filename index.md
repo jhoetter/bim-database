@@ -6,28 +6,28 @@
 
 ## Quick Reference
 
-| # | Manufacturer | Model | Area | Rooms | Floors | Price | Energy standard | Type | PDF | Source |
-|---|-------------|-------|-----:|------:|-------:|-------|-----------------|------|-----|--------|
-| 1 | Hanse Haus | Variant 35-172 | 156 m²* | 7* | 1.5* | €448,014* | Effizienzhaus 40 Plus* | EFH | [↓](house-1.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/hanse-variant35172/) |
-| 2 | hebelHAUS | EFH Klassik 118 | 118 m²* | 5* | 1.5* | auf Anfrage* | Effizienzhaus 55* | Massivhaus | [↓](house-2.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/hebel-efh-klassik118/) |
-| 3 | Plan-Concept Massivhaus | Paulik | 123 m²* | 5* | 1.5* | auf Anfrage* | Effizienzhaus 55* | EFH | [↓](house-3.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/plan-concept-paulik/) |
-| 4 | Baufritz | Herndl (MFH) | — | — | — | — | — | — | [↓](house-4.pdf) | — |
-| 5 | EBH | F88-130 Holz | — | — | — | — | — | Holzhaus | [↓](house-5.pdf) | — |
-| 6 | Schwabenhaus | SmartSpace DH | 134 m²* | —* | 2.5* | ab €308,171* | Effizienzhaus 40* | Doppelhaus | [↓](house-6.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/schwabenhaus-smartspacedh/) |
-| 7 | — | Kopenhagen | — | — | — | — | — | EFH + Einliegerwohnung | [↓](house-7.pdf) | — |
-| 8 | Weiott | Bungalow 353 | — | — | 1 | — | — | Bungalow | [↓](house-8.pdf) | — |
-| 9 | invivo haus | EFH Bauhaus 115 | 188 m²* | 4* | 2* | €533,895* | Effizienzhaus 55* | Massivhaus | [↓](house-9.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/invivo-bauhaus115/) |
-| 10 | Baudirekt | DH 120 | — | — | — | — | — | Doppelhaus | [↓](house-10.pdf) | — |
-| 11 | — | Grombach | — | — | — | — | — | — | [↓](house-11.pdf) | — |
-| 12 | Dammann | ISA | — | — | — | — | — | — | [↓](house-12.pdf) | — |
-| 13 | Fingerhut | MH Bad Vilbel 1 | — | — | — | — | — | — | [↓](house-13.pdf) | — |
-| 14 | Holzbau Rustikal | BH Bodensee | — | — | — | — | — | Holzhaus | [↓](house-14.pdf) | — |
-| 15 | KBS Bau | Illner | 162 m²* | —* | 2* | auf Anfrage* | Effizienzhaus 55* | Massivhaus | [↓](house-15.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/kbs-illner/) |
-| 16 | KBS Bau | Nolte | 200 m²* | —* | 2* | auf Anfrage* | Effizienzhaus 55* | Massivhaus | [↓](house-16.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/kbs-nolte/) |
-| 17 | — | IL-6-143 (1876) | — | — | — | — | — | — | [↓](house-17.pdf) | — |
-| 18 | MH Style | — | — | — | — | — | — | — | [↓](house-18.pdf) | — |
-| 19 | myMassivhaus | EFH Brand | — | — | — | — | — | Massivhaus | [↓](house-19.pdf) | — |
-| 20 | Schneider Massivhaus | Stadtvilla TOP-Line 1 | 125 m²* | 5* | 2* | auf Anfrage* | Effizienzhaus 55* | Massivhaus | [↓](house-20.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/schneider-massivhaus-sv-topline1/) |
+| # | Preview | Manufacturer | Model | Area | Rooms | Floors | Price | Energy standard | Type | PDF | Source |
+|---|---------|-------------|-------|-----:|------:|-------:|-------|-----------------|------|-----|--------|
+| 1 | <img src="house-1/hanse_variant35172_exterior10.original.avif" width="100"> | Hanse Haus | Variant 35-172 | 156 m²* | 7* | 1.5* | €448,014* | Effizienzhaus 40 Plus* | EFH | [↓](house-1.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/hanse-variant35172/) |
+| 2 | <img src="house-2/hebel_efh-klassik118_exterior1.original.avif" width="100"> | hebelHAUS | EFH Klassik 118 | 118 m²* | 5* | 1.5* | auf Anfrage* | Effizienzhaus 55* | Massivhaus | [↓](house-2.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/hebel-efh-klassik118/) |
+| 3 | <img src="house-3/plan-concept_paulik_exterior1.original.avif" width="100"> | Plan-Concept Massivhaus | Paulik | 123 m²* | 5* | 1.5* | auf Anfrage* | Effizienzhaus 55* | EFH | [↓](house-3.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/plan-concept-paulik/) |
+| 4 | <img src="house-4/baufritz-mfh_herndl_exterior1.original.avif" width="100"> | Baufritz | Herndl (MFH) | — | — | — | — | — | — | [↓](house-4.pdf) | — |
+| 5 | <img src="house-5/ebh_f88-130holz_exterior1.original.avif" width="100"> | EBH | F88-130 Holz | — | — | — | — | — | Holzhaus | [↓](house-5.pdf) | — |
+| 6 | <img src="house-6/schwabenhaus_smartspace-dh04_111e3_exterior.original.avif" width="100"> | Schwabenhaus | SmartSpace DH | 134 m²* | —* | 2.5* | ab €308,171* | Effizienzhaus 40* | Doppelhaus | [↓](house-6.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/schwabenhaus-smartspacedh/) |
+| 7 | <img src="house-7/kopenhagen_exterior_01.original.avif" width="100"> | — | Kopenhagen | — | — | — | — | — | EFH + Einliegerwohnung | [↓](house-7.pdf) | — |
+| 8 | <img src="house-8/weiott_bungalow353_exterior1.original.avif" width="100"> | Weiott | Bungalow 353 | — | — | 1 | — | — | Bungalow | [↓](house-8.pdf) | — |
+| 9 | <img src="house-9/invivo-bauhaus115_exterior1.original.avif" width="100"> | invivo haus | EFH Bauhaus 115 | 188 m²* | 4* | 2* | €533,895* | Effizienzhaus 55* | Massivhaus | [↓](house-9.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/invivo-bauhaus115/) |
+| 10 | <img src="house-10/baudirekt_dh120_exterior1.original.avif" width="100"> | Baudirekt | DH 120 | — | — | — | — | — | Doppelhaus | [↓](house-10.pdf) | — |
+| 11 | <img src="house-11/grombach_exterior_0.original.avif" width="100"> | — | Grombach | — | — | — | — | — | — | [↓](house-11.pdf) | — |
+| 12 | <img src="house-12/dammann_isa_exterior1.original.avif" width="100"> | Dammann | ISA | — | — | — | — | — | — | [↓](house-12.pdf) | — |
+| 13 | <img src="house-13/fingerhut_mhbadvilbel1_exterior3.original.avif" width="100"> | Fingerhut | MH Bad Vilbel 1 | — | — | — | — | — | — | [↓](house-13.pdf) | — |
+| 14 | <img src="house-14/holzbau-rustikal_bh-bodensee_exterior1.original.avif" width="100"> | Holzbau Rustikal | BH Bodensee | — | — | — | — | — | Holzhaus | [↓](house-14.pdf) | — |
+| 15 | <img src="house-15/kbs_illner_exterior1.original.avif" width="100"> | KBS Bau | Illner | 162 m²* | —* | 2* | auf Anfrage* | Effizienzhaus 55* | Massivhaus | [↓](house-15.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/kbs-illner/) |
+| 16 | <img src="house-16/kbs_nolte_exterior1.original.avif" width="100"> | KBS Bau | Nolte | 200 m²* | —* | 2* | auf Anfrage* | Effizienzhaus 55* | Massivhaus | [↓](house-16.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/kbs-nolte/) |
+| 17 | <img src="house-17/mh_il-6-143_1876_exterior.original.avif" width="100"> | — | IL-6-143 (1876) | — | — | — | — | — | — | [↓](house-17.pdf) | — |
+| 18 | <img src="house-18/mhstyle_exterior2.original.avif" width="100"> | MH Style | — | — | — | — | — | — | — | [↓](house-18.pdf) | — |
+| 19 | <img src="house-19/mymassivhaus_efh-brand_exterior1.original.avif" width="100"> | myMassivhaus | EFH Brand | — | — | — | — | — | Massivhaus | [↓](house-19.pdf) | — |
+| 20 | <img src="house-20/schneider-mh_sv-topline1_exterior1.original.avif" width="100"> | Schneider Massivhaus | Stadtvilla TOP-Line 1 | 125 m²* | 5* | 2* | auf Anfrage* | Effizienzhaus 55* | Massivhaus | [↓](house-20.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/schneider-massivhaus-sv-topline1/) |
 
 ---
 
