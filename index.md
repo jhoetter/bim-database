@@ -1,6 +1,6 @@
 # House Database Index
 
-20 imported houses plus 3 identified but not yet imported. Specs marked `*` confirmed from fertighaus.de; others derived from filename.
+20 houses. Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
 ---
 
@@ -28,18 +28,6 @@
 | 18 | <img src="house-18/mhstyle_exterior2.original.avif" width="100"> | Fertighaus WEISS | MH STYLE | 220 m²* | 4* | 2* | €609,419* | EH 55* | EFH | [↓](house-18.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/style-sonnenenergiehaus/) |
 | 19 | <img src="house-19/mymassivhaus_efh-brand_exterior1.original.avif" width="100"> | MYMassivhaus | Einfamilienhaus Brand | 190 m²* | 5* | 2.5* | auf Anfrage* | EH 55* | Massivhaus | [↓](house-19.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/mymassiv-efhbrand/) |
 | 20 | <img src="house-20/schneider-mh_sv-topline1_exterior1.original.avif" width="100"> | Schneider Massivhaus | Stadtvilla TOP-Line 1 | 125 m²* | 5* | 2* | auf Anfrage* | EH 55* | Massivhaus | [↓](house-20.pdf) | [fertighaus.de](https://www.fertighaus.de/haeuser/schneider-massivhaus-sv-topline1/) |
-
----
-
-## Not yet imported
-
-Identified from browser history — images not yet in repository.
-
-| # | Manufacturer | Model | Area | Rooms | Floors | Price | Energy | Type | Source |
-|---|-------------|-------|-----:|------:|-------:|-------|--------|------|--------|
-| 21 | LEHNER HAUS | Homestory 193 | 180 m²* | 6.5* | 2.5* | €432,900* | EH 55* | EFH | [fertighaus.de](https://www.fertighaus.de/haeuser/homestory-193/) |
-| 22 | FAVORIT Massivhaus | Noblesse 174 | 174 m²* | —* | —* | €438,310* | —* | Massivhaus | — |
-| 23 | Schwabenhaus | Solitaire-B-090 E2 | 91 m²* | 3* | 1* | €355,235* | EH 55* | Bungalow | [fertighaus.de](https://www.fertighaus.de/haeuser/schwabenhaus_solitaeireb090e2/) |
 
 ---
 
@@ -455,54 +443,3 @@ Identified from browser history — images not yet in repository.
 | PDF | [house-20.pdf](house-20.pdf) |
 | Source | [fertighaus.de](https://www.fertighaus.de/haeuser/schneider-massivhaus-sv-topline1/) |
 
----
-
-## Not yet imported – detail
-
-### House 21 — LEHNER HAUS · Homestory 193
-
-| Field | Value |
-|-------|-------|
-| Manufacturer | LEHNER HAUS |
-| Model | Homestory 193 |
-| Living area | 180 m² |
-| Rooms | 6.5 |
-| Floors | 2.5 |
-| Price | €432,900 (schlüsselfertig) |
-| Energy standard | Effizienzhaus 55 |
-| Building type | Einfamilienhaus |
-| Construction | Fertighaus |
-| Roof | Satteldach (35°) |
-| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/homestory-193/) |
-
----
-
-### House 22 — FAVORIT Massivhaus · Noblesse 174
-
-| Field | Value |
-|-------|-------|
-| Manufacturer | FAVORIT Massivhaus |
-| Model | Noblesse 174 |
-| Living area | 174 m² |
-| Price | €438,310 (schlüsselfertig) |
-| Building type | Massivhaus |
-| Source | — |
-
----
-
-### House 23 — Schwabenhaus · Solitaire-B-090 E2
-
-| Field | Value |
-|-------|-------|
-| Manufacturer | Schwabenhaus |
-| Model | Solitaire-B-090 E2 |
-| Living area | 91 m² |
-| Rooms | 3 |
-| Floors | 1 |
-| Price | €355,235 (schlüsselfertig) |
-| Energy standard | Effizienzhaus 55 |
-| Building type | Bungalow |
-| Construction | Fertighaus |
-| Roof | Walmdach (22°) |
-| Dimensions | 13.27 m × 8.08 m |
-| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/schwabenhaus_solitaeireb090e2/) |
