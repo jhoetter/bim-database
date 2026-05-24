@@ -1,4 +1,4 @@
-PORT   := 2200
+PORT   := 2500
 VENV   := .venv
 PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip
