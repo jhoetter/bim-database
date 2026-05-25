@@ -7,49 +7,52 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "landhaus",
   "energy_standard": "Effizienzhaus 40 EE",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG", "DG"],
   "area_m2": 116,
   "rooms": 7,
   "floors": 1.5,
   "price_eur": 297700,
   "price_on_request": false,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Kompaktes EFH mit Satteldach. Charakterstark: voll verglaste Giebeldreieck-Spitze (Giebelverglasung) über 2-geschossigem Wohnraum. Holz-/Putz-Mischfassade, weite Dachüberstände mit sichtbaren Sparrenköpfen.",
+  "agent_notes": "Lighthouse für jhoetter/bim-ai#109 (Giebelverglasung — Öffnungen in giebelförmigen Wänden schneiden heute keine sichtbaren Löcher im Render).",
   "tags": [],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#109"
+  ],
   "images": [
     {
       "file": "dammann_isa_exterior1.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht — Satteldach, Velux auf Frontfläche"
     },
     {
       "file": "dammann_isa_exterior2.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "front",
+      "caption": "Giebelseite — voll verglaste Giebelspitze (Giebelverglasung)"
     },
     {
       "file": "dammann_isa_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     },
     {
       "file": "dammann_isa_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "DG",
+      "caption": "Grundriss DG"
     }
   ]
 }
