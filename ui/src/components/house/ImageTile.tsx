@@ -39,20 +39,19 @@ export function ImageTile({ houseKey, img }: { houseKey: string; img: SceneImage
   return (
     <Link
       to={`/house/${houseKey}/scene/${encodeURIComponent(img.file)}`}
-      className="relative block group"
-      title="Klick öffnet Szenen-Detail"
+      className="relative block mb-3 break-inside-avoid rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition group"
     >
       <img
         src={img.url}
         alt={cap || img.file}
         loading="lazy"
-        className={`h-32 rounded border border-border bg-white block ${objectFit} ${
+        className={`w-full h-auto block ${objectFit} ${
           nFacts > 0 ? 'ring-2 ring-green-300 ring-inset' : ''
         }`}
       />
       {srcFile && (
         <span
-          className="absolute top-1 left-1 bg-zinc-800/80 text-white text-[0.575rem] font-medium px-1.5 py-0.5 rounded max-w-[calc(100%-3rem)] overflow-hidden whitespace-nowrap text-ellipsis"
+          className="absolute top-1.5 left-1.5 bg-zinc-800/80 text-white text-[0.625rem] font-medium px-1.5 py-0.5 rounded max-w-[calc(100%-3rem)] overflow-hidden whitespace-nowrap text-ellipsis"
           title={`aus ${srcFile}${img.source_ref?.page ? ' p.' + img.source_ref.page : ''}`}
         >
           ←&nbsp;{srcFile}
@@ -61,8 +60,8 @@ export function ImageTile({ houseKey, img }: { houseKey: string; img: SceneImage
       {orientationLabel && (
         <span
           className={`absolute ${
-            srcFile ? 'top-7' : 'top-1'
-          } left-1 ${orientationTone} text-white text-[0.625rem] font-semibold px-1.5 py-0.5 rounded shadow`}
+            srcFile ? 'top-8' : 'top-1.5'
+          } left-1.5 ${orientationTone} text-white text-[0.65rem] font-semibold px-1.5 py-0.5 rounded shadow`}
           title={`${img.category === 'floorplan' ? 'Geschoss' : 'Ansicht'}: ${orientationLabel}`}
         >
           {orientationLabel}
@@ -70,7 +69,7 @@ export function ImageTile({ houseKey, img }: { houseKey: string; img: SceneImage
       )}
       {nFacts > 0 && (
         <span
-          className="absolute top-1 right-1 bg-green-700 text-white text-[0.6rem] font-bold px-1.5 py-px rounded-full shadow"
+          className="absolute top-1.5 right-1.5 bg-green-700 text-white text-[0.65rem] font-bold px-1.5 py-px rounded-full shadow"
           title={`${nFacts} Fakten extrahiert`}
         >
           {nFacts}
@@ -78,9 +77,9 @@ export function ImageTile({ houseKey, img }: { houseKey: string; img: SceneImage
       )}
       {cap && (
         <span
-          className={`absolute bottom-1 left-1 right-1 ${
-            isOriginal ? 'bg-blue-600/75' : 'bg-black/55'
-          } text-white text-[0.6rem] px-1.5 py-px rounded whitespace-nowrap overflow-hidden text-ellipsis`}
+          className={`absolute bottom-1.5 left-1.5 right-1.5 ${
+            isOriginal ? 'bg-blue-600/80' : 'bg-black/65'
+          } text-white text-[0.7rem] px-2 py-1 rounded leading-snug line-clamp-2`}
         >
           {cap}
         </span>

@@ -3,7 +3,7 @@ import { fetchHouses } from '../api/client';
 import type { House } from '../api/types';
 import { matchesSearch, useFiltersFromUrl } from '../lib/filters';
 import { HouseCard } from '../components/HouseCard';
-import { StatsDashboard } from '../components/stats/StatsDashboard';
+import { SidebarFilters } from '../components/stats/SidebarFilters';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 
@@ -45,23 +45,21 @@ export function HousesPage() {
     <Shell
       breadcrumb={<Breadcrumb items={[{ label: 'Alle Häuser' }]} />}
       leftSidebar={
-        <div className="p-3">
-          <StatsDashboard
-            recs={recs}
-            total={total || recs.length}
-            search={search}
-            filters={filters}
-            anyActive={anyActive}
-            onSearch={setSearch}
-            onPick={setFilter}
-            onClear={(f) => setFilter(f, '')}
-            onPickRange={setRange}
-            onClearRange={(fmin, fmax) => {
-              setRange(fmin, '', fmax, '');
-            }}
-            onReset={reset}
-          />
-        </div>
+        <SidebarFilters
+          recs={recs}
+          total={total || recs.length}
+          search={search}
+          filters={filters}
+          anyActive={anyActive}
+          onSearch={setSearch}
+          onPick={setFilter}
+          onClear={(f) => setFilter(f, '')}
+          onPickRange={setRange}
+          onClearRange={(fmin, fmax) => {
+            setRange(fmin, '', fmax, '');
+          }}
+          onReset={reset}
+        />
       }
     >
       <div className="px-6 pt-3 pb-2 text-[0.8125rem] text-muted">

@@ -186,7 +186,7 @@ export function Shell({
         aria-hidden={!leftOpen}
       >
         <div className="h-full flex flex-col">
-          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+          <div className="h-11 flex-shrink-0 px-4 border-b border-border flex items-center gap-2">
             <Link to="/" className="text-[0.95rem] font-semibold tracking-tight">
               BIM House DB
             </Link>

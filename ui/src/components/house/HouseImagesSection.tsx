@@ -88,7 +88,7 @@ export function HouseImagesSection({ h }: { h: House }) {
                 {ontoLabel(onto, 'image_categories', cat)}{' '}
                 <span className="text-muted font-normal">({list.length})</span>
               </h5>
-              <div className="flex gap-2 flex-wrap">
+              <div className="columns-[240px] gap-3">
                 {list.map((i) => (
                   <ImageTile key={i.file} houseKey={h.key} img={i} />
                 ))}
@@ -142,7 +142,7 @@ export function HouseImagesSection({ h }: { h: House }) {
               unit={list.length === 1 ? 'Szene' : 'Szenen'}
               pdfHref={pdfHref}
             >
-              <div className="flex gap-2 flex-wrap">
+              <div className="columns-[240px] gap-3">
                 {list.map((i) => (
                   <ImageTile key={i.file} houseKey={h.key} img={i} />
                 ))}
