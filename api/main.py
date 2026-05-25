@@ -314,4 +314,4 @@ def get_scene(key: str, file: str):
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return FileResponse(str(path), media_type="image/jpeg")
+    return FileResponse(str(path), media_type="image/avif")

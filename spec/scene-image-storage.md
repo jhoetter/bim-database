@@ -6,10 +6,16 @@
 
 ## What shipped
 
-- **Phase 1** (`d7d6bc2`): `api/scene_render.py` (pdftoppm + Pillow, mtime-keyed cache at `tmp/scene-cache/`), `/scene/{key}/{file}` route, URL routing in `_enrich` (PDF-sourced → `/scene/`, originals → `/static/`), `scripts/render_scene.py` CLI, `make warm-cache`, `source_ref.dpi` (default 200), Vite proxy.
-- **Phase 2** (this commit): `.gitignore` glob `data/houses/house-*/house-*.jpg`, `git rm --cached` all 35 committed JPGs (+ removed 2 orphans), `source_ref.rotation_deg` (default 0) for PDFs whose content is drawn rotated relative to page orientation. Verified: renderer reproduces the historical JPGs visually-identically (26/35 byte-identical; 9 rotated h23 scenes visually-identical with byte variance from JPEG encoder nondeterminism).
-- **Phase 3** — `git filter-repo` to drop historical JPG blobs from the pack. Still deferred. Needed to actually reclaim disk; without it, the bloat sits in `.git/objects` even though no further JPGs commit.
-- **Phase 4** — Optional AVIF q80 output for ~50% cache size reduction. Skipped for now.
+- **Phase 1**: `api/scene_render.py` (pdftoppm + Pillow, mtime-keyed cache at `tmp/scene-cache/`), `/scene/{key}/{file}` route, URL routing in `_enrich` (PDF-sourced → `/scene/`, originals → `/static/`), `scripts/render_scene.py` CLI, `make warm-cache`, `source_ref.dpi` (default 200), Vite proxy.
+- **Phase 2**: `.gitignore` glob `data/houses/house-*/house-*.jpg`, `git rm --cached` all 35 committed JPGs (+ removed 2 orphans), `source_ref.rotation_deg` (default 0) for PDFs whose content is drawn rotated relative to page orientation. Verified: renderer reproduces the historical JPGs visually-identically (26/35 byte-identical; 9 rotated h23 scenes visually-identical with byte variance from JPEG encoder nondeterminism).
+- **Phase 3**: `git filter-repo --path-glob 'data/houses/house-*/house-*.jpg' --invert-paths` dropped 82 historical JPG blob references from the pack. Git size 169 → 161 MB (8 MB reclaimed; less than the 22 MB raw blob total because git was already deduplicating across re-iterations). History was rewrote — commit SHAs upstream of `d7d6bc2` changed. Requires force-push to origin. Pre-rewrite tag `pre-filter-repo-backup` kept locally as safety.
+- **Phase 4**: Cache writes AVIF q80 instead of JPEG q92. Cache file extension `.avif` (URL stays `/scene/.../<file>.jpg` — the API maps logical filename → cache stem + `.avif` and serves with `Content-Type: image/avif`). Final cache 8.6 MB AVIF (was 13.8 MB JPG, 38% reduction). Browsers handle AVIF natively; no UI changes needed.
+
+### Open items
+
+- The on-disk JPGs at `data/houses/house-*/house-*.jpg` are still there as untracked, gitignored "what the agent originally produced" reference. Safe to remove (`make clean-renders` would be a future addition); the renderer reproduces them on demand.
+- `images[].file` in JSON still uses `.jpg` extension as the logical scene identifier even though the served format is AVIF. The URL stays `.jpg` for stability. Cleaning this up to `.avif` (or no extension) is a future cosmetic migration.
+- Determinism note: `pdftoppm` output is approximately deterministic but minor variation across libpoppler versions can produce different pixel-level results. Treat the canonical truth as `(PDF + source_ref coords)`, not the rendered bytes.
 
 ## Problem
 

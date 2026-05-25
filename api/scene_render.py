@@ -25,6 +25,9 @@ REPO = Path(__file__).resolve().parent.parent
 HOUSES_DIR = REPO / "data" / "houses"
 CACHE_DIR = REPO / "tmp" / "scene-cache"
 DEFAULT_DPI = 200
+AVIF_QUALITY = 80    # ~50% smaller than JPEG q92 for line drawings; visually equivalent.
+CACHE_FORMAT = "AVIF"
+CACHE_SUFFIX = ".avif"
 
 
 def is_pdf_sourced(img: dict) -> bool:
@@ -33,7 +36,10 @@ def is_pdf_sourced(img: dict) -> bool:
 
 
 def _cache_path(key: str, file: str) -> Path:
-    return CACHE_DIR / key / file
+    """Cache path always ends in .avif regardless of the logical scene filename.
+    The /scene/<key>/<file> URL keeps the JSON's filename (typically .jpg) for
+    URL stability; the API maps to this cache path and returns image/avif."""
+    return CACHE_DIR / key / (Path(file).stem + CACHE_SUFFIX)
 
 
 def _needs_render(json_path: Path, cache_path: Path) -> bool:
@@ -103,7 +109,7 @@ def render_scene(key: str, file: str, *, force: bool = False) -> Path:
             x0, y0, x1, y1 = crop_box
             im.crop(
                 (int(x0 * w), int(y0 * h), int(x1 * w), int(y1 * h))
-            ).save(cache_path, quality=92)
+            ).save(cache_path, format=CACHE_FORMAT, quality=AVIF_QUALITY)
 
     return cache_path
 
