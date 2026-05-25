@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
+  "roof_type": "Satteldach",
   "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": 140,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Modernes EFH mit Satteldach plus seitlich auskragendem Flachdach-Anbau in kontrastierender Farbe, schmale Giebelfenster.",
+  "agent_notes": "Satteldach-Hauptbau + Flachdach-Anbau (Multi-Volumen). Voll modellierbar.",
+  "tags": [
+    "modern",
+    "satteldach",
+    "flachdach-anbau",
+    "multi-volumen"
+  ],
   "images": [
     {
       "file": "schwabenhaus_smartspace140-e3_exterior1.original.avif",
@@ -44,5 +52,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
