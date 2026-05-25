@@ -1,19 +1,19 @@
 {
   "id": 67,
-  "model": "Concept M170 VS",
-  "manufacturer": "BZ Haus",
+  "model": "108 SB10",
+  "manufacturer": "BioSolarHaus",
   "source": "catalog",
-  "source_url": "https://www.fertighaus.de/haeuser/bz-conceptm170-vs/",
+  "source_url": "https://www.fertighaus.de/haeuser/biosolarhaus-108sb10/",
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
   "roof_type": null,
-  "style": "modern",
+  "style": null,
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
   "levels": null,
-  "area_m2": 170,
+  "area_m2": 108,
   "rooms": null,
   "floors": null,
   "price_eur": null,
@@ -24,42 +24,14 @@
   "tags": [],
   "images": [
     {
-      "file": "bz_conceptm170_exterior1.original.avif",
+      "file": "108sb10_exterior1.original.avif",
       "category": "exterior",
       "medium": "render",
       "view": null,
       "caption": null
     },
     {
-      "file": "bz_conceptm170_exterior2.original.avif",
-      "category": "exterior",
-      "medium": "render",
-      "view": null,
-      "caption": null
-    },
-    {
-      "file": "bz_conceptm170_exterior3.original.avif",
-      "category": "exterior",
-      "medium": "render",
-      "view": null,
-      "caption": null
-    },
-    {
-      "file": "bz_conceptm170_exterior4.original.avif",
-      "category": "exterior",
-      "medium": "render",
-      "view": null,
-      "caption": null
-    },
-    {
-      "file": "bz_conceptm170-vs_floorplan5.original.avif",
-      "category": "floorplan",
-      "medium": "drawing",
-      "floor": null,
-      "caption": null
-    },
-    {
-      "file": "bz_conceptm170-vs_floorplan6.original.avif",
+      "file": "108sb10_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
       "floor": null,

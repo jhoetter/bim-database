@@ -4,7 +4,7 @@
 testhouses (dev fixtures for the bim-agent convergence loop).
 Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
-- **Catalog** — `house-1` … `house-20`, `house-24` … `house-73`, integer IDs, sourced from fertighaus.de
+- **Catalog** — `house-1` … `house-20`, `house-24` … `house-71`, integer IDs, sourced from fertighaus.de
 - **Testhouses** — `testhouse-1`, `testhouse-2`, `testhouse-3`, sourced from
   real-world Baubeschreibungen + Grundrisse, used by `bim-agent` as the
   stress-test corpus for `bim-ai`. See [`testhouse-README.md`](testhouse-README.md)
@@ -88,12 +88,12 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 | 63 | <img src="house-63/fuhrberger_fwh-zwischenbau_exterior1.original.avif" width="100"> | Fuhrberger Fachwerkhaus | FWH Zwischenbau | — | — | — | auf Anfrage | — | Holzbau | — | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-fwh-zwischen/) |
 | 64 | <img src="house-64/hufhaus_art5-bsp5_exterior1.original.avif" width="100"> | Huf Haus | Art 5 BSP 5 | — | — | — | auf Anfrage | — | Fertighaus | — | [fertighaus.de](https://www.fertighaus.de/haeuser/huf-haus-art5-bsp5/) |
 | 65 | <img src="house-65/schwoerer_e15-1463_exterior1.original.avif" width="100"> | Schwörer Haus | E15 1463 | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/schwoerer-e15-1463/) |
-| 67 | <img src="house-67/bz_conceptm170_exterior1.original.avif" width="100"> | BZ Haus | Concept M170 VS | 170 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/bz-conceptm170-vs/) |
-| 68 | <img src="house-68/108sb10_exterior1.original.avif" width="100"> | BioSolarHaus | 108 SB10 | 108 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/biosolarhaus-108sb10/) |
-| 69 | <img src="house-69/159sb20_exterior1.original.avif" width="100"> | BioSolarHaus | 159 SB20 | 159 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/biosolarhaus-159sb20/) |
-| 70 | <img src="house-70/saale-haus_mfh_exterior1.original.avif" width="100"> | Saale-Haus | MFH | — | — | — | auf Anfrage | — | MFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/saale-haus-mfh/) |
-| 72 | <img src="house-72/saale-haus_efh2_exterior1.original.avif" width="100"> | Saale-Haus | EFH 2 | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/saale-haus-efh2/) |
-| 73 | <img src="house-73/aurelio_exterior1.original.avif" width="100"> | — | Aurelio | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/aurelio/) |
+| 66 | <img src="house-66/bz_conceptm170_exterior1.original.avif" width="100"> | BZ Haus | Concept M170 VS | 170 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/bz-conceptm170-vs/) |
+| 66 | <img src="house-66/108sb10_exterior1.original.avif" width="100"> | BioSolarHaus | 108 SB10 | 108 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/biosolarhaus-108sb10/) |
+| 66 | <img src="house-66/159sb20_exterior1.original.avif" width="100"> | BioSolarHaus | 159 SB20 | 159 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/biosolarhaus-159sb20/) |
+| 66 | <img src="house-66/saale-haus_mfh_exterior1.original.avif" width="100"> | Saale-Haus | MFH | — | — | — | auf Anfrage | — | MFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/saale-haus-mfh/) |
+| 66 | <img src="house-66/saale-haus_efh2_exterior1.original.avif" width="100"> | Saale-Haus | EFH 2 | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/saale-haus-efh2/) |
+| 71 | <img src="house-71/aurelio_exterior1.original.avif" width="100"> | — | Aurelio | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/aurelio/) |
 
 ---
 
@@ -1185,9 +1185,9 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
 ---
 
-### House 67 — BZ Haus · Concept M170 VS
+### House 66 — BZ Haus · Concept M170 VS
 
-![exterior](house-67/bz_conceptm170_exterior1.original.avif)
+![exterior](house-66/bz_conceptm170_exterior1.original.avif)
 
 | Field | Value |
 |-------|-------|
@@ -1201,9 +1201,9 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
 ---
 
-### House 68 — BioSolarHaus · 108 SB10
+### House 66 — BioSolarHaus · 108 SB10
 
-![exterior](house-68/108sb10_exterior1.original.avif)
+![exterior](house-66/108sb10_exterior1.original.avif)
 
 | Field | Value |
 |-------|-------|
@@ -1217,9 +1217,9 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
 ---
 
-### House 69 — BioSolarHaus · 159 SB20
+### House 66 — BioSolarHaus · 159 SB20
 
-![exterior](house-69/159sb20_exterior1.original.avif)
+![exterior](house-66/159sb20_exterior1.original.avif)
 
 | Field | Value |
 |-------|-------|
@@ -1233,9 +1233,9 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
 ---
 
-### House 70 — Saale-Haus · MFH
+### House 66 — Saale-Haus · MFH
 
-![exterior](house-70/saale-haus_mfh_exterior1.original.avif)
+![exterior](house-66/saale-haus_mfh_exterior1.original.avif)
 
 | Field | Value |
 |-------|-------|
@@ -1247,9 +1247,9 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
 ---
 
-### House 72 — Saale-Haus · EFH 2
+### House 66 — Saale-Haus · EFH 2
 
-![exterior](house-72/saale-haus_efh2_exterior1.original.avif)
+![exterior](house-66/saale-haus_efh2_exterior1.original.avif)
 
 | Field | Value |
 |-------|-------|
@@ -1261,9 +1261,9 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
 ---
 
-### House 73 — Aurelio
+### House 71 — Aurelio
 
-![exterior](house-73/aurelio_exterior1.original.avif)
+![exterior](house-71/aurelio_exterior1.original.avif)
 
 | Field | Value |
 |-------|-------|
