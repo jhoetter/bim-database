@@ -4,7 +4,7 @@ PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip
 UV     := $(VENV)/bin/uvicorn
 
-.PHONY: install dev dev-forwarded web mcp validate new-house
+.PHONY: install dev dev-forwarded web build mcp validate new-house
 
 install:
 	python3 -m venv $(VENV)
@@ -20,6 +20,12 @@ dev:
 # to the FastAPI on :$(PORT) — run `make dev` in a separate shell first.
 web:
 	cd ui && npm run dev
+
+# Build the React bundle into ui/dist/. The FastAPI root route serves
+# ui/dist/index.html, so this only matters for prod or single-port testing —
+# day-to-day use `make web` instead.
+build:
+	cd ui && npm run build
 
 # Alias for cross-repo convention parity with bim-ai (which uses
 # `make dev-forwarded` to start API+web with the bound host its dev

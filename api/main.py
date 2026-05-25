@@ -11,6 +11,7 @@ BASE = Path(__file__).parent.parent
 HOUSES_DIR = BASE / "data" / "houses"
 ONTOLOGY_FILE = BASE / "data" / "ontology.json"
 ISSUE_STATE_FILE = BASE / "data" / ".issue_state.json"
+UI_DIST = BASE / "ui" / "dist"          # produced by `cd ui && npm run build`
 
 
 def _house_dir(hid: int) -> Path:
@@ -37,6 +38,12 @@ app.add_middleware(
 # Mount that root at /static so URLs stay as /static/house-N/<file>, and we
 # don't expose the rest of the repo (api/, scripts/, etc.).
 app.mount("/static", StaticFiles(directory=str(HOUSES_DIR)), name="static")
+
+# Built React bundle — hashed asset files live in ui/dist/assets/. The HTML
+# entry is served by `root()` below so we can fall back to a helpful message
+# when the bundle hasn't been built yet (dev: use `make web` on :5173 instead).
+if (UI_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(UI_DIST / "assets")), name="ui-assets")
 
 
 # ── record loading + enrichment ─────────────────────────────────────────────
@@ -171,7 +178,27 @@ def _ontology() -> dict:
 
 @app.get("/", tags=["meta"], response_class=FileResponse)
 def root():
-    return FileResponse(str(BASE / "ui" / "index.html"))
+    """Serve the built React bundle's HTML entry. If `ui/dist/` is absent,
+    return a 503 with the build command — typically you'd run `make web`
+    in a second shell during development (Vite on :5173 proxies to here)."""
+    index = UI_DIST / "index.html"
+    if not index.exists():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "UI not built. Run `cd ui && npm install && npm run build`, "
+                "or `make web` for the live dev server on :5173."
+            ),
+        )
+    return FileResponse(str(index))
+
+
+# Client-side router fallback: any non-API path (e.g. /house/house-21) loads
+# the SPA's index.html so react-router can pick up the URL.
+@app.get("/house/{rest:path}", tags=["meta"], response_class=FileResponse)
+def _spa_house(rest: str):
+    del rest
+    return root()
 
 
 @app.get("/ontology", tags=["meta"])

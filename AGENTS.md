@@ -34,7 +34,9 @@ schema/
   house.schema.json                   # JSON Schema for one record
 api/main.py                           # FastAPI; loads data/houses/house-*/house-*.json, serves /houses, /ontology
 mcp_server.py                         # MCP server with the same data model
-ui/index.html                         # single-page UI; filters built from /ontology at load
+ui/                                   # Vite + React 19 + TS + Tailwind SPA (mirrors bim-ai's stack)
+  src/pages/                          # HousesPage / HousePage / ScenePage — react-router 7
+  src/components/stats/               # StatsDashboard + filter bars
 build_houses.py                       # walks data/houses/*/, generates missing house-N.pdf from AVIFs
 ```
 
@@ -43,6 +45,28 @@ The numeric ID is the single source of truth: it appears as the folder name
 (`house-N.pdf`). The API derives all static URLs from the ID, so changing it
 in one place would break the chain. `make validate` enforces folder ↔ id ↔
 filename consistency.
+
+---
+
+## Running the dev stack
+
+Two processes during day-to-day work:
+
+```bash
+make dev           # FastAPI on http://127.0.0.1:2500
+make web           # Vite dev server on http://127.0.0.1:5173 (proxies /houses, /ontology, /static)
+```
+
+Open **http://127.0.0.1:5173** — Vite hot-reloads React, proxies API calls to
+FastAPI. The FastAPI root route serves the built bundle in `ui/dist/`, so for
+a single-port prod-like run, build first:
+
+```bash
+make build         # cd ui && npm run build  →  ui/dist/
+make dev           # now visit http://127.0.0.1:2500 directly
+```
+
+`make install` sets up both the Python venv and `ui/node_modules`.
 
 ---
 
