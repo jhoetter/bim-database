@@ -473,10 +473,10 @@
         "file": "Kannenofen.pdf",
         "page": 9,
         "crop_box_pct": [
-          0.02,
-          0.02,
+          0.0,
+          0.0,
           0.44,
-          0.68
+          0.66
         ],
         "page_title": "SCHNITT A-A, Blatt 06, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:50"
@@ -553,10 +553,10 @@
         "file": "Kannenofen.pdf",
         "page": 9,
         "crop_box_pct": [
-          0.44,
-          0.02,
-          0.82,
-          0.68
+          0.45,
+          0.0,
+          0.83,
+          0.62
         ],
         "page_title": "SCHNITT B-B, Blatt 06, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:50"
