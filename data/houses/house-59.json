@@ -7,21 +7,30 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Blockhaus",
-  "roof_type": null,
+  "roof_type": "Krüppelwalmdach",
   "style": "landhaus",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Blockhaus mit Krüppelwalmdach, Balkon unter Krüppelwalm-Giebel, PV-Module, weite Dachüberstände, Naturholzfassade.",
+  "agent_notes": "Krüppelwalmdach via #105 (closed). Voll modellierbar.",
+  "tags": [
+    "blockhaus",
+    "krüppelwalm",
+    "landhaus",
+    "balkon",
+    "solar"
+  ],
   "images": [
     {
       "file": "fullwood_mittelfranken_exterior1.original.avif",
@@ -65,5 +74,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
