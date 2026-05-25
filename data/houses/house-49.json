@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": "modern",
+  "roof_type": "Walmdach",
+  "style": "stadtvilla",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": 155,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Stadtvilla mit klassischem Walmdach, Balkon-Auskragung im OG und überdachter Terrasse im EG, weiß verputzt.",
+  "agent_notes": "Walmdach + Balkon-Auskragung + Terrassenüberdachung. Voll modellierbar.",
+  "tags": [
+    "stadtvilla",
+    "walmdach",
+    "balkon",
+    "terrasse"
+  ],
   "images": [
     {
       "file": "schwabenhaus_solitaeree155-e7_exterior1.original.avif",
@@ -44,5 +52,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
