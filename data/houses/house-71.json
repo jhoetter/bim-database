@@ -7,21 +7,30 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": null,
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Walmdach",
+  "style": "mediterran",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Mediterrane Stadtvilla mit flachem Walmdach, gelber Putzfassade, Balkon mit Säulenstützen, separater Carport-Anbau mit eigenem Walmdach.",
+  "agent_notes": "Walmdach + Carport-Anbau + Balkon mit Stützen. Multi-Volumen, modellierbar.",
+  "tags": [
+    "stadtvilla",
+    "mediterran",
+    "walmdach",
+    "carport",
+    "balkon"
+  ],
   "images": [
     {
       "file": "aurelio_exterior1.original.avif",
@@ -51,5 +60,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
