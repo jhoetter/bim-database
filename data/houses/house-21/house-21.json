@@ -36,8 +36,8 @@
       "source_ref": {
         "file": "Ansichten.pdf",
         "page": 1,
-        "crop_box_pct": [0.13, 0.10, 0.50, 0.50],
-        "page_title": "ENTWURF — Neubau von Zweifamilien-Doppelwohnhäusern für Firma Arnold Reinecke — Dahlerbrück — Im Dahl — BAU I, März 1939",
+        "crop_box_pct": [0.17, 0.18, 0.57, 0.53],
+        "page_title": "ENTWURF — Neubau von Zweifamilien-Doppelwohnhäusern für Firma Arnold Reinecke — Dahlerbrück — Im Dahl — BAU „I\", März 1939",
         "scale": "1:100"
       },
       "facts": {
@@ -59,8 +59,8 @@
       "source_ref": {
         "file": "Ansichten.pdf",
         "page": 1,
-        "crop_box_pct": [0.50, 0.10, 0.78, 0.55],
-        "page_title": "ENTWURF — Neubau von Zweifamilien-Doppelwohnhäusern (BAU I), März 1939",
+        "crop_box_pct": [0.57, 0.16, 0.83, 0.55],
+        "page_title": "ENTWURF — Neubau von Zweifamilien-Doppelwohnhäusern (BAU „I\"), März 1939",
         "scale": "1:100"
       },
       "facts": {
@@ -78,8 +78,8 @@
       "source_ref": {
         "file": "Ansichten.pdf",
         "page": 1,
-        "crop_box_pct": [0.13, 0.50, 0.50, 0.95],
-        "page_title": "ENTWURF (BAU I), März 1939",
+        "crop_box_pct": [0.17, 0.53, 0.57, 0.96],
+        "page_title": "ENTWURF (BAU „I\"), März 1939 — TAL-ANSICHT mit MASSTAB 1:100",
         "scale": "1:100"
       },
       "facts": {
@@ -96,7 +96,8 @@
       "source_ref": {
         "file": "Ansichten.pdf",
         "page": 1,
-        "crop_box_pct": [0.50, 0.55, 0.78, 0.95]
+        "crop_box_pct": [0.55, 0.55, 0.83, 0.95],
+        "page_title": "ENTWURF (BAU „I\"), März 1939 — RECHTE GIEBELANSICHT"
       },
       "facts": {
         "matches_left_gable": {"value": true, "evidence": "identische Fensteranordnung, spiegelbildlich"}
@@ -174,8 +175,8 @@
       "source_ref": {
         "file": "Grundrisse, Schnitt.pdf",
         "page": 1,
-        "crop_box_pct": [0.55, 0.13, 0.78, 0.40],
-        "page_title": "ENTWURF (BAU II), März 1939 — QUERSCHNITT",
+        "crop_box_pct": [0.55, 0.16, 0.80, 0.52],
+        "page_title": "ENTWURF (BAU „II\"), März 1939 — QUERSCHNITT",
         "scale": "1:100"
       },
       "facts": {
@@ -198,8 +199,8 @@
       "source_ref": {
         "file": "Grundrisse, Schnitt.pdf",
         "page": 1,
-        "crop_box_pct": [0.55, 0.43, 0.78, 0.66],
-        "page_title": "ENTWURF (BAU II), März 1939 — KELLERGRUNDRISS",
+        "crop_box_pct": [0.55, 0.52, 0.80, 0.78],
+        "page_title": "ENTWURF (BAU „II\"), März 1939 — KELLERGRUNDRISS",
         "scale": "1:100"
       },
       "facts": {
@@ -315,7 +316,7 @@
   },
   "anomaly_flags": [
     "Datums-Doppelung: Entwurfsdatum auf Ansichten/Grundrissen ist März 1939 (Architekt Herbert Schmidt für Firma Arnold Reinecke), Wohnflächenberechnung + Umbauter-Raum-Berechnung sind Mai 1956 — Entwurf 1939, Bau 1956 (vermutlich WWII-bedingte Verzögerung). 'year_built' = 1956 ist korrekt.",
-    "Wohnflächenberechnung gehört zu Bau II (laut Titel), Ansichten.pdf trägt 'BAU I' im Titelblock. Bau I und Bau II sind zwei separate Doppelwohnhäuser desselben Architekten am selben Standort (Im Dahl, Dahlerbrück) — die Pläne wurden vermischt im PDF-Archiv abgelegt. Bedarf: prüfen, welcher Bau die echte Weidenstraße 4 ist."
+    "Cross-Attribution Bau I ↔ Bau II: Ansichten.pdf trägt 'BAU „I\"' im Titelblock (alle 4 Außenansichten — Berg, Tal, Linke + Rechte Giebelansicht), während Grundrisse-Schnitt-Mastersheet + Wohnflächenberechnung + Umbauter-Raum-Berechnung 'BAU „II\"' tragen. Bau I und Bau II sind zwei am selben Standort (Im Dahl, Dahlerbrück) für Firma Arnold Reinecke gleichzeitig entworfene Doppelwohnhäuser desselben Architekten. Die Gebäude sind vermutlich gleich (Standardentwurf), aber die Außenansichten zeigen technisch Bau I, nicht Bau II. Wenn ein 1:1-Render gemacht wird, sollte das vermerkt werden. Bedarf: vor-Ort-Verifikation, welcher Bau die heutige Weidenstraße 4 ist."
   ],
   "bim_ai_blocking_issues": [],
   "data_quality": {
