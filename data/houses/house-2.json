@@ -7,49 +7,50 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Massivhaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "klassisch",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG", "DG"],
   "area_m2": 118,
   "rooms": 5,
   "floors": 1.5,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Klassisches kompaktes EFH mit Satteldach. Rückseitige Schleppgaube über voll verglaster 2-geschossiger Eingangs-/Wohnachse — die Gaube ist samt Wangen verglast (Glasgaube). Sonst rechteckiger, schlichter Baukörper.",
+  "agent_notes": "Satteldach + Schleppgaube (DormerRoofKind=flat) + große Glasfront — alles bim-ai-Standard. Glas-Wangen der Gaube sind kosmetisch (Material), kein eigenes Element.",
   "tags": [],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "hebel_efh-klassik118_exterior1.original.avif",
       "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "medium": "render",
+      "view": "rear",
+      "caption": "Gartenseite — Satteldach mit voll verglaster Schleppgaube über 2-stöckigem Wohnzimmerfenster"
     },
     {
       "file": "hebel_efh-klassik118_exterior2.original.avif",
       "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "medium": "render",
+      "view": "corner",
+      "caption": "Eckansicht"
     },
     {
       "file": "hebel_efh-klassik118_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     },
     {
       "file": "hebel_efh-klassik118_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "DG",
+      "caption": "Grundriss DG"
     }
   ]
 }
