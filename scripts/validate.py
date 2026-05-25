@@ -57,11 +57,13 @@ def check_id_matches_filename(rec: dict, path: Path) -> list[str]:
     expected = int(path.stem.split("-")[1])
     if rec.get("id") != expected:
         return [f"{path.name}: id={rec.get('id')} but filename suggests {expected}"]
+    # Also assert the parent folder matches.
+    if path.parent.name != f"house-{expected}":
+        return [f"{path.name}: lives under {path.parent.name}/, expected house-{expected}/"]
     return []
 
 
-def check_image_files_exist(rec: dict, name: str) -> list[str]:
-    folder = BASE / f"house-{rec['id']}"
+def check_image_files_exist(rec: dict, name: str, folder: Path) -> list[str]:
     errs = []
     for i, img in enumerate(rec.get("images") or []):
         p = folder / img["file"]
@@ -72,7 +74,8 @@ def check_image_files_exist(rec: dict, name: str) -> list[str]:
 
 def main():
     all_errs: list[str] = []
-    files = sorted(HOUSES.glob("house-*.json"), key=lambda q: int(q.stem.split("-")[1]))
+    files = sorted(HOUSES.glob("house-*/house-*.json"),
+                   key=lambda q: int(q.stem.split("-")[1]))
     for path in files:
         rec = json.loads(path.read_text())
         name = path.name
@@ -83,7 +86,7 @@ def main():
                 all_errs.append(f"{name}: schema: {e.message} at {list(e.absolute_path)}")
         all_errs += check_id_matches_filename(rec, path)
         all_errs += check_enums(rec, name)
-        all_errs += check_image_files_exist(rec, name)
+        all_errs += check_image_files_exist(rec, name, path.parent)
 
     if all_errs:
         for e in all_errs:

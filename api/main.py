@@ -12,6 +12,10 @@ HOUSES_DIR = BASE / "data" / "houses"
 ONTOLOGY_FILE = BASE / "data" / "ontology.json"
 ISSUE_STATE_FILE = BASE / "data" / ".issue_state.json"
 
+
+def _house_dir(hid: int) -> Path:
+    return HOUSES_DIR / f"house-{hid}"
+
 app = FastAPI(
     title="BIM House Database",
     description=(
@@ -29,8 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve image folders, PDFs, and the data/schema dirs as static files
-app.mount("/static", StaticFiles(directory=str(BASE)), name="static")
+# Each house's assets (images + combined PDF) live under data/houses/house-N/.
+# Mount that root at /static so URLs stay as /static/house-N/<file>, and we
+# don't expose the rest of the repo (api/, scripts/, etc.).
+app.mount("/static", StaticFiles(directory=str(HOUSES_DIR)), name="static")
 
 
 # ── record loading + enrichment ─────────────────────────────────────────────
@@ -78,17 +84,20 @@ def _enrich(rec: dict, state: dict) -> dict:
     pdf_url + source_pdfs, and project the `modelable_in_bim_ai` flag
     derived from the cached issue state."""
     hid = rec["id"]
-    folder = BASE / f"house-{hid}"
+    folder = _house_dir(hid)
     out = dict(rec)
     out["key"] = f"house-{hid}"
     out["images"] = [
         {**img, "url": f"/static/house-{hid}/{img['file']}"}
         for img in rec.get("images") or []
     ]
-    pdf = BASE / f"house-{hid}.pdf"
-    out["pdf_url"] = f"/static/house-{hid}.pdf" if pdf.exists() else None
+    pdf = folder / f"house-{hid}.pdf"
+    out["pdf_url"] = f"/static/house-{hid}/house-{hid}.pdf" if pdf.exists() else None
+    # Source PDFs are *additional* PDFs in the folder (e.g. testhouse Bauplan
+    # pages); skip the combined `house-N.pdf` since it's already pdf_url.
     out["source_pdfs"] = (
-        sorted(f"/static/house-{hid}/{p.name}" for p in folder.glob("*.pdf"))
+        sorted(f"/static/house-{hid}/{p.name}"
+               for p in folder.glob("*.pdf") if p.name != f"house-{hid}.pdf")
         if folder.exists() else []
     )
     out.update(_modelable(rec, state))
@@ -100,12 +109,14 @@ def _load_all() -> list[dict]:
         return []
     state = _issue_state()
     recs = []
-    for p in sorted(HOUSES_DIR.glob("house-*.json"), key=lambda q: int(q.stem.split("-")[1])):
+    # Each house lives in data/houses/house-N/ with its metadata at house-N.json.
+    for p in sorted(HOUSES_DIR.glob("house-*/house-*.json"),
+                    key=lambda q: int(q.stem.split("-")[1])):
         try:
             recs.append(_enrich(json.loads(p.read_text()), state))
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             # A malformed record shouldn't take down /houses entirely.
-            print(f"warning: skipping {p.name}: {e}")
+            print(f"warning: skipping {p.relative_to(BASE)}: {e}")
     return recs
 
 
@@ -187,7 +198,7 @@ def get_pdf(key: str):
     rec = _by_key(key)
     if not rec:
         raise HTTPException(status_code=404, detail=f"House {key!r} not found")
-    pdf = BASE / f"{rec['key']}.pdf"
+    pdf = _house_dir(rec["id"]) / f"{rec['key']}.pdf"
     if not pdf.exists():
         raise HTTPException(status_code=404, detail="PDF not found")
     return FileResponse(str(pdf), media_type="application/pdf", filename=pdf.name)

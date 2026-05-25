@@ -61,19 +61,24 @@ def _modelable(rec: dict, state: dict) -> dict:
     return {"modelable_in_bim_ai": not open_, "blocking_open": open_, "blocking_unknown": [], "assessed": True}
 
 
+def _house_dir(hid: int) -> Path:
+    return HOUSES_DIR / f"house-{hid}"
+
+
 def _enrich(rec: dict, state: dict) -> dict:
     hid = rec["id"]
-    folder = BASE / f"house-{hid}"
+    folder = _house_dir(hid)
     out = dict(rec)
     out["key"] = f"house-{hid}"
     out["images"] = [
         {**img, "url": f"{API_BASE}/static/house-{hid}/{img['file']}"}
         for img in rec.get("images") or []
     ]
-    pdf = BASE / f"house-{hid}.pdf"
-    out["pdf_url"] = f"{API_BASE}/static/house-{hid}.pdf" if pdf.exists() else None
+    pdf = folder / f"house-{hid}.pdf"
+    out["pdf_url"] = f"{API_BASE}/static/house-{hid}/house-{hid}.pdf" if pdf.exists() else None
     out["source_pdfs"] = (
-        sorted(f"{API_BASE}/static/house-{hid}/{p.name}" for p in folder.glob("*.pdf"))
+        sorted(f"{API_BASE}/static/house-{hid}/{p.name}"
+               for p in folder.glob("*.pdf") if p.name != f"house-{hid}.pdf")
         if folder.exists() else []
     )
     out.update(_modelable(rec, state))
@@ -85,7 +90,8 @@ def _load_all() -> list[dict]:
         return []
     state = _issue_state()
     recs = []
-    for p in sorted(HOUSES_DIR.glob("house-*.json"), key=lambda q: int(q.stem.split("-")[1])):
+    for p in sorted(HOUSES_DIR.glob("house-*/house-*.json"),
+                    key=lambda q: int(q.stem.split("-")[1])):
         try:
             recs.append(_enrich(json.loads(p.read_text()), state))
         except (json.JSONDecodeError, KeyError, ValueError):

@@ -24,6 +24,7 @@ except ImportError:
 from PIL import Image
 
 BASE = Path(__file__).parent
+HOUSES_DIR = BASE / "data" / "houses"   # data/houses/house-N/ is the unit
 
 # Matches the image-type keyword that separates the house prefix from the
 # image variant (exterior/floorplan/…).  Split point is just before the match.
@@ -41,9 +42,9 @@ def extract_prefix(filename: str) -> str:
 
 
 def scan_existing_prefix_map() -> dict[str, str]:
-    """Return {prefix: house_name} for all existing house-N folders."""
+    """Return {prefix: house_name} for all existing data/houses/house-N/ folders."""
     mapping: dict[str, str] = {}
-    for house_dir in BASE.glob("house-*/"):
+    for house_dir in HOUSES_DIR.glob("house-*/"):
         avifs = list(house_dir.glob("*.avif"))
         if avifs:
             prefix = extract_prefix(avifs[0].name)
@@ -63,14 +64,14 @@ def group_loose_files() -> dict[str, list[Path]]:
 def next_house_number() -> int:
     existing = [
         int(p.name.split("-")[1])
-        for p in BASE.glob("house-*/")
+        for p in HOUSES_DIR.glob("house-*/")
         if p.name.split("-")[1].isdigit()
     ]
     return max(existing, default=0) + 1
 
 
 def move_loose_files(prefix_map: dict[str, str]) -> dict[str, str]:
-    """Move loose files into house folders; returns updated prefix_map."""
+    """Move loose files at the repo root into the right data/houses/house-N/."""
     groups = group_loose_files()
     if not groups:
         print("  No loose AVIF files found.")
@@ -83,13 +84,13 @@ def move_loose_files(prefix_map: dict[str, str]) -> dict[str, str]:
             prefix_map[prefix] = house_name
             next_n += 1
 
-        house_dir = BASE / prefix_map[prefix]
-        house_dir.mkdir(exist_ok=True)
+        house_dir = HOUSES_DIR / prefix_map[prefix]
+        house_dir.mkdir(parents=True, exist_ok=True)
         for f in files:
             dest = house_dir / f.name
             if not dest.exists():
                 shutil.move(str(f), str(dest))
-                print(f"  Moved {f.name} → {house_dir.name}/")
+                print(f"  Moved {f.name} → {house_dir.relative_to(BASE)}/")
 
     return prefix_map
 
@@ -164,13 +165,13 @@ def main() -> None:
 
     print("\n=== Generating PDFs for all house folders ===")
     house_dirs = sorted(
-        BASE.glob("house-*/"),
+        HOUSES_DIR.glob("house-*/"),
         key=lambda p: int(p.name.split("-")[1]),
     )
     for house_dir in house_dirs:
-        pdf_path = BASE / f"{house_dir.name}.pdf"
+        pdf_path = house_dir / f"{house_dir.name}.pdf"
         if pdf_path.exists():
-            print(f"  {house_dir.name}.pdf already exists, skipping.")
+            print(f"  {pdf_path.relative_to(BASE)} already exists, skipping.")
             continue
         build_pdf(house_dir, pdf_path)
 

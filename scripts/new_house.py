@@ -50,16 +50,17 @@ def main():
     ap.add_argument("--model", required=True)
     args = ap.parse_args()
 
-    OUT.mkdir(parents=True, exist_ok=True)
-    out = OUT / f"house-{args.id}.json"
-    if out.exists():
-        raise SystemExit(f"refusing to overwrite existing {out.relative_to(BASE)}")
+    # Each house = data/houses/house-N/ with metadata + images + PDF inside.
+    folder = OUT / f"house-{args.id}"
+    if folder.exists():
+        raise SystemExit(f"refusing to overwrite existing {folder.relative_to(BASE)}/")
+    folder.mkdir(parents=True)
+    out = folder / f"house-{args.id}.json"
     out.write_text(json.dumps(stub(args.id, args.model), indent=2, ensure_ascii=False) + "\n")
-    folder = BASE / f"house-{args.id}"
-    folder.mkdir(exist_ok=True)
+    print(f"created  {folder.relative_to(BASE)}/")
     print(f"created  {out.relative_to(BASE)}")
-    print(f"created  {folder.relative_to(BASE)}/  (drop image files here)")
-    print(f"next:    edit {out.relative_to(BASE)} — see AGENTS.md for fields")
+    print(f"next:    drop image files into {folder.relative_to(BASE)}/ and edit")
+    print(f"         {out.relative_to(BASE)} — see AGENTS.md for fields.")
 
 
 if __name__ == "__main__":
