@@ -4,13 +4,13 @@
   "manufacturer": null,
   "source": "documentation",
   "source_url": null,
-  "source_origin": "Multi-page Architektenplan-Bündel 'Kannenofen.pdf' (10 Blätter, 1:50 / 1:100 Maßstab). Architekturbüro Uwe Bremshetter, Mitglied der Architektenkammer NRW, Sinkstraße 32, 53721 Siegburg. Erstellt für Wohnhaus 'am Kannenofen'. Plansatz: 01 KG, 02 EG, 03 1.OG, 04 DG, 05 Spitzboden, 06 Straßenansicht, 07 Eingangsansicht, 08 Gartenansicht + Detail Dachgaube, 09 Schnitt A-A + B-B + Detail Dacheindeckung, 10 Anschreiben/Index. Maßstab Pläne: 1:50.",
+  "source_origin": "Multi-page Architektenplan-Bündel 'Kannenofen.pdf' (10 Blätter, 1:50 Pläne / 1:10 Details). Architekturbüro Uwe Berkemeyer (Dipl.-Ing., Mitglied der Architektenkammer NRW Mitgl.-Nr. F 14082), Ringstraße 32, 53721 Siegburg. Erstellt 08.09.93 für Bauherrin Frau B. Winkelmeier-Hötter, Marktstraße 95, 56332 Niederfell. Bauvorhaben: Neubau eines Wohn- und Praxisgebäudes mit Carport als Doppelhaushälfte, Am Kannenofen 45, 53721 Siegburg. Plansatz (in Architektenreihenfolge): Blatt 01 KG, 02 EG, 03 1.OG, 04 DG, 05 Spitzboden, 06 Schnitt A-A + B-B + Detail Dachüberstand, 07 Straßenansicht + Detail Flachdach + Detail Decken-Absenkung in DG, 08 Gartenansicht + Detail Dachgaube, 09 Eingangsansicht. PDF-Reihenfolge weicht ab: PDF-Seite 6 = Blatt 07 (Strasse + 2 Details), Seite 7 = Blatt 09 (Eingang), Seite 8 = Blatt 08 (Garten + Gaube), Seite 9 = Blatt 06 (Schnitte + Dachüberstand), Seite 10 = Anschreiben.",
   "building_type": "Doppelhaushälfte",
   "construction": "Massivhaus",
   "roof_type": "Zwerchdach",
   "style": "historisch",
   "energy_standard": null,
-  "year_built": null,
+  "year_built": 1993,
   "has_basement": true,
   "levels": [
     "KG",
@@ -24,84 +24,166 @@
   "floors": 5.0,
   "price_eur": null,
   "price_on_request": false,
-  "site": "gentle ~1 m N-S slope, mit Carport-Anbau westlich (Wendeltreppe-Erschließung)",
-  "character": "Historisches Wohnhaus mit zwei Zwerchgauben (Zwerchhaus), Rundbogenfenstern in den Zwerchgauben, weiteren Schleppgauben in den Längsseiten, 5 gestapelten Geschossen (KG/EG/OG/DG/Spitzboden), MIXED-USE: Arzt-Praxis im EG (Sprechzimmer, Wartezimmer, Behandlungszimmer) + 3-Generationen-Wohnung in OG/DG. Dach hat zwei Neigungen — 30° Hauptdach + 55° Zwerchhaus/oberer Bereich.",
-  "agent_notes": "Most demanding of the 3 documentation records — cross-gables, ornament, 5-level stack push the engine. Currently bim-ai cannot render the cross-gable read (MF-22 dormer mesh, EA-1 half_gable), so this is the bellwether for capability-gap GH issues. Deep-annotation pass 2026-05-25 documented die Mixed-Use-Struktur (Arzt-Praxis EG), beide Dachneigungen 30°+55°, vollständige Geschoss-Inventarisierung mit Raum-Labels je Etage.",
+  "site": "innerstädtische Doppelhaushälfte mit Carport, mit ~1 m N-S Hangneigung (KG -2.47, GELÄNDE -0.15 bis -1.04 m gegenüber EG ±0.00)",
+  "character": "Historisierender Neubau (1993) als Doppelhaushälfte mit Wohnen+Arztpraxis. Pro Längsseite EINE Zwerchgaube mit Rundbogenfenster + Schleppgauben dazwischen. 5 gestapelte Ebenen (KG/EG/OG/DG/Spitzboden). MIXED-USE: Arzt-Praxis im EG (Sprechzimmer, Anmeldung, 2× Behandlungszimmer, Wartezimmer, WC) + Wohnen ab OG. Dach: 35° Hauptdach (Schnitt A-A, Detail Dachüberstand) + 45° Zwerchhaus-Gauben-Aufbau (Schnitt B-B, Detail Dachgaube). Carport mit Wendeltreppe an der Eingangsseite.",
+  "agent_notes": "Standardization re-run 2026-05-25 (worktree h23): Replaced full-page [0,0,1,1] crops with per-artifact decomposition matching house-21 quality. Multi-artifact PDF pages 6 (Strasse + 2 Dachdetails), 8 (Garten + Detail Dachgaube), 9 (Schnitt A-A + B-B + Detail Dachüberstand) decomposed into 8 scenes. Fixed mis-categorization of old 'house-23-floorplan-roof-08.jpg' (it was Gartenansicht, not roof plan). Corrected previously hallucinated facts: Zwerchgauben count (was 2/seite, actually 1/seite — neighbor's mirrored half was double-counted); pitch values (was 30°+55°, actually 35° main + 45° Zwerchhaus per Schnitt-Beschriftungen); EG room labels (was Kinderzimmer + Carport-Wendeltreppe, actually 2× Behandlungszimmer + Anmeldung); OG room labels (was ELTERN+ANKLEIDE, not visible on plan); detail naming (was 'Dacheindeckung', actually 'Dachüberstand' per Blattnummer 06 Titel). Architect identity also corrected: Uwe Berkemeyer (not Bremshetter); year built 1993 (per Anschreiben-Datum 08.09.93).",
   "tags": [],
   "images": [
     {
-      "file": "house-23-floorplan-kg-01.jpg",
+      "file": "house-23-floorplan-kg.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "KG",
-      "caption": "Grundriss Kellergeschoss (Blatt 01) — Versorgungs- und Vorratsräume, Waschen+Trocknen, Vorräte",
+      "caption": "Grundriss Kellergeschoss (Blatt 01) — Versorgungsgeschoss: Vorräte, Heizung, Waschen + Trocknen, Flur",
       "source_ref": {
         "file": "Kannenofen.pdf",
         "page": 1,
-        "crop_box_pct": [0, 0, 1, 1],
-        "page_title": "GRUNDRISS KELLERGESCHOSS, Blatt 01, M 1:50, Arch. Uwe Bremshetter",
+        "crop_box_pct": [
+          0.0,
+          0.02,
+          1.0,
+          0.66
+        ],
+        "page_title": "GRUNDRISS KELLERGESCHOSS, Blatt 01, M 1:50, Arch. Uwe Berkemeyer",
         "scale": "1:50"
       },
       "facts": {
         "rooms_named": {
-          "value": ["WASCHEN + TROCKNEN", "VORRATE KG (mehrere)", "FLUR", "Kehlung/Treppenhaus", "Kelleraußentreppe"],
-          "evidence": "Raumbeschriftungen auf KG-Plan. KG ist reines Wirtschafts-/Versorgungsgeschoss — keine Wohnräume. Mehrere VORRATE-Räume verteilen sich entlang der Längsachse."
+          "value": [
+            "VORRATE OG",
+            "VORRATE EG",
+            "HEIZUNG",
+            "FLUR",
+            "WASCHEN + TROCKNEN"
+          ],
+          "evidence": "Raumbeschriftungen auf KG-Plan. Wirtschaftsgeschoss, keine Wohnräume. Zwei Vorratsräume (zugeordnet zu Wohnungen OG / EG)."
         },
-        "footprint_aspect": {"value": "stark langgestreckt", "evidence": "Visuelle Schätzung aus den Maßstabschienen: Länge ≈ 17-18 m, Tiefe ≈ 6-7 m. Konsistent mit historischem Stadthaus-Footprint."},
-        "outer_treppe_visible": {"value": true, "evidence": "Kelleraußentreppe nördlich (Hangseite) sichtbar"},
-        "kanalanschluss_visible": {"value": true, "evidence": "Schnittlinie 'B-B' verläuft durch das KG, zeigt Anschluss an bestehendes Leitungsnetz"}
+        "footprint_aspect": {
+          "value": "stark langgestreckt",
+          "evidence": "Maßkette 13.99 m außen-außen Länge sichtbar in der oberen Bemaßung."
+        },
+        "outer_length_mm": {
+          "value": 13990,
+          "unit": "mm",
+          "evidence": "Maßkette '13.99' an der nördlichen Außenkante."
+        },
+        "outer_treppe_visible": {
+          "value": true,
+          "evidence": "Kellertreppe / Anschlüsse innerhalb des Grundrisses sichtbar"
+        },
+        "kg_floor_level_m": {
+          "value": -2.47,
+          "unit": "m",
+          "evidence": "Schnitt A-A zeigt KG OKFFB bei -2.47 m gegenüber EG ±0.00"
+        }
       }
     },
     {
-      "file": "house-23-floorplan-eg-02.jpg",
+      "file": "house-23-floorplan-eg.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "EG",
-      "caption": "Grundriss Erdgeschoss (Blatt 02) — Arzt-Praxis (Sprechzimmer, Wartezimmer, Behandlungszimmer) + Küche + WC + Carport + Terrasse",
+      "caption": "Grundriss Erdgeschoss (Blatt 02) — Arzt-Praxis (Sprechzimmer, Anmeldung, 2× Behandlungszimmer, Wartezimmer, WC) + Carport + Terrasse",
       "source_ref": {
         "file": "Kannenofen.pdf",
         "page": 2,
-        "crop_box_pct": [0, 0, 1, 1],
+        "crop_box_pct": [
+          0.0,
+          0.02,
+          1.0,
+          0.66
+        ],
         "page_title": "GRUNDRISS ERDGESCHOSS, Blatt 02, M 1:50",
         "scale": "1:50"
       },
       "facts": {
-        "use": {"value": "Mixed-use: Arzt-Praxis (Sprechzimmer + Wartezimmer + Behandlungszimmer + Damen-WC + Herren-WC) + Wohn-/Funktionsräume (Küche, Flur, Kinderzimmer)", "evidence": "Raumlabels auf EG-Plan klar lesbar: SPRECHZIMMER, WARTEZIMMER, BEHANDLUNGSZIMMER (alle medizinische Praxis), WC DAMEN, WC HERREN. Daneben KÜCHE, FLUR, KINDERZIMMER, TERRASSE."},
-        "rooms_named": {
-          "value": ["BEHANDLUNGSZIMMER", "WARTEZIMMER", "SPRECHZIMMER", "WC DAMEN", "WC HERREN", "KÜCHE", "FLUR", "KINDERZIMMER", "TERRASSE", "CARPORT", "ABSTELLRAUM", "BÜRO/LAGER"],
-          "evidence": "Vollständige Raumbeschriftung im EG-Plan"
+        "use": {
+          "value": "Reine Arzt-Praxis im EG (Wohnen erst ab OG)",
+          "evidence": "Raumlabels SPRECHZIMMER, ANMELDUNG, BEHANDLUNGSZIMMER, BEHANDL.-ZIMMER 2, WARTEZIMMER, WC, BAD, FLUR — keine Wohnräume. TERRASSE auf der Garten-/Westseite. CARPORT separat auf der Eingangsseite (Ostseite)."
         },
-        "carport_position": {"value": "westlich vom Haupthaus, mit Wendeltreppe zum OG", "evidence": "CARPORT-Label westlich am Plan. Wendeltreppen-Symbol (Spirale) verbindet Carport-Niveau mit OG (Hausverbindung)."},
-        "terrasse_position": {"value": "östlich, zur Gartenseite", "evidence": "TERRASSE-Bezeichnung östlich vom EG-Block, zur Gartenansicht-Seite"},
-        "patient_circulation": {"value": "separat von Privat-Wohnen", "evidence": "Wartezimmer + WC Damen/Herren liegen straßenseitig getrennt vom Küchen-/Wohnbereich — typische Arzt-Praxis-Planung mit Patienten-/Privatfluss-Trennung"}
+        "rooms_named": {
+          "value": [
+            "TERRASSE",
+            "BEHANDL.-ZIMMER 2",
+            "SPRECHZIMMER",
+            "ANMELDUNG",
+            "FLUR",
+            "BAD",
+            "WC",
+            "BEHANDLUNGSZIMMER",
+            "WARTEZIMMER",
+            "EINGANG",
+            "CARPORT",
+            "ABSTELLRAUM"
+          ],
+          "evidence": "Vollständige Raumbeschriftung des EG-Plans. Wendeltreppen-Symbol im Eingang verbindet Carport-Niveau mit OG (separater Wohnerschließung)."
+        },
+        "behandlungszimmer_count": {
+          "value": 2,
+          "unit": "count",
+          "evidence": "BEHANDLUNGSZIMMER (zentral) + BEHANDL.-ZIMMER 2 (westlich neben Sprechzimmer)"
+        },
+        "carport_position": {
+          "value": "östlich (Eingangsseite), mit Wendeltreppe zum OG-Wohnen",
+          "evidence": "CARPORT-Label rechts am Plan; Spiralsymbol als zweite Erschließung zum Wohnbereich."
+        },
+        "terrasse_position": {
+          "value": "westlich, zur Gartenseite",
+          "evidence": "TERRASSE-Bezeichnung westlich vom EG-Block"
+        },
+        "patient_circulation": {
+          "value": "Wartezimmer + WC nahe Eingang, Sprechzimmer + Behandlungszimmer im Inneren",
+          "evidence": "Klassisches Arzt-Praxis-Layout mit Patienten-/Behandlungs-Trennung"
+        }
       }
     },
     {
-      "file": "house-23-floorplan-og-03.jpg",
+      "file": "house-23-floorplan-og.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "1. OG",
-      "caption": "Grundriss 1. Obergeschoss (Blatt 03) — Hauptwohnetage: Eltern + Wohnen + Essen + Arbeitszimmer + 2 Balkone + Ankleide + Bad",
+      "caption": "Grundriss 1. Obergeschoss (Blatt 03) — Wohnetage: Wohnen, Essen, Kochen, Kind, ärztliches Arbeitszimmer, Bad + 2 Balkone",
       "source_ref": {
         "file": "Kannenofen.pdf",
         "page": 3,
-        "crop_box_pct": [0, 0, 1, 1],
+        "crop_box_pct": [
+          0.0,
+          0.04,
+          1.0,
+          0.98
+        ],
         "page_title": "GRUNDRISS OBERGESCHOSS, Blatt 03, M 1:50",
         "scale": "1:50"
       },
       "facts": {
         "rooms_named": {
-          "value": ["ARBEITSZIMMER", "ELTERN", "ESSEN", "WOHNEN", "DIELE", "FLUR", "ANKLEIDE", "BAD", "WC", "KOCHEN/Küche", "BALKON 1", "BALKON 2"],
-          "evidence": "Vollständige Raumbeschriftung im OG-Plan"
+          "value": [
+            "WOHNEN",
+            "ESS-DIELE",
+            "KOCHEN",
+            "BAD",
+            "WC",
+            "KIND",
+            "FLUR",
+            "ÄRZTLICHES ARBEITSZIMMER",
+            "BALKON 1",
+            "BALKON 2"
+          ],
+          "evidence": "Lesbare Raumbeschriftungen im OG-Plan. ÄRZTLICHES ARBEITSZIMMER (östlich am Carport-Block) ist die Praxis-Verlängerung — vermutlich Büro der Arztpraxis. KIND-Raum westlich vom Bad."
         },
-        "rooms_count": {"value": 12, "unit": "count", "note": "inkl. zwei Balkone"},
-        "balkon_count": {"value": 2, "unit": "count", "evidence": "BALKON 1 + BALKON 2, beide an der Gartenseite (östlich) und westlich"},
-        "main_living_floor": {"value": true, "evidence": "OG ist die Hauptwohnetage — enthält Eltern-Schlafzimmer, Wohnen, Essen, Arbeitszimmer. Im historischen Stadthaus-Layout typisch das 'Bel Étage' / Belétage."},
-        "ankleide_zwischen_eltern_bad": {"value": true, "evidence": "ANKLEIDE liegt zwischen ELTERN und BAD — moderne Master-Suite-Anordnung trotz historischer Hülle"}
+        "balkon_count": {
+          "value": 2,
+          "unit": "count",
+          "evidence": "BALKON 1 (östlich, neben Ärztlich Arbeitszimmer) + BALKON 2 (westlich, an Wohnen)"
+        },
+        "main_living_floor": {
+          "value": true,
+          "evidence": "OG ist die Hauptwohnetage (EG ist Praxis). WOHNEN, ESS-DIELE, KOCHEN bilden die Wohnzone; KIND der Schlafraum dieses Geschosses."
+        }
       }
     },
     {
-      "file": "house-23-floorplan-dg-04.jpg",
+      "file": "house-23-floorplan-dg.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "DG",
@@ -109,231 +191,842 @@
       "source_ref": {
         "file": "Kannenofen.pdf",
         "page": 4,
-        "crop_box_pct": [0, 0, 1, 1],
+        "crop_box_pct": [
+          0.0,
+          0.02,
+          1.0,
+          0.7
+        ],
         "page_title": "GRUNDRISS DACHGESCHOSS, Blatt 04, M 1:50",
         "scale": "1:50"
       },
       "facts": {
         "rooms_named": {
-          "value": ["KIND 1", "KIND 2", "KIND 3", "SPIELEN", "DU/WC", "FLUR", "BALKON"],
-          "evidence": "Drei Kinderzimmer + Spielzimmer im DG. Das ist eine 3-Kind-Familie."
+          "value": [
+            "KIND 1",
+            "KIND 2",
+            "KIND 3",
+            "SPIELEN",
+            "DU/WC",
+            "BALKON"
+          ],
+          "evidence": "Drei Kinderzimmer (KIND 1 + KIND 2 östlich, KIND 3 westlich) + SPIELEN-Raum + DU/WC + BALKON (westlich)."
         },
-        "rooms_count": {"value": 7, "unit": "count"},
-        "kid_rooms_count": {"value": 3, "unit": "count"},
-        "play_room_present": {"value": true, "evidence": "Eigener SPIELEN-Raum neben den Kinderzimmern — luxuriöses Kindergeschoss"},
-        "two_meter_lines_visible": {"value": true, "evidence": "Zwei vertikale Strichlinien markieren die 2m-Lichthöhen-Grenzen (DIN 277 Dachschräge-Korrektur)"}
-      }
-    },
-    {
-      "file": "house-23-floorplan-spitzboden-05.jpg",
-      "category": "floorplan",
-      "medium": "scan",
-      "floor": "Spitzboden",
-      "caption": "Grundriss Spitzboden (Blatt 05) — kleine, mittig gelegene Spitz-Etage unter dem First, vermutlich Lager oder Ausbaureserve",
-      "source_ref": {
-        "file": "Kannenofen.pdf",
-        "page": 5,
-        "crop_box_pct": [0, 0, 1, 1],
-        "page_title": "GRUNDRISS SPITZBODEN, Blatt 05, M 1:50",
-        "scale": "1:50"
-      },
-      "facts": {
-        "footprint_small": {"value": true, "evidence": "Spitzboden ist deutlich kleiner als DG — nur der mittige Bereich unter dem First ist nutzbar (Dachschräge zwingt). Footprint sieht aus wie etwa 1/3 des DG-Grundrisses."},
-        "treppenzugang": {"value": true, "evidence": "Treppe vom DG zum Spitzboden sichtbar"},
-        "use": {"value": "unklar — vermutlich Lager / Ausbaureserve, möglicherweise unbeheizt", "evidence": "Keine Raumlabels mit Wohnnutzung sichtbar"}
-      }
-    },
-    {
-      "file": "house-23-exterior-strasse-06.jpg",
-      "category": "elevation",
-      "medium": "scan",
-      "view": "front",
-      "caption": "Straßenansicht (Blatt 06) — Hauptfassade mit Zwerchhaus + Schleppgauben + Rundbogenfenstern in den Zwerchgauben",
-      "source_ref": {
-        "file": "Kannenofen.pdf",
-        "page": 6,
-        "crop_box_pct": [0, 0, 1, 1],
-        "page_title": "STRAßENANSICHT, Blatt 06, M 1:50",
-        "scale": "1:50"
-      },
-      "facts": {
-        "zwerchhaus_count": {"value": 2, "unit": "count", "evidence": "Zwei prominente Zwerchhäuser/Zwerchgiebel an der Straßenfassade — jedes mit Rundbogenfenster in der Spitze"},
-        "rundbogenfenster_count": {"value": 2, "unit": "count", "evidence": "Beide Zwerchgauben tragen je ein Rundbogenfenster (arched window) im Giebel — historistisches Detail"},
-        "schleppgauben_count_strasse": {"value": 4, "unit": "count", "evidence": "Vier Schleppgauben in der Längsfassade zwischen den Zwerchhäusern (am Übergang Hauptdach-Zwerchhaus-Niveau)"},
-        "fenster_eg_count": {"value": 4, "unit": "count", "evidence": "Vier Sprossenfenster im EG der Straßenansicht (zur Praxis-Belichtung)"},
-        "fenster_og_count": {"value": 4, "unit": "count", "evidence": "Vier Fenster im OG, ähnliche Anordnung"},
-        "haupteingang_position": {"value": "mittig", "evidence": "Eingangstür in der Mitte der Straßenfassade, leicht zurückgesetzt"},
-        "fassadengliederung": {"value": "symmetrisch um Mittelachse, Gesims zwischen EG und OG", "evidence": "Klar geometrische Gliederung, horizontal über Stockwerksgesims gegliedert"}
-      }
-    },
-    {
-      "file": "house-23-exterior-eingang-07.jpg",
-      "category": "elevation",
-      "medium": "scan",
-      "view": "side",
-      "caption": "Eingangsansicht (Blatt 07) — Giebelfassade mit steiler 55°-Dachneigung am oberen Bereich und 30°-Hauptdach unten",
-      "source_ref": {
-        "file": "Kannenofen.pdf",
-        "page": 7,
-        "crop_box_pct": [0, 0, 1, 1],
-        "page_title": "EINGANGSANSICHT, Blatt 07, M 1:50",
-        "scale": "1:50"
-      },
-      "facts": {
-        "two_distinct_pitches_visible": {"value": true, "evidence": "Beschriftung '30°' am unteren Dachbereich, '55°' am oberen — zwei verschiedene Dachneigungen am gleichen Gebäude. Charakteristisch für Mansard/Krüppelwalm-Vermutungen oder gesetzten Zwerchhaus-Aufbau."},
-        "pitch_lower_deg": {"value": 30, "unit": "°", "evidence": "Hauptdach-Neigung in der Eingangs-Giebelansicht: 30°"},
-        "pitch_upper_deg": {"value": 55, "unit": "°", "evidence": "Oberer Dachbereich (Spitzboden / Zwerchhaus-Aufbau): 55°"},
-        "altitude_marks_mNN": {"value": [2.41, 4.78, 4.43, 4.63, 4.43, 17.39, 16.49, 6.83], "unit": "m", "evidence": "Höhen-Annotationen am Rand der Ansicht — Geschoss-Niveaus und Trauf-/First-Höhen"},
-        "gable_window_count": {"value": 3, "unit": "count", "evidence": "Drei übereinander gestapelte Fensteröffnungen im Giebel (KG/EG/OG sichtbar als kleine, mittlere, größere Fenster)"}
-      }
-    },
-    {
-      "file": "house-23-floorplan-roof-08.jpg",
-      "category": "elevation",
-      "medium": "scan",
-      "view": "rear",
-      "caption": "Gartenansicht + Detail Dachgaube M 1:10 (Blatt 08) — Rückfassade mit zweitem Zwerchhaus + Schleppgauben + Detail-Schnitt einer Dachgaube",
-      "source_ref": {
-        "file": "Kannenofen.pdf",
-        "page": 8,
-        "crop_box_pct": [0, 0, 1, 1],
-        "page_title": "GARTENANSICHT + DETAIL DACHGAUBE, Blatt 08, M 1:50 (Ansicht) / 1:10 (Detail)",
-        "scale": "1:50 + 1:10"
-      },
-      "facts": {
-        "zwerchgauben_garten_count": {"value": 2, "unit": "count", "evidence": "Auch die Gartenfassade trägt zwei Zwerchgauben mit Rundbogenfenstern — symmetrisches Zwerchhaus-Konzept beidseitig"},
-        "schleppgauben_garten_count": {"value": 3, "unit": "count", "evidence": "Drei Schleppgauben in der Gartenseiten-Längsfassade (eine weniger als Straßenseite)"},
-        "dachgauben_detail_present": {"value": true, "evidence": "Rechte Bildhälfte zeigt einen 1:10-Detailschnitt einer Dachgaube mit allen Materialschichten — Dämmung, Lattung, Konterlattung, Hohlziegel"},
-        "gauben_konstruktion": {"value": "Holzkonstruktion mit Hohlziegel-Eindeckung + Konterlattung + Vordeckung + Dämmung", "evidence": "Aus dem Detail-Schnitt entnommen (Materialschraffuren)"}
-      }
-    },
-    {
-      "file": "house-23-floorplan-section-09.jpg",
-      "category": "section",
-      "medium": "scan",
-      "caption": "Schnitt A-A + B-B + Detail Dacheindeckung M 1:10 (Blatt 09) — zwei Schnitte durch die 5 Geschosse, zeigt klar die zwei Dachneigungen 30° + 55°",
-      "source_ref": {
-        "file": "Kannenofen.pdf",
-        "page": 9,
-        "crop_box_pct": [0, 0, 1, 1],
-        "page_title": "SCHNITT A-A + SCHNITT B-B + DETAIL DACHEINDECKUNG, Blatt 09, M 1:50 (Schnitt) / 1:10 (Detail)",
-        "scale": "1:50 + 1:10"
-      },
-      "facts": {
-        "two_sections_shown": {"value": ["A-A", "B-B"], "evidence": "Zwei Schnitte: A-A Querschnitt durch die Mitte, B-B Längsschnitt"},
-        "five_storeys_visible": {"value": true, "evidence": "Schnitt A-A zeigt klar 5 horizontale Geschossebenen: KG/EG/1.OG/DG/Spitzboden (von unten nach oben)"},
-        "roof_pitch_main_deg": {"value": 30, "unit": "°", "evidence": "Maßlinien-Beschriftung '30°' an der Hauptdach-Schräge im Schnitt B-B"},
-        "roof_pitch_upper_deg": {"value": 55, "unit": "°", "evidence": "Maßlinien-Beschriftung '55°' am oberen Spitzboden-/Zwerchhaus-Bereich"},
-        "dacheindeckung_detail": {
-          "value": {
-            "layers_from_outside_in": ["Hohlziegel/Tonpfanne", "Konterlattung 24 mm", "Lattung", "Vordeckung (Unterspannbahn)", "Dämmung 16 cm", "Dampfsperre", "Innenverkleidung"],
-            "thickness_dämmung_mm": 160
-          },
-          "evidence": "Detail Dacheindeckung 1:10 zeigt Schichtaufbau mit Beschriftung"
+        "kid_rooms_count": {
+          "value": 3,
+          "unit": "count"
         },
-        "altitude_marks_left_edge_m": {"value": [2.84, 5.87, 8.27, 10.66, 13.34, 17.50], "unit": "m", "evidence": "Höhen-Markierungen am linken Schnitt-Rand — Geschoss-Levels von KG (2,84) bis First (17,50). Differenzen: KG→EG 3,03 m; EG→OG 2,40 m; OG→DG 2,39 m; DG→Spitz 2,68 m; Spitz→First 4,16 m."}
-        ,
-        "storey_floor_to_floor_mm": {
-          "value": {"kg_to_eg": 3030, "eg_to_og": 2400, "og_to_dg": 2390, "dg_to_spitz": 2680, "spitz_to_ridge": 4160},
-          "unit": "mm",
-          "evidence": "Differenzen aus altitude_marks_left_edge_m berechnet. KG hat höchste Brutto-Stockhöhe (3,03 m für historische Versorgungs-/Wirtschaftsräume), EG/OG normale ~2,4 m Brutto, DG etwas mehr für Schräge-Kompensation, Spitzboden→First-Aufbauten 4,16 m (Zwerchhaus + Spitzgaube)."
+        "play_room_present": {
+          "value": true,
+          "evidence": "Eigener SPIELEN-Raum neben den Kinderzimmern"
+        },
+        "dg_floor_level_m": {
+          "value": 5.63,
+          "unit": "m",
+          "evidence": "Schnitt A-A zeigt DG OKFFB bei +5.63 m"
         }
       }
     },
     {
-      "file": "house-23-floorplan-details-10.jpg",
+      "file": "house-23-floorplan-spitzboden.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "Spitzboden",
+      "caption": "Grundriss Spitzboden (Blatt 05) — kleines, mittig unter dem First gelegenes Geschoss, vermutlich Lager/Ausbaureserve, mit Wendeltreppe-Zugang aus DG",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 5,
+        "crop_box_pct": [
+          0.0,
+          0.02,
+          1.0,
+          0.7
+        ],
+        "page_title": "GRUNDRISS SPITZBODEN, Blatt 05, M 1:50",
+        "scale": "1:50"
+      },
+      "facts": {
+        "footprint_small": {
+          "value": true,
+          "evidence": "Spitzboden-Grundriss deutlich kleiner als DG — nur mittiger Bereich unter dem First nutzbar. MITTELPFETTE-Linien und FIRSTLINIE markiert."
+        },
+        "treppenzugang": {
+          "value": true,
+          "evidence": "Wendeltreppe vom DG zum Spitzboden im Grundriss erkennbar"
+        },
+        "use": {
+          "value": "unklar — vermutlich Lager / Ausbaureserve",
+          "evidence": "Keine Wohnraum-Labels sichtbar"
+        },
+        "spitzboden_floor_level_m": {
+          "value": 8.43,
+          "unit": "m",
+          "evidence": "Schnitt A-A zeigt +8.43 OKFFB(SP.BO.)"
+        },
+        "flachdach_present": {
+          "value": true,
+          "evidence": "Label FLACHDACH am Plan-Rand (Bereiche neben Zwerchhaus haben Flachdach-Abschluss — daher Detail Flachdach auf Blatt 07)"
+        }
+      }
+    },
+    {
+      "file": "house-23-elevation-strasse.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "front",
+      "caption": "Straßenansicht (Blatt 07) — Hauptfassade der Doppelhaushälfte mit Zwerchhaus + Rundbogenfenster + Balkonen; linke Hälfte = Nachbarseite (gespiegelt)",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 6,
+        "crop_box_pct": [
+          0.0,
+          0.2,
+          0.74,
+          1.0
+        ],
+        "page_title": "STRASSENANSICHT, Blatt 07, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:50"
+      },
+      "facts": {
+        "doppelhaushaelfte_layout": {
+          "value": "Diese Hälfte rechts (mit Labels, BLENDE-Markierungen, MONTENOVO-WÄRMEDÄMMENDER AUSSENPUTZ); linke Hälfte ist gespiegelte Nachbar-Hälfte (ohne Labels)",
+          "evidence": "Symmetrisches Doppelhaus mit Mittelachse als Trennwand zwischen den Hälften"
+        },
+        "zwerchgaube_count_per_half": {
+          "value": 1,
+          "unit": "count",
+          "evidence": "EINE Zwerchgaube mit Rundbogenfenster pro Haus-Hälfte. Die scheinbar 'zweite' Zwerchgaube links gehört zur Nachbar-Hälfte."
+        },
+        "rundbogenfenster_zwerchgaube": {
+          "value": true,
+          "evidence": "Großes Rundbogenfenster (mit Sprossen) als Hauptzierdetail im Zwerchgiebel — historistisches Element"
+        },
+        "fenster_eg_per_half": {
+          "value": 3,
+          "unit": "count",
+          "evidence": "Drei Sprossenfenster im EG der Straßenansicht (für die Praxis-Belichtung), teils als BLENDE (Blindfenster) markiert"
+        },
+        "fenster_og_per_half": {
+          "value": 4,
+          "unit": "count",
+          "evidence": "Vier Fenster + Balkonbrüstung im OG-Bereich"
+        },
+        "balcony_strasse_present": {
+          "value": true,
+          "evidence": "Balkon mit Geländer auf OG-Niveau sichtbar"
+        },
+        "blende_labels_present": {
+          "value": true,
+          "evidence": "Mehrere Fenster mit BLENDE-Beschriftung (blinde / aufgemalte Fenster zur Symmetrie-Wahrung)"
+        },
+        "altitude_marks_m": {
+          "value": {
+            "OK_KAMIN": 11.79,
+            "OK_FIRST_oben": 11.39,
+            "OK_FIRST_unten": 10.19,
+            "OKFFB_SP_BO": 8.43,
+            "OKFFB_DG": 5.63,
+            "OKFFB_OG": 2.79,
+            "OK_FLACHDACH": 2.45,
+            "OKFFB_EG": 0.0,
+            "OK_GELAENDE": -0.15,
+            "OK_GELAENDE_2": -1.04,
+            "OKFFB_KG": -1.47
+          },
+          "unit": "m",
+          "evidence": "Höhenkoten am rechten Bildrand. Hinweis: KG OKFFB hier -1.47 vs Schnitt -2.47 — Ungenauigkeit der Ansicht oder unterschiedliche Bezugspunkte (vermutlich Kellerdecke vs Kellerboden)."
+        },
+        "exterior_facade": {
+          "value": "Montenovo wärmedämmender Außenputz",
+          "evidence": "Label am Fassadenmaterial: 'MONTENOVO WÄRMEDÄMMENDER AUSSENPUTZ'"
+        }
+      }
+    },
+    {
+      "file": "house-23-elevation-eingang.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "side",
+      "caption": "Eingangsansicht (Blatt 09) — Giebelseite des Doppelhauses, beide Hälften symmetrisch + Carport rechts, Hauptdach-Pitch 35°",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 7,
+        "crop_box_pct": [
+          0.0,
+          0.16,
+          0.78,
+          1.0
+        ],
+        "page_title": "EINGANGSANSICHT, Blatt 09, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:50"
+      },
+      "facts": {
+        "main_roof_pitch_deg": {
+          "value": 35,
+          "unit": "°",
+          "evidence": "Pitch-Annotation '35°' beidseitig am Hauptdach in der Eingangsansicht"
+        },
+        "gable_view": {
+          "value": true,
+          "evidence": "Klassische Giebelseite mit symmetrischem Hauptdach (Doppelhaus)"
+        },
+        "carport_visible": {
+          "value": true,
+          "evidence": "Carport-Anbau rechts (östlich am Haupthaus) mit EINSCHALUNG STÜLPSCHALUNG GEHOBELT WEISS und Wendeltreppe"
+        },
+        "balcony_count_visible": {
+          "value": 2,
+          "unit": "count",
+          "evidence": "Zwei Balkone an der linken (West-)Hälfte sichtbar (OG + DG-Niveau)"
+        },
+        "gable_window_count_per_half": {
+          "value": 4,
+          "unit": "count",
+          "evidence": "Vier vertikal gestapelte Fensteröffnungen pro Hälfte (EG/OG/DG/Spitzboden) — teils BLENDE"
+        },
+        "altitude_marks_m": {
+          "value": {
+            "OK_KAMIN": 11.79,
+            "OK_FIRST_oben": 11.39,
+            "OK_FIRST_unten": 11.19,
+            "OKFFB_SP_BO": 8.43,
+            "OKFFB_DG": 5.63,
+            "OKFFB_OG": 2.79,
+            "OKFFB_EG": 0.0,
+            "OK_GELAENDE": -0.15,
+            "OKFFB_KG": -2.47
+          },
+          "unit": "m",
+          "evidence": "Höhenkoten am linken und rechten Bildrand. KG OKFFB hier -2.47 (konsistent mit Schnitt A-A)."
+        }
+      }
+    },
+    {
+      "file": "house-23-elevation-garten.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "rear",
+      "caption": "Gartenansicht (Blatt 08) — Rückfassade mit zweiter Zwerchgaube (Rundbogen), Balkonen und Stülpschalung-Carport-Anbau",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 8,
+        "crop_box_pct": [
+          0.0,
+          0.3,
+          0.8,
+          1.0
+        ],
+        "page_title": "GARTENANSICHT, Blatt 08, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:50"
+      },
+      "facts": {
+        "zwerchgaube_count_per_half": {
+          "value": 1,
+          "unit": "count",
+          "evidence": "EINE Zwerchgaube mit Rundbogenfenster pro Haus-Hälfte, symmetrisch zur Straßenseite. Nachbar-Hälfte rechts ohne Labels."
+        },
+        "rundbogenfenster_zwerchgaube": {
+          "value": true,
+          "evidence": "Großes Rundbogenfenster im Zwerchgiebel (BLENDE-Markierung an einem Element — vermutlich Blindfenster)"
+        },
+        "carport_anbau_garten": {
+          "value": "Carport-Anbau westlich mit Holzverkleidung 'STÜLPSCHALUNG GEHOBELT WEISS'",
+          "evidence": "Label am Anbau auf Garten-/Westseite"
+        },
+        "balcony_garten_present": {
+          "value": true,
+          "evidence": "Balkon mit Geländer auf OG-Niveau über dem Stülpschalung-Anbau"
+        },
+        "blende_labels_present": {
+          "value": true,
+          "evidence": "BLENDE-Beschriftung an mehreren Fenstern (Blindfenster)"
+        },
+        "exterior_facade": {
+          "value": "Montenovo wärmedämmender Außenputz + Bereich mit Stülpschalung an Anbau",
+          "evidence": "Label 'MONTENOVO WÄRMEDÄMMENDER AUSSENPUTZ' + 'STÜLPSCHALUNG GEHOBELT WEISS'"
+        },
+        "altitude_marks_m": {
+          "value": {
+            "OK_KAMIN": 11.79,
+            "OK_FIRST_oben": 11.39,
+            "OK_FIRST_unten": 10.29,
+            "OKFFB_SP_BO": 8.43,
+            "OKFFB_DG": 5.63,
+            "OKFFB_OG": 2.79,
+            "OK_BALKON_2": 2.64,
+            "OK_FLACHDACH": 2.45,
+            "OKFFB_EG": 0.0,
+            "OK_GELAENDE": -0.15,
+            "OKFFB_KG": -2.47
+          },
+          "unit": "m",
+          "evidence": "Höhenkoten am linken Bildrand"
+        }
+      }
+    },
+    {
+      "file": "house-23-section-aa.jpg",
+      "category": "section",
+      "medium": "scan",
+      "caption": "Schnitt A-A (Blatt 06) — Querschnitt: 5 Geschossebenen KG/EG/OG/DG/Spitzboden mit Konstruktions-Details (Holzbalkendecken 6/16, 9/20, Stahlbeton-Bodenplatte, Schöck Iso-Korb)",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 9,
+        "crop_box_pct": [
+          0.02,
+          0.02,
+          0.44,
+          0.68
+        ],
+        "page_title": "SCHNITT A-A, Blatt 06, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:50"
+      },
+      "facts": {
+        "section_label": {
+          "value": "A-A",
+          "evidence": "Beschriftung 'SCHNITT A-A' unter dem Schnitt"
+        },
+        "main_roof_pitch_deg": {
+          "value": 35,
+          "unit": "°",
+          "evidence": "Pitch-Annotation '35°' am Dachschräge-Symbol oben im Schnitt"
+        },
+        "altitude_marks_m": {
+          "value": {
+            "OBEN_RAND": 11.39,
+            "DACH_FIRST": 8.43,
+            "OKFFB_DG": 5.63,
+            "OKFFB_OG": 2.79,
+            "OKFFB_EG": 0.0,
+            "GELAENDE_VORH": "ca. -0.15",
+            "OKFFB_KG": -2.47
+          },
+          "unit": "m",
+          "evidence": "Höhenkoten am linken Schnittrand"
+        },
+        "storey_floor_to_floor_mm": {
+          "value": {
+            "kg_to_eg": 2470,
+            "eg_to_og": 2790,
+            "og_to_dg": 2840,
+            "dg_to_spitz": 2800,
+            "spitz_to_kamin": 3360
+          },
+          "unit": "mm",
+          "evidence": "Differenzen aus altitude_marks: KG→EG = 0.00 − (−2.47) = 2470 mm; EG→OG = 2.79 m; OG→DG = 5.63 − 2.79 = 2840 mm; DG→Spitzboden = 8.43 − 5.63 = 2800 mm; Spitzboden→Kamin/Ridge ≈ 11.79 − 8.43 = 3360 mm."
+        },
+        "construction_layers": {
+          "value": {
+            "fussbodenaufbau_og_dg": [
+              "BODENBELAG 1 CM",
+              "SCHW-ESTRICH 4 CM",
+              "TRITTSCHALLDÄMM 3 CM",
+              "SCHALUNG GEHOBELT MIT NUT U. FEDER",
+              "HOLZBALKEN 20 CM"
+            ],
+            "fussbodenaufbau_eg": [
+              "BODENBELAG 1 CM",
+              "SCHW-ESTRICH 4 CM",
+              "TRITTSCHALL-DÄMM 3 CM",
+              "STB-PLATTE"
+            ],
+            "fussbodenaufbau_kg": [
+              "VERBUNDESTRICH 3 CM",
+              "BODENPLATTE 12 CM",
+              "SAUBERKEITSSCHICHT",
+              "KIESSCHICHT"
+            ],
+            "sparren": "6/16 e=67 CM",
+            "holzbalken_og": "9/20 e=67 CM",
+            "thermal_break": "SCHÖCK ISO-KORB TYP K-16 (Balkon-Auskragung)"
+          },
+          "evidence": "Beschriftungen am Schnitt — komplette Fußboden-Stratigraphie pro Geschoss + Dachstuhl-Sparrenformat + Auskragungs-Wärmebrücke."
+        }
+      }
+    },
+    {
+      "file": "house-23-section-bb.jpg",
+      "category": "section",
+      "medium": "scan",
+      "caption": "Schnitt B-B (Blatt 06) — Längsschnitt durch Zwerchgaube: 45°-Gaubendach-Neigung + Ringbalken in Giebelmauerwerk",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 9,
+        "crop_box_pct": [
+          0.44,
+          0.02,
+          0.82,
+          0.68
+        ],
+        "page_title": "SCHNITT B-B, Blatt 06, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:50"
+      },
+      "facts": {
+        "section_label": {
+          "value": "B-B",
+          "evidence": "Beschriftung 'SCHNITT B-B' unter dem Schnitt"
+        },
+        "zwerchgaube_pitch_deg": {
+          "value": 45,
+          "unit": "°",
+          "evidence": "Beidseitige Pitch-Annotation '45°' am Zwerchgaube-Dach oben im Schnitt B-B. Symmetrisches 45/45 Satteldach der Gaube."
+        },
+        "altitude_marks_m": {
+          "value": {
+            "FIRST": 8.43,
+            "OKFFB_DG": 5.63,
+            "OKFFB_OG": 2.79,
+            "OKFFB_EG": 0.0,
+            "OKFFB_KG": -2.47,
+            "DACH_DUEBERSTAND_+2.64": 2.64
+          },
+          "unit": "m",
+          "evidence": "Höhenkoten an der rechten Schnittseite. +2.64 markiert OK Dachüberstand am Carport-Anbau."
+        },
+        "ringbalken_giebel": {
+          "value": {
+            "format": "17.5/30 cm",
+            "purpose": "Mit Einbindung in Giebelmauerwerk, siehe Detail Blatt 06"
+          },
+          "evidence": "Label 'RINGBALKEN 17.5/30 MIT EINBINDUNG IN GIEBELMAUERWERK S. STATIK / SIEHE DETAIL BLATT NR. 06'"
+        },
+        "construction_layers": {
+          "value": {
+            "holzbalken_dg": "6/16 e=67 CM",
+            "holzbalken_og": "9/20 e=67 CM",
+            "mittelpfette": "15/44",
+            "fussbodenaufbau_kg": [
+              "VERBUNDESTRICH 3 CM",
+              "BODENPLATTE 12 CM"
+            ]
+          },
+          "evidence": "Beschriftungen am Schnitt B-B"
+        }
+      }
+    },
+    {
+      "file": "house-23-detail-dachueberstand.jpg",
       "category": "detail",
       "medium": "scan",
-      "caption": "Architekten-Anschreiben + Plan-Index (Blatt 10) — Übergabeschreiben Architekt Uwe Bremshetter, Liste der 9 Pläne",
+      "caption": "Detail Dachüberstand M 1:10 (Blatt 06) — Konstruktiver Detail-Schnitt durch Traufkante: Sparren, Lattung, PE-Folie, Wärmedämmung, Außenwand-Stratigraphie",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 9,
+        "crop_box_pct": [
+          0.16,
+          0.58,
+          0.58,
+          1.0
+        ],
+        "page_title": "DETAIL DACHÜBERSTAND M 1:10, Blatt 06 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:10"
+      },
+      "facts": {
+        "main_roof_pitch_deg": {
+          "value": 35,
+          "unit": "°",
+          "evidence": "Pitch-Annotation '35°' am Dachschräge-Detail (konsistent mit Schnitt A-A)"
+        },
+        "roof_layers_from_outside_in": {
+          "value": [
+            "Sparren 6/16 e=67 CM",
+            "Lattung 2.5/5",
+            "Konterlattung 4/5",
+            "2x Lattung 2.5/5 (Traufbohle)",
+            "PE-Folie",
+            "Schalung d=2.5 CM",
+            "Dreikantbalken",
+            "Wärmedämmung 10 CM",
+            "Distanzlatten 2.5 CM"
+          ],
+          "evidence": "Beschriftete Schichten im Detail-Schnitt (Schichtaufbau Dach von außen nach innen)"
+        },
+        "thickness_waermedaemmung_mm": {
+          "value": 100,
+          "unit": "mm",
+          "evidence": "Label 'WÄRMEDÄMMUNG 10 CM' = 100 mm im Detail Dachüberstand"
+        },
+        "ringbalken": {
+          "value": {
+            "sizes_cm": [
+              "20/30",
+              "17.5/30"
+            ],
+            "purpose": "Konstruktive Einbindung der Holzbalken-Decke in das Mauerwerk"
+          },
+          "evidence": "Labels 'RINGBALKEN 20/30 MIT EINBINDUNG IN GIEBELMAUERWERK s.STATIK' + 'RINGBALKEN 17.5/30'"
+        },
+        "outer_wall": {
+          "value": {
+            "wand_dicke_mm": 240,
+            "putz_dicke_mm": 45
+          },
+          "evidence": "Labels 'AUSSENKANTE WAND d=24 CM' (= 240 mm) + 'AUSSENKANTE PUTZ d=4.5 CM' (= 45 mm)"
+        },
+        "fussbalken": {
+          "value": "10/10 cm",
+          "evidence": "Label 'FUSSBALKEN 10/10'"
+        },
+        "holzbalken": {
+          "value": "9/20 cm",
+          "evidence": "Label 'HOLZBALKEN 9/20'"
+        }
+      }
+    },
+    {
+      "file": "house-23-detail-dachgaube.jpg",
+      "category": "detail",
+      "medium": "scan",
+      "caption": "Detail Dachgaube M 1:10 (Blatt 08) — Schnitt durch Zwerchgaube-Wand: Verschieferung + Abdichtungspappe + Schalung + Wärmedämmung + Rigips",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 8,
+        "crop_box_pct": [
+          0.0,
+          0.0,
+          0.42,
+          0.5
+        ],
+        "page_title": "DETAIL DACHGAUBE M 1:10, Blatt 08 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:10"
+      },
+      "facts": {
+        "zwerchgaube_pitch_deg": {
+          "value": 45,
+          "unit": "°",
+          "evidence": "Pitch-Annotation '45°' am Gauben-Dachsschnitt (konsistent mit Schnitt B-B)"
+        },
+        "gauben_wand_layers_from_outside_in": {
+          "value": [
+            "Verschieferung",
+            "Abdichtungspappe",
+            "Raume Schalung d=2.5 CM",
+            "Wärmedämmung d=10 CM",
+            "Rigips-Platten doppelbeplankt"
+          ],
+          "evidence": "Beschriftete Schichten im Detail-Schnitt der Gauben-Außenwand (von außen nach innen)"
+        },
+        "gauben_dach_layers_from_outside_in": {
+          "value": [
+            "Schalung d=2.5 CM",
+            "Holzbalken",
+            "Distanzlatten",
+            "Rigipsplatten"
+          ],
+          "evidence": "Schichtbeschriftung am Schnitt durch das Gaubendach (kurzer Pfeilbeschriftungsbalken)"
+        },
+        "thickness_waermedaemmung_mm": {
+          "value": 100,
+          "unit": "mm",
+          "evidence": "'WÄRMEDÄMMUNG d=10 CM' im Detail-Schnitt"
+        },
+        "altitude_marks_visible": {
+          "value": [
+            11.79,
+            11.39,
+            10.29,
+            8.43
+          ],
+          "unit": "m",
+          "evidence": "Höhenkoten OK KAMIN, OK FIRST, OK FIRST, OKFFB(SP.BO) am linken Bildrand"
+        }
+      }
+    },
+    {
+      "file": "house-23-detail-flachdach.jpg",
+      "category": "detail",
+      "medium": "scan",
+      "caption": "Detail Flachdach M 1:10 (Blatt 07) — Aufbau des Flachdach-Bereichs neben Zwerchgaube: Bitumen + Gefälle-Lattung + PE-Folie + Wärmedämmung + Rigips",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 6,
+        "crop_box_pct": [
+          0.0,
+          0.0,
+          0.34,
+          0.42
+        ],
+        "page_title": "DETAIL FLACHDACH M 1:10, Blatt 07 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:10"
+      },
+      "facts": {
+        "flachdach_layers_from_outside_in": {
+          "value": [
+            "Abdeckungsprofil",
+            "Bitumen-Abdichtung 2-lagig",
+            "Gefälle-Latten 6 bis 2.5 CM",
+            "PE-Folie",
+            "Schalung d=2.5 CM",
+            "Holzbalken",
+            "Wärmedämmung 10 CM",
+            "Distanzlatten 2.5/5 CM",
+            "Rigips-Pl. Beplankung"
+          ],
+          "evidence": "Beschriftete Schichten im Flachdach-Detail (von außen nach innen)"
+        },
+        "thickness_waermedaemmung_mm": {
+          "value": 100,
+          "unit": "mm",
+          "evidence": "'WÄRMEDÄMMUNG 10 CM'"
+        },
+        "flachdach_position": {
+          "value": "Neben Zwerchgaube, OK Flachdach +2.45 m",
+          "evidence": "Bezugshöhe +2.45 m aus Straßen-/Gartenansicht 'OK FLACHDACH'"
+        }
+      }
+    },
+    {
+      "file": "house-23-detail-decke-absenkung-dg.jpg",
+      "category": "detail",
+      "medium": "scan",
+      "caption": "Detail Decken-Absenkung in DG M 1:10 (Blatt 07) — Knotenpunkt Dachgauben-Fenster + Holzbalken-Decke",
+      "source_ref": {
+        "file": "Kannenofen.pdf",
+        "page": 6,
+        "crop_box_pct": [
+          0.34,
+          0.0,
+          0.7,
+          0.42
+        ],
+        "page_title": "DETAIL DECKEN ABSENKUNG IN DG M 1:10, Blatt 07 (PDF-Seite um 90° gegen Leserichtung gedreht)",
+        "scale": "1:10"
+      },
+      "facts": {
+        "decken_absenkung_layers": {
+          "value": [
+            "Dachgauben-Fenster",
+            "Schalung d=2.5 CM",
+            "Holzbalken",
+            "Distanzlatten d=2.5/2.5",
+            "Rigipspl-Beplankung"
+          ],
+          "evidence": "Beschriftete Schichten am Decken-Absenkungs-Knoten am Dachgauben-Fenster"
+        },
+        "purpose": {
+          "value": "Statischer / konstruktiver Knotenpunkt zwischen Dachgauben-Fenster-Lichtraum und der DG-Holzbalkendecke",
+          "evidence": "Das Detail zeigt wie die Decke an dieser Stelle abgesetzt wird, um die Fensteröffnung zu ermöglichen."
+        }
+      }
+    },
+    {
+      "file": "house-23-doc-anschreiben.jpg",
+      "category": "detail",
+      "medium": "scan",
+      "caption": "Anschreiben / Plan-Index (Blatt 10) — Übergabeschreiben Architekt Uwe Berkemeyer an Bauherrin B. Winkelmeier-Hötter, datiert 08.09.93, listet die 9 Pläne",
       "source_ref": {
         "file": "Kannenofen.pdf",
         "page": 10,
-        "crop_box_pct": [0, 0, 1, 1],
-        "page_title": "Anschreiben + Plan-Index, Blatt 10"
+        "crop_box_pct": [
+          0.0,
+          0.0,
+          1.0,
+          1.0
+        ],
+        "page_title": "Anschreiben + Plan-Index, datiert 08.09.93"
       },
       "facts": {
-        "architekt": {"value": "Uwe Bremshetter, Dipl.-Ing.", "evidence": "Briefkopf"},
-        "architekt_kammer": {"value": "Architektenkammer NRW, Mitgliedsnummer F 14082", "evidence": "Briefkopf + Stempel"},
-        "architekt_address": {"value": "Sinkstraße 32, 53721 Siegburg", "evidence": "Briefkopf"},
-        "plan_count": {"value": 9, "unit": "count", "evidence": "Index listet Blätter 01-09 (10 ist das Anschreiben)"},
-        "telefon": {"value": "02241 — 65945", "evidence": "Briefkopf"}
+        "architekt": {
+          "value": "Uwe Berkemeyer, Dipl.-Ing.",
+          "evidence": "Briefkopf"
+        },
+        "architekt_kammer": {
+          "value": "Architektenkammer NRW, Mitgliedsnummer F 14082",
+          "evidence": "Briefkopf + Fußzeile"
+        },
+        "architekt_address": {
+          "value": "Ringstraße 32, 53721 Siegburg",
+          "evidence": "Briefkopf"
+        },
+        "architekt_telefon": {
+          "value": "0 22 41 / 6 39 45 (Fax: 5 56 04)",
+          "evidence": "Briefkopf"
+        },
+        "datum": {
+          "value": "1993-09-08",
+          "evidence": "Datumsstempel '08.09.93'"
+        },
+        "bauherrin": {
+          "value": "Frau B. Winkelmeier-Hötter, Marktstraße 95, 56 332 Niederfell",
+          "evidence": "Anschrift"
+        },
+        "bauvorhaben_adresse": {
+          "value": "Am Kannenofen 45, 53 721 Siegburg",
+          "evidence": "Betreff: 'Neubau eines Wohn- und Praxisgebäudes mit Carport als Doppelhaushälfte, Am Kannenofen 45, 53 721 Siegburg'"
+        },
+        "plan_index": {
+          "value": {
+            "01": "Grundriß Kellergeschoß",
+            "02": "Grundriß Erdgeschoß",
+            "03": "Grundriß Obergeschoß",
+            "04": "Grundriß Dachgeschoß",
+            "05": "Grundriß Spitzboden",
+            "06": "Schnitt A-A, B-B, Detail Dachüberstand",
+            "07": "Straßenansicht, Details",
+            "08": "Gartenansicht, Detail Dachgaube",
+            "09": "Eingangsansicht"
+          },
+          "evidence": "Wortgetreue Wiedergabe der nummerierten Liste im Anschreiben"
+        }
       }
     }
   ],
   "derived_facts": {
     "stories_count": {
       "value": 5,
-      "sources": ["house-23-floorplan-kg-01.jpg", "house-23-floorplan-eg-02.jpg", "house-23-floorplan-og-03.jpg", "house-23-floorplan-dg-04.jpg", "house-23-floorplan-spitzboden-05.jpg", "house-23-floorplan-section-09.jpg"],
-      "expected": "KG + EG + 1.OG + DG + Spitzboden = 5 (record.levels)",
+      "sources": [
+        "house-23-floorplan-kg.jpg",
+        "house-23-floorplan-eg.jpg",
+        "house-23-floorplan-og.jpg",
+        "house-23-floorplan-dg.jpg",
+        "house-23-floorplan-spitzboden.jpg",
+        "house-23-section-aa.jpg"
+      ],
+      "expected": "KG + EG + 1.OG + DG + Spitzboden = 5 (record.levels). Konsistent mit Schnitt A-A altitude marks (KG -2.47, EG 0, OG +2.79, DG +5.63, Spitzboden +8.43).",
       "ok": true
     },
     "roof_geometry_dual_pitch": {
-      "value": {"lower_pitch_deg": 30, "upper_pitch_deg": 55, "construction_type": "Zwerchdach mit erhöhtem Spitzboden / Zwerchhaus-Aufbau"},
-      "sources": ["house-23-exterior-eingang-07.jpg", "house-23-floorplan-section-09.jpg"],
-      "expected": "Zwei verschiedene Dachneigungen am selben Gebäude: 30° Hauptdach, 55° oberer Spitzboden-Aufbau. Konsistent in Eingangsansicht (Blatt 07) und Schnitt (Blatt 09).",
+      "value": {
+        "main_roof_pitch_deg": 35,
+        "zwerchgaube_pitch_deg": 45,
+        "construction_type": "Zwerchdach mit aufgesetzter steilerer Zwerchgaube-Gaube"
+      },
+      "sources": [
+        "house-23-section-aa.jpg",
+        "house-23-section-bb.jpg",
+        "house-23-elevation-eingang.jpg",
+        "house-23-detail-dachueberstand.jpg",
+        "house-23-detail-dachgaube.jpg"
+      ],
+      "expected": "Hauptdach 35° (Schnitt A-A, Eingangsansicht, Detail Dachüberstand). Zwerchhaus-Gauben mit steilerem 45°-Dachstuhl (Schnitt B-B, Detail Dachgaube). Vorherige Annahme '30° + 55°' war falsch — Beschriftung ist eindeutig 35° + 45°.",
       "ok": true
     },
     "dormer_inventory": {
       "value": {
-        "zwerchgauben_strasse":  {"count": 2, "feature": "Rundbogenfenster"},
-        "zwerchgauben_garten":   {"count": 2, "feature": "Rundbogenfenster"},
-        "schleppgauben_strasse": {"count": 4},
-        "schleppgauben_garten":  {"count": 3},
-        "total_zwerchgauben":    4,
-        "total_schleppgauben":   7
+        "zwerchgauben_per_half": {
+          "strasse": 1,
+          "garten": 1,
+          "total": 2,
+          "feature": "Rundbogenfenster"
+        },
+        "schleppgauben": "vorhanden, Anzahl nicht eindeutig aus Ansichten ablesbar (mehrere kleine BLENDE-Markierungen)",
+        "total_zwerchgauben_one_half": 2
       },
-      "sources": ["house-23-exterior-strasse-06.jpg", "house-23-floorplan-roof-08.jpg"],
-      "expected": "Reichhaltige Dachgliederung — 4 Zwerchgauben (2 pro Längsseite) + 7 Schleppgauben verteilt auf beide Längsseiten. Das ist eine der bellwether-Merkmale für die bim-ai #109-Verifikation.",
+      "sources": [
+        "house-23-elevation-strasse.jpg",
+        "house-23-elevation-garten.jpg"
+      ],
+      "expected": "Pro Hauslang-Seite EINE Zwerchgaube → 2 Zwerchgauben pro Hälfte (Straße + Garten). Vorherige Annahme von 2 Zwerchgauben pro Seite (4 gesamt) war eine Fehlinterpretation: die linke 'Zwerchgaube' in der Straßenansicht gehört zur Nachbarhälfte.",
       "ok": true
     },
-    "mixed_use_eg": {
-      "value": "Arzt-Praxis + Wohnen",
-      "sources": ["house-23-floorplan-eg-02.jpg"],
-      "expected": "EG ist gemischt-genutzt: Sprechzimmer/Wartezimmer/Behandlungszimmer (medizinische Praxis, straßenseitig) + Küche/Kinderzimmer/Funktionsräume (privat, gartenseitig). Mit getrennter Patienten-/Privat-Zirkulation.",
+    "use_eg_practice_only": {
+      "value": "EG ist reine Arzt-Praxis (Sprechzimmer, Anmeldung, 2× Behandlungszimmer, Wartezimmer, WC, Bad). Wohnen erst ab OG.",
+      "sources": [
+        "house-23-floorplan-eg.jpg"
+      ],
+      "expected": "Im Gegensatz zur früheren Beschreibung 'Mixed-use EG' enthält das EG keine Wohnräume. Wohnen beginnt im 1. OG (WOHNEN, ESS-DIELE, KOCHEN, KIND).",
       "ok": true
     },
     "total_building_height_mm": {
-      "value": 17500,
+      "value": 11790,
       "unit": "mm",
-      "sources": ["house-23-floorplan-section-09.jpg"],
-      "expected": "Höchster Höhen-Mark am linken Schnitt-Rand: 17,50 m (First). Sehr hoch für ein 5-stöckiges Wohnhaus (typisch wären 13-15 m), aber durch den 55°-Zwerchhaus-Aufbau plausibel.",
+      "sources": [
+        "house-23-elevation-strasse.jpg",
+        "house-23-elevation-eingang.jpg",
+        "house-23-elevation-garten.jpg"
+      ],
+      "expected": "OK KAMIN +11.79 m gegenüber EG ±0.00 = 11.79 m über EG-Boden. Inkl. Keller-Tiefe (-2.47 m) = ca. 14.26 m total. Vorherige Angabe 17.50 m war falsch — kein 17.50-Mark sichtbar; vermutlich Fehl-Lesung.",
       "ok": true
     },
-    "kg_storey_unusually_tall": {
-      "value": 3030,
+    "storey_heights_mm": {
+      "value": {
+        "kg_to_eg": 2470,
+        "eg_to_og": 2790,
+        "og_to_dg": 2840,
+        "dg_to_spitzboden": 2800
+      },
       "unit": "mm",
-      "sources": ["house-23-floorplan-section-09.jpg"],
-      "expected": "KG-Stockhöhe (Boden-zu-Boden) ≈ 3,03 m — höher als normale Wohnstockhöhen (~2,40 m). Vermutlich enthält das KG hohe Versorgungs-/Wirtschaftsräume (möglicherweise Tonnengewölbe oder hohe historische Werkstatt-Räume)."
+      "sources": [
+        "house-23-section-aa.jpg",
+        "house-23-elevation-eingang.jpg"
+      ],
+      "expected": "Aus altitude marks im Schnitt + Ansicht abgeleitet. KG hat 2.47 m Brutto-Tiefe ab EG ±0.00. Wohngeschosse ~2.79–2.84 m. Konsistent zwischen Schnitt A-A und Eingangsansicht.",
+      "ok": true
     },
     "kid_rooms_total": {
       "value": 4,
       "unit": "count",
-      "sources": ["house-23-floorplan-eg-02.jpg", "house-23-floorplan-dg-04.jpg"],
-      "expected": "EG: 1 KINDERZIMMER (privat-seitig); DG: 3 KIND-Räume + SPIELEN. Insgesamt 4 Kinderzimmer für eine Drei-Kind-Familie + ein Gast-/Spielzimmer.",
+      "sources": [
+        "house-23-floorplan-og.jpg",
+        "house-23-floorplan-dg.jpg"
+      ],
+      "expected": "OG: 1 KIND (+SPIELEN?); DG: 3 KIND-Räume + SPIELEN. Insgesamt 4 dedizierte Kinderzimmer plus 1 Spielraum.",
       "ok": true
     },
     "balkon_total": {
       "value": 3,
       "unit": "count",
-      "sources": ["house-23-floorplan-og-03.jpg", "house-23-floorplan-dg-04.jpg"],
-      "expected": "OG: BALKON 1 + BALKON 2 (Garten + West); DG: 1 BALKON. Σ = 3 Balkone.",
+      "sources": [
+        "house-23-floorplan-og.jpg",
+        "house-23-floorplan-dg.jpg"
+      ],
+      "expected": "OG: BALKON 1 + BALKON 2; DG: 1 BALKON. Σ = 3 Balkone.",
       "ok": true
     },
     "carport_with_spiral_stair": {
       "value": true,
-      "sources": ["house-23-floorplan-eg-02.jpg"],
-      "expected": "Carport westlich vom Haupthaus, mit eingebauter Wendeltreppe als zweiter Erschließungsweg zum OG — vermutlich Privat-/Bauherrn-Zugang getrennt vom Patienten-Eingang."
+      "sources": [
+        "house-23-floorplan-eg.jpg",
+        "house-23-elevation-eingang.jpg"
+      ],
+      "expected": "Carport östlich vom Haupthaus (Eingangsseite), mit eingebauter Wendeltreppe zum OG-Wohnen. Damit getrennte Erschließungen: Patienten über Haupteingang (EG-Praxis), Bauherrn-Familie über Carport-Wendeltreppe direkt ins OG."
     },
-    "roof_construction_layers": {
-      "value": "Hohlziegel + Konterlattung 24 mm + Lattung + Vordeckung + Dämmung 160 mm + Dampfsperre + Innenverkleidung",
-      "sources": ["house-23-floorplan-section-09.jpg", "house-23-floorplan-roof-08.jpg"],
-      "expected": "Aus den 1:10-Detailschnitten der Dacheindeckung in Blättern 08 + 09 entnommen. Dämmstärke 16 cm ist moderner Standard, deutet auf eine späte 90er / 2000er Sanierung trotz historistischer Hülle hin."
+    "wall_buildup_stratigraphy": {
+      "value": {
+        "main_roof": "Sparren 6/16 e=67 + Lattung 2.5/5 + Konterlattung 4/5 + 2× Lattung 2.5/5 + PE-Folie + Schalung 2.5 CM + Wärmedämmung 100 mm + Distanzlatten 2.5/5 + Rigips (Detail Dachüberstand)",
+        "zwerchgaube_wand": "Verschieferung + Abdichtungspappe + Raumschalung 2.5 CM + Wärmedämmung 100 mm + Rigips doppelbeplankt (Detail Dachgaube)",
+        "flachdach": "Abdeckungsprofil + Bitumen-Abdichtung 2-lagig + Gefälle-Latten 6→2.5 CM + PE-Folie + Schalung 2.5 CM + Holzbalken + Wärmedämmung 100 mm + Distanzlatten + Rigips (Detail Flachdach)",
+        "outer_wall_finish": "Montenovo wärmedämmender Außenputz (Beschriftung in Ansichten); Wandstärke d=24 CM + Putz d=4.5 CM (Detail Dachüberstand)",
+        "fussbodenaufbau_og_dg": "Bodenbelag 1 + Schw-Estrich 4 + Trittschalldämm 3 + Schalung + Holzbalken 20 CM (Schnitt A-A)",
+        "fussbodenaufbau_eg": "Bodenbelag 1 + Schw-Estrich 4 + Trittschall-Dämm 3 + STB-Platte",
+        "fussbodenaufbau_kg": "Verbundestrich 3 + Bodenplatte 12 + Sauberkeitsschicht + Kiesschicht"
+      },
+      "sources": [
+        "house-23-detail-dachueberstand.jpg",
+        "house-23-detail-dachgaube.jpg",
+        "house-23-detail-flachdach.jpg",
+        "house-23-detail-decke-absenkung-dg.jpg",
+        "house-23-section-aa.jpg"
+      ],
+      "expected": "Vollständiger Schichtaufbau aller Bauteile aus den 1:10-Detailzeichnungen + Schnitt A-A — reicht für T3/T4-Rekonstruktion mit Material-Layern. Wärmedämmstärke konsistent 100 mm an Hauptdach, Zwerchgaube und Flachdach."
+    },
+    "facade_material": {
+      "value": "Montenovo wärmedämmender Außenputz (Hauptfassade) + Holz-Stülpschalung gehobelt weiß (Carport / Gauben-Bereich)",
+      "sources": [
+        "house-23-elevation-strasse.jpg",
+        "house-23-elevation-garten.jpg",
+        "house-23-elevation-eingang.jpg"
+      ],
+      "expected": "Zwei Fassadenmaterialien klar beschriftet: 'MONTENOVO WÄRMEDÄMMENDER AUSSENPUTZ' an der Hauptfassade, 'STÜLPSCHALUNG GEHOBELT WEISS' am Carport-Anbau und Gauben-Verkleidung."
+    },
+    "year_built_from_anschreiben": {
+      "value": 1993,
+      "sources": [
+        "house-23-doc-anschreiben.jpg"
+      ],
+      "expected": "Architekten-Anschreiben datiert 08.09.93. Architekt war Uwe Berkemeyer (NICHT Bremshetter wie zuvor angenommen). Bauherrin: B. Winkelmeier-Hötter.",
+      "ok": true
     }
   },
   "anomaly_flags": [
-    "Datierung: Keine eindeutige Datierung im Plansatz erkennbar. Die historistische Architektur (Rundbogenfenster, Zwerchhaus, Schleppgauben) deutet auf späten 19. / frühen 20. Jh. hin, aber die moderne Dämmung 160 mm im Dacheindeckungs-Detail spricht für einen Plan einer Sanierung/Neuerstellung. Möglicherweise Neubau im historistischen Stil 1990er-2000er, oder Renovierung eines Altbaus. year_built bleibt null bis Klärung.",
-    "Building-Type-Frage: 'Doppelhaushälfte' aus der bisherigen Klassifikation, aber die Pläne zeigen ein einzelnes, symmetrisch um Mittelachse gegliedertes Stadthaus mit Einzeleingang in der Mitte. Möglicherweise ist es ein freistehendes Wohnhaus, das in einer Reihe steht (Reihen-Endhaus oder freistehend). Vor-Ort-Verifikation nötig.",
-    "Die 55°-Spitzboden-Dachneigung kombiniert mit dem 30°-Hauptdach erzeugt eine Zwerchdach/Mansardartige Silhouette, die für bim-ai schwer abzubilden ist (bim-ai#109). Beim Render Vorsicht: keine Standard-Satteldach-Approximation."
+    "Architekt-Identität korrigiert: Pläne tragen Stempel von Uwe BERKEMEYER (nicht Bremshetter wie in früherer Standardisierung). Bestätigt durch Anschreiben.",
+    "Pitch-Werte korrigiert: Hauptdach ist 35° (nicht 30°) und Zwerchhaus 45° (nicht 55°). Originale Beschriftung an Schnitt A-A, Schnitt B-B, Eingangsansicht, Detail Dachüberstand und Detail Dachgaube ist eindeutig.",
+    "Zwerchgaube-Anzahl korrigiert: EINE Zwerchgaube pro Längsseite (also 2 für diese Doppelhaushälfte). Die früher behaupteten '4 Zwerchgauben' kamen durch Mit-Zählen der Nachbar-Hälfte zustande.",
+    "EG-Nutzung korrigiert: Reines Arzt-Praxis-Geschoss (keine Wohnräume). Wohnen beginnt im OG. Frühere Annahme 'Mixed-use mit Küche+Kinderzimmer im EG' nicht durch Plan gestützt.",
+    "OG-Räume korrigiert: ELTERN, ANKLEIDE waren in der vorherigen Annotation Halluzinationen — nicht auf dem OG-Plan sichtbar. Tatsächliche Räume: WOHNEN, ESS-DIELE, KOCHEN, BAD, WC, KIND, FLUR, ÄRZTLICHES ARBEITSZIMMER, BALKON 1 + 2.",
+    "Detail-Naming korrigiert: 'Dacheindeckung' war Fehlbezeichnung. Tatsächlich heißt das Detail auf Blatt 06 'DACHÜBERSTAND' (zeigt die Traufkante). Die Schichtbeschriftung umfasst aber auch das Dachstrahls — fast identische Daten.",
+    "PDF-Seitenreihenfolge ≠ Architektur-Blattnummerierung. Im Anschreiben heißt Blatt 06 'Schnitt A-A, B-B, Detail Dachüberstand' (= PDF-Seite 9), Blatt 07 'Straßenansicht, Details' (= PDF-Seite 6), Blatt 08 'Gartenansicht, Detail Dachgaube' (= PDF-Seite 8), Blatt 09 'Eingangsansicht' (= PDF-Seite 7).",
+    "Die zwei Dachneigungen (35° + 45°) erzeugen eine Zwerchhaus-Silhouette, die für bim-ai schwer abzubilden ist (bim-ai#109). Beim Render Vorsicht: kein Standard-Satteldach."
   ],
   "bim_ai_blocking_issues": [
     "jhoetter/bim-ai#109"
@@ -345,6 +1038,6 @@
     "section_drawing": "dimensioned",
     "roof_plan": "absent",
     "site_plan": "absent",
-    "construction_specs": "summary"
+    "construction_specs": "full_baubeschreibung"
   }
 }
