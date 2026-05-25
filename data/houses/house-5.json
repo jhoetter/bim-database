@@ -7,42 +7,43 @@
   "source_origin": null,
   "building_type": "Bungalow",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Flachdach",
+  "style": "skandinavisch",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG"],
   "area_m2": 107,
   "rooms": 3,
   "floors": 1.0,
   "price_eur": 277800,
   "price_on_request": false,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Eingeschossiger Bungalow in Holz-Riegelbauweise mit Flachdach. U-förmiger Grundriss mit überdachter Terrasse zwischen den beiden Vorderflügeln. Großzügige Glasfronten zum Garten.",
+  "agent_notes": "Flachdach + U-Footprint = unproblematisch (Valley-Issues betreffen nur Pitched-Roofs, vgl. #31). Holzfassade = Materialwahl.",
   "tags": [],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "ebh_f88-130holz_exterior1.original.avif",
       "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "medium": "render",
+      "view": "rear",
+      "caption": "Gartenseite — U-Grundriss mit eingerückter überdachter Terrasse"
     },
     {
       "file": "ebh_f88-130holz_exterior2.original.avif",
       "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "medium": "render",
+      "view": "corner",
+      "caption": "Eckansicht"
     },
     {
       "file": "ebh_f88-130holz_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     }
   ]
 }
