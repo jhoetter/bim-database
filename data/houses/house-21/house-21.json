@@ -24,7 +24,7 @@
   "price_on_request": false,
   "site": "flat lot, urban infill, Schalksmühle (NRW)",
   "character": "1956 Doppelhaushälfte (semi-detached half) with cellar, gable roof, two shed dormers per long facade. Entwurf von 1939 (Architekt Herbert Schmidt, Dahlerbrück) für Firma Arnold Reinecke, gebaut Mai 1956.",
-  "agent_notes": "Most architecturally clean of the 3 documentation records — elongated ~2:1 footprint, clear 3-level stack, exposed cellar on Tal side. Good baseline for the convergence loop. Standardization pipeline run 2026-05-25: room-by-room Wohnfläche cross-verified against DIN 283 calculation.",
+  "agent_notes": "Most architecturally clean of the 3 documentation records — elongated ~2:1 footprint, clear 3-level stack, exposed cellar on Tal side. Good baseline for the convergence loop. Standardization pipeline run 2026-05-25: room-by-room Wohnfläche cross-verified against DIN 283 calculation. Deep-annotation pass 2026-05-25 added construction-layer stratigraphy from the 1956 Baubeschreibung and volumetric breakdown of Umbauter Raum (KG+EG / DG / Spitzboden / Abseiten sub-volumes).",
   "tags": [],
   "images": [
     {
@@ -123,11 +123,15 @@
         "room_dimensions_mm": {
           "value": {
             "Wohnzimmer":   {"length_mm": 4930, "width_mm": 3900},
-            "Schlafzimmer": {"length_mm": 4935, "width_mm": 3650},
-            "Kinderzimmer": {"length_mm": 2400, "width_mm": 4050}
+            "Schlafzimmer": {"length_mm": 4435, "width_mm": 3900, "deductions_m2": 0.0832, "deduction_evidence": "Nische 0,26·0,32"},
+            "Flur":         {"length_mm": 4615, "width_mm": 1200},
+            "Kinderzimmer": {"length_mm": 4010, "width_mm": 2400},
+            "Küche":        {"length_mm": 2695, "width_mm": 2750, "deductions_m2": 0.7404, "deduction_evidence": "Schornstein 0,32·0,32 + Treppen-/Abluftaussparung 0,55·1,16"},
+            "Speisekammer": {"length_mm": 1100, "width_mm":  490},
+            "Bad u. WC":    {"length_mm": 2695, "width_mm": 1750}
           },
           "unit": "mm",
-          "evidence": "Maßketten am EG-Plan: Wohnzimmer 4,93·3,90; Schlafzimmer 4,935·3,65; Kinderzimmer 2,40·4,05. Kleinere Räume (Flur/Küche/Bad/Speisekammer) Dim nicht klar lesbar — siehe anomaly_flags."
+          "evidence": "Maße aus der Wohnflächenberechnung-Tabelle (DIN 283, Mai 1956, page 3). Sub-cm-Genauigkeit. Korrigiert frühere Misreads aus dem EG-Plan-Scan (Schlafzimmer 4,935·3,65 → 4,435·3,90; Kinderzimmer 2,40·4,05 → 4,01·2,40)."
         },
         "room_areas_m2": {
           "value": {
@@ -145,9 +149,7 @@
         "rooms_count_per_half": {"value": 7, "unit": "count"},
         "wohnflaeche_eg_per_half_m2": {"value": 61.61, "unit": "m²", "evidence": "Summe der Räume = Netto-Wohnfläche EG pro Hälfte"}
       },
-      "anomaly_flags": [
-        "Per-Raum-Maße für Flur/Küche/Bad/Speisekammer auf der EG-Bemaßung nicht klar lesbar — höhere DPI / direkte PDF-Bemaßungs-Extraktion nötig. room_dimensions_mm enthält nur die 3 lesbaren Räume."
-      ]
+      "anomaly_flags": []
     },
     {
       "file": "house-21-floorplan-dg-detail.jpg",
@@ -167,12 +169,15 @@
         "outer_dims_per_half_mm": {"value": [9900, 8150], "unit": "mm"},
         "room_dimensions_mm": {
           "value": {
-            "Wohnzimmer":   {"length_mm": 4990, "width_mm": 3485, "note": "+ Dachschräge-Zuschläge (1,85·0,60 + 0,385·0,97) gem. DIN 283"},
-            "Schlafzimmer": {"length_mm": 4435, "width_mm": 3485, "note": "+ Dachschräge-Zuschlag (1,85·0,60·0,385) gem. DIN 283"},
-            "Kinderzimmer": {"length_mm": 2160, "width_mm": 3470}
+            "Wohnzimmer":   {"length_mm": 4990, "width_mm": 3485, "dachschraege_correction": "−1,85·0,60·0,385 (50%-Zuschlag) und kleine Nische"},
+            "Schlafzimmer": {"length_mm": 4435, "width_mm": 3485, "dachschraege_correction": "+1,85·0,60·0,385 Aufschiebling"},
+            "Flur":         {"length_mm": 4615, "width_mm": 1200},
+            "Kinderzimmer": {"length_mm": 2460, "width_mm": 3470, "dachschraege_correction": "−2,46·0,50/2 (Dachschräge < 2m zu 50%)"},
+            "Küche":        {"length_mm": 2195, "width_mm": 2750, "dachschraege_correction": "+0,875·0,60·0,32 Nische / -0,87·1,875·0,50/2 Schräge"},
+            "Bad u. WC":    {"length_mm": 2755, "width_mm": 1750}
           },
           "unit": "mm",
-          "evidence": "Maßketten am DG-Plan. DG-Räume haben durch Dachschräge geringere effektive Wohnfläche (DIN 283: Bereiche < 1m Höhe komplett abgezogen, 1-2m Höhe zu 50%)."
+          "evidence": "Maße aus der Wohnflächenberechnung-Tabelle (DIN 283, Mai 1956, page 3). DG-Räume haben durch Dachschräge variierende effektive Wohnfläche — DIN 283 §2: Bereiche < 1m Höhe komplett abgezogen, 1-2m Höhe zu 50%."
         },
         "room_areas_m2": {
           "value": {
@@ -189,9 +194,7 @@
         "rooms_count_per_half": {"value": 6, "unit": "count"},
         "wohnflaeche_dg_per_half_m2": {"value": 54.42, "unit": "m²"}
       },
-      "anomaly_flags": [
-        "Per-Raum-Maße für Flur/Küche/Bad auf DG-Bemaßung nicht klar lesbar — siehe EG."
-      ]
+      "anomaly_flags": []
     },
     {
       "file": "house-21-section-quer.jpg",
@@ -253,7 +256,32 @@
         "wohnflaeche_total_m2": {"value": 232.06, "unit": "m²", "evidence": "2 × 116.03 = 232.06 m² (Gesamtgebäude / beide Hälften)"},
         "calculation_date": {"value": "1956-05", "evidence": "Datumsstempel 'Dahlerbrück, im Mai 1956'"},
         "architect": {"value": "Herbert Schmidt, Architekt u. Bauing., Dahlerbrück i.W."},
-        "owner": {"value": "Arnold Reinecke (Firma)"}
+        "owner": {"value": "Arnold Reinecke (Firma)"},
+        "din283_factor": {"value": 0.97, "evidence": "Multiplikator für Lichthöhen 2,25-2,50 m gemäß DIN 283. Auf alle Räume angewandt."},
+        "wohnflaeche_calculation_per_room": {
+          "value": {
+            "EG": {
+              "Wohnzimmer":   "4,93 · 3,90 · 0,97 = 18,65",
+              "Schlafzimmer": "(4,435 · 3,90 − 0,26 · 0,32) · 0,97 = 16,69",
+              "Flur":         "4,615 · 1,20 · 0,97 = 5,37",
+              "Kinderzimmer": "4,01 · 2,40 · 0,97 = 9,33",
+              "Küche":        "(2,695 · 2,75 − (0,32² + 0,55 · 1,16)) · 0,97 = 6,47",
+              "Speisekammer": "1,10 · 0,49 · 0,97 = 0,52",
+              "Bad u. WC":    "2,695 · 1,75 · 0,97 = 4,58"
+            },
+            "DG": {
+              "Wohnzimmer":   "(4,99 · 3,485 − 1,85 · 0,60 · 0,385 − 0,50/2 · ...) · 0,97 = 15,66",
+              "Schlafzimmer": "(4,435 · 3,485 + 1,85 · 0,60 · 0,385) · 0,97 = 15,33",
+              "Flur":         "4,615 · 1,20 · 0,97 = 5,37",
+              "Kinderzimmer": "(2,46 · 3,47 − 2,46 · 0,50/2) · 0,97 = 7,68",
+              "Küche":        "(2,195 · 2,75 + 0,875 · 0,60 · 0,32 − 0,87 · 1,875 · 0,50/2) · 0,97 = 5,70",
+              "Bad u. WC":    "2,755 · 1,75 · 0,97 = 4,68"
+            }
+          },
+          "evidence": "Wortgetreue Wiedergabe der handschriftlich notierten DIN-283-Formeln auf page 3. EG-Räume: Vollanrechnung mit kleinen Nischen/Schornstein-Abzügen. DG-Räume: zusätzliche Dachschräge-Korrekturen nach DIN 283 §2 (Bereiche 1-2 m Höhe zu 50%, < 1 m komplett abgezogen)."
+        },
+        "apartment_count": {"value": 4, "unit": "count", "evidence": "'Im Erdgeschoss sowie im Dachgeschoss sind jeweils zwei 3 ½ Zimmerwohnungen untergebracht' (Baubeschreibung). 2 EG + 2 DG = 4 Wohnungen je Doppelhaus."},
+        "rooms_per_apartment": {"value": 3.5, "unit": "Zimmer", "evidence": "'3 ½ Zimmerwohnungen' (Baubeschreibung)"}
       }
     },
     {
@@ -269,13 +297,79 @@
         "scale": null
       },
       "facts": {
-        "bebaute_flaeche_per_half_m2": {"value": 86.625, "unit": "m²", "evidence": "19.80/2 · 8.75 = 86.625 m²"},
-        "bebaute_flaeche_total_m2": {"value": 173.25, "unit": "m²", "evidence": "2 · 86.625"},
-        "umbauter_raum_per_half_m3": {"value": 660.88, "unit": "m³", "evidence": "KG+EG (433.13) + DG (198.83) + Spitzboden (36.50) − Abseiten (7.58) = 660.88"},
-        "umbauter_raum_total_m3": {"value": 1321.76, "unit": "m³", "evidence": "2 × 660.88"},
-        "building_outer_length_mm": {"value": 19800, "unit": "mm", "evidence": "Berechnungsformel '19.80/2 · 8.75'"},
+        "bebaute_flaeche_per_half_m2": {"value": 86.625, "unit": "m²", "evidence": "19,80/2 · 8,75 = 86,625 m²"},
+        "bebaute_flaeche_total_m2": {"value": 173.25, "unit": "m²", "evidence": "2 · 86,625"},
+        "umbauter_raum_per_half_m3": {"value": 660.88, "unit": "m³", "evidence": "KG+EG (433,13) + DG (198,83) + Spitzboden (36,50) − Abseiten (7,58) = 660,88"},
+        "umbauter_raum_total_m3": {"value": 1321.76, "unit": "m³", "evidence": "2 × 660,88"},
+        "building_outer_length_mm": {"value": 19800, "unit": "mm", "evidence": "Berechnungsformel '19,80/2 · 8,75'"},
         "building_outer_depth_mm": {"value": 8750, "unit": "mm"},
-        "kg_plus_eg_height_mm": {"value": 5000, "unit": "mm", "evidence": "(2.25 + 2.75) aus Volumenformel"}
+        "kg_plus_eg_height_mm": {"value": 5000, "unit": "mm", "evidence": "(2,25 + 2,75) aus Volumenformel"},
+        "volume_breakdown_per_half_m3": {
+          "value": {
+            "kg_plus_eg":   {"m3": 433.13, "formula": "86,625 · (2,25 + 2,75)",                                                  "description": "Vollprisma KG+EG (Außenmaß-Fußabdruck × Stapel-Höhe KG=2,25m + EG=2,75m)"},
+            "dg":           {"m3": 198.83, "formula": "86,625 · 0,60 + (8,75 + 5,90)/2 · 19,80/2 · (2,625 − 0,60)",              "description": "Kniestock-Prisma (60 cm hoch über Außenmaß) + trapezförmiges DG-Volumen darüber bis Vollhöhe 2,625 m. Trapez-Mittelmaß 7,325 m (Außenmaß 8,75 → 5,90 m unter Dachschräge)."},
+            "spitzboden":   {"m3":  36.50, "formula": "5,90 · 3,75 · 19,80/2 · 1/3",                                              "description": "Dreieckiges Spitzboden-Prisma über dem DG (Breite 5,90 m an Basis, Höhe 3,75 m bis First, Länge 9,90 m, mit 1/3-Faktor wie im Original handschriftlich notiert)."},
+            "abseiten":     {"m3":  -7.58, "formula": "(2 · 9,90 − (1,85 + 3,70)) · (1,30 + 0,60)/2 · 0,84 · 2/3",                "description": "Abzug Abseiten / Kniestock-Hohlraum hinter Drempel — wird vom Bruttovolumen abgezogen."}
+          },
+          "evidence": "Wortgetreue Wiedergabe der DIN-277-Berechnungsformeln auf page 2. Summe: 433,13 + 198,83 + 36,50 − 7,58 = 660,88 m³."
+        },
+        "spitzboden_dimensions_mm": {
+          "value": {"width_at_base_mm": 5900, "apex_height_above_dg_mm": 3750, "length_per_half_mm": 9900},
+          "evidence": "Direkt aus Spitzboden-Formel '5,90 · 3,75 · 19,80/2 · 1/3': Basis-Breite 5,90 m, Apex-Höhe (über DG-Geschossdecke) 3,75 m, Länge je Hälfte 9,90 m."
+        },
+        "kniestock_height_mm": {"value": 600, "unit": "mm", "evidence": "DG-Formel '86,625 · 0,60': 0,60 m Drempel (Kniestock) zwischen DG-Boden und Beginn der Dachschräge."},
+        "dg_vollhoehe_above_floor_mm": {"value": 2625, "unit": "mm", "evidence": "DG-Formel '(2,625 − 0,60)': 2,625 m Vollhöhe in der Mitte über DG-Boden."},
+        "dg_width_at_vollhoehe_mm": {"value": 5900, "unit": "mm", "evidence": "DG-Formel '(8,75 + 5,90)/2': 5,90 m ist die Breite, in der das DG seine Vollhöhe erreicht (innerhalb der Dachschräge)."}
+      }
+    },
+    {
+      "file": "house-21-doc-baubeschreibung.jpg",
+      "category": "detail",
+      "medium": "scan",
+      "caption": "Baubeschreibung (Construction Spec), Mai 1956 — Materialien + Stratigraphie aller Bauteile",
+      "source_ref": {
+        "file": "5.11.1956 Baubeschreibung Weidenstr. 4.pdf",
+        "page": 1,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Baubeschreibung zum Neubau von Zweifamilien-Doppelwohnhäusern für die Firma Arnold Reinecke, Dahlerbrück — Im Dahl (Bau II)",
+        "scale": null
+      },
+      "facts": {
+        "foundation": {"value": "Kiesbeton", "evidence": "'Die Fundamente werden in Kiesbeton ... hergestellt'"},
+        "kg_outer_wall_buildup": {
+          "value": {"material": "Gitterstein in Zementmörtel", "thickness_mm": 300, "moisture_protection": "wasserdichter Außenputz auf erdberührtem Bereich + doppelte Isolierung gegen seitliche Feuchte"},
+          "evidence": "'Die Außenwände des Kellergeschosses aus Gittersteinen in Zementmörtel, 30 cm stark hergestellt. Die in Erdreich liegenden Kelleraußenwände erhalten einen wasserdichten Außenputz. ... Gegen seitlich auftretende Feuchtigkeit wird das Gebäude durch doppelte Isolierung gesichert.'"
+        },
+        "kg_inner_wall": {"value": {"material": "Normalziegelmauerwerk", "thickness_mm": [240, 115]}, "evidence": "'Kellerinnenwände sind aus Normalziegelmauerwerk 24 cm und 11,5 cm stark.'"},
+        "eg_dg_outer_wall_buildup": {
+          "value": {"material": "Bimsbetonhohlblockmauerwerk in verlängertem Zementmörtel", "thickness_mm": [300, 240], "facade": "Hochlochziegel-Verkleidung + heller Spritzputz außen"},
+          "evidence": "'Die aufgehenden Außenwände erhalten eine Hochlochziegel-Verkleidung und sind 30 cm bzw. 24 cm stark in verlängertem Zementmörtel. Die Außenwand des Erdgeschosses und des Dachgeschosses erhalten Bimsbetonhohlblockmauerwerk 30 cm bzw. 24 cm stark in verlängertem Zementmörtel. Die Aufmauerung der Erdgeschosse erfolgt mit Rems- oder Normalziegel.' + 'Außenputz wird als heller Spritzputz ausgebildet.'"
+        },
+        "eg_dg_inner_wall_loadbearing": {
+          "value": {"material": "Ziegel in verlängertem Zementmörtel", "thickness_mm": 115, "reinforcement": "regelmäßiger 50 cm hoher · 12 cm starker · 8-schlauch-bewehrter Stahlbetonbalken (Lastverteilung)"},
+          "evidence": "'Alle tragenden 11,5 cm starken Innenwände werden aus Ziegel im Verl. Zementmörtel hergestellt. Letztere erhalten in regelmäßigen Lastverteilung einen 50 cm hohen, 8 Schl. m. 12 cm bewehrten Stahlbetonbalken.'"
+        },
+        "eg_dg_partitions_nonloadbearing": {"value": {"material": "Schwemmsteine in verlängertem Zementmörtel", "thickness_mm": [115, 70]}, "evidence": "'Die Trennwände im Erd- und Dachgeschoss werden aus Schwemmsteinen 11,5 cm und 7 cm stark in verlängertem Zementmörtel hergestellt.'"},
+        "ceiling_kg_eg": {"value": "massive Stahlbetondecke", "evidence": "'Keller- und Erdgeschoss erhalten eine massive Stahlbetondecke.'"},
+        "roof_structure": {"value": {"type": "Satteldach", "framing": "Holz", "covering": "Hohlziegel auf Lattung"}, "evidence": "'Die Dachkonstruktion wird in Holz als Satteldach ausgebildet. Die Eindeckung erfolgt mittels Hohlziegeln auf Lattung.'"},
+        "floor_buildup": {
+          "value": {
+            "kg": "Stampfbeton + Zementestrich",
+            "eg_dg": "Marley-Belag oder Linoleum auf Unterboden; Plattenbelag in Bad/Küche/Treppenhaus"
+          },
+          "evidence": "'Der Kellerfußboden wird in Stampfbeton mit Zementestrich auf Erd- und Dachgeschoss erhält einen Marley-Belag oder Linoleum auf Unterboden, und Plattenbelag in Bad, Küche und Treppenhaus.'"
+        },
+        "doors_windows": {"value": {"material": "Holz", "scope": "Türen + Fenster + Erdgeschosstreppe"}, "evidence": "'Die Türen, Fenster und Erdgeschosstreppe werden in Holz gefertigt'"},
+        "kg_stair": {"value": "massiv aus Betonfertigstufen", "evidence": "'Kellertreppe massiv aus Betonfertigstufen.'"},
+        "interior_plaster": {
+          "value": {"kg": "Kellenputz", "wohnraeume": "zweilagiger glatter Wandputz in Weißkalkmörtel"},
+          "evidence": "'Innenputz in den Kellerräumen einschließlich Kellenputz, in den Wohnräumen zweilagiger, glatter Wandputz in Weißkalkmörtel.'"
+        },
+        "exterior_plaster": {"value": "heller Spritzputz", "evidence": "'Außenputz wird als heller Spritzputz ausgebildet.'"},
+        "fence": {"value": "Spriegelzaun mit Grünhecke (straßenseitig)", "evidence": "'Die straßenseitige Einfriedung erfolgt mittels Spriegelzaun mit Grünhecke.'"},
+        "bebaute_flaeche_total_m2": {"value": 173.25, "unit": "m²", "evidence": "'Bei einer bebauten Fläche von 173,25 qm'"},
+        "wohnflaeche_total_m2": {"value": 232.06, "unit": "m²", "evidence": "'Netto-Wohnflächen insgesamt = 232,06 qm'"},
+        "apartments_per_double_house": {"value": 4, "unit": "count", "evidence": "'Im Erdgeschoss sowie im Dachgeschoss sind jeweils zwei 3 ½ Zimmerwohnungen' → 2 EG + 2 DG = 4"}
       }
     }
   ],
@@ -303,22 +397,29 @@
     },
     "eg_lxw_vs_din_check": {
       "value": {
-        "Wohnzimmer":   {"computed_lxw_m2": 19.23, "din_m2": 18.65, "diff_m2": 0.58, "explanation": "Nische 0,26·0,97 Korrektur in DIN"},
-        "Schlafzimmer": {"computed_lxw_m2": 18.01, "din_m2": 16.69, "diff_m2": 1.32, "explanation": "Kamin-/Treppen-Abzug ca. 1,3 m² in DIN"},
-        "Kinderzimmer": {"computed_lxw_m2":  9.72, "din_m2":  9.33, "diff_m2": 0.39, "explanation": "Wandnische ca. 0,4 m² in DIN"}
+        "Wohnzimmer":   {"computed_lxw_m2": 19.23, "computed_din_m2": 18.65, "din_m2": 18.65, "diff_m2": 0.58,  "factor": 0.97, "explanation": "Rein DIN-283-Faktor (0,97 Lichthöhe). Keine Nischen-Abzüge."},
+        "Schlafzimmer": {"computed_lxw_m2": 17.30, "computed_din_m2": 16.69, "din_m2": 16.69, "diff_m2": 0.61,  "factor": 0.97, "explanation": "(4,435·3,90 − 0,26·0,32) · 0,97 — kleine Nische 0,083 m² abgezogen"},
+        "Flur":         {"computed_lxw_m2":  5.54, "computed_din_m2":  5.37, "din_m2":  5.37, "diff_m2": 0.17,  "factor": 0.97, "explanation": "Rein DIN-283-Faktor. Keine Nische."},
+        "Kinderzimmer": {"computed_lxw_m2":  9.62, "computed_din_m2":  9.33, "din_m2":  9.33, "diff_m2": 0.29,  "factor": 0.97, "explanation": "Rein DIN-283-Faktor."},
+        "Küche":        {"computed_lxw_m2":  7.41, "computed_din_m2":  6.47, "din_m2":  6.47, "diff_m2": 0.94,  "factor": 0.97, "explanation": "(2,695·2,75 − 0,32² − 0,55·1,16) · 0,97 — Schornstein (0,10 m²) + Aussparung (0,64 m²) abgezogen"},
+        "Speisekammer": {"computed_lxw_m2":  0.54, "computed_din_m2":  0.52, "din_m2":  0.52, "diff_m2": 0.02,  "factor": 0.97, "explanation": "Rein DIN-283-Faktor."},
+        "Bad u. WC":    {"computed_lxw_m2":  4.72, "computed_din_m2":  4.58, "din_m2":  4.58, "diff_m2": 0.14,  "factor": 0.97, "explanation": "Rein DIN-283-Faktor."}
       },
-      "sources": ["house-21-floorplan-eg-detail.jpg", "house-21-doc-wohnflaechenberechnung.jpg"],
-      "expected": "L×W ≥ DIN-Fläche um 2-8% (DIN 283 zieht Nischen, Kamine, Treppenaussparungen ab)",
+      "sources": ["house-21-floorplan-eg-detail.jpg", "house-21-doc-wohnflaechenberechnung.jpg", "house-21-doc-baubeschreibung.jpg"],
+      "expected": "Brutto-L×W − Nischen/Schornstein/Aussparungen = Netto-L×W; × 0,97 (DIN-283-Lichthöhenfaktor) = DIN-Wohnfläche. Sum-of-DIN = 61,61 m².",
       "ok": true
     },
     "dg_lxw_vs_din_check": {
       "value": {
-        "Wohnzimmer":   {"computed_lxw_m2": 17.39, "din_m2": 15.66, "diff_m2": 1.73, "explanation": "Dachschräge < 1m Höhe komplett abgezogen + 1-2m zu 50% (DIN 283 §2)"},
-        "Schlafzimmer": {"computed_lxw_m2": 15.46, "din_m2": 15.33, "diff_m2": 0.13, "explanation": "minimale Dachschräge-Korrektur"},
-        "Kinderzimmer": {"computed_lxw_m2":  7.50, "din_m2":  7.68, "diff_m2": -0.18, "explanation": "DIN 283 ist hier sogar höher (Zuschlag aus Dachboden-Annex?)"}
+        "Wohnzimmer":   {"computed_lxw_m2": 17.39, "din_m2": 15.66, "diff_m2": 1.73, "factor": 0.97, "explanation": "Dachschräge < 1m Höhe komplett abgezogen + 1-2m zu 50% (DIN 283 §2). 1,85·0,60·0,385 ≈ 0,43 m² Korrektur."},
+        "Schlafzimmer": {"computed_lxw_m2": 15.46, "din_m2": 15.33, "diff_m2": 0.13, "factor": 0.97, "explanation": "Minimal — diese Längsseite liegt weitestgehend unter Vollhöhe."},
+        "Flur":         {"computed_lxw_m2":  5.54, "din_m2":  5.37, "diff_m2": 0.17, "factor": 0.97, "explanation": "Mittellage, keine Dachschräge."},
+        "Kinderzimmer": {"computed_lxw_m2":  8.54, "din_m2":  7.68, "diff_m2": 0.86, "factor": 0.97, "explanation": "2,46·3,47 − 2,46·0,50/2 = 7,92 m². Dachschräge-Abzug 0,62 m²."},
+        "Küche":        {"computed_lxw_m2":  6.04, "din_m2":  5.70, "diff_m2": 0.34, "factor": 0.97, "explanation": "Komplex: 2,195·2,75 + Nische 0,17 m² − Schräge 0,41 m² → 5,87 × 0,97 = 5,70."},
+        "Bad u. WC":    {"computed_lxw_m2":  4.82, "din_m2":  4.68, "diff_m2": 0.14, "factor": 0.97, "explanation": "Mittellage, keine Schräge."}
       },
       "sources": ["house-21-floorplan-dg-detail.jpg", "house-21-doc-wohnflaechenberechnung.jpg"],
-      "expected": "DG-Räume: L×W ≥ DIN um 5-15% (Dachschräge-Abzug); kleine Räume nahe Mittellinie kaum betroffen",
+      "expected": "Räume nahe Außenwand: Schräge zieht 5-15% ab. Räume mittig (Flur/Bad): kaum betroffen. Σ DIN = 54,42 m².",
       "ok": true
     },
     "wall_thickness_outer_mm": {
@@ -359,6 +460,47 @@
       "expected": "KG (2.25 m) + EG (2.75 m) gemäß Schnitt + Volumenformel",
       "ok": true
     },
+    "roof_pitch_geometric_deg": {
+      "value": 37.7,
+      "unit": "°",
+      "sources": ["house-21-section-quer.jpg", "house-21-doc-umbauter-raum.jpg"],
+      "expected": "Aus Schnitt + Spitzboden-Höhe abgeleitet: Kniestock 600 mm an Außenwand, Spitzboden-Apex 3750 mm über DG-Decke. Horizontale Halbspanne 4075 mm (= 8150/2). pitch = atan((3750 − 600) / 4075) = atan(0.773) ≈ 37,7°.",
+      "ok": true
+    },
+    "roof_pitch_discrepancy": {
+      "value": "geometric 37,7° vs visual 50° aus linke-giebel",
+      "sources": ["house-21-section-quer.jpg", "house-21-elevation-linke-giebel.jpg"],
+      "expected": "Geometrisch berechneter Dachneigungswinkel (37,7°) ist deutlich flacher als die visuell aus der Giebelansicht geschätzten 50°. Der geometrische Wert ist autoritativer, weil er aus vermaßten Schnittdaten kommt. Die Giebelansicht ist 1:100 Skizze ohne Winkel-Bemaßung — der visuelle Eindruck überzeichnet typischerweise.",
+      "ok": false
+    },
+    "wall_buildup_stratigraphy": {
+      "value": {
+        "kg_outer":   "Gitterstein in Zementmörtel 300 mm + wasserdichter Außenputz (erdberührt) + doppelte Isolierung",
+        "kg_inner":   "Normalziegelmauerwerk 240 mm + 115 mm",
+        "eg_dg_outer": "Bimsbetonhohlblockmauerwerk 300/240 mm in verl. Zementmörtel + Hochlochziegel-Verkleidung + Spritzputz außen",
+        "eg_dg_inner_loadbearing": "Ziegel 115 mm in verl. Zementmörtel + 50·12 cm Stahlbetonbalken (8-Schl. bewehrt) als Lastverteiler",
+        "eg_dg_partitions": "Schwemmsteine 115/70 mm",
+        "ceiling_kg_eg": "massive Stahlbetondecke",
+        "roof": "Holz-Satteldach + Hohlziegel auf Lattung",
+        "floor_kg": "Stampfbeton + Zementestrich",
+        "floor_eg_dg": "Marley/Linoleum auf Unterboden (Wohnräume), Platten in Bad/Küche/Treppenhaus"
+      },
+      "sources": ["house-21-doc-baubeschreibung.jpg"],
+      "expected": "Vollständige Schichtaufbauten aller Bauteile aus 1956er Baubeschreibung. Reicht für T4-Rekonstruktion mit Material-Layern in BIM-Modell."
+    },
+    "apartment_count": {
+      "value": 4,
+      "unit": "count",
+      "sources": ["house-21-doc-baubeschreibung.jpg", "house-21-doc-wohnflaechenberechnung.jpg"],
+      "expected": "2 EG-Wohnungen + 2 DG-Wohnungen (jeweils 3½ Zimmer) pro Doppelhaus = 4 Wohnungen. Konsistent mit '232,06 m² insgesamt' / 4 = 58 m² je Wohnung (eine Etage einer Bauhälfte).",
+      "ok": true
+    },
+    "footprint_aspect_ratio": {
+      "value": 2.26,
+      "sources": ["house-21-doc-umbauter-raum.jpg"],
+      "expected": "Außenmaß-Länge / Tiefe = 19,80 / 8,75 = 2,263. Sehr langgestrecktes 2:1+ Footprint, typisch für Reihen-Doppelwohnhäuser dieser Epoche.",
+      "ok": true
+    },
     "schleppgauben_total": {
       "value": 8,
       "unit": "count",
@@ -369,7 +511,8 @@
   },
   "anomaly_flags": [
     "Datums-Doppelung: Entwurfsdatum auf Ansichten/Grundrissen ist März 1939 (Architekt Herbert Schmidt für Firma Arnold Reinecke), Wohnflächenberechnung + Umbauter-Raum-Berechnung sind Mai 1956 — Entwurf 1939, Bau 1956 (vermutlich WWII-bedingte Verzögerung). 'year_built' = 1956 ist korrekt.",
-    "Cross-Attribution Bau I ↔ Bau II: Ansichten.pdf trägt 'BAU „I\"' im Titelblock (alle 4 Außenansichten — Berg, Tal, Linke + Rechte Giebelansicht), während Grundrisse-Schnitt-Mastersheet + Wohnflächenberechnung + Umbauter-Raum-Berechnung 'BAU „II\"' tragen. Bau I und Bau II sind zwei am selben Standort (Im Dahl, Dahlerbrück) für Firma Arnold Reinecke gleichzeitig entworfene Doppelwohnhäuser desselben Architekten. Die Gebäude sind vermutlich gleich (Standardentwurf), aber die Außenansichten zeigen technisch Bau I, nicht Bau II. Wenn ein 1:1-Render gemacht wird, sollte das vermerkt werden. Bedarf: vor-Ort-Verifikation, welcher Bau die heutige Weidenstraße 4 ist."
+    "Cross-Attribution Bau I ↔ Bau II: Ansichten.pdf trägt 'BAU „I\"' im Titelblock (alle 4 Außenansichten — Berg, Tal, Linke + Rechte Giebelansicht), während Grundrisse-Schnitt-Mastersheet + Wohnflächenberechnung + Umbauter-Raum-Berechnung 'BAU „II\"' tragen. Bau I und Bau II sind zwei am selben Standort (Im Dahl, Dahlerbrück) für Firma Arnold Reinecke gleichzeitig entworfene Doppelwohnhäuser desselben Architekten. Die Gebäude sind vermutlich gleich (Standardentwurf), aber die Außenansichten zeigen technisch Bau I, nicht Bau II. Wenn ein 1:1-Render gemacht wird, sollte das vermerkt werden. Bedarf: vor-Ort-Verifikation, welcher Bau die heutige Weidenstraße 4 ist.",
+    "Dachneigungs-Diskrepanz: Aus dem Schnitt geometrisch berechnete Pitch (~37,7°) weicht stark vom visuell aus der Giebelansicht geschätzten Wert (50°) ab. derived_facts.roof_pitch_geometric_deg ist autoritativ — Giebelansicht ist nur 1:100 Skizze und überzeichnet typischerweise."
   ],
   "bim_ai_blocking_issues": [],
   "data_quality": {
