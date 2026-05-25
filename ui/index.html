@@ -55,6 +55,35 @@
       margin-right: 6px;
     }
     .hdr-spacer { flex: 1 1 auto; }
+    .hdr-search {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f3f4f6; border-radius: 8px;
+      padding: 5px 12px;
+      border: 1px solid transparent;
+      transition: background .12s, border-color .12s, box-shadow .12s;
+      min-width: 220px;
+    }
+    .hdr-search:focus-within {
+      background: white; border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+    }
+    .hdr-search svg { color: var(--muted); flex-shrink: 0; }
+    .hdr-search input {
+      flex: 1; border: none; background: transparent;
+      font-size: 0.85rem; color: var(--text); outline: none;
+      font-family: inherit;
+      min-width: 0;
+    }
+    .hdr-search input::placeholder { color: #9ca3af; }
+    .hdr-search .clear-x {
+      display: none; cursor: pointer; color: var(--muted);
+      width: 16px; height: 16px; border-radius: 50%;
+      align-items: center; justify-content: center;
+      font-size: 0.7rem; line-height: 1;
+      background: rgba(0,0,0,.08);
+    }
+    .hdr-search.has-text .clear-x { display: inline-flex; }
+    .hdr-search .clear-x:hover { background: rgba(0,0,0,.16); color: var(--text); }
     .hdr-reset {
       font-size: 0.8125rem; color: var(--muted);
       cursor: pointer; padding: 5px 12px; border-radius: 6px;
@@ -373,6 +402,112 @@
       padding: 2px 5px; border-radius: 3px;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .img-tile.has-facts img { box-shadow: inset 0 0 0 2px #86efac; }
+    .img-tile .fact-badge {
+      position: absolute; top: 4px; right: 4px;
+      background: #15803d; color: white;
+      font-size: 0.6rem; font-weight: 700;
+      padding: 1px 6px; border-radius: 99px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    }
+
+    /* ── derived facts + anomaly flag panels (in main modal) ─────────── */
+    .anomaly-list {
+      list-style: none; padding: 0; margin: 0;
+      background: #fef3c7; border: 1px solid #fde68a; border-radius: 6px;
+    }
+    .anomaly-list li {
+      padding: 8px 12px; font-size: 0.8125rem; color: #78350f;
+      line-height: 1.45;
+      border-bottom: 1px solid #fde68a;
+    }
+    .anomaly-list li:last-child { border-bottom: none; }
+    .derived-list { display: grid; grid-template-columns: 1fr; gap: 6px; }
+    .derived-row {
+      display: grid; grid-template-columns: 1fr auto;
+      gap: 4px 10px; padding: 8px 12px;
+      background: #f9fafb; border-radius: 6px; border: 1px solid var(--border);
+      font-size: 0.8125rem;
+    }
+    .derived-row.ok    { border-color: #bbf7d0; background: #f0fdf4; }
+    .derived-row.warn  { border-color: #fed7aa; background: #fff7ed; }
+    .derived-row .dr-key { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.72rem; color: var(--muted); }
+    .derived-row .dr-val { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .derived-row .dr-meta { grid-column: 1 / -1; font-size: 0.7rem; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .derived-row .dr-sources code {
+      background: #e5e7eb; border-radius: 3px;
+      padding: 0 4px; font-size: 0.65rem;
+      margin-right: 3px; font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+
+    /* ── scene-detail lightbox ───────────────────────────────────────── */
+    .scene-overlay { z-index: 200; padding: 24px 16px; background: rgba(0,0,0,.78); }
+    .scene-modal {
+      background: white; border-radius: 12px; overflow: hidden;
+      width: 100%; max-width: 1280px; max-height: 92vh;
+      position: relative;
+    }
+    .scene-modal .close-btn {
+      position: absolute; top: 10px; right: 14px; z-index: 1;
+      background: rgba(255,255,255,.92); border-radius: 50%;
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem; line-height: 1;
+      box-shadow: 0 2px 6px rgba(0,0,0,.2);
+      border: none; cursor: pointer;
+    }
+    .scene-grid {
+      display: grid; grid-template-columns: 1.6fr 1fr;
+      max-height: 92vh;
+    }
+    .scene-img-wrap {
+      background: #1f2937; display: flex; align-items: center; justify-content: center;
+      padding: 18px; overflow: auto;
+    }
+    .scene-img-wrap img { max-width: 100%; max-height: 88vh; object-fit: contain; background: #fff; }
+    .scene-meta { padding: 22px 26px; overflow-y: auto; max-height: 92vh; }
+    .sc-title { font-size: 0.95rem; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .sc-caption { font-size: 0.825rem; color: var(--muted); margin-bottom: 16px; line-height: 1.5; }
+    .sc-section { margin-bottom: 18px; }
+    .sc-section h5 {
+      font-size: 0.7rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .05em; margin-bottom: 8px; font-weight: 600;
+    }
+    .sc-count { color: var(--muted); font-weight: 400; text-transform: none; margin-left: 4px; }
+    #sc-source-body {
+      font-size: 0.8rem; line-height: 1.55;
+      background: #f9fafb; border-radius: 6px; padding: 10px 12px;
+    }
+    #sc-source-body .src-row { display: flex; gap: 8px; margin-bottom: 2px; }
+    #sc-source-body .src-row:last-child { margin-bottom: 0; }
+    #sc-source-body .src-key { color: var(--muted); min-width: 80px; }
+    #sc-source-body .src-val { color: var(--text); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.74rem; }
+    #sc-facts-body { margin: 0; }
+    #sc-facts-body dt {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.7rem; color: var(--muted);
+      margin-top: 12px;
+    }
+    #sc-facts-body dt:first-child { margin-top: 0; }
+    #sc-facts-body dd {
+      margin: 2px 0 0; padding-left: 12px;
+      font-size: 0.825rem; color: var(--text); font-weight: 600;
+      border-left: 2px solid #e5e7eb;
+      line-height: 1.45;
+    }
+    #sc-facts-body dd .fact-evidence {
+      display: block; margin-top: 3px;
+      font-weight: 400; font-style: italic;
+      color: var(--muted); font-size: 0.7rem;
+    }
+    #sc-facts-body dd .fact-obj {
+      display: grid; grid-template-columns: max-content auto;
+      column-gap: 12px; row-gap: 1px;
+      font-weight: 500; font-size: 0.75rem;
+      margin-top: 4px;
+    }
+    #sc-facts-body dd .fact-obj .ok { color: var(--muted); font-weight: 400; }
+    #sc-facts-body dd .fact-obj .ov { font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -403,6 +538,14 @@
         <h4>Bilder</h4>
         <div id="m-image-groups"></div>
       </div>
+      <div class="img-section" id="m-anomalies" style="display:none">
+        <h4>⚠ Anomalien für Review</h4>
+        <ul id="m-anomalies-list" class="anomaly-list"></ul>
+      </div>
+      <div class="img-section" id="m-derived" style="display:none">
+        <h4>Abgeleitete Fakten (verifiziert)</h4>
+        <div id="m-derived-list" class="derived-list"></div>
+      </div>
       <div class="img-section" id="m-modelable" style="display:none">
         <h4>bim-ai Modellierbarkeit</h4>
         <div id="m-modelable-body"></div>
@@ -410,6 +553,32 @@
       <div class="img-section" id="m-source-pdfs" style="display:none">
         <h4>Source PDFs</h4>
         <div class="img-grid" id="m-source-pdf-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scene-detail lightbox (opens on top of the main modal) -->
+<div class="overlay scene-overlay" id="scene-overlay" onclick="maybeCloseScene(event)">
+  <div class="scene-modal">
+    <button class="close-btn" onclick="closeScene()" title="Esc">×</button>
+    <div class="scene-grid">
+      <div class="scene-img-wrap"><img id="sc-img" alt=""></div>
+      <div class="scene-meta">
+        <div class="sc-title" id="sc-title"></div>
+        <div class="sc-caption" id="sc-caption"></div>
+        <div class="sc-section" id="sc-source">
+          <h5>Herkunft</h5>
+          <div id="sc-source-body"></div>
+        </div>
+        <div class="sc-section" id="sc-facts">
+          <h5>Fakten <span id="sc-facts-count" class="sc-count"></span></h5>
+          <dl id="sc-facts-body"></dl>
+        </div>
+        <div class="sc-section" id="sc-anom" style="display:none">
+          <h5>⚠ Szene-Anomalien</h5>
+          <ul id="sc-anom-body" class="anomaly-list"></ul>
+        </div>
       </div>
     </div>
   </div>
@@ -503,6 +672,33 @@ function resetFilters() {
 }
 function anyActive() {
   return Object.values(FILTERS).some(v => v !== '');
+}
+
+// Free-text search across id/key/manufacturer/model. Applied client-side
+// after the server filter so it's independent of the filter axes.
+let SEARCH = '';
+let _searchDebounce;
+function onSearch(value) {
+  SEARCH = (value || '').trim();
+  // Preserve focus across re-render
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(() => {
+    load().then(() => {
+      const el = document.getElementById('hdr-search-input');
+      if (el) {
+        el.focus();
+        const v = el.value.length;
+        try { el.setSelectionRange(v, v); } catch (e) {}
+      }
+    });
+  }, 150);
+}
+function matchesSearch(r, q) {
+  if (!q) return true;
+  const ql = q.toLowerCase();
+  const hay = [r.id, r.key, r.manufacturer, r.model]
+    .filter(Boolean).map(x => String(x).toLowerCase()).join(' ');
+  return hay.includes(ql);
 }
 
 // ── card ───────────────────────────────────────────────────────────────────
@@ -664,6 +860,7 @@ document.addEventListener('click', (e) => {
   if (a === 'set-filter')         setFilter(action.dataset.field, action.dataset.value);
   else if (a === 'clear-filter')  clearFilter(action.dataset.field);
   else if (a === 'reset')         resetFilters();
+  else if (a === 'open-scene')    openScene(action.dataset.key, action.dataset.file);
   else if (a === 'set-range') {
     const fmin = action.dataset.fieldMin, fmax = action.dataset.fieldMax;
     const min = action.dataset.min === '' ? null : action.dataset.min;
@@ -863,12 +1060,21 @@ function renderStats(recs) {
   const groupBim = () => groupBool('modelable_in_bim_ai');
   const groupKeller = () => groupBool('has_basement');
 
-  // Smart header: big count (with /total when filtered) + Reset link
+  // Smart header: count + search + (conditional) Reset
+  const hasSearch = SEARCH !== '';
   const hdr = `
     <div class="smart-hdr">
-      <span class="hdr-count">${n}${filtered ? ` <em>/ ${TOTAL_COUNT}</em>` : ''}</span>
+      <span class="hdr-count">${n}${filtered || hasSearch ? ` <em>/ ${TOTAL_COUNT}</em>` : ''}</span>
       <span class="hdr-lbl">${n === 1 ? 'Haus' : 'Häuser'}</span>
       <span class="hdr-spacer"></span>
+      <label class="hdr-search ${hasSearch ? 'has-text' : ''}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+        </svg>
+        <input id="hdr-search-input" type="search" placeholder="Suchen: Hersteller, Modell, ID …"
+               value="${esc(SEARCH)}" oninput="onSearch(this.value)">
+        <span class="clear-x" onclick="onSearch('')">×</span>
+      </label>
       ${filtered ? `<span class="hdr-reset" data-action="reset">Reset</span>` : ''}
     </div>`;
 
@@ -938,8 +1144,9 @@ let TOTAL_COUNT = 0;
 async function load() {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(FILTERS)) if (v !== '') p.set(k, v);
-  const recs = await fetch(`/houses?${p}`).then(r => r.json());
-  if (!anyActive()) TOTAL_COUNT = recs.length;
+  let recs = await fetch(`/houses?${p}`).then(r => r.json());
+  if (!anyActive() && !SEARCH) TOTAL_COUNT = recs.length;
+  if (SEARCH) recs = recs.filter(r => matchesSearch(r, SEARCH));
   document.getElementById('hdr-count').textContent = `${recs.length} Häuser`;
   document.getElementById('results-bar').textContent = `${recs.length} ${recs.length === 1 ? 'Eintrag' : 'Einträge'} gefunden`;
   renderStats(recs);
@@ -1033,16 +1240,55 @@ async function openModal(key) {
       }
       const tiles = list.map(i => {
         const cap = i.caption || [i.floor && ontoLabel('levels', i.floor), i.view && ontoLabel('image_views', i.view)].filter(Boolean).join(' · ');
-        return `<a class="img-tile" href="${esc(i.url)}" target="_blank">
+        const nFacts = Object.keys(i.facts || {}).length;
+        const hasFacts = nFacts > 0;
+        return `<div class="img-tile${hasFacts ? ' has-facts' : ''}"
+                     data-action="open-scene" data-key="${esc(h.key)}" data-file="${esc(i.file)}"
+                     title="Klick öffnet Szenen-Detail">
           <img class="medium-${i.medium}" src="${esc(i.url)}">
+          ${hasFacts ? `<span class="fact-badge" title="${nFacts} Fakten extrahiert">${nFacts}</span>` : ''}
           ${cap ? `<span class="cap">${esc(cap)}</span>` : ''}
-        </a>`;
+        </div>`;
       }).join('');
       return `<h5>${esc(ontoLabel('image_categories', cat))} <span style="color:var(--muted);font-weight:400">(${list.length})</span></h5>
               <div class="img-grid">${tiles}</div>`;
     }).join('');
   } else {
     imgSec.style.display = 'none';
+  }
+
+  // Anomaly flags (house-level) — render before derived_facts so warnings come first
+  const aSec = document.getElementById('m-anomalies');
+  const flags = h.anomaly_flags || [];
+  if (flags.length) {
+    aSec.style.display = '';
+    document.getElementById('m-anomalies-list').innerHTML =
+      flags.map(f => `<li>${esc(f)}</li>`).join('');
+  } else {
+    aSec.style.display = 'none';
+  }
+
+  // Derived facts (house-level)
+  const dSec = document.getElementById('m-derived');
+  const derived = h.derived_facts || {};
+  const dEntries = Object.entries(derived);
+  if (dEntries.length) {
+    dSec.style.display = '';
+    document.getElementById('m-derived-list').innerHTML =
+      dEntries.map(([k, v]) => {
+        const cls = v.ok === true ? 'ok' : v.ok === false ? 'warn' : '';
+        const status = v.ok === true ? '✓' : v.ok === false ? '✗' : '';
+        const valStr = formatFactValue(v.value, v.unit);
+        const srcs = (v.sources || []).map(s => `<code>${esc(s.replace(/^house-\d+-/, ''))}</code>`).join('');
+        const exp = v.expected ? `Erwartet: ${esc(v.expected)}` : '';
+        return `<div class="derived-row ${cls}">
+          <div class="dr-key">${status ? `<span style="color:${v.ok ? '#15803d' : '#b91c1c'}">${status}</span> ` : ''}${esc(k)}</div>
+          <div class="dr-val">${esc(valStr)}</div>
+          ${(srcs || exp) ? `<div class="dr-meta">${exp ? exp + ' · ' : ''}<span class="dr-sources">aus ${srcs}</span></div>` : ''}
+        </div>`;
+      }).join('');
+  } else {
+    dSec.style.display = 'none';
   }
 
   // bim-ai modelability
@@ -1087,7 +1333,97 @@ function closeModal() {
   document.body.style.overflow = '';
 }
 function maybeClose(e) { if (e.target === document.getElementById('overlay')) closeModal(); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  // Close the scene lightbox first (it's on top of the modal)
+  const sc = document.getElementById('scene-overlay');
+  if (sc.classList.contains('open')) closeScene();
+  else closeModal();
+});
+
+// ── scene-detail lightbox ─────────────────────────────────────────────────
+function formatFactValue(v, unit) {
+  if (v == null) return '–';
+  if (Array.isArray(v)) return v.map(x => formatFactValue(x, '')).join(' × ') + (unit ? ' ' + unit : '');
+  if (typeof v === 'number') {
+    // Pretty-print mm as m if >= 1000
+    if (unit === 'mm' && v >= 1000) return (v/1000).toLocaleString('de-DE', {maximumFractionDigits: 3}) + ' m';
+    if (typeof v === 'number') return v.toLocaleString('de-DE') + (unit ? ' ' + unit : '');
+  }
+  if (typeof v === 'boolean') return v ? 'ja' : 'nein';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v) + (unit ? ' ' + unit : '');
+}
+
+function renderFactValue(v, unit) {
+  // For object-valued facts (e.g. room_areas_m2 = {Wohnzimmer: 18.65, ...}),
+  // render a mini two-column table; otherwise inline.
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const rows = Object.entries(v).map(([k, val]) =>
+      `<span class="ok">${esc(k)}</span><span class="ov">${esc(formatFactValue(val, unit))}</span>`
+    ).join('');
+    return `<div class="fact-obj">${rows}</div>`;
+  }
+  return esc(formatFactValue(v, unit));
+}
+
+function openScene(key, file) {
+  const h = cache[key];
+  if (!h) return;
+  const i = (h.images || []).find(x => x.file === file);
+  if (!i) return;
+
+  document.getElementById('sc-img').src = i.url;
+  document.getElementById('sc-img').alt = i.caption || file;
+  document.getElementById('sc-title').textContent = file;
+  document.getElementById('sc-caption').textContent = i.caption || '';
+
+  // Source provenance
+  const src = i.source_ref;
+  const srcSec = document.getElementById('sc-source');
+  if (src) {
+    srcSec.style.display = '';
+    const rows = [
+      ['Datei',       src.file],
+      ['Seite',       src.page != null ? String(src.page) : null],
+      ['Crop',        src.crop_box_pct ? `[${src.crop_box_pct.map(n => n.toFixed(2)).join(', ')}]` : null],
+      ['Titel',       src.page_title],
+      ['Maßstab',     src.scale],
+    ].filter(([, v]) => v);
+    document.getElementById('sc-source-body').innerHTML = rows.map(([k, v]) =>
+      `<div class="src-row"><span class="src-key">${k}</span><span class="src-val">${esc(v)}</span></div>`
+    ).join('');
+  } else {
+    srcSec.style.display = 'none';
+  }
+
+  // Facts
+  const facts = i.facts || {};
+  const factEntries = Object.entries(facts);
+  document.getElementById('sc-facts-count').textContent = factEntries.length ? `(${factEntries.length})` : '';
+  document.getElementById('sc-facts-body').innerHTML = factEntries.length
+    ? factEntries.map(([k, f]) => `
+        <dt>${esc(k)}${f.unit ? ' <span style="color:#9ca3af">[' + esc(f.unit) + ']</span>' : ''}</dt>
+        <dd>${renderFactValue(f.value, f.unit)}${f.evidence ? `<span class="fact-evidence">${esc(f.evidence)}</span>` : ''}</dd>
+      `).join('')
+    : '<p style="font-size:.8125rem;color:var(--muted);font-style:italic">Noch keine Fakten extrahiert.</p>';
+
+  // Scene anomalies
+  const sFlags = i.anomaly_flags || [];
+  const anomSec = document.getElementById('sc-anom');
+  if (sFlags.length) {
+    anomSec.style.display = '';
+    document.getElementById('sc-anom-body').innerHTML = sFlags.map(f => `<li>${esc(f)}</li>`).join('');
+  } else {
+    anomSec.style.display = 'none';
+  }
+
+  document.getElementById('scene-overlay').classList.add('open');
+}
+function closeScene() {
+  document.getElementById('scene-overlay').classList.remove('open');
+}
+function maybeCloseScene(e) { if (e.target === document.getElementById('scene-overlay')) closeScene(); }
 
 // ── bootstrap ──────────────────────────────────────────────────────────────
 (async () => {
