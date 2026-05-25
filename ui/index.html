@@ -32,34 +32,123 @@
     header h1 { font-size: 1.125rem; font-weight: 600; }
     header span { color: var(--muted); font-size: 0.8125rem; }
 
-    .filters {
-      background: white;
-      border-bottom: 1px solid var(--border);
-      padding: 10px 24px;
-      display: flex; gap: 10px;
-      flex-wrap: wrap; align-items: flex-end;
+    /* ── unified controls (replaces the old dropdown row) ──────────── */
+    .smart-hdr {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: 6px 14px;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+      border-bottom: 1px dashed var(--border);
     }
-    .filters label {
-      font-size: 0.6875rem; color: var(--muted);
-      display: flex; flex-direction: column; gap: 3px;
+    .hdr-count {
+      font-size: 1.625rem; font-weight: 600; color: var(--text);
+      letter-spacing: -.015em;
+      margin-right: 6px;
+      font-variant-numeric: tabular-nums;
     }
-    .filters select, .filters input {
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 5px 8px;
-      font-size: 0.8125rem;
-      background: white; color: var(--text);
-      height: 30px;
+    .hdr-count em {
+      font-style: normal; color: var(--muted); font-weight: 400;
+      font-size: 0.875rem;
     }
-    .filters input[type=number] { width: 90px; }
-    .filters input[type=text]   { width: 90px; }
-    .filters button, .filters .reset {
-      height: 30px; padding: 0 14px;
-      border-radius: 5px; cursor: pointer; font-size: 0.8125rem;
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 99px;
+      font-size: 0.8125rem; font-weight: 500;
+      cursor: pointer; user-select: none;
+      border: 1px solid transparent;
+      transition: background .12s, border-color .12s, color .12s;
+      background: #f3f4f6; color: var(--muted);
     }
-    .filters button { background: var(--accent); color: white; border: none; }
-    .filters button:hover { background: #1d4ed8; }
-    .filters .reset { background: white; color: var(--muted); border: 1px solid var(--border); }
+    .pill:hover { background: #e5e7eb; color: var(--text); }
+    .pill .pill-n { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+    .pill.ok.active    { background: #dcfce7; color: #15803d; border-color: #86efac; }
+    .pill.ok.active .pill-n { color: #15803d; }
+    .pill.bad.active   { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
+    .pill.bad.active .pill-n { color: #b91c1c; }
+    .pill.gold.active  { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+    .pill.gold.active .pill-n { color: #5b21b6; }
+    .hdr-spacer { flex: 1 1 auto; }
+    .hdr-reset {
+      font-size: 0.8125rem; color: var(--muted);
+      cursor: pointer; padding: 5px 12px; border-radius: 6px;
+      transition: background .12s, color .12s;
+      user-select: none;
+    }
+    .hdr-reset:hover { background: #f3f4f6; color: var(--text); }
+
+    /* Range + misc row (below the bars) */
+    .misc-row {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: 12px 20px;
+      margin-top: 14px; padding-top: 12px;
+      border-top: 1px dashed var(--border);
+      font-size: 0.75rem;
+    }
+    .misc-row .mgroup { display: flex; align-items: center; gap: 6px; }
+    .misc-row .mlbl  { color: var(--muted); font-weight: 500; letter-spacing: .01em; }
+    .num-pair {
+      display: inline-flex; align-items: center;
+      background: #f9fafb; border-radius: 6px; padding: 2px 6px;
+      border: 1px solid transparent;
+      transition: background .12s, border-color .12s;
+    }
+    .num-pair:focus-within { background: white; border-color: var(--accent); }
+    .num-pair input {
+      width: 52px; border: none; background: transparent;
+      font-size: 0.75rem; padding: 2px 0; text-align: center;
+      color: var(--text); outline: none;
+      font-variant-numeric: tabular-nums;
+    }
+    .num-pair input::placeholder { color: #c4c4c0; }
+    .num-pair .dash { color: #c4c4c0; font-weight: 600; padding: 0 4px; }
+    .num-pair .unit { color: var(--muted); padding-left: 4px; padding-right: 2px; }
+    .seg-toggle {
+      display: inline-flex;
+      background: #f3f4f6; border-radius: 6px; padding: 2px;
+    }
+    .seg-toggle button {
+      background: transparent; border: none; cursor: pointer;
+      padding: 3px 10px; border-radius: 4px;
+      font-size: 0.7rem; color: var(--muted);
+      transition: background .12s, color .12s;
+    }
+    .seg-toggle button:hover { color: var(--text); }
+    .seg-toggle button.active {
+      background: white; color: var(--text); font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    }
+    .text-input {
+      background: #f9fafb; border: 1px solid transparent;
+      border-radius: 6px; padding: 3px 8px;
+      font-size: 0.75rem; color: var(--text); outline: none;
+      width: 84px;
+      transition: background .12s, border-color .12s;
+      font-family: inherit;
+    }
+    .text-input:focus { background: white; border-color: var(--accent); }
+    .text-input::placeholder { color: #c4c4c0; }
+
+    /* Active filter chips strip (only shows when any filter is set) */
+    .active-chips {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-top: 12px; padding-top: 12px;
+      border-top: 1px dashed var(--border);
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #eef2ff; color: #3730a3;
+      padding: 4px 4px 4px 10px; border-radius: 99px;
+      font-size: 0.75rem; font-weight: 500;
+    }
+    .chip .chip-axis { color: var(--muted); font-weight: 400; margin-right: 2px; }
+    .chip .chip-x {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: rgba(55,48,163,.12); color: #3730a3;
+      cursor: pointer; font-size: 0.75rem; line-height: 1;
+      transition: background .12s;
+    }
+    .chip .chip-x:hover { background: rgba(55,48,163,.3); }
 
     .results-bar { padding: 10px 24px 0; font-size: 0.8125rem; color: var(--muted); }
 
@@ -284,12 +373,6 @@
   <span id="hdr-count"></span>
 </header>
 
-<div class="filters" id="filters">
-  <!-- populated from /ontology at load -->
-  <button onclick="load()">Filtern</button>
-  <button class="reset" onclick="resetFilters()">Reset</button>
-</div>
-
 <div class="stats" id="stats"></div>
 <div class="results-bar" id="results-bar"></div>
 <div class="grid" id="grid"></div>
@@ -358,58 +441,41 @@ function tierBadge(h) {
   return `<span class="card-tier badge b-tier-${n}" title="${esc(full)}">${label}</span>`;
 }
 
-// ── filter rendering (driven by ontology) ──────────────────────────────────
-const FILTER_DEFS = [
-  ['source',          'Quelle',         'sources'],
-  ['building_type',   'Gebäudetyp',     'building_types'],
-  ['construction',    'Bauweise',       'constructions'],
-  ['roof_type',       'Dachform',       'roof_types'],
-  ['style',           'Stil',           'styles'],
-];
+// ── filter state ───────────────────────────────────────────────────────────
+// Single source of truth. Replaces the old DOM-input-as-state pattern; the
+// new UI writes into FILTERS, load() serializes it to /houses?... query.
+const FILTERS = {
+  source: '', building_type: '', construction: '',
+  roof_type: '', style: '', min_tier: '',
+  modelable_in_bim_ai: '',
+  has_basement: '',
+  min_area: '', max_area: '',
+  max_price: '',
+  min_year: '', max_year: '',
+  energy_standard: '',
+};
 
-function buildFilters() {
-  const root = document.getElementById('filters');
-  const dropdowns = FILTER_DEFS.map(([field, label, group]) => {
-    const opts = Object.entries(ONTOLOGY[group] || {})
-      .map(([k, lbl]) => `<option value="${esc(k)}">${esc(lbl)}</option>`).join('');
-    return `<label>${label}
-      <select id="f-${field}"><option value="">Alle</option>${opts}</select>
-    </label>`;
-  }).join('');
-  const numeric = `
-    <label>bim-ai
-      <select id="f-modelable_in_bim_ai">
-        <option value="">egal</option>
-        <option value="true">✓ modellierbar</option>
-        <option value="false">✗ blockiert</option>
-      </select>
-    </label>
-    <label>min. Tier
-      <select id="f-min_tier">
-        <option value="">egal</option>
-        <option value="T1">≥ T1 schematisch</option>
-        <option value="T2">≥ T2 vermaßt</option>
-        <option value="T3">≥ T3 Architekten-Satz</option>
-        <option value="T4">T4 Werkplan</option>
-      </select>
-    </label>
-    <label>Keller<select id="f-has_basement"><option value="">egal</option><option value="true">mit</option><option value="false">ohne</option></select></label>
-    <label>Fläche min (m²)<input type="number" id="f-min_area" placeholder="–"></label>
-    <label>Fläche max (m²)<input type="number" id="f-max_area" placeholder="–"></label>
-    <label>Max. Preis (€)<input type="number" id="f-max_price" placeholder="–"></label>
-    <label>Baujahr ab<input type="number" id="f-min_year" placeholder="–"></label>
-    <label>Baujahr bis<input type="number" id="f-max_year" placeholder="–"></label>
-    <label>Energie<input type="text" id="f-energy_standard" placeholder="z.B. 40, 55"></label>`;
-  // insert before the two action buttons
-  const btns = root.innerHTML;
-  root.innerHTML = dropdowns + numeric + btns;
-  root.querySelectorAll('input, select').forEach(el =>
-    el.addEventListener('keydown', e => { if (e.key === 'Enter') load(); }));
-}
+// Human label per axis — shown in the active-filter chip strip
+const AXIS_LABELS = {
+  source: 'Quelle', building_type: 'Gebäudetyp', construction: 'Bauweise',
+  roof_type: 'Dachform', style: 'Stil', min_tier: 'min. Tier',
+  modelable_in_bim_ai: 'bim-ai',
+  has_basement: 'Keller', min_area: 'Fläche ≥', max_area: 'Fläche ≤',
+  max_price: 'Preis ≤', min_year: 'Baujahr ≥', max_year: 'Baujahr ≤',
+  energy_standard: 'Energie',
+};
+// Per-axis ontology group for resolving display labels of a value
+const AXIS_ONTO = {
+  source: 'sources', building_type: 'building_types', construction: 'constructions',
+  roof_type: 'roof_types', style: 'styles', min_tier: 'reconstructability_tiers',
+};
 
 function resetFilters() {
-  document.querySelectorAll('.filters input, .filters select').forEach(el => el.value = '');
+  Object.keys(FILTERS).forEach(k => FILTERS[k] = '');
   load();
+}
+function anyActive() {
+  return Object.values(FILTERS).some(v => v !== '');
 }
 
 // ── card ───────────────────────────────────────────────────────────────────
@@ -472,66 +538,70 @@ const PALETTES = {
 };
 
 // ── interaction wiring ─────────────────────────────────────────────────────
-// Set / toggle a filter dropdown and trigger reload. Toggle: clicking the
-// already-active value clears the filter.
-function setFilter(filterId, value) {
-  const el = document.getElementById(filterId);
-  if (!el) return;
-  el.value = el.value === String(value) ? '' : String(value);
+// Toggle a filter (click active value to clear). All UI writes go through here.
+function setFilter(field, value) {
+  if (!(field in FILTERS)) return;
+  FILTERS[field] = FILTERS[field] === String(value) ? '' : String(value);
   load();
 }
-function clearFilter(filterId) {
-  const el = document.getElementById(filterId);
-  if (el) { el.value = ''; load(); }
+function clearFilter(field) {
+  if (field in FILTERS) { FILTERS[field] = ''; load(); }
 }
 
-// Single delegated click handler — looks for data-action attributes on
-// any element under the stats panel. Avoids the inline-onclick + nested-
-// quotes mess that broke segment/legend clicks earlier.
+// Delegated click handler — looks for data-action on any element.
 document.addEventListener('click', (e) => {
   const action = e.target.closest('[data-action]');
   if (!action) return;
   const a = action.dataset.action;
-  if (a === 'set-filter')   setFilter(action.dataset.filterId, action.dataset.filterValue);
-  else if (a === 'clear-filter') clearFilter(action.dataset.filterId);
-  else if (a === 'reset')   resetFilters();
+  if (a === 'set-filter')         setFilter(action.dataset.field, action.dataset.value);
+  else if (a === 'clear-filter')  clearFilter(action.dataset.field);
+  else if (a === 'reset')         resetFilters();
 });
 
+// Debounced text/number input handler (so we don't fire load() on every keystroke).
+let _typeDebounce;
+function onFilterInput(field, raw) {
+  clearTimeout(_typeDebounce);
+  _typeDebounce = setTimeout(() => {
+    FILTERS[field] = raw.trim();
+    load();
+  }, 300);
+}
+
 // ── bar renderer ───────────────────────────────────────────────────────────
-// Tier semantics differ from other axes: the filter is a *minimum*, so
-// clicking T2 means "T2 and above". These helpers normalize that.
+// Tier semantics: the filter is a *minimum*, so clicking T2 means "T2+".
 const _tierNum = s => s ? parseInt(String(s).replace(/^T/, '').split('_')[0]) : null;
 const _tierFilterValue = k => `T${_tierNum(k)}`;
-function _matchesActive(filterId, key, activeVal) {
+function _matchesActive(field, key, activeVal) {
   if (!activeVal || key == null) return false;
-  if (filterId === 'f-min_tier') {
+  if (field === 'min_tier') {
     const a = _tierNum(activeVal), b = _tierNum(key);
     return a != null && b != null && b >= a;
   }
   return key === activeVal;
 }
-function _toFilterValue(filterId, key) {
-  return filterId === 'f-min_tier' ? _tierFilterValue(key) : key;
+function _toFilterValue(field, key) {
+  return field === 'min_tier' ? _tierFilterValue(key) : key;
 }
 
-function makeBar(label, counts, palette, ontologyGroup, total, filterId) {
+function makeBar(label, counts, palette, ontologyGroup, total, field) {
   const sum = counts.reduce((a, [, n]) => a + n, 0);
   const missing = total - sum;
   const items = counts.map(([k, n], i) => [k, n, palette[i % palette.length]]);
   if (missing > 0) items.push([null, missing, '#e5e7eb']);
 
-  const activeVal = document.getElementById(filterId)?.value || '';
+  const activeVal = FILTERS[field] || '';
   const hasFilter = activeVal !== '';
 
   const segs = items.map(([k, n, col]) => {
     const pct = (n / total * 100).toFixed(1);
     const lbl = k ? (ONTOLOGY?.[ontologyGroup]?.[k] || k) : 'unbekannt';
     const text = n / total > 0.06 ? n : '';
-    const isActive = _matchesActive(filterId, k, activeVal);
+    const isActive = _matchesActive(field, k, activeVal);
     const unsetCls = k ? '' : ' unset';
     const activeCls = isActive ? ' active' : '';
     const dataAttrs = k
-      ? `data-action="set-filter" data-filter-id="${filterId}" data-filter-value="${esc(_toFilterValue(filterId, k))}"`
+      ? `data-action="set-filter" data-field="${field}" data-value="${esc(_toFilterValue(field, k))}"`
       : '';
     return `<div class="bar-seg${unsetCls}${activeCls}" ${dataAttrs}
                  style="flex:${n} 1 0;background:${col};color:${k ? 'white' : '#6b7280'}"
@@ -540,10 +610,10 @@ function makeBar(label, counts, palette, ontologyGroup, total, filterId) {
 
   const legendItems = counts.slice(0, 6).map(([k, n], i) => {
     const lbl = ONTOLOGY?.[ontologyGroup]?.[k] || k;
-    const isActive = _matchesActive(filterId, k, activeVal);
+    const isActive = _matchesActive(field, k, activeVal);
     const cls = isActive ? 'leg-item active' : (hasFilter ? 'leg-item dim' : 'leg-item');
     return `<span class="${cls}" data-action="set-filter"
-                  data-filter-id="${filterId}" data-filter-value="${esc(_toFilterValue(filterId, k))}">
+                  data-field="${field}" data-value="${esc(_toFilterValue(field, k))}">
               <span class="swatch" style="background:${palette[i % palette.length]}"></span>${esc(lbl)} <strong>${n}</strong>
             </span>`;
   }).join('');
@@ -551,7 +621,7 @@ function makeBar(label, counts, palette, ontologyGroup, total, filterId) {
 
   const lblCls = hasFilter ? 'ax-lbl has-filter' : 'ax-lbl';
   const lblHtml = hasFilter
-    ? `<div class="${lblCls}">${label} · <span class="ax-clear" data-action="clear-filter" data-filter-id="${filterId}">×</span></div>`
+    ? `<div class="${lblCls}">${label} · <span class="ax-clear" data-action="clear-filter" data-field="${field}">×</span></div>`
     : `<div class="${lblCls}">${label}</div>`;
 
   return `
@@ -589,55 +659,123 @@ function renderStats(recs) {
     );
   };
 
-  // Tile active states derived from current filter values
-  const fMod = document.getElementById('f-modelable_in_bim_ai')?.value || '';
-  const fTier = document.getElementById('f-min_tier')?.value || '';
-  const anyFilter = Array.from(document.querySelectorAll('.filters input, .filters select'))
-    .some(el => el.value !== '');
+  // Header pill states derived from current FILTERS values
+  const fMod  = FILTERS.modelable_in_bim_ai;
+  const fTier = FILTERS.min_tier;
+  const filtered = anyActive();
 
-  const tiles = `
-    <div class="stats-tiles">
-      <div class="tile ${anyFilter ? '' : 'active'}" data-action="reset" title="Alle Filter zurücksetzen">
-        <span class="n">${n}</span><span class="lbl">Häuser</span>
-      </div>
-      <div class="tile ${fMod === 'true' ? 'active' : ''}" data-action="set-filter"
-           data-filter-id="f-modelable_in_bim_ai" data-filter-value="true">
-        <span class="n ok">${mod}</span><span class="lbl">✓ modellierbar</span>
-      </div>
-      <div class="tile ${fMod === 'false' ? 'active' : ''}" data-action="set-filter"
-           data-filter-id="f-modelable_in_bim_ai" data-filter-value="false">
-        <span class="n blocked">${blk}</span><span class="lbl">✗ blockiert</span>
-      </div>
-      <div class="tile ${fTier === 'T3' ? 'active' : ''}" data-action="set-filter"
-           data-filter-id="f-min_tier" data-filter-value="T3">
-        <span class="n t34">${t34}</span><span class="lbl">T3+ Fidelity</span>
-      </div>
-      <div class="tile ${fTier === 'T2' ? 'active' : ''}" data-action="set-filter"
-           data-filter-id="f-min_tier" data-filter-value="T2">
-        <span class="n muted">${t2}</span><span class="lbl">T2 (Katalog)</span>
-      </div>
+  // Smart header: big count + 3 quick-filter pills + (conditional) Reset
+  const hdr = `
+    <div class="smart-hdr">
+      <span class="hdr-count">${n}${filtered ? ` <em>/ ${TOTAL_COUNT}</em>` : ''}</span>
+      <span class="hdr-count" style="font-size:.875rem;color:var(--muted);font-weight:400;letter-spacing:0;margin-right:8px">Häuser</span>
+      <span class="pill ok ${fMod === 'true' ? 'active' : ''}"
+            data-action="set-filter" data-field="modelable_in_bim_ai" data-value="true">
+        <span class="pill-n">${mod}</span> ✓ modellierbar
+      </span>
+      <span class="pill bad ${fMod === 'false' ? 'active' : ''}"
+            data-action="set-filter" data-field="modelable_in_bim_ai" data-value="false">
+        <span class="pill-n">${blk}</span> ✗ blockiert
+      </span>
+      <span class="pill gold ${fTier === 'T3' ? 'active' : ''}"
+            data-action="set-filter" data-field="min_tier" data-value="T3">
+        <span class="pill-n">${t34}</span> T3+ Fidelity
+      </span>
+      <span class="hdr-spacer"></span>
+      ${filtered ? `<span class="hdr-reset" data-action="reset">Reset</span>` : ''}
     </div>`;
 
+  // Composition bars — primary filter UI for source/type/construction/roof/style/tier
   const rows = `
     <div class="stats-rows">
-      ${makeBar('Quelle',       group('source'),        PALETTES.source,        'sources',        n, 'f-source')}
-      ${makeBar('Gebäudetyp',   group('building_type'), PALETTES.building_type, 'building_types', n, 'f-building_type')}
-      ${makeBar('Bauweise',     group('construction'),  PALETTES.construction,  'constructions',  n, 'f-construction')}
-      ${makeBar('Dachform',     group('roof_type'),     PALETTES.roof_type,     'roof_types',     n, 'f-roof_type')}
-      ${makeBar('Stil',         group('style'),         PALETTES.style,         'styles',         n, 'f-style')}
-      ${makeBar('Tier',         groupTier(),            PALETTES.tier,          'reconstructability_tiers', n, 'f-min_tier')}
+      ${makeBar('Quelle',       group('source'),        PALETTES.source,        'sources',        n, 'source')}
+      ${makeBar('Gebäudetyp',   group('building_type'), PALETTES.building_type, 'building_types', n, 'building_type')}
+      ${makeBar('Bauweise',     group('construction'),  PALETTES.construction,  'constructions',  n, 'construction')}
+      ${makeBar('Dachform',     group('roof_type'),     PALETTES.roof_type,     'roof_types',     n, 'roof_type')}
+      ${makeBar('Stil',         group('style'),         PALETTES.style,         'styles',         n, 'style')}
+      ${makeBar('Tier',         groupTier(),            PALETTES.tier,          'reconstructability_tiers', n, 'min_tier')}
     </div>`;
 
-  document.getElementById('stats').innerHTML = tiles + rows;
+  // Compact misc row for axes the bars can't cover (numeric ranges, keller, energy)
+  const numPair = (lbl, fMin, fMax, unit, ph) => {
+    const minInput = fMin
+      ? `<input type="number" placeholder="${ph[0]}" value="${FILTERS[fMin]}"
+                oninput="onFilterInput('${fMin}', this.value)" />
+         <span class="dash">—</span>`
+      : `<span class="dash" style="padding-right:6px">bis</span>`;
+    return `
+      <div class="mgroup">
+        <span class="mlbl">${lbl}</span>
+        <span class="num-pair">
+          ${minInput}
+          <input type="number" placeholder="${ph[1]}" value="${FILTERS[fMax]}"
+                 oninput="onFilterInput('${fMax}', this.value)" />
+          ${unit ? `<span class="unit">${unit}</span>` : ''}
+        </span>
+      </div>`;
+  };
+  const kellerVal = FILTERS.has_basement;
+  const kellerTog = `
+    <div class="mgroup">
+      <span class="mlbl">Keller</span>
+      <span class="seg-toggle">
+        <button class="${kellerVal === '' ? 'active' : ''}" data-action="clear-filter" data-field="has_basement">egal</button>
+        <button class="${kellerVal === 'true' ? 'active' : ''}" data-action="set-filter" data-field="has_basement" data-value="true">mit</button>
+        <button class="${kellerVal === 'false' ? 'active' : ''}" data-action="set-filter" data-field="has_basement" data-value="false">ohne</button>
+      </span>
+    </div>`;
+  const energyIn = `
+    <div class="mgroup">
+      <span class="mlbl">Energie</span>
+      <input class="text-input" type="text" placeholder="z.B. 40, 55"
+             value="${esc(FILTERS.energy_standard)}"
+             oninput="onFilterInput('energy_standard', this.value)" />
+    </div>`;
+  const misc = `
+    <div class="misc-row">
+      ${numPair('Fläche',  'min_area',  'max_area',  'm²', ['107','237'])}
+      ${numPair('Preis',   '',          'max_price', '€',  ['', '500k'])}
+      ${numPair('Baujahr', 'min_year',  'max_year',  '',   ['1956','2007'])}
+      ${kellerTog}
+      ${energyIn}
+    </div>`;
+
+  // Active filter chip strip — only renders when at least one filter is set
+  const chips = filtered ? renderChips() : '';
+
+  document.getElementById('stats').innerHTML = hdr + rows + misc + chips;
 }
+
+// Build a humane label for an active filter value
+function chipValueLabel(field, value) {
+  if (field === 'modelable_in_bim_ai') return value === 'true' ? '✓ modellierbar' : '✗ blockiert';
+  if (field === 'has_basement') return value === 'true' ? 'mit' : 'ohne';
+  if (field === 'min_tier') return `≥ ${value}`;
+  if (AXIS_ONTO[field]) return ONTOLOGY?.[AXIS_ONTO[field]]?.[value] || value;
+  return value;
+}
+
+function renderChips() {
+  const items = Object.entries(FILTERS)
+    .filter(([, v]) => v !== '')
+    .map(([f, v]) => `
+      <span class="chip">
+        <span class="chip-axis">${esc(AXIS_LABELS[f] || f)}</span>
+        ${esc(chipValueLabel(f, v))}
+        <span class="chip-x" data-action="clear-filter" data-field="${f}">×</span>
+      </span>`)
+    .join('');
+  return `<div class="active-chips">${items}</div>`;
+}
+
+// Remember the unfiltered total so the header can show "9 / 57 Häuser"
+let TOTAL_COUNT = 0;
 
 async function load() {
   const p = new URLSearchParams();
-  document.querySelectorAll('.filters input, .filters select').forEach(el => {
-    const id = el.id.replace(/^f-/, '');
-    if (el.value !== '') p.set(id, el.value);
-  });
+  for (const [k, v] of Object.entries(FILTERS)) if (v !== '') p.set(k, v);
   const recs = await fetch(`/houses?${p}`).then(r => r.json());
+  if (!anyActive()) TOTAL_COUNT = recs.length;
   document.getElementById('hdr-count').textContent = `${recs.length} Häuser`;
   document.getElementById('results-bar').textContent = `${recs.length} ${recs.length === 1 ? 'Eintrag' : 'Einträge'} gefunden`;
   renderStats(recs);
@@ -790,7 +928,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 // ── bootstrap ──────────────────────────────────────────────────────────────
 (async () => {
   ONTOLOGY = await fetch('/ontology').then(r => r.json());
-  buildFilters();
   await load();
 })();
 </script>
