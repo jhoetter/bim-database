@@ -38,6 +38,26 @@
     "images":        {"type": "array", "items": {"$ref": "#/$defs/Image"}, "description": "Per-image metadata. Empty array if no images yet."},
     "source_pdfs":   {"type": "array", "items": {"type": "string"}, "description": "List of source-PDF filenames in the house folder (auto-discovered if omitted)."},
 
+    "derived_facts": {
+      "type":  ["object", "null"],
+      "description": "House-level numeric facts derived + cross-checked from per-scene facts. Each entry is {value, sources: [scene-file], expected?, ok?}. Produced by the house-data-standardization skill.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["value"],
+        "properties": {
+          "value":    {"description": "Number, array, or string."},
+          "sources":  {"type": "array", "items": {"type": "string"}, "description": "Image filenames (scenes) the value was derived from."},
+          "expected": {"description": "Optional expected value / range for cross-check."},
+          "ok":       {"type": "boolean", "description": "Did the derived value match the expected?"}
+        }
+      }
+    },
+    "anomaly_flags": {
+      "type": ["array", "null"],
+      "items": {"type": "string"},
+      "description": "House-level data inconsistencies surfaced during standardization (e.g. 'scene-date 1939 contradicts character text saying 1956'). Human review required."
+    },
+
     "bim_ai_blocking_issues": {
       "type": ["array", "null"],
       "items": {"type": "string", "pattern": "^[^/]+/[^#]+#[0-9]+$"},
@@ -70,7 +90,38 @@
         "medium":   {"type": "string", "description": "Enum: see ontology.image_mediums."},
         "view":     {"type": ["string", "null"], "description": "Enum: see ontology.image_views. Only meaningful for exteriors/elevations."},
         "floor":    {"type": ["string", "null"], "description": "Enum: see ontology.levels. Only meaningful for floorplans."},
-        "caption":  {"type": ["string", "null"], "description": "Kurzbeschreibung."}
+        "caption":  {"type": ["string", "null"], "description": "Kurzbeschreibung."},
+
+        "source_ref": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Provenance: which source artifact this scene was cropped/rendered from. Empty for original (non-derived) images. Populated by the house-data-standardization skill.",
+          "properties": {
+            "file":          {"type": "string", "description": "Source filename relative to the house folder (e.g. 'Ansichten.pdf' or 'mhstyle_floorplan1.original.avif')."},
+            "page":          {"type": ["integer", "null"], "description": "PDF page number (1-indexed). Null for non-PDF sources."},
+            "crop_box_pct":  {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4, "description": "[x0, y0, x1, y1] as fractions of the source-page dimensions (DPI-independent)."},
+            "page_title":    {"type": ["string", "null"], "description": "Title block / page header text observed on the source page."},
+            "scale":         {"type": ["string", "null"], "description": "Drawing scale label, e.g. '1:100'."}
+          }
+        },
+        "facts": {
+          "type": ["object", "null"],
+          "description": "Scene-level numeric/categorical facts extracted by AI vision. Each entry is {value, evidence?}; value can be number, string, array, or object.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["value"],
+            "properties": {
+              "value":    {"description": "The extracted fact."},
+              "evidence": {"type": ["string", "null"], "description": "What in the scene supports this (label text, count rationale, etc.)."},
+              "unit":     {"type": ["string", "null"], "description": "Unit if numeric (mm, m², °, count)."}
+            }
+          }
+        },
+        "anomaly_flags": {
+          "type": ["array", "null"],
+          "items": {"type": "string"},
+          "description": "Scene-level anomalies — e.g. 'scale label illegible', 'dimension annotation appears to contradict adjacent label'."
+        }
       }
     }
   }

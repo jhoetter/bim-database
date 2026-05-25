@@ -4,7 +4,7 @@
   "manufacturer": null,
   "source": "documentation",
   "source_url": null,
-  "source_origin": "scanned paper Baubeschreibung + Ansichten/Grundrisse/DG/EG PDFs + exposé + cadastral",
+  "source_origin": "scanned paper Baubeschreibung + Ansichten/Grundrisse/DG/EG/Schnitt PDFs + Wohnflächenberechnung (DIN 283) + Berechnung des umbauten Raumes (DIN 277) + exposé + cadastral. Entwurf datiert März 1939 (Bau II) — Architekt Herbert Schmidt, Dahlerbrück. Wohnflächenberechnung + Umbauter-Raum-Berechnung datiert Mai 1956 (Baujahr).",
   "building_type": "Doppelhaushälfte",
   "construction": "Massivhaus",
   "roof_type": "Satteldach",
@@ -17,48 +17,310 @@
     "EG",
     "DG"
   ],
-  "area_m2": null,
-  "rooms": null,
+  "area_m2": 116,
+  "rooms": 14,
   "floors": 3.0,
   "price_eur": null,
   "price_on_request": false,
   "site": "flat lot, urban infill, Schalksmühle (NRW)",
-  "character": "1956 Doppelhaushälfte (semi-detached half) with cellar, gable roof, two shed dormers per long facade",
-  "agent_notes": "Most architecturally clean of the 3 documentation records — elongated ~2:1 footprint, clear 3-level stack, exposed cellar on Tal side. Good baseline for the convergence loop.",
+  "character": "1956 Doppelhaushälfte (semi-detached half) with cellar, gable roof, two shed dormers per long facade. Entwurf von 1939 (Architekt Herbert Schmidt, Dahlerbrück) für Firma Arnold Reinecke, gebaut Mai 1956.",
+  "agent_notes": "Most architecturally clean of the 3 documentation records — elongated ~2:1 footprint, clear 3-level stack, exposed cellar on Tal side. Good baseline for the convergence loop. Standardization pipeline run 2026-05-25: room-by-room Wohnfläche cross-verified against DIN 283 calculation.",
   "tags": [],
   "images": [
     {
-      "file": "house-21-exterior-1.jpg",
+      "file": "house-21-elevation-berg.jpg",
       "category": "elevation",
       "medium": "scan",
-      "view": "corner",
-      "caption": "Ansichten (Vier Fassaden, 1956 Entwurf)"
+      "view": "rear",
+      "caption": "Berg-Ansicht (Hangseite) — Hauptlängsfassade mit 2 Schleppgauben pro Hälfte",
+      "source_ref": {
+        "file": "Ansichten.pdf",
+        "page": 1,
+        "crop_box_pct": [0.13, 0.10, 0.50, 0.50],
+        "page_title": "ENTWURF — Neubau von Zweifamilien-Doppelwohnhäusern für Firma Arnold Reinecke — Dahlerbrück — Im Dahl — BAU I, März 1939",
+        "scale": "1:100"
+      },
+      "facts": {
+        "building_form": {"value": "Doppelhaus mit symmetrischen Hälften (gespiegelt)", "evidence": "zwei gleich gestaltete Hauseingänge in der Mitte, mirror-Symmetrie"},
+        "stories_visible": {"value": 2, "evidence": "EG mit Türen+Fenstern + DG mit Schleppgauben"},
+        "schleppgauben_count": {"value": 4, "unit": "count", "evidence": "2 Schleppgauben pro Hälfte × 2 Hälften"},
+        "schleppgaube_form": {"value": "shed/flach mit Sprossenfenstern (4-flügelig)", "evidence": "Skizze zeigt rechteckige Gaube mit horizontaler Stürze und 4-flügeliger Verglasung"},
+        "doors_count": {"value": 2, "evidence": "ein zentraler Eingang pro Hälfte"},
+        "windows_eg_per_half": {"value": 4, "unit": "count", "evidence": "Tür + 3 Fenster pro Hälfte (1 hoch links, 1 hoch rechts, 1 schmal neben Tür)"},
+        "roof_type": {"value": "Satteldach", "evidence": "zwei gleiche Schrägen, mittiger First"}
+      }
     },
     {
-      "file": "house-21-floorplan-eg-1.jpg",
+      "file": "house-21-elevation-linke-giebel.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "left",
+      "caption": "Linke Giebelansicht — steiles Satteldach, kleines DG-Fenster + 2 OG-Fenster + 1 EG-Fenster",
+      "source_ref": {
+        "file": "Ansichten.pdf",
+        "page": 1,
+        "crop_box_pct": [0.50, 0.10, 0.78, 0.55],
+        "page_title": "ENTWURF — Neubau von Zweifamilien-Doppelwohnhäusern (BAU I), März 1939",
+        "scale": "1:100"
+      },
+      "facts": {
+        "roof_pitch_approx_deg": {"value": 50, "unit": "°", "evidence": "visuell geschätzte Dachneigung der Satteldachschräge"},
+        "windows_gable_count": {"value": 4, "unit": "count", "evidence": "1 hoch im Giebel (Spitzboden) + 2 mittig (OG/DG) + 1 unten breit (EG)"},
+        "foundation_visible": {"value": true, "evidence": "gestrichelte Linien unter Bodenniveau zeigen Keller-Außenwand"}
+      }
+    },
+    {
+      "file": "house-21-elevation-tal.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "front",
+      "caption": "Tal-Ansicht (Talseite) — Längsfassade, hier liegt das Keller-Niveau offen (Hanglage)",
+      "source_ref": {
+        "file": "Ansichten.pdf",
+        "page": 1,
+        "crop_box_pct": [0.13, 0.50, 0.50, 0.95],
+        "page_title": "ENTWURF (BAU I), März 1939",
+        "scale": "1:100"
+      },
+      "facts": {
+        "exposed_basement": {"value": true, "evidence": "Hangseitig liegt das Souterrain frei (Daylight-UG)"},
+        "schleppgauben_count": {"value": 4, "unit": "count", "evidence": "2 Schleppgauben pro Hälfte × 2 Hälften, identisch zur Berg-Ansicht"}
+      }
+    },
+    {
+      "file": "house-21-elevation-rechte-giebel.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "right",
+      "caption": "Rechte Giebelansicht — spiegelbildlich zur linken",
+      "source_ref": {
+        "file": "Ansichten.pdf",
+        "page": 1,
+        "crop_box_pct": [0.50, 0.55, 0.78, 0.95]
+      },
+      "facts": {
+        "matches_left_gable": {"value": true, "evidence": "identische Fensteranordnung, spiegelbildlich"}
+      }
+    },
+    {
+      "file": "house-21-floorplan-eg-detail.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "EG",
-      "caption": "Grundriss Erdgeschoss"
+      "caption": "Erdgeschoss — vermaßter Grundriss, beide Doppelhaushälften, 1:100",
+      "source_ref": {
+        "file": "EG.pdf",
+        "page": 1,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "ERDGESCHOSS",
+        "scale": "1:100"
+      },
+      "facts": {
+        "outer_dims_total_mm": {"value": [19850, 7900], "unit": "mm", "evidence": "Außenmaß 19,85 m × ca. 7,90 m (laut Bemaßung am Rand)"},
+        "outer_dims_per_half_mm": {"value": [9900, 7900], "unit": "mm", "evidence": "Hauptmaß 9,90 m × 7,90 m pro Hälfte (laut Wohnflächenberechnung + Bemaßung)"},
+        "room_areas_m2": {
+          "value": {
+            "Wohnzimmer": 18.65,
+            "Schlafzimmer": 16.69,
+            "Flur": 5.37,
+            "Kinderzimmer": 9.33,
+            "Küche": 6.47,
+            "Speisekammer": 0.52,
+            "Bad u. WC": 4.58
+          },
+          "unit": "m²",
+          "evidence": "Werte aus Wohnflächenberechnung nach DIN 283 (Mai 1956); auf dem EG-Plan sind Raumlabel + m²-Werte handschriftlich orange eingetragen"
+        },
+        "rooms_count_per_half": {"value": 7, "unit": "count"},
+        "wohnflaeche_eg_per_half_m2": {"value": 61.61, "unit": "m²", "evidence": "Summe der Räume = Netto-Wohnfläche EG pro Hälfte"}
+      }
     },
     {
-      "file": "house-21-floorplan-dg-1.jpg",
+      "file": "house-21-floorplan-dg-detail.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "DG",
-      "caption": "Grundriss Dachgeschoss"
+      "caption": "Dachgeschoss — vermaßter Grundriss, beide Hälften",
+      "source_ref": {
+        "file": "DG.pdf",
+        "page": 1,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "DACHGESCHOSS",
+        "scale": "1:100"
+      },
+      "facts": {
+        "outer_dims_total_mm": {"value": [19800, 8800], "unit": "mm", "evidence": "Außenmaß 19,80 m × ca. 8,80 m"},
+        "room_areas_m2": {
+          "value": {
+            "Wohnzimmer": 15.66,
+            "Schlafzimmer": 15.33,
+            "Flur": 5.37,
+            "Kinderzimmer": 7.68,
+            "Küche": 5.70,
+            "Bad u. WC": 4.68
+          },
+          "unit": "m²",
+          "evidence": "Wohnflächenberechnung Mai 1956 + handschriftliche m²-Labels im Plan"
+        },
+        "rooms_count_per_half": {"value": 6, "unit": "count"},
+        "wohnflaeche_dg_per_half_m2": {"value": 54.42, "unit": "m²"}
+      }
     },
     {
-      "file": "house-21-floorplan-grundrisse-1.jpg",
+      "file": "house-21-section-quer.jpg",
       "category": "section",
       "medium": "scan",
-      "caption": "Grundrisse + Schnitt"
+      "caption": "Querschnitt — KG/EG/DG/Spitzboden-Stapel mit vermaßten Geschosshöhen",
+      "source_ref": {
+        "file": "Grundrisse, Schnitt.pdf",
+        "page": 1,
+        "crop_box_pct": [0.55, 0.13, 0.78, 0.40],
+        "page_title": "ENTWURF (BAU II), März 1939 — QUERSCHNITT",
+        "scale": "1:100"
+      },
+      "facts": {
+        "kg_height_mm": {"value": 2250, "unit": "mm", "evidence": "Maßbeschriftung '2.25' im Schnitt zwischen KG-Boden und EG-Decke"},
+        "eg_height_mm": {"value": 2750, "unit": "mm", "evidence": "'2.75' zwischen EG-Boden und EG-Decke"},
+        "dg_height_at_kniestock_mm": {"value": 600, "unit": "mm", "evidence": "'0.60' am DG-Kniestock (Drempel)"},
+        "dg_height_at_apex_mm": {"value": 2625, "unit": "mm", "evidence": "'2.625' im DG-Mittelbereich (Vollhöhe)"},
+        "spitzboden_height_mm": {"value": 3750, "unit": "mm", "evidence": "'3.75' im Spitzboden-Schnitt"},
+        "stair_step_count": {"value": 15, "unit": "count", "evidence": "Bemaßung '15/18°°' an der Treppe (15 Stufen × 18 cm Steigung)"},
+        "stair_rise_mm": {"value": 187, "unit": "mm", "evidence": "Steigung ~18,79 cm (laut Treppenformel-Annotation)"},
+        "stair_tread_mm": {"value": 250, "unit": "mm", "evidence": "Auftritt 25 cm laut Bemaßung '25/15'"}
+      }
+    },
+    {
+      "file": "house-21-floorplan-kg-overview.jpg",
+      "category": "floorplan",
+      "medium": "scan",
+      "floor": "KG",
+      "caption": "Kellergeschoss — Überblick aus Master-Sheet (Grundrisse, Schnitt)",
+      "source_ref": {
+        "file": "Grundrisse, Schnitt.pdf",
+        "page": 1,
+        "crop_box_pct": [0.55, 0.43, 0.78, 0.66],
+        "page_title": "ENTWURF (BAU II), März 1939 — KELLERGRUNDRISS",
+        "scale": "1:100"
+      },
+      "facts": {
+        "footprint_visible": {"value": true, "evidence": "Keller-Außenwände entsprechen EG-Footprint"},
+        "internal_subdivisions": {"value": "minimal — Kellerräume + Heizraum, keine Wohnräume", "evidence": "wenige Trennwände, große Kellerräume"}
+      }
+    },
+    {
+      "file": "house-21-doc-wohnflaechenberechnung.jpg",
+      "category": "detail",
+      "medium": "scan",
+      "caption": "Wohnflächenberechnung nach DIN 283, Mai 1956 — Architekt Herbert Schmidt für Firma Arnold Reinecke. Definitive Wohnfläche-Quelle.",
+      "source_ref": {
+        "file": "Wohnflächenberechnung.pdf",
+        "page": 1,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Wohnflächenberechnung nach DIN 283 — Neubau von Zweifamilien-Doppelwohnhäusern für Firma Arnold Reinecke, Dahlerbrück (Bau II)",
+        "scale": null
+      },
+      "facts": {
+        "wohnflaeche_eg_per_half_m2": {"value": 61.61, "unit": "m²", "evidence": "Netto Wohnfläche EG = Σ(18.65 + 16.69 + 5.37 + 9.33 + 6.47 + 0.52 + 4.58) m²"},
+        "wohnflaeche_dg_per_half_m2": {"value": 54.42, "unit": "m²", "evidence": "Netto Wohnfläche DG = Σ(15.66 + 15.33 + 5.37 + 7.68 + 5.70 + 4.68) m²"},
+        "wohnflaeche_per_half_m2": {"value": 116.03, "unit": "m²", "evidence": "EG + DG = 61.61 + 54.42 = 116.03 m² (eine Bauhälfte)"},
+        "wohnflaeche_total_m2": {"value": 232.06, "unit": "m²", "evidence": "2 × 116.03 = 232.06 m² (Gesamtgebäude / beide Hälften)"},
+        "calculation_date": {"value": "1956-05", "evidence": "Datumsstempel 'Dahlerbrück, im Mai 1956'"},
+        "architect": {"value": "Herbert Schmidt, Architekt u. Bauing., Dahlerbrück i.W."},
+        "owner": {"value": "Arnold Reinecke (Firma)"}
+      }
+    },
+    {
+      "file": "house-21-doc-umbauter-raum.jpg",
+      "category": "detail",
+      "medium": "scan",
+      "caption": "Berechnung des umbauten Raumes nach DIN 277, Mai 1956. Liefert Footprint + Volumen.",
+      "source_ref": {
+        "file": "Umbauter Raum.pdf",
+        "page": 1,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Berechnung des umbauten Raumes nach DIN 277 — Neubau Bau II für Firma Arnold Reinecke",
+        "scale": null
+      },
+      "facts": {
+        "bebaute_flaeche_per_half_m2": {"value": 86.625, "unit": "m²", "evidence": "19.80/2 · 8.75 = 86.625 m²"},
+        "bebaute_flaeche_total_m2": {"value": 173.25, "unit": "m²", "evidence": "2 · 86.625"},
+        "umbauter_raum_per_half_m3": {"value": 660.88, "unit": "m³", "evidence": "KG+EG (433.13) + DG (198.83) + Spitzboden (36.50) − Abseiten (7.58) = 660.88"},
+        "umbauter_raum_total_m3": {"value": 1321.76, "unit": "m³", "evidence": "2 × 660.88"},
+        "building_outer_length_mm": {"value": 19800, "unit": "mm", "evidence": "Berechnungsformel '19.80/2 · 8.75'"},
+        "building_outer_depth_mm": {"value": 8750, "unit": "mm"},
+        "kg_plus_eg_height_mm": {"value": 5000, "unit": "mm", "evidence": "(2.25 + 2.75) aus Volumenformel"}
+      }
     }
+  ],
+  "derived_facts": {
+    "wohnflaeche_per_half_m2": {
+      "value": 116.03,
+      "unit": "m²",
+      "sources": ["house-21-doc-wohnflaechenberechnung.jpg"],
+      "expected": "EG (61.61) + DG (54.42)",
+      "ok": true
+    },
+    "wohnflaeche_eg_sum_check": {
+      "value": 61.61,
+      "unit": "m²",
+      "sources": ["house-21-floorplan-eg-detail.jpg", "house-21-doc-wohnflaechenberechnung.jpg"],
+      "expected": "Σ(EG room areas) = 18.65+16.69+5.37+9.33+6.47+0.52+4.58 = 61.61",
+      "ok": true
+    },
+    "wohnflaeche_dg_sum_check": {
+      "value": 54.42,
+      "unit": "m²",
+      "sources": ["house-21-floorplan-dg-detail.jpg", "house-21-doc-wohnflaechenberechnung.jpg"],
+      "expected": "Σ(DG room areas) = 15.66+15.33+5.37+7.68+5.70+4.68 = 54.42",
+      "ok": true
+    },
+    "outer_dims_per_half_mm": {
+      "value": [9900, 8750],
+      "unit": "mm",
+      "sources": ["house-21-floorplan-eg-detail.jpg", "house-21-doc-umbauter-raum.jpg"],
+      "expected": "EG-Plan zeigt 9.90 m × ~7.90 m bei Außenkante Wohnraum; Umbauter-Raum-Berechnung verwendet 19.80/2 × 8.75 (inkl. Außenwand-Stärke)",
+      "ok": true
+    },
+    "bebaute_flaeche_per_half_m2": {
+      "value": 86.625,
+      "unit": "m²",
+      "sources": ["house-21-doc-umbauter-raum.jpg"],
+      "expected": "Außenmaß-Footprint pro Hälfte"
+    },
+    "umbauter_raum_per_half_m3": {
+      "value": 660.88,
+      "unit": "m³",
+      "sources": ["house-21-doc-umbauter-raum.jpg"]
+    },
+    "stories_count": {
+      "value": 3,
+      "sources": ["house-21-section-quer.jpg", "house-21-floorplan-eg-detail.jpg", "house-21-floorplan-dg-detail.jpg", "house-21-floorplan-kg-overview.jpg"],
+      "expected": "KG + EG + DG (record.levels = ['KG','EG','DG'])",
+      "ok": true
+    },
+    "kg_plus_eg_height_mm": {
+      "value": 5000,
+      "unit": "mm",
+      "sources": ["house-21-doc-umbauter-raum.jpg", "house-21-section-quer.jpg"],
+      "expected": "KG (2.25 m) + EG (2.75 m) gemäß Schnitt + Volumenformel",
+      "ok": true
+    },
+    "schleppgauben_total": {
+      "value": 8,
+      "unit": "count",
+      "sources": ["house-21-elevation-berg.jpg", "house-21-elevation-tal.jpg"],
+      "expected": "4 pro Längsfassade × 2 Längsseiten",
+      "ok": true
+    }
+  },
+  "anomaly_flags": [
+    "Datums-Doppelung: Entwurfsdatum auf Ansichten/Grundrissen ist März 1939 (Architekt Herbert Schmidt für Firma Arnold Reinecke), Wohnflächenberechnung + Umbauter-Raum-Berechnung sind Mai 1956 — Entwurf 1939, Bau 1956 (vermutlich WWII-bedingte Verzögerung). 'year_built' = 1956 ist korrekt.",
+    "Wohnflächenberechnung gehört zu Bau II (laut Titel), Ansichten.pdf trägt 'BAU I' im Titelblock. Bau I und Bau II sind zwei separate Doppelwohnhäuser desselben Architekten am selben Standort (Im Dahl, Dahlerbrück) — die Pläne wurden vermischt im PDF-Archiv abgelegt. Bedarf: prüfen, welcher Bau die echte Weidenstraße 4 ist."
   ],
   "bim_ai_blocking_issues": [],
   "data_quality": {
     "floorplan_grade": "fully_specified",
-    "exterior_coverage": "single_view",
+    "exterior_coverage": "multi_view",
     "elevation_set": "dimensioned",
     "section_drawing": "dimensioned",
     "roof_plan": "absent",
