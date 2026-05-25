@@ -7,49 +7,50 @@
   "source_origin": null,
   "building_type": "ZFH",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "skandinavisch",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG", "DG"],
   "area_m2": 182,
   "rooms": 8,
   "floors": 1.5,
   "price_eur": 523810,
   "price_on_request": false,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Skandinavischer ZFH-Klassiker mit dekorativ überhängendem Giebel (Vordach), Klinkerfassade und seitlichem Zwerchgiebel. Zweite Wohnung als Einliegerwohnung im DG.",
+  "agent_notes": "Kanonischer h7-Zwerchgiebel-Testcase (siehe geschlossene jhoetter/bim-ai#52 + #65 — Multi-Volume-Massing + roof_join CSG-Merge). Sollte heute mit Multi-Volume + Roof-Join renderbar sein.",
   "tags": [],
+  "bim_ai_blocking_issues": [],
   "images": [
-    {
-      "file": "einliegerwohnung-kopenhagen.original.avif",
-      "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
-    },
     {
       "file": "kopenhagen_exterior_01.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht — Satteldach mit Vordach-Giebel und seitlichem Zwerchgiebel rechts"
     },
     {
       "file": "kopenhagen_floorplan_01.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     },
     {
       "file": "kopenhagen_floorplan_02.original.avif",
       "category": "floorplan",
       "medium": "drawing",
+      "floor": "DG",
+      "caption": "Grundriss DG"
+    },
+    {
+      "file": "einliegerwohnung-kopenhagen.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
       "floor": null,
-      "caption": null
+      "caption": "Einliegerwohnung Grundriss"
     }
   ]
 }
