@@ -1,6 +1,10 @@
 import type { FactEntry, SceneImage } from '../../api/types';
-import { formatFactValue } from '../../lib/format';
 import { ontoLabel, useOntology } from '../../api/ontology';
+import { FactValueRenderer } from './FactValueRenderer';
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
 
 // The slide-in right-rail panel that shows full detail for one scene.
 // Image at top, then orientation chip + caption + provenance + facts + anomalies.
@@ -117,13 +121,17 @@ function FactsSection({ entries }: { entries: [string, FactEntry][] }) {
       ) : (
         <dl className="m-0">
           {entries.map(([k, f]) => (
-            <div key={k} className="mt-3 first:mt-0">
-              <dt className="font-mono text-[0.7rem] text-muted">
+            <div key={k} className="mt-3 first:mt-0 min-w-0">
+              <dt className="font-mono text-[0.7rem] text-muted break-all">
                 {k}
                 {f.unit && <span className="text-zinc-400"> [{f.unit}]</span>}
               </dt>
-              <dd className="mt-0.5 pl-3 text-[0.825rem] font-semibold border-l-2 border-zinc-200 leading-snug">
-                <FactValue value={f.value} unit={f.unit} />
+              <dd className="mt-0.5 pl-3 text-[0.825rem] border-l-2 border-zinc-200 leading-snug min-w-0 break-words">
+                <FactValueRenderer
+                  value={f.value}
+                  unit={f.unit}
+                  defaultOpen={!isPlainObject(f.value)}
+                />
                 {f.evidence && (
                   <span className="block mt-0.5 font-normal italic text-muted text-[0.7rem]">
                     {f.evidence}
@@ -136,22 +144,6 @@ function FactsSection({ entries }: { entries: [string, FactEntry][] }) {
       )}
     </section>
   );
-}
-
-function FactValue({ value, unit }: { value: unknown; unit?: string | null }) {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return (
-      <div className="grid grid-cols-[max-content_auto] gap-x-3 gap-y-0.5 font-medium text-[0.75rem] mt-1">
-        {Object.entries(value).map(([k, v]) => (
-          <div key={k} className="contents">
-            <span className="text-muted font-normal">{k}</span>
-            <span className="tabular-nums">{formatFactValue(v, unit)}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  return <>{formatFactValue(value, unit)}</>;
 }
 
 function SceneAnomalies({ flags }: { flags: string[] }) {

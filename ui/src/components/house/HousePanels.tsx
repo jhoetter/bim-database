@@ -1,6 +1,10 @@
 import type { House } from '../../api/types';
-import { formatFactValue } from '../../lib/format';
 import { Badge } from '../Badge';
+import { FactValueRenderer } from './FactValueRenderer';
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v != null && typeof v === 'object' && !Array.isArray(v);
+}
 
 // Sidebar section primitive: small uppercase title + spacing + content.
 // Lower visual weight than the (deleted) bordered card so sidebar reads as
@@ -47,10 +51,10 @@ export function DerivedFactsPanel({ derived }: { derived: House['derived_facts']
               : v.ok === false
               ? 'border-l-orange-400 bg-orange-50/40'
               : 'border-l-zinc-300 bg-zinc-50/40';
-          const status =
-            v.ok === true ? '✓' : v.ok === false ? '✗' : '·';
-          const valStr = formatFactValue(v.value, v.unit);
+          const status = v.ok === true ? '✓' : v.ok === false ? '✗' : '·';
           const sources = v.sources ?? [];
+          const isObject = isPlainObject(v.value);
+
           return (
             <li
               key={k}
@@ -59,16 +63,26 @@ export function DerivedFactsPanel({ derived }: { derived: House['derived_facts']
               <div className="flex items-start gap-1.5 min-w-0">
                 <span className="text-muted font-mono shrink-0 mt-px">{status}</span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2 min-w-0">
-                    <span className="font-mono text-[0.7rem] text-muted break-words min-w-0 flex-1">
-                      {k}
-                    </span>
-                    <span className="font-semibold tabular-nums text-zinc-900 text-right break-words">
-                      {valStr}
-                    </span>
-                  </div>
+                  {/* Layout flips for object values: key on its own line so the
+                      value (which can be a nested expandable block) has full width. */}
+                  {isObject ? (
+                    <>
+                      <div className="font-mono text-[0.7rem] text-muted break-all mb-1">
+                        {k}
+                        {v.unit && <span className="text-zinc-400"> [{v.unit}]</span>}
+                      </div>
+                      <FactValueRenderer value={v.value} unit={v.unit} />
+                    </>
+                  ) : (
+                    <div className="flex items-baseline gap-2 min-w-0">
+                      <span className="font-mono text-[0.7rem] text-muted break-all min-w-0 flex-1">
+                        {k}
+                      </span>
+                      <FactValueRenderer value={v.value} unit={v.unit} />
+                    </div>
+                  )}
                   {sources.length > 0 && (
-                    <div className="mt-0.5 text-[0.65rem] text-muted leading-snug break-words">
+                    <div className="mt-1 text-[0.65rem] text-muted leading-snug break-words">
                       {sources.map((s) => s.replace(/^house-\d+-/, '')).join(' · ')}
                     </div>
                   )}
