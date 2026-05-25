@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Blockhaus",
-  "roof_type": null,
-  "style": "landhaus",
+  "roof_type": "Satteldach",
+  "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Modernes Blockhaus in grau lasierter Holzbohlenoptik, flaches Satteldach mit PV-Anlage und großen Dachüberständen, Balkon im OG.",
+  "agent_notes": "Satteldach + Balkon + Solar. Giebelverglasung blockiert #109.",
+  "tags": [
+    "blockhaus",
+    "modern",
+    "solar",
+    "balkon"
+  ],
   "images": [
     {
       "file": "fullwood_heidelberg_exterio.original.avif",
@@ -65,5 +73,8 @@
       "floor": null,
       "caption": null
     }
+  ],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#109"
   ]
 }
