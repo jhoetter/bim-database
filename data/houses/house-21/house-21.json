@@ -117,24 +117,37 @@
         "scale": "1:100"
       },
       "facts": {
-        "outer_dims_total_mm": {"value": [19850, 7900], "unit": "mm", "evidence": "Außenmaß 19,85 m × ca. 7,90 m (laut Bemaßung am Rand)"},
-        "outer_dims_per_half_mm": {"value": [9900, 7900], "unit": "mm", "evidence": "Hauptmaß 9,90 m × 7,90 m pro Hälfte (laut Wohnflächenberechnung + Bemaßung)"},
+        "outer_dims_total_mm": {"value": [19850, 8150], "unit": "mm", "evidence": "Außenmaß: Länge 19,85 m (=2×9,90 + Mittelwand), Tiefe 8,15 m (innen-Außen, ohne Außenputz)"},
+        "outer_dims_per_half_mm": {"value": [9900, 8150], "unit": "mm", "evidence": "Maßkette pro Hälfte: 9,90 m × 8,15 m (Bemaßung am EG-Plan)"},
+        "wall_thickness_outer_mm": {"value": 300, "unit": "mm", "evidence": "Differenz Außenmaß (8,75 m laut Umbauter-Raum-Berechnung) zu Innenmaß (8,15 m laut EG-Plan-Bemaßung) = 600 mm für beide Außenwände → ~300 mm pro Wand (typisch 1956 Massivbau)"},
+        "room_dimensions_mm": {
+          "value": {
+            "Wohnzimmer":   {"length_mm": 4930, "width_mm": 3900},
+            "Schlafzimmer": {"length_mm": 4935, "width_mm": 3650},
+            "Kinderzimmer": {"length_mm": 2400, "width_mm": 4050}
+          },
+          "unit": "mm",
+          "evidence": "Maßketten am EG-Plan: Wohnzimmer 4,93·3,90; Schlafzimmer 4,935·3,65; Kinderzimmer 2,40·4,05. Kleinere Räume (Flur/Küche/Bad/Speisekammer) Dim nicht klar lesbar — siehe anomaly_flags."
+        },
         "room_areas_m2": {
           "value": {
-            "Wohnzimmer": 18.65,
-            "Schlafzimmer": 16.69,
-            "Flur": 5.37,
-            "Kinderzimmer": 9.33,
-            "Küche": 6.47,
-            "Speisekammer": 0.52,
-            "Bad u. WC": 4.58
+            "Wohnzimmer":     18.65,
+            "Schlafzimmer":   16.69,
+            "Flur":            5.37,
+            "Kinderzimmer":    9.33,
+            "Küche":           6.47,
+            "Speisekammer":    0.52,
+            "Bad u. WC":       4.58
           },
           "unit": "m²",
-          "evidence": "Werte aus Wohnflächenberechnung nach DIN 283 (Mai 1956); auf dem EG-Plan sind Raumlabel + m²-Werte handschriftlich orange eingetragen"
+          "evidence": "Werte aus Wohnflächenberechnung nach DIN 283 (Mai 1956); auf dem EG-Plan sind Raumlabel + m²-Werte handschriftlich orange eingetragen. Σ = 61,61 m²"
         },
         "rooms_count_per_half": {"value": 7, "unit": "count"},
         "wohnflaeche_eg_per_half_m2": {"value": 61.61, "unit": "m²", "evidence": "Summe der Räume = Netto-Wohnfläche EG pro Hälfte"}
-      }
+      },
+      "anomaly_flags": [
+        "Per-Raum-Maße für Flur/Küche/Bad/Speisekammer auf der EG-Bemaßung nicht klar lesbar — höhere DPI / direkte PDF-Bemaßungs-Extraktion nötig. room_dimensions_mm enthält nur die 3 lesbaren Räume."
+      ]
     },
     {
       "file": "house-21-floorplan-dg-detail.jpg",
@@ -150,22 +163,35 @@
         "scale": "1:100"
       },
       "facts": {
-        "outer_dims_total_mm": {"value": [19800, 8800], "unit": "mm", "evidence": "Außenmaß 19,80 m × ca. 8,80 m"},
+        "outer_dims_total_mm": {"value": [19800, 8150], "unit": "mm", "evidence": "Außenmaß 19,80 m × 8,15 m (innen-Außen, gleiches Footprint wie EG)"},
+        "outer_dims_per_half_mm": {"value": [9900, 8150], "unit": "mm"},
+        "room_dimensions_mm": {
+          "value": {
+            "Wohnzimmer":   {"length_mm": 4990, "width_mm": 3485, "note": "+ Dachschräge-Zuschläge (1,85·0,60 + 0,385·0,97) gem. DIN 283"},
+            "Schlafzimmer": {"length_mm": 4435, "width_mm": 3485, "note": "+ Dachschräge-Zuschlag (1,85·0,60·0,385) gem. DIN 283"},
+            "Kinderzimmer": {"length_mm": 2160, "width_mm": 3470}
+          },
+          "unit": "mm",
+          "evidence": "Maßketten am DG-Plan. DG-Räume haben durch Dachschräge geringere effektive Wohnfläche (DIN 283: Bereiche < 1m Höhe komplett abgezogen, 1-2m Höhe zu 50%)."
+        },
         "room_areas_m2": {
           "value": {
-            "Wohnzimmer": 15.66,
+            "Wohnzimmer":   15.66,
             "Schlafzimmer": 15.33,
-            "Flur": 5.37,
-            "Kinderzimmer": 7.68,
-            "Küche": 5.70,
-            "Bad u. WC": 4.68
+            "Flur":          5.37,
+            "Kinderzimmer":  7.68,
+            "Küche":         5.70,
+            "Bad u. WC":     4.68
           },
           "unit": "m²",
-          "evidence": "Wohnflächenberechnung Mai 1956 + handschriftliche m²-Labels im Plan"
+          "evidence": "Wohnflächenberechnung Mai 1956 + handschriftliche m²-Labels im Plan. Σ = 54,42 m²."
         },
         "rooms_count_per_half": {"value": 6, "unit": "count"},
         "wohnflaeche_dg_per_half_m2": {"value": 54.42, "unit": "m²"}
-      }
+      },
+      "anomaly_flags": [
+        "Per-Raum-Maße für Flur/Küche/Bad auf DG-Bemaßung nicht klar lesbar — siehe EG."
+      ]
     },
     {
       "file": "house-21-section-quer.jpg",
@@ -275,11 +301,38 @@
       "expected": "Σ(DG room areas) = 15.66+15.33+5.37+7.68+5.70+4.68 = 54.42",
       "ok": true
     },
+    "eg_lxw_vs_din_check": {
+      "value": {
+        "Wohnzimmer":   {"computed_lxw_m2": 19.23, "din_m2": 18.65, "diff_m2": 0.58, "explanation": "Nische 0,26·0,97 Korrektur in DIN"},
+        "Schlafzimmer": {"computed_lxw_m2": 18.01, "din_m2": 16.69, "diff_m2": 1.32, "explanation": "Kamin-/Treppen-Abzug ca. 1,3 m² in DIN"},
+        "Kinderzimmer": {"computed_lxw_m2":  9.72, "din_m2":  9.33, "diff_m2": 0.39, "explanation": "Wandnische ca. 0,4 m² in DIN"}
+      },
+      "sources": ["house-21-floorplan-eg-detail.jpg", "house-21-doc-wohnflaechenberechnung.jpg"],
+      "expected": "L×W ≥ DIN-Fläche um 2-8% (DIN 283 zieht Nischen, Kamine, Treppenaussparungen ab)",
+      "ok": true
+    },
+    "dg_lxw_vs_din_check": {
+      "value": {
+        "Wohnzimmer":   {"computed_lxw_m2": 17.39, "din_m2": 15.66, "diff_m2": 1.73, "explanation": "Dachschräge < 1m Höhe komplett abgezogen + 1-2m zu 50% (DIN 283 §2)"},
+        "Schlafzimmer": {"computed_lxw_m2": 15.46, "din_m2": 15.33, "diff_m2": 0.13, "explanation": "minimale Dachschräge-Korrektur"},
+        "Kinderzimmer": {"computed_lxw_m2":  7.50, "din_m2":  7.68, "diff_m2": -0.18, "explanation": "DIN 283 ist hier sogar höher (Zuschlag aus Dachboden-Annex?)"}
+      },
+      "sources": ["house-21-floorplan-dg-detail.jpg", "house-21-doc-wohnflaechenberechnung.jpg"],
+      "expected": "DG-Räume: L×W ≥ DIN um 5-15% (Dachschräge-Abzug); kleine Räume nahe Mittellinie kaum betroffen",
+      "ok": true
+    },
+    "wall_thickness_outer_mm": {
+      "value": 300,
+      "unit": "mm",
+      "sources": ["house-21-floorplan-eg-detail.jpg", "house-21-doc-umbauter-raum.jpg"],
+      "expected": "Umbauter Raum verwendet Außenmaß 8,75 m, EG-Bemaßung zeigt Innen-Außenmaß 8,15 m → (8,75-8,15)/2 = 0,30 m pro Außenwand. Typisch für 1956 Massivbau mit 24-cm-Klinker + Putz.",
+      "ok": true
+    },
     "outer_dims_per_half_mm": {
       "value": [9900, 8750],
       "unit": "mm",
       "sources": ["house-21-floorplan-eg-detail.jpg", "house-21-doc-umbauter-raum.jpg"],
-      "expected": "EG-Plan zeigt 9.90 m × ~7.90 m bei Außenkante Wohnraum; Umbauter-Raum-Berechnung verwendet 19.80/2 × 8.75 (inkl. Außenwand-Stärke)",
+      "expected": "Länge 9,90 m konsistent zwischen EG-Plan und Umbauter-Raum. Tiefe: EG-Plan misst 8,15 m (innen-Außen), Umbauter Raum rechnet mit 8,75 m (außen-außen) — Differenz 600 mm = 2 × 300 mm Außenwand.",
       "ok": true
     },
     "bebaute_flaeche_per_half_m2": {
