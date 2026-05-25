@@ -2,15 +2,29 @@ import type { House } from '../../api/types';
 import { formatFactValue } from '../../lib/format';
 import { Badge } from '../Badge';
 
+// Sidebar section primitive: small uppercase title + spacing + content.
+// Lower visual weight than the (deleted) bordered card so sidebar reads as
+// a single column rather than a stack of bordered boxes.
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="text-[0.65rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+        {title}
+      </h3>
+      <div className="min-w-0">{children}</div>
+    </section>
+  );
+}
+
 export function AnomalyPanel({ flags }: { flags: string[] }) {
   if (flags.length === 0) return null;
   return (
-    <Section title="⚠ Anomalien für Review">
-      <ul className="bg-amber-100 border border-amber-200 rounded-md text-[0.8125rem] text-amber-900 leading-snug">
+    <Section title={`⚠ Anomalien (${flags.length})`}>
+      <ul className="space-y-1.5">
         {flags.map((f, i) => (
           <li
             key={i}
-            className="px-3 py-2 border-b border-amber-200 last:border-b-0"
+            className="px-2.5 py-1.5 bg-amber-50 border-l-2 border-amber-400 rounded-r text-[0.75rem] text-amber-900 leading-snug break-words"
           >
             {f}
           </li>
@@ -24,51 +38,46 @@ export function DerivedFactsPanel({ derived }: { derived: House['derived_facts']
   const entries = Object.entries(derived ?? {});
   if (entries.length === 0) return null;
   return (
-    <Section title="Abgeleitete Fakten (verifiziert)">
-      <div className="grid grid-cols-1 gap-1.5">
+    <Section title={`Abgeleitete Fakten (${entries.length})`}>
+      <ul className="space-y-1">
         {entries.map(([k, v]) => {
           const tone =
-            v.ok === true ? 'border-green-200 bg-green-50' :
-            v.ok === false ? 'border-orange-200 bg-orange-50' :
-            'border-border bg-zinc-50';
+            v.ok === true
+              ? 'border-l-green-400 bg-green-50/40'
+              : v.ok === false
+              ? 'border-l-orange-400 bg-orange-50/40'
+              : 'border-l-zinc-300 bg-zinc-50/40';
           const status =
-            v.ok === true ? <span className="text-green-700">✓</span> :
-            v.ok === false ? <span className="text-red-700">✗</span> :
-            null;
+            v.ok === true ? '✓' : v.ok === false ? '✗' : '·';
           const valStr = formatFactValue(v.value, v.unit);
           const sources = v.sources ?? [];
-          const exp = v.expected != null ? `Erwartet: ${String(v.expected)}` : '';
           return (
-            <div
+            <li
               key={k}
-              className={`grid grid-cols-[1fr_auto] gap-x-2.5 gap-y-1 px-3 py-2 rounded-md border text-[0.8125rem] ${tone}`}
+              className={`px-2.5 py-1.5 rounded-r border-l-2 text-[0.75rem] ${tone}`}
             >
-              <div className="font-mono text-[0.72rem] text-muted">
-                {status} <span className={status ? 'ml-1' : ''}>{k}</span>
-              </div>
-              <div className="font-semibold tabular-nums whitespace-nowrap text-right">
-                {valStr}
-              </div>
-              {(sources.length > 0 || exp) && (
-                <div className="col-span-2 text-[0.7rem] text-muted mt-0.5 leading-snug">
-                  {exp && <>{exp} · </>}
-                  <span>
-                    aus{' '}
-                    {sources.map((s) => (
-                      <code
-                        key={s}
-                        className="bg-zinc-200 rounded-sm px-1 mr-0.5 text-[0.65rem] font-mono"
-                      >
-                        {s.replace(/^house-\d+-/, '')}
-                      </code>
-                    ))}
-                  </span>
+              <div className="flex items-start gap-1.5 min-w-0">
+                <span className="text-muted font-mono shrink-0 mt-px">{status}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <span className="font-mono text-[0.7rem] text-muted break-words min-w-0 flex-1">
+                      {k}
+                    </span>
+                    <span className="font-semibold tabular-nums text-zinc-900 text-right break-words">
+                      {valStr}
+                    </span>
+                  </div>
+                  {sources.length > 0 && (
+                    <div className="mt-0.5 text-[0.65rem] text-muted leading-snug break-words">
+                      {sources.map((s) => s.replace(/^house-\d+-/, '')).join(' · ')}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </Section>
   );
 }
@@ -76,54 +85,40 @@ export function DerivedFactsPanel({ derived }: { derived: House['derived_facts']
 export function ModelabilityPanel({ h }: { h: House }) {
   const refs = h.bim_ai_blocking_issues ?? [];
   const m = h.modelable_in_bim_ai;
-
-  // Hide for not-yet-assessed houses (no field).
   if (!h.assessed) return null;
 
+  const tone =
+    m === true ? 'ok' : m === false ? 'blocked' : 'unknown';
   const headline =
-    m === true ? (
-      <>
-        <Badge tone="ok">✓ modellierbar</Badge> Keine offenen Blocker.
-      </>
-    ) : m === false ? (
-      <>
-        <Badge tone="blocked">✗ blockiert</Badge> Mindestens ein referenziertes Issue ist
-        noch offen.
-      </>
-    ) : (
-      <>
-        <Badge tone="unknown">? unbekannt</Badge> Cache fehlt für mindestens ein Issue —{' '}
-        <code className="font-mono text-[0.75rem] bg-zinc-100 px-1 rounded">
-          make refresh-issue-state
-        </code>{' '}
-        ausführen.
-      </>
-    );
+    m === true ? '✓ modellierbar' : m === false ? '✗ blockiert' : '? unbekannt';
+  const sub =
+    m === true ? 'Keine offenen Blocker.' :
+    m === false ? 'Mindestens ein referenziertes Issue ist offen.' :
+    'Issue-Cache fehlt — make refresh-issue-state ausführen.';
 
   return (
     <Section title="bim-ai Modellierbarkeit">
-      <div className="text-[0.85rem] flex items-center gap-2">{headline}</div>
+      <div className="flex items-center gap-2 mb-1.5">
+        <Badge tone={tone}>{headline}</Badge>
+      </div>
+      <p className="text-[0.72rem] text-muted leading-snug break-words">{sub}</p>
       {refs.length > 0 && (
-        <ul className="mt-2 pl-4 list-disc text-[0.85rem] space-y-0.5">
+        <ul className="mt-2 space-y-0.5">
           {refs.map((r) => {
             const open = (h.blocking_open ?? []).some((b) => b.ref === r);
             const unknown = (h.blocking_unknown ?? []).some((b) => b.ref === r);
-            const state = open
-              ? '🟠 open'
-              : unknown
-              ? '⚪ unknown'
-              : '🟢 closed';
+            const state = open ? '🟠' : unknown ? '⚪' : '🟢';
             const [repo, num] = r.split('#');
             return (
-              <li key={r}>
-                {state} ·{' '}
+              <li key={r} className="text-[0.7rem] break-words">
+                <span className="mr-1">{state}</span>
                 <a
                   href={`https://github.com/${repo}/issues/${num}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-accent hover:underline"
+                  className="text-accent hover:underline font-mono"
                 >
-                  <code className="font-mono text-[0.8rem]">{r}</code>
+                  {r}
                 </a>
               </li>
             );
@@ -142,54 +137,37 @@ export function SourcePdfsPanel({ h }: { h: House }) {
     if (f) scenesPerSrc[f] = (scenesPerSrc[f] ?? 0) + 1;
   }
   return (
-    <Section title="Originaldateien (Quellen)">
-      <div className="grid grid-cols-1 gap-1">
+    <Section title={`Originaldateien (${h.source_pdfs.length})`}>
+      <ul className="space-y-1">
         {h.source_pdfs.map((s) => {
           const fname = s.split('/').pop()!;
           const n = scenesPerSrc[fname] ?? 0;
           return (
-            <div
+            <li
               key={s}
-              className="flex items-center gap-2.5 px-2.5 py-1.5 bg-zinc-50 rounded-md text-xs"
+              className="text-[0.7rem] min-w-0"
             >
-              <span
-                className="flex-1 font-mono text-[0.72rem] overflow-hidden whitespace-nowrap text-ellipsis"
-                title={fname}
-              >
-                📄 {fname}
-              </span>
-              <span
-                className={`text-[0.7rem] px-2 py-px rounded-full ${
-                  n > 0
-                    ? 'text-green-700 font-semibold bg-green-100'
-                    : 'text-muted bg-zinc-100'
-                }`}
-              >
-                {n > 0 ? `→ ${n} Szene${n !== 1 ? 'n' : ''}` : 'noch nicht zerlegt'}
-              </span>
               <a
                 href={s}
                 target="_blank"
                 rel="noreferrer"
-                className="text-accent hover:underline text-[0.7rem]"
+                className="flex items-start gap-1.5 px-2 py-1.5 bg-zinc-50 rounded hover:bg-zinc-100 transition min-w-0"
+                title={fname}
               >
-                öffnen ↗
+                <span aria-hidden="true">📄</span>
+                <span className="flex-1 font-mono text-[0.68rem] break-all min-w-0 leading-snug">
+                  {fname}
+                </span>
+                {n > 0 && (
+                  <span className="shrink-0 inline-flex items-center gap-0.5 text-[0.62rem] text-green-700 font-semibold bg-green-100 px-1.5 py-0.5 rounded-full">
+                    {n}
+                  </span>
+                )}
               </a>
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </Section>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-5 border-t border-border pt-3.5">
-      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-2.5">
-        {title}
-      </h4>
-      {children}
-    </section>
   );
 }

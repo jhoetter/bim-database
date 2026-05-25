@@ -191,7 +191,7 @@ export function Shell({
               BIM House DB
             </Link>
           </div>
-          <div className="flex-1 overflow-y-auto">{leftSidebar}</div>
+          <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0">{leftSidebar}</div>
         </div>
       </aside>
 

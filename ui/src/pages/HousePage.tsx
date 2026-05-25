@@ -36,39 +36,44 @@ export function HousePage() {
         />
       }
       leftSidebar={
-        <div className="p-4 space-y-4">
-          <header>
-            <div className="text-[0.7rem] uppercase tracking-wider text-muted">
-              {h.manufacturer ? `${h.manufacturer} · ${h.key}` : h.key}
+        <div className="px-4 py-4 space-y-5 min-w-0">
+          <header className="min-w-0">
+            <div className="text-[0.65rem] uppercase tracking-wider text-muted font-medium">
+              {h.manufacturer ? h.manufacturer : h.key}
+              {h.manufacturer && (
+                <span className="ml-1.5 text-zinc-400 font-normal">{h.key}</span>
+              )}
             </div>
-            <h1 className="text-[1.05rem] font-semibold leading-tight mt-0.5">{h.model}</h1>
+            <h1 className="text-[1rem] font-semibold leading-snug mt-0.5 break-words">
+              {h.model}
+            </h1>
+            {(h.source_url || h.pdf_url) && (
+              <div className="flex gap-1.5 mt-2.5">
+                {h.source_url && (
+                  <a
+                    href={h.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-2.5 py-1 rounded-md text-[0.7rem] bg-white text-zinc-900 border border-border hover:border-zinc-400"
+                  >
+                    Quelle ↗
+                  </a>
+                )}
+                {h.pdf_url && (
+                  <a
+                    href={h.pdf_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-2.5 py-1 rounded-md text-[0.7rem] bg-accent text-white hover:opacity-90"
+                  >
+                    PDF
+                  </a>
+                )}
+              </div>
+            )}
           </header>
 
           <HouseSpecs h={h} />
-
-          <div className="flex gap-2 flex-wrap">
-            {h.source_url && (
-              <a
-                href={h.source_url}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-1 rounded-md text-[0.75rem] bg-white text-zinc-900 border border-border hover:opacity-90"
-              >
-                Quelle ↗
-              </a>
-            )}
-            {h.pdf_url && (
-              <a
-                href={h.pdf_url}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-1 rounded-md text-[0.75rem] bg-accent text-white hover:opacity-90"
-              >
-                PDF
-              </a>
-            )}
-          </div>
-
           <AnomalyPanel flags={h.anomaly_flags ?? []} />
           <DerivedFactsPanel derived={h.derived_facts} />
           <ModelabilityPanel h={h} />
