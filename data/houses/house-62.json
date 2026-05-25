@@ -7,21 +7,28 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Holzbau",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "historisch",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": "Fachwerkhaus",
-  "agent_notes": null,
-  "tags": [],
+  "character": "Symmetrisches Fachwerkhaus mit sehr steilem Satteldach, dichtes sichtbares Eichen-Fachwerk mit Backsteinausfachung, kleine Schleppgaube.",
+  "agent_notes": "Sichtbares Fachwerk blockiert (#111). Volumen + Satteldach + Gaube ok.",
+  "tags": [
+    "fachwerk",
+    "historisch",
+    "satteldach"
+  ],
   "images": [
     {
       "file": "fuhrberger_pinus_exterior1.original.avif",
@@ -44,5 +51,8 @@
       "view": null,
       "caption": null
     }
+  ],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#111"
   ]
 }
