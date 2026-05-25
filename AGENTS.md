@@ -218,10 +218,21 @@ Convention (matches existing issues like #31, #53, #56):
    - **Acceptance** — name the houses that should render correctly when this
      closes.
    - **Houses affected** — initial list.
-4. **Screenshots** — commit JPGs to
-   `~/repos/bim-ai/docs/issue-screenshots/issue-NNN-<slug>.jpg` (you'll need
-   to create the issue first to get `NNN`, then edit the body to embed). Use
-   raw URLs: `https://raw.githubusercontent.com/jhoetter/bim-ai/main/docs/issue-screenshots/issue-NNN-<slug>.jpg`.
+4. **Screenshots** — upload to the `assets-v1` release on bim-ai (an asset
+   bucket, not a code release). Rename the file locally first to
+   `issue-NNN-<slug>.jpg`, then:
+
+   ```bash
+   gh release upload assets-v1 issue-NNN-<slug>.jpg --repo jhoetter/bim-ai
+   ```
+
+   Reference the result via:
+   `https://github.com/jhoetter/bim-ai/releases/download/assets-v1/issue-NNN-<slug>.jpg`
+
+   These render inline in GitHub markdown and don't pollute the repo with
+   binary commits. (GitHub's `/user-attachments/assets/<uuid>` URLs only
+   come from web-UI drag-drop — no public CLI API; release assets are the
+   closest CLI-uploadable equivalent.)
 
 Worked example: **#101 (Versetztes Pultdach)** and **#102 (Erker)** —
 both filed from `house-18`. Read those before writing your first.
