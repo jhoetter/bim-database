@@ -7,21 +7,30 @@
   "source_origin": null,
   "building_type": "MFH",
   "construction": null,
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Mansarddach",
+  "style": "stadtvilla",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG",
+    "DG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Dreigeschossiges MFH im Stadtvilla-Stil mit Mansarddach, mehreren Mansardgauben, durchgehender Balkonzone und Putzfassade.",
+  "agent_notes": "Mansarddach + Mansardgauben blockiert (#112).",
+  "tags": [
+    "mfh",
+    "stadtvilla",
+    "mansarddach",
+    "mansardgaube"
+  ],
   "images": [
     {
       "file": "saale-haus_mfh_exterior1.original.avif",
@@ -51,5 +60,8 @@
       "floor": null,
       "caption": null
     }
+  ],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#112"
   ]
 }
