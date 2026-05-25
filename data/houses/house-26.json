@@ -1,0 +1,48 @@
+{
+  "id": 26,
+  "model": "Stadtvilla S150",
+  "manufacturer": "Nurda",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/nurda-stadtvillas150/",
+  "source_origin": null,
+  "building_type": "Stadtvilla",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": "stadtvilla",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 150,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "nurda_stadthaus-s150_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "nurda_stadthaus-s150_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "nurda_stadthaus-s150_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

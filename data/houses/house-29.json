@@ -1,0 +1,111 @@
+{
+  "id": 29,
+  "model": "Solitaire Generationen",
+  "manufacturer": "Schwabenhaus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/schwabenhaus-solitaire-generationen/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": "modern",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": null,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": "Mehrgenerationen-EFH in vier Größenvarianten: 179 m², 182 m², 191 m², 200 m² (je Entwurf 2)",
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "schwabenhaus_solitaire-gen01_179e2-exterior.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": "179 m² Entwurf 2 — Außenansicht"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen03_179e2-floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": "179 m² Entwurf 2 — Grundriss 1"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen04_179e2-floorplan.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": "179 m² Entwurf 2 — Grundriss 2"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen05_182e2-exterior.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": "182 m² Entwurf 2 — Außenansicht"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen06_182e2-flooprlan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": "182 m² Entwurf 2 — Grundriss 1"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen07_182e2-flooprlan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": "182 m² Entwurf 2 — Grundriss 2"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen08_191e2-exterior.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": "191 m² Entwurf 2 — Außenansicht"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen11_191e2-floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": "191 m² Entwurf 2 — Grundriss 1"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen12_191e2-floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": "191 m² Entwurf 2 — Grundriss 2"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen13_200e2-exterior.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": "200 m² Entwurf 2 — Außenansicht"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen17_200e2-floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": "200 m² Entwurf 2 — Grundriss 1"
+    },
+    {
+      "file": "schwabenhaus_solitaire-gen18_200e2-floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": "200 m² Entwurf 2 — Grundriss 2"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "id": 25,
+  "model": "Landhaus LA146",
+  "manufacturer": "Nurda",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/nurda-landhausla146/",
+  "source_origin": null,
+  "building_type": "Landhaus",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": "landhaus",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 146,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "nurda_landhaus-la146_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "nurda_landhaus-la146_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "nurda_landhaus-la146_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "nurda_landhaus-la146_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

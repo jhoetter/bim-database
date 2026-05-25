@@ -1,0 +1,48 @@
+{
+  "id": 39,
+  "model": "Solitaire B150 Entwurf 5",
+  "manufacturer": "Schwabenhaus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/schwabenhaus-solitaeireb150e5/",
+  "source_origin": null,
+  "building_type": "Bungalow",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": "modern",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": ["EG"],
+  "area_m2": 150,
+  "rooms": null,
+  "floors": 1.0,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "schwabenhaus_solb150e5_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "schwabenhaus_solb150e5_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": "EG",
+      "caption": null
+    },
+    {
+      "file": "schwabenhaus_solb150e5_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

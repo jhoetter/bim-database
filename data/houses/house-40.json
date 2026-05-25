@@ -1,0 +1,48 @@
+{
+  "id": 40,
+  "model": "Solitaire E165 Entwurf 3",
+  "manufacturer": "Schwabenhaus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/solitaire-e-165-entwurf-3/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": "modern",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 165,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "schwabenhaus_solitaeree165-e3_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "schwabenhaus_solitaeree165-e3_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "schwabenhaus_solitaeree165-e3_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

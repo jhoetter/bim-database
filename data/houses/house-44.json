@@ -1,0 +1,48 @@
+{
+  "id": 44,
+  "model": "Solitaire E145 Entwurf 2",
+  "manufacturer": "Schwabenhaus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/solitaire-e-145-entwurf-2/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": "modern",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": 145,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "schwabenhaus_solitaeree145-e2_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "schwabenhaus_solitaeree145-e2_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "schwabenhaus_solitaeree145-e2_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}
