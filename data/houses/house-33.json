@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
+  "roof_type": "Versetztes Pultdach",
   "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": 165,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Modernes EFH mit versetztem Pultdach, großzügiger überdachter Terrasse, Galerie/Luftraum und Balkon.",
+  "agent_notes": "Versetztes Pultdach (#101 closed) + Auskragung + Galerie. Voll modellierbar.",
+  "tags": [
+    "modern",
+    "versetztes-pultdach",
+    "galerie",
+    "balkon"
+  ],
   "images": [
     {
       "file": "schwabenhaus_solitaeree165-e4_exterior1.original.avif",
@@ -44,5 +52,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
