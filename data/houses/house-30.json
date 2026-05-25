@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
+  "roof_type": "Satteldach",
   "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": 133,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Modernes EFH mit Satteldach, starkem Dachüberstand, Erker im EG, Balkon im DG und angeschlossenem Carport.",
+  "agent_notes": "Satteldach + Erker (#102 closed) + Carport + edge_overhang. Voll modellierbar.",
+  "tags": [
+    "modern",
+    "satteldach",
+    "erker",
+    "carport"
+  ],
   "images": [
     {
       "file": "schwabenhaus_sene133e1_exterior1.original.avif",
@@ -44,5 +52,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
