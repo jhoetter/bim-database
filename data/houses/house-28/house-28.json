@@ -9,7 +9,7 @@
   "construction": "Fertighaus",
   "roof_type": "Flachdach",
   "style": "modern",
-  "energy_standard": null,
+  "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
   "levels": [

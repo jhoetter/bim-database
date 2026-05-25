@@ -11,7 +11,7 @@
   "style": "modern",
   "energy_standard": "Effizienzhaus 40",
   "year_built": null,
-  "has_basement": null,
+  "has_basement": false,
   "levels": [
     "EG"
   ],

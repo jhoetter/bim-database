@@ -9,9 +9,9 @@
   "construction": "Fertighaus",
   "roof_type": "Satteldach",
   "style": "modern",
-  "energy_standard": null,
+  "energy_standard": "Effizienzhaus 55",
   "year_built": null,
-  "has_basement": null,
+  "has_basement": true,
   "levels": [
     "EG",
     "1. OG"

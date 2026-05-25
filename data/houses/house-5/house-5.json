@@ -11,7 +11,7 @@
   "style": "skandinavisch",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
-  "has_basement": null,
+  "has_basement": false,
   "levels": [
     "EG"
   ],
