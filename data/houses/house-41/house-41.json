@@ -9,7 +9,7 @@
   "construction": "Fertighaus",
   "roof_type": "Walmdach",
   "style": "stadtvilla",
-  "energy_standard": null,
+  "energy_standard": "Effizienzhaus 40 Plus",
   "year_built": null,
   "has_basement": null,
   "levels": [

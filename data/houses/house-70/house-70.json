@@ -9,7 +9,7 @@
   "construction": null,
   "roof_type": "Satteldach",
   "style": "klassisch",
-  "energy_standard": null,
+  "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
   "levels": [

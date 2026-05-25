@@ -9,7 +9,7 @@
   "construction": "Holzbau",
   "roof_type": "Krüppelwalmdach",
   "style": "historisch",
-  "energy_standard": null,
+  "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
   "levels": [

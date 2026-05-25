@@ -9,7 +9,7 @@
   "construction": null,
   "roof_type": "Walmdach",
   "style": "mediterran",
-  "energy_standard": null,
+  "energy_standard": "Effizienzhaus 55 EE",
   "year_built": null,
   "has_basement": null,
   "levels": [
