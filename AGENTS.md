@@ -130,17 +130,50 @@ edit `data/ontology.json`, then use it. UI and filters update automatically.
 
 Each entry in `images[]`:
 
-| Field      | Source                       | Required for                       |
-|------------|------------------------------|------------------------------------|
-| `file`     | filename relative to folder  | always                             |
-| `category` | `ontology.image_categories`  | always (exterior / floorplan / elevation / …) |
-| `medium`   | `ontology.image_mediums`     | always (photo / render / drawing / scan / …) |
-| `view`     | `ontology.image_views`       | exteriors & elevations (front / rear / north / …) |
-| `floor`    | `ontology.levels`            | floorplans (KG / EG / 1. OG / …) |
-| `caption`  | free text                    | optional — short German label      |
+| Field        | Source                       | Required for                       |
+|--------------|------------------------------|------------------------------------|
+| `file`       | logical filename (see scene cache below) | always              |
+| `category`   | `ontology.image_categories`  | always (exterior / floorplan / elevation / …) |
+| `medium`     | `ontology.image_mediums`     | always (photo / render / drawing / scan / …) |
+| `view`       | `ontology.image_views`       | exteriors & elevations (front / rear / north / …) |
+| `floor`      | `ontology.levels`            | floorplans (KG / EG / 1. OG / …) |
+| `caption`    | free text                    | optional — short German label      |
+| `source_ref` | nested object                | for derived scenes (cropped from a PDF / AVIF) |
 
 When in doubt: leave a field `null` rather than guess. The UI hides null
 fields cleanly.
+
+#### Scene reconstruction & `source_ref`
+
+PDF-sourced scene crops (h21/h22/h23 style) are **not committed as JPGs** —
+`api/scene_render.py` reconstructs them on demand from the JSON coords and
+the source PDF, caching into `tmp/scene-cache/<key>/<file>` (gitignored).
+The API endpoint is `/scene/{key}/{file}`; URL routing in `_enrich` picks
+this for any scene whose `source_ref.file` ends in `.pdf`. Originals (AVIFs,
+catalog images, non-derived photos) keep going through `/static/` as before.
+
+`source_ref` shape:
+
+| Field          | Type    | Notes |
+|----------------|---------|-------|
+| `file`         | string  | Source filename in the house folder (`Kannenofen.pdf`, `mh_floorplan1.original.avif`, …). |
+| `page`         | int?    | PDF page (1-indexed). Null for non-PDF sources. |
+| `crop_box_pct` | array?  | `[x0, y0, x1, y1]` in fractions of the **post-rotation** page. Default `[0,0,1,1]`. |
+| `rotation_deg` | int?    | Counter-clockwise degrees applied **before** the crop. Use for PDFs whose content is drawn rotated relative to page orientation (common in Adobe-Scan output). Default 0. |
+| `dpi`          | int?    | Render DPI for the PDF page. Default 200. Higher = more pixels per cm; rarely needed. |
+| `page_title`   | string? | Human-readable title block text from the source page. UI provenance. |
+| `scale`        | string? | Drawing scale label like `"1:100"`. UI provenance. |
+
+To re-render after a JSON edit: `scripts/render_scene.py --key house-N` or
+`make warm-cache` for the whole DB. The cache is mtime-keyed against
+`house-N.json`, so any JSON write invalidates it.
+
+The full data-standardization workflow that produces these `source_ref`
+entries lives in [`bim-agent`'s house-data-standardization skill][skill].
+See also [`spec/scene-image-storage.md`](spec/scene-image-storage.md) for
+the storage strategy and what was deferred (history rewrite, AVIF cache).
+
+[skill]: https://github.com/jhoetter/bim-agent/blob/main/claude-skills/house-data-standardization/SKILL.md
 
 ---
 
