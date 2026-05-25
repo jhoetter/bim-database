@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Massivhaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Versetztes Pultdach",
+  "style": "modern",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG",
+    "DG"
+  ],
   "area_m2": 190,
   "rooms": 5,
   "floors": 2.5,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Modernes EFH mit versetztem Pultdach (asymmetrischer Giebel), 2,5 Geschossen, integrierter Garage und großem Vordach.",
+  "agent_notes": "Versetztes Pultdach (#101 closed) + Carport-Auskragung. Voll modellierbar.",
+  "tags": [
+    "modern",
+    "versetztes-pultdach",
+    "garage"
+  ],
   "images": [
     {
       "file": "mymassivhaus_efh-brand_exterior1.original.avif",
@@ -44,5 +52,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
