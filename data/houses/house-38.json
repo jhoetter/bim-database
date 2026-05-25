@@ -7,21 +7,27 @@
   "source_origin": null,
   "building_type": "Bungalow",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": "modern",
+  "roof_type": "Flachdach",
+  "style": "bauhaus",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": ["EG"],
+  "levels": [
+    "EG"
+  ],
   "area_m2": 130,
   "rooms": null,
   "floors": 1.0,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Bungalow im Bauhaus-Stil mit Flachdach, großer überdachter Terrasse mit zwei Stützen und zweifarbiger Putzfassade.",
+  "agent_notes": "Flachdach-Bungalow mit Terrassenüberdachung. Voll modellierbar.",
+  "tags": [
+    "bungalow",
+    "flachdach",
+    "bauhaus"
+  ],
   "images": [
     {
       "file": "schwabenhaus_solb130e4_exterior1.original.avif",
@@ -37,5 +43,6 @@
       "floor": "EG",
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
