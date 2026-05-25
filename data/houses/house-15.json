@@ -7,49 +7,52 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Massivhaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Zeltdach",
+  "style": "stadtvilla",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG", "1. OG"],
   "area_m2": 162,
   "rooms": null,
   "floors": 2.0,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Moderne Stadtvilla mit Zeltdach (Pyramidendach — alle vier Dachflächen treffen sich in einem Punkt). Eingeschossiger Flachdach-Anbau vorne mit Eingang, separater Flachdach-Garagenkubus rechts. Französischer Balkon im OG.",
+  "agent_notes": "Lighthouse für jhoetter/bim-ai#110 (Zeltdach / Pyramidendach). Heute kein eigener Modus, Workaround wäre hip auf quadratischem Footprint (degeneriert).",
   "tags": [],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#110"
+  ],
   "images": [
     {
       "file": "kbs_illner_exterior1.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht — Zeltdach + Flachdach-Anbau + Garage"
     },
     {
       "file": "kbs_illner_exterior2.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "rear",
+      "caption": "Gartenseite — Zeltdach-Apex deutlich sichtbar"
     },
     {
       "file": "kbs_illner_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     },
     {
       "file": "kbs_illner_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "1. OG",
+      "caption": "Grundriss 1. OG"
     }
   ]
 }
