@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
+  "roof_type": "Versetztes Pultdach",
   "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Modernes Fertighaus mit versetztem Pultdach, weiße Holzschalung, Vordach mit Stützen über Eingang, großer Balkon mit Edelstahlgeländer.",
+  "agent_notes": "Versetztes Pultdach (#101 closed) + Balkon + Vordach. Voll modellierbar.",
+  "tags": [
+    "modern",
+    "versetztes-pultdach",
+    "balkon",
+    "schwoerer"
+  ],
   "images": [
     {
       "file": "schwoerer_e15-1463_exterior1.original.avif",
@@ -51,5 +59,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
