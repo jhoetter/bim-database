@@ -743,8 +743,8 @@
         "crop_box_pct": [
           0.0,
           0.0,
-          0.34,
-          0.42
+          0.395,
+          0.38
         ],
         "page_title": "DETAIL FLACHDACH M 1:10, Blatt 07 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:10"
@@ -784,10 +784,10 @@
         "file": "Kannenofen.pdf",
         "page": 6,
         "crop_box_pct": [
-          0.34,
+          0.41,
           0.0,
-          0.7,
-          0.42
+          0.80,
+          0.38
         ],
         "page_title": "DETAIL DECKEN ABSENKUNG IN DG M 1:10, Blatt 07 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:10"
