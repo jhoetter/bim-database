@@ -1,5 +1,7 @@
 import { Link, useParams } from 'react-router';
 import { fetchHouse, useResource } from '../api/client';
+import type { FactEntry, SceneImage } from '../api/types';
+import { formatFactValue } from '../lib/format';
 
 export function ScenePage() {
   const { key = '', file = '' } = useParams();
@@ -13,9 +15,12 @@ export function ScenePage() {
   const img = h.images.find((x) => x.file === decodedFile);
   if (!img) return <Status text={`Szene "${decodedFile}" nicht in ${h.key}.`} />;
 
+  const factEntries = Object.entries(img.facts ?? {});
+  const anomalies = img.anomaly_flags ?? [];
+
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6">
-      <nav className="text-sm mb-4">
+    <div className="max-w-7xl mx-auto px-4 py-4">
+      <nav className="text-sm mb-3">
         <Link to="/" className="text-accent hover:underline">
           Alle Häuser
         </Link>
@@ -24,42 +29,131 @@ export function ScenePage() {
           {h.model}
         </Link>
       </nav>
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
-        <figure className="bg-white border border-border rounded overflow-hidden">
-          <img src={img.url} alt={img.caption ?? img.file} className="block w-full" />
-        </figure>
-        <aside className="text-sm">
-          <h1 className="text-xl font-semibold">{img.caption ?? img.file}</h1>
-          <dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
-            <dt className="text-muted">Kategorie</dt>
-            <dd>{img.category}</dd>
-            <dt className="text-muted">Medium</dt>
-            <dd>{img.medium}</dd>
-            {img.floor && (
-              <>
-                <dt className="text-muted">Geschoss</dt>
-                <dd>{img.floor}</dd>
-              </>
-            )}
-            {img.view && (
-              <>
-                <dt className="text-muted">Ansicht</dt>
-                <dd>{img.view}</dd>
-              </>
-            )}
-            {img.source_ref && (
-              <>
-                <dt className="text-muted">Quelle</dt>
-                <dd>
-                  {img.source_ref.file}
-                  {img.source_ref.page != null ? ` · Seite ${img.source_ref.page}` : ''}
-                </dd>
-              </>
-            )}
-          </dl>
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-0 bg-white border border-border rounded-xl overflow-hidden">
+        <div className="bg-zinc-800 flex items-center justify-center p-4 overflow-auto max-h-[88vh]">
+          <img
+            src={img.url}
+            alt={img.caption ?? img.file}
+            className="max-w-full max-h-[80vh] object-contain bg-white"
+          />
+        </div>
+        <aside className="p-5 overflow-y-auto max-h-[88vh]">
+          <div className="text-[0.95rem] font-semibold mb-0.5">{img.file}</div>
+          {img.caption && (
+            <div className="text-[0.825rem] text-muted mb-4 leading-relaxed">
+              {img.caption}
+            </div>
+          )}
+
+          {img.source_ref && <SourceSection src={img.source_ref} />}
+          <FactsSection entries={factEntries} />
+          {anomalies.length > 0 && <SceneAnomalies flags={anomalies} />}
         </aside>
       </div>
     </div>
+  );
+}
+
+function SourceSection({ src }: { src: NonNullable<SceneImage['source_ref']> }) {
+  const rows: [string, string | null][] = [
+    ['Datei', src.file],
+    ['Seite', src.page != null ? String(src.page) : null],
+    [
+      'Crop',
+      src.crop_box_pct ? `[${src.crop_box_pct.map((n) => n.toFixed(2)).join(', ')}]` : null,
+    ],
+    ['Titel', src.page_title],
+    ['Maßstab', src.scale],
+  ];
+  const filled = rows.filter(([, v]) => v) as [string, string][];
+  if (filled.length === 0) return null;
+  return (
+    <section className="mb-5">
+      <h5 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-2">
+        Herkunft
+      </h5>
+      <div className="text-[0.8rem] leading-relaxed bg-zinc-50 rounded-md px-3 py-2.5">
+        {filled.map(([k, v]) => (
+          <div key={k} className="flex gap-2 mb-0.5 last:mb-0">
+            <span className="text-muted min-w-[80px]">{k}</span>
+            <span className="font-mono text-[0.74rem]">{v}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FactsSection({ entries }: { entries: [string, FactEntry][] }) {
+  return (
+    <section className="mb-5">
+      <h5 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-2">
+        Fakten{' '}
+        {entries.length > 0 && (
+          <span className="text-muted font-normal normal-case tracking-normal ml-1">
+            ({entries.length})
+          </span>
+        )}
+      </h5>
+      {entries.length === 0 ? (
+        <p className="text-[0.8125rem] text-muted italic">Noch keine Fakten extrahiert.</p>
+      ) : (
+        <dl className="m-0">
+          {entries.map(([k, f]) => (
+            <div key={k} className="mt-3 first:mt-0">
+              <dt className="font-mono text-[0.7rem] text-muted">
+                {k}
+                {f.unit && <span className="text-zinc-400"> [{f.unit}]</span>}
+              </dt>
+              <dd className="mt-0.5 pl-3 text-[0.825rem] font-semibold border-l-2 border-zinc-200 leading-snug">
+                <FactValue value={f.value} unit={f.unit} />
+                {f.evidence && (
+                  <span className="block mt-0.5 font-normal italic text-muted text-[0.7rem]">
+                    {f.evidence}
+                  </span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
+  );
+}
+
+function FactValue({ value, unit }: { value: unknown; unit?: string | null }) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return (
+      <div className="grid grid-cols-[max-content_auto] gap-x-3 gap-y-0.5 font-medium text-[0.75rem] mt-1">
+        {Object.entries(value).map(([k, v]) => (
+          <div key={k} className="contents">
+            <span className="text-muted font-normal">{k}</span>
+            <span className="tabular-nums">{formatFactValue(v, unit)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <>{formatFactValue(value, unit)}</>;
+}
+
+function SceneAnomalies({ flags }: { flags: string[] }) {
+  return (
+    <section className="mb-5">
+      <h5 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-2">
+        ⚠ Szene-Anomalien
+      </h5>
+      <ul className="bg-amber-100 border border-amber-200 rounded-md text-[0.8125rem] text-amber-900 leading-snug">
+        {flags.map((f, i) => (
+          <li
+            key={i}
+            className="px-3 py-2 border-b border-amber-200 last:border-b-0"
+          >
+            {f}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

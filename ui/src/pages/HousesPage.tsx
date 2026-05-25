@@ -1,46 +1,76 @@
-import { Link } from 'react-router';
-import { fetchHouses, useResource } from '../api/client';
+import { useEffect, useState } from 'react';
+import { fetchHouses } from '../api/client';
+import type { House } from '../api/types';
+import { matchesSearch, useFiltersFromUrl } from '../lib/filters';
+import { HouseCard } from '../components/HouseCard';
+import { StatsDashboard } from '../components/stats/StatsDashboard';
+
+// TOTAL is the unfiltered count — survives across renders so the header can
+// show "9 / 57 Häuser" once a filter is active.
+let TOTAL_CACHED = 0;
 
 export function HousesPage() {
-  const { data, error, loading } = useResource(() => fetchHouses({}), []);
+  const { filters, search, setFilter, setRange, setSearch, reset, anyActive } =
+    useFiltersFromUrl();
+  const [recs, setRecs] = useState<House[]>([]);
+  const [total, setTotal] = useState(TOTAL_CACHED);
+  const [error, setError] = useState<Error | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  if (loading) return <Status text="Lade Häuser…" />;
-  if (error) return <Status text={`Fehler: ${error.message}`} tone="error" />;
-  if (!data || data.length === 0) return <Status text="Keine Häuser gefunden." />;
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchHouses(filters)
+      .then((data) => {
+        if (cancelled) return;
+        const filtered = search ? data.filter((r) => matchesSearch(r, search)) : data;
+        setRecs(filtered);
+        if (!anyActive && !search) {
+          TOTAL_CACHED = data.length;
+          setTotal(data.length);
+        }
+      })
+      .catch((e: unknown) => !cancelled && setError(e as Error))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+    // Stringify so the effect re-runs on any change to the URL state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(filters), search]);
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6">
-      <h1 className="text-2xl font-semibold mb-4">{data.length} Häuser</h1>
-      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {data.map((h) => (
-          <li
-            key={h.key}
-            className="border border-border rounded-lg bg-white p-4 hover:shadow-sm transition"
-          >
-            <Link to={`/house/${h.key}`} className="block">
-              <div className="text-sm text-muted">{h.manufacturer ?? '—'}</div>
-              <div className="font-medium">{h.model}</div>
-              <div className="text-xs text-muted mt-1">
-                {h.building_type ?? '—'} · {h.roof_type ?? '—'} ·{' '}
-                {h.area_m2 != null ? `${h.area_m2} m²` : '—'}
-              </div>
-            </Link>
+    <div>
+      <StatsDashboard
+        recs={recs}
+        total={total || recs.length}
+        search={search}
+        filters={filters}
+        anyActive={anyActive}
+        onSearch={setSearch}
+        onPick={setFilter}
+        onClear={(f) => setFilter(f, '')}
+        onPickRange={setRange}
+        onClearRange={(fmin, fmax) => {
+          setRange(fmin, '', fmax, '');
+        }}
+        onReset={reset}
+      />
+      <div className="px-6 pt-2 text-[0.8125rem] text-muted">
+        {loading
+          ? 'Lade…'
+          : error
+          ? `Fehler: ${error.message}`
+          : `${recs.length} ${recs.length === 1 ? 'Eintrag' : 'Einträge'} gefunden`}
+      </div>
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3.5 px-6 pt-3 pb-6 list-none">
+        {recs.map((h) => (
+          <li key={h.key}>
+            <HouseCard h={h} />
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function Status({ text, tone = 'normal' }: { text: string; tone?: 'normal' | 'error' }) {
-  return (
-    <div
-      className={
-        'max-w-7xl mx-auto px-6 py-12 text-sm ' +
-        (tone === 'error' ? 'text-red-700' : 'text-muted')
-      }
-    >
-      {text}
     </div>
   );
 }
