@@ -1,0 +1,55 @@
+{
+  "id": 63,
+  "model": "FWH Zwischenbau",
+  "manufacturer": "Fuhrberger Fachwerkhaus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/fuhrberger-fwh-zwischen/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Holzbau",
+  "roof_type": null,
+  "style": null,
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": null,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": "Fachwerkhaus als Zwischenbau (Lückenbebauung)",
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "fuhrberger_fwh-zwischenbau_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fuhrberger_fwh-zwischenbau_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fuhrberger_fwh-zwischenbau_exterior3.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fuhrberger_fwh-zwischenbau_exterior4.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    }
+  ]
+}

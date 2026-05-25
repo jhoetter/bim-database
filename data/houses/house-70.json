@@ -1,0 +1,55 @@
+{
+  "id": 70,
+  "model": "MFH",
+  "manufacturer": "Saale-Haus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/saale-haus-mfh/",
+  "source_origin": null,
+  "building_type": "MFH",
+  "construction": null,
+  "roof_type": null,
+  "style": null,
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": null,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "saale-haus_mfh_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "saale-haus_mfh_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "saale-haus_mfh_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "saale-haus_mfh_floorplan3.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

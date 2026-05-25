@@ -1,0 +1,69 @@
+{
+  "id": 59,
+  "model": "Mittelfranken",
+  "manufacturer": "Fullwood",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/fullwood-mittelfranken/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Blockhaus",
+  "roof_type": null,
+  "style": "landhaus",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": null,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "fullwood_mittelfranken_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fullwood_mittelfranken_exterior2.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fullwood_mittelfranken_exterior3.original.avif",
+      "category": "exterior",
+      "medium": "photo",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "fullwood_mittelfranken_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "fullwood_mittelfranken_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "fullwood_mittelfranken_floorplan3.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}

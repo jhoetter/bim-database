@@ -1,10 +1,10 @@
 # House Database Index
 
-52 catalog houses (real prefab/solid-construction listings) + 3
+70 catalog houses (real prefab/solid-construction listings) + 3
 testhouses (dev fixtures for the bim-agent convergence loop).
 Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 
-- **Catalog** — `house-1` … `house-20`, `house-24` … `house-55`, integer IDs, sourced from fertighaus.de
+- **Catalog** — `house-1` … `house-20`, `house-24` … `house-73`, integer IDs, sourced from fertighaus.de
 - **Testhouses** — `testhouse-1`, `testhouse-2`, `testhouse-3`, sourced from
   real-world Baubeschreibungen + Grundrisse, used by `bim-agent` as the
   stress-test corpus for `bim-ai`. See [`testhouse-README.md`](testhouse-README.md)
@@ -78,6 +78,24 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 | 53 | <img src="house-53/schwabenhaus_solitaeree145-e7_exterior1.original.avif" width="100"> | Schwabenhaus | Solitaire E145 Entwurf 7 | 145 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/solitaire-e-145-entwurf-7/) |
 | 54 | <img src="house-54/schwabenhaus_sel175e3_exterior1.original.avif" width="100"> | Schwabenhaus | Selection E175 Entwurf 3 | 175 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/selection-e-175-entwurf-3/) |
 | 55 | <img src="house-55/schwabenhaus_solitaire-bungalow01_110e3-exterior.original.avif" width="100"> | Schwabenhaus | Solitaire Bungalow B110 Entwurf 3 | 110 m² | — | 1 | auf Anfrage | — | Bungalow | — | [fertighaus.de](https://www.fertighaus.de/haeuser/schwabenhaus-solitaire-bungalow/) |
+| 56 | <img src="house-56/natur420_exterior1.original.avif" width="100"> | — | Natur 420 | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/natur-420/) |
+| 57 | <img src="house-57/rappenau_exterior_0.original.avif" width="100"> | — | Rappenau | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/rappenau/) |
+| 58 | <img src="house-58/fullwood_heidelberg_exterio.original.avif" width="100"> | Fullwood | Heidelberg | — | — | — | auf Anfrage | — | Blockhaus | — | [fertighaus.de](https://www.fertighaus.de/haeuser/fullwood-heidelberg/) |
+| 59 | <img src="house-59/fullwood_mittelfranken_exterior1.original.avif" width="100"> | Fullwood | Mittelfranken | — | — | — | auf Anfrage | — | Blockhaus | — | [fertighaus.de](https://www.fertighaus.de/haeuser/fullwood-mittelfranken/) |
+| 60 | <img src="house-60/fuhrberger_oberbecksen_exterior1.original.avif" width="100"> | Fuhrberger Fachwerkhaus | Oberbecksen | — | — | — | auf Anfrage | — | Holzbau | — | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-oberbecksen/) |
+| 61 | <img src="house-61/fuhrberger_zweistaenderhaus_exterior1.original.avif" width="100"> | Fuhrberger Fachwerkhaus | Zweiständerhaus | — | — | — | auf Anfrage | — | Holzbau | — | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-zweistaenderhaus/) |
+| 62 | <img src="house-62/fuhrberger_pinus_exterior1.original.avif" width="100"> | Fuhrberger Fachwerkhaus | Pinus | — | — | — | auf Anfrage | — | Holzbau | — | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-pinus/) |
+| 63 | <img src="house-63/fuhrberger_fwh-zwischenbau_exterior1.original.avif" width="100"> | Fuhrberger Fachwerkhaus | FWH Zwischenbau | — | — | — | auf Anfrage | — | Holzbau | — | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-fwh-zwischen/) |
+| 64 | <img src="house-64/hufhaus_art5-bsp5_exterior1.original.avif" width="100"> | Huf Haus | Art 5 BSP 5 | — | — | — | auf Anfrage | — | Fertighaus | — | [fertighaus.de](https://www.fertighaus.de/haeuser/huf-haus-art5-bsp5/) |
+| 65 | <img src="house-65/schwoerer_e15-1463_exterior1.original.avif" width="100"> | Schwörer Haus | E15 1463 | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/schwoerer-e15-1463/) |
+| 66 | — | Fingerhut Haus | Angula | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/fingerhuthaus-angula/) |
+| 67 | <img src="house-67/bz_conceptm170_exterior1.original.avif" width="100"> | BZ Haus | Concept M170 VS | 170 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/bz-conceptm170-vs/) |
+| 68 | <img src="house-68/108sb10_exterior1.original.avif" width="100"> | BioSolarHaus | 108 SB10 | 108 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/biosolarhaus-108sb10/) |
+| 69 | <img src="house-69/159sb20_exterior1.original.avif" width="100"> | BioSolarHaus | 159 SB20 | 159 m² | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/biosolarhaus-159sb20/) |
+| 70 | <img src="house-70/saale-haus_mfh_exterior1.original.avif" width="100"> | Saale-Haus | MFH | — | — | — | auf Anfrage | — | MFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/saale-haus-mfh/) |
+| 71 | — | — | Haus Engel | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/haus-engel/) |
+| 72 | <img src="house-72/saale-haus_efh2_exterior1.original.avif" width="100"> | Saale-Haus | EFH 2 | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/saale-haus-efh2/) |
+| 73 | <img src="house-73/aurelio_exterior1.original.avif" width="100"> | — | Aurelio | — | — | — | auf Anfrage | — | EFH | — | [fertighaus.de](https://www.fertighaus.de/haeuser/aurelio/) |
 
 ---
 
@@ -1014,3 +1032,268 @@ Specs marked `*` confirmed from fertighaus.de; others derived from filename.
 | Construction | Fertighaus |
 | Price | auf Anfrage |
 | Source | [fertighaus.de](https://www.fertighaus.de/haeuser/schwabenhaus-solitaire-bungalow/) |
+
+---
+
+### House 56 — Natur 420
+
+![exterior](house-56/natur420_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Model | Natur 420 |
+| Building type | Einfamilienhaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/natur-420/) |
+
+---
+
+### House 57 — Rappenau
+
+![exterior](house-57/rappenau_exterior_0.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Model | Rappenau |
+| Building type | Einfamilienhaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/rappenau/) |
+
+---
+
+### House 58 — Fullwood · Heidelberg
+
+![exterior](house-58/fullwood_heidelberg_exterio.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Fullwood |
+| Model | Heidelberg |
+| Building type | Einfamilienhaus |
+| Construction | Blockhaus |
+| Style | Landhausstil |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/fullwood-heidelberg/) |
+
+---
+
+### House 59 — Fullwood · Mittelfranken
+
+![exterior](house-59/fullwood_mittelfranken_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Fullwood |
+| Model | Mittelfranken |
+| Building type | Einfamilienhaus |
+| Construction | Blockhaus |
+| Style | Landhausstil |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/fullwood-mittelfranken/) |
+
+---
+
+### House 60 — Fuhrberger Fachwerkhaus · Oberbecksen
+
+![exterior](house-60/fuhrberger_oberbecksen_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Fuhrberger Fachwerkhaus |
+| Model | Oberbecksen |
+| Building type | Einfamilienhaus |
+| Construction | Holzbau (Fachwerk) |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-oberbecksen/) |
+
+---
+
+### House 61 — Fuhrberger Fachwerkhaus · Zweiständerhaus
+
+![exterior](house-61/fuhrberger_zweistaenderhaus_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Fuhrberger Fachwerkhaus |
+| Model | Zweiständerhaus |
+| Building type | Einfamilienhaus |
+| Construction | Holzbau (Fachwerk) |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-zweistaenderhaus/) |
+
+---
+
+### House 62 — Fuhrberger Fachwerkhaus · Pinus
+
+![exterior](house-62/fuhrberger_pinus_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Fuhrberger Fachwerkhaus |
+| Model | Pinus |
+| Building type | Einfamilienhaus |
+| Construction | Holzbau (Fachwerk) |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-pinus/) |
+
+---
+
+### House 63 — Fuhrberger Fachwerkhaus · FWH Zwischenbau
+
+![exterior](house-63/fuhrberger_fwh-zwischenbau_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Fuhrberger Fachwerkhaus |
+| Model | FWH Zwischenbau |
+| Building type | Einfamilienhaus |
+| Construction | Holzbau (Fachwerk) |
+| Note | Lückenbebauung / infill build |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/fuhrberger-fwh-zwischen/) |
+
+---
+
+### House 64 — Huf Haus · Art 5 BSP 5
+
+![exterior](house-64/hufhaus_art5-bsp5_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Huf Haus |
+| Model | Art 5 BSP 5 |
+| Building type | Einfamilienhaus |
+| Construction | Fertighaus |
+| Roof | Flachdach |
+| Style | Modern |
+| Note | Post-and-beam mit großen Glasfronten |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/huf-haus-art5-bsp5/) |
+
+---
+
+### House 65 — Schwörer Haus · E15 1463
+
+![exterior](house-65/schwoerer_e15-1463_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Schwörer Haus |
+| Model | E15 1463 |
+| Building type | Einfamilienhaus |
+| Construction | Fertighaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/schwoerer-e15-1463/) |
+
+---
+
+### House 66 — Fingerhut Haus · Angula
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Fingerhut Haus |
+| Model | Angula |
+| Building type | Einfamilienhaus |
+| Construction | Fertighaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/fingerhuthaus-angula/) |
+
+---
+
+### House 67 — BZ Haus · Concept M170 VS
+
+![exterior](house-67/bz_conceptm170_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | BZ Haus |
+| Model | Concept M170 VS |
+| Living area | 170 m² |
+| Building type | Einfamilienhaus |
+| Construction | Fertighaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/bz-conceptm170-vs/) |
+
+---
+
+### House 68 — BioSolarHaus · 108 SB10
+
+![exterior](house-68/108sb10_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | BioSolarHaus |
+| Model | 108 SB10 |
+| Living area | 108 m² |
+| Building type | Einfamilienhaus |
+| Construction | Fertighaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/biosolarhaus-108sb10/) |
+
+---
+
+### House 69 — BioSolarHaus · 159 SB20
+
+![exterior](house-69/159sb20_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | BioSolarHaus |
+| Model | 159 SB20 |
+| Living area | 159 m² |
+| Building type | Einfamilienhaus |
+| Construction | Fertighaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/biosolarhaus-159sb20/) |
+
+---
+
+### House 70 — Saale-Haus · MFH
+
+![exterior](house-70/saale-haus_mfh_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Saale-Haus |
+| Model | MFH |
+| Building type | Mehrfamilienhaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/saale-haus-mfh/) |
+
+---
+
+### House 71 — Haus Engel
+
+| Field | Value |
+|-------|-------|
+| Model | Haus Engel |
+| Building type | Einfamilienhaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/haus-engel/) |
+
+---
+
+### House 72 — Saale-Haus · EFH 2
+
+![exterior](house-72/saale-haus_efh2_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Manufacturer | Saale-Haus |
+| Model | EFH 2 |
+| Building type | Einfamilienhaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/saale-haus-efh2/) |
+
+---
+
+### House 73 — Aurelio
+
+![exterior](house-73/aurelio_exterior1.original.avif)
+
+| Field | Value |
+|-------|-------|
+| Model | Aurelio |
+| Building type | Einfamilienhaus |
+| Price | auf Anfrage |
+| Source | [fertighaus.de](https://www.fertighaus.de/haeuser/aurelio/) |

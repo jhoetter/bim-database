@@ -1,0 +1,55 @@
+{
+  "id": 65,
+  "model": "E15 1463",
+  "manufacturer": "Schwörer Haus",
+  "source": "catalog",
+  "source_url": "https://www.fertighaus.de/haeuser/schwoerer-e15-1463/",
+  "source_origin": null,
+  "building_type": "EFH",
+  "construction": "Fertighaus",
+  "roof_type": null,
+  "style": "modern",
+  "energy_standard": null,
+  "year_built": null,
+  "has_basement": null,
+  "levels": null,
+  "area_m2": null,
+  "rooms": null,
+  "floors": null,
+  "price_eur": null,
+  "price_on_request": true,
+  "site": null,
+  "character": null,
+  "agent_notes": null,
+  "tags": [],
+  "images": [
+    {
+      "file": "schwoerer_e15-1463_exterior1.original.avif",
+      "category": "exterior",
+      "medium": "render",
+      "view": null,
+      "caption": null
+    },
+    {
+      "file": "schwoerer_e15-1463_floorplan1.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "schwoerer_e15-1463_floorplan2.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    },
+    {
+      "file": "schwoerer_e15-1463_floorplan3.original.avif",
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": null,
+      "caption": null
+    }
+  ]
+}
