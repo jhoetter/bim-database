@@ -7,21 +7,28 @@
   "source_origin": null,
   "building_type": "Bungalow",
   "construction": "Fertighaus",
-  "roof_type": null,
+  "roof_type": "Flachdach",
   "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": ["EG"],
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": 110,
   "rooms": null,
   "floors": 1.0,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Modernes Bungalow-Plus mit Flachdach, EG-Hauptfläche + kleinerem OG-Aufsatz mit umlaufender Dachterrasse und Balkon.",
+  "agent_notes": "Flachdach + Multi-Volumen + Dachterrasse als Slab. Voll modellierbar.",
+  "tags": [
+    "bungalow",
+    "flachdach",
+    "dachterrasse"
+  ],
   "images": [
     {
       "file": "schwabenhaus_solb110e6_exterior1.original.avif",
@@ -44,5 +51,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
