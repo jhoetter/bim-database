@@ -50,20 +50,25 @@ filename consistency.
 
 ## Running the dev stack
 
-Two processes during day-to-day work:
-
 ```bash
-make dev           # FastAPI on http://127.0.0.1:2500
-make web           # Vite dev server on http://127.0.0.1:5173 (proxies /houses, /ontology, /static)
+make dev           # FastAPI :2500 + Vite :5173 side-by-side (concurrently)
 ```
 
-Open **http://127.0.0.1:5173** — Vite hot-reloads React, proxies API calls to
-FastAPI. The FastAPI root route serves the built bundle in `ui/dist/`, so for
-a single-port prod-like run, build first:
+Open **http://127.0.0.1:5173** — Vite hot-reloads React and proxies
+`/houses`, `/ontology`, `/static` to FastAPI. Logs from both halves are
+prefixed `[api]` / `[web]`; Ctrl-C kills both. The split targets are
+available as `make dev-api` and `make dev-web` if you want one half alone.
+
+`make dev-forwarded` shifts the port pair to `:12500` / `:15173` so multiple
+sister apps on the same dev box stay separable over `ssh -L`. Matches the
+bim-ai convention.
+
+For a single-port prod-like run, build the SPA first — the FastAPI root
+route serves `ui/dist/index.html`:
 
 ```bash
-make build         # cd ui && npm run build  →  ui/dist/
-make dev           # now visit http://127.0.0.1:2500 directly
+make build         # cd ui && npm run build
+make dev-api       # visit http://127.0.0.1:2500 directly (no Vite needed)
 ```
 
 `make install` sets up both the Python venv and `ui/node_modules`.

@@ -1,8 +1,13 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
-// Dev: serve from :5173; proxy /houses, /ontology, /static to the FastAPI on :2500.
-// Prod: built bundle in ui/dist/ is served directly by FastAPI at /.
+// Ports are env-driven so `make dev` / `make dev-forwarded` can shift them
+// (e.g. SSH-tunnel offset) without editing this file. Defaults match the
+// local-dev port pair documented in AGENTS.md (API :2500, web :5173).
+const apiPort = process.env.API_PORT ?? '2500';
+const webPort = parseInt(process.env.WEB_PORT ?? '5173', 10);
+const apiTarget = `http://127.0.0.1:${apiPort}`;
+
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -10,11 +15,12 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port: 5173,
+    port: webPort,
+    strictPort: true,
     proxy: {
-      '/houses': 'http://127.0.0.1:2500',
-      '/ontology': 'http://127.0.0.1:2500',
-      '/static': 'http://127.0.0.1:2500',
+      '/houses': apiTarget,
+      '/ontology': apiTarget,
+      '/static': apiTarget,
     },
   },
 });
