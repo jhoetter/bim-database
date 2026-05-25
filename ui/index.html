@@ -50,23 +50,10 @@
       font-style: normal; color: var(--muted); font-weight: 400;
       font-size: 0.875rem;
     }
-    .pill {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 12px; border-radius: 99px;
-      font-size: 0.8125rem; font-weight: 500;
-      cursor: pointer; user-select: none;
-      border: 1px solid transparent;
-      transition: background .12s, border-color .12s, color .12s;
-      background: #f3f4f6; color: var(--muted);
+    .hdr-lbl {
+      font-size: 0.875rem; color: var(--muted); font-weight: 400;
+      margin-right: 6px;
     }
-    .pill:hover { background: #e5e7eb; color: var(--text); }
-    .pill .pill-n { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-    .pill.ok.active    { background: #dcfce7; color: #15803d; border-color: #86efac; }
-    .pill.ok.active .pill-n { color: #15803d; }
-    .pill.bad.active   { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
-    .pill.bad.active .pill-n { color: #b91c1c; }
-    .pill.gold.active  { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
-    .pill.gold.active .pill-n { color: #5b21b6; }
     .hdr-spacer { flex: 1 1 auto; }
     .hdr-reset {
       font-size: 0.8125rem; color: var(--muted);
@@ -528,14 +515,35 @@ function renderCard(h) {
 // ── load ───────────────────────────────────────────────────────────────────
 // ── stats dashboard ────────────────────────────────────────────────────────
 // Distinct, slightly muted palettes per axis — color reserved for state.
+// Index-based palettes: colour comes from the ordinal position of the
+// category in the (sorted-by-count) list. Fine for categorical enums with
+// no semantic colour meaning.
 const PALETTES = {
-  source:        ['#1d4ed8','#92400e'],                                              // catalog, documentation
+  source:        ['#1d4ed8','#92400e'],
   building_type: ['#1d4ed8','#15803d','#6d28d9','#b45309','#be123c','#0891b2','#65a30d','#7c2d12','#0e7490','#7e22ce','#a16207','#9d174d','#374151'],
   construction:  ['#1d4ed8','#15803d','#b45309','#6d28d9','#be123c','#0891b2'],
   roof_type:     ['#6d28d9','#0891b2','#7c3aed','#9333ea','#a855f7','#7e22ce','#5b21b6','#4c1d95','#312e81','#1e1b4b'],
   style:         ['#be123c','#dc2626','#9d174d','#7c2d12','#9a3412','#831843','#0e7490','#a16207','#374151'],
-  tier:          ['#9ca3af','#fbbf24','#3b82f6','#22c55e','#a855f7'],                // T0…T4
 };
+
+// Key-mapped palettes: colour is attached to the *value*, not its position,
+// so filtering doesn't shift the colour. Axes where colour means something.
+const PALETTES_BY_KEY = {
+  tier: {
+    'T0_visual_only':        '#9ca3af',
+    'T1_schematic':          '#fbbf24',
+    'T2_dimensioned_plans':  '#3b82f6',
+    'T3_architectural_set':  '#22c55e',
+    'T4_construction_grade': '#a855f7',
+  },
+  bim_ai: {
+    'true':    '#15803d',
+    'false':   '#b91c1c',
+    'unknown': '#9ca3af',
+  },
+};
+const _colorFor = (palette, key, idx) =>
+  Array.isArray(palette) ? palette[idx % palette.length] : (palette[key] || '#9ca3af');
 
 // ── interaction wiring ─────────────────────────────────────────────────────
 // Toggle a filter (click active value to clear). All UI writes go through here.
@@ -587,7 +595,7 @@ function _toFilterValue(field, key) {
 function makeBar(label, counts, palette, ontologyGroup, total, field) {
   const sum = counts.reduce((a, [, n]) => a + n, 0);
   const missing = total - sum;
-  const items = counts.map(([k, n], i) => [k, n, palette[i % palette.length]]);
+  const items = counts.map(([k, n], i) => [k, n, _colorFor(palette, k, i)]);
   if (missing > 0) items.push([null, missing, '#e5e7eb']);
 
   const activeVal = FILTERS[field] || '';
@@ -614,7 +622,7 @@ function makeBar(label, counts, palette, ontologyGroup, total, field) {
     const cls = isActive ? 'leg-item active' : (hasFilter ? 'leg-item dim' : 'leg-item');
     return `<span class="${cls}" data-action="set-filter"
                   data-field="${field}" data-value="${esc(_toFilterValue(field, k))}">
-              <span class="swatch" style="background:${palette[i % palette.length]}"></span>${esc(lbl)} <strong>${n}</strong>
+              <span class="swatch" style="background:${_colorFor(palette, k, i)}"></span>${esc(lbl)} <strong>${n}</strong>
             </span>`;
   }).join('');
   const tail = counts.length > 6 ? `<span class="leg-more">… +${counts.length - 6}</span>` : '';
@@ -632,13 +640,7 @@ function makeBar(label, counts, palette, ontologyGroup, total, field) {
 
 function renderStats(recs) {
   const n = recs.length;
-  const mod = recs.filter(r => r.modelable_in_bim_ai === true).length;
-  const blk = recs.filter(r => r.modelable_in_bim_ai === false).length;
-  const t34 = recs.filter(r => {
-    const t = r.reconstructability_tier;
-    return t && parseInt(t.replace(/^T/, '')) >= 3;
-  }).length;
-  const t2 = recs.filter(r => r.reconstructability_tier === 'T2_dimensioned_plans').length;
+  const filtered = anyActive();
 
   const group = (field) => {
     const m = new Map();
@@ -658,42 +660,38 @@ function renderStats(recs) {
       (a, b) => parseInt(a[0].replace(/^T/, '')) - parseInt(b[0].replace(/^T/, ''))
     );
   };
+  const groupBim = () => {
+    const m = new Map();
+    for (const r of recs) {
+      const v = r.modelable_in_bim_ai;
+      if (v === true)  m.set('true',  (m.get('true')  || 0) + 1);
+      if (v === false) m.set('false', (m.get('false') || 0) + 1);
+      // null = not assessed; goes into the grey "unbekannt" tail via the
+      // total-vs-sum gap, no explicit bucket needed.
+    }
+    // Stable display order: ✓ first, ✗ second
+    return [...m.entries()].sort(([a], [b]) => a === 'true' ? -1 : 1);
+  };
 
-  // Header pill states derived from current FILTERS values
-  const fMod  = FILTERS.modelable_in_bim_ai;
-  const fTier = FILTERS.min_tier;
-  const filtered = anyActive();
-
-  // Smart header: big count + 3 quick-filter pills + (conditional) Reset
+  // Smart header: big count (with /total when filtered) + Reset link
   const hdr = `
     <div class="smart-hdr">
       <span class="hdr-count">${n}${filtered ? ` <em>/ ${TOTAL_COUNT}</em>` : ''}</span>
-      <span class="hdr-count" style="font-size:.875rem;color:var(--muted);font-weight:400;letter-spacing:0;margin-right:8px">Häuser</span>
-      <span class="pill ok ${fMod === 'true' ? 'active' : ''}"
-            data-action="set-filter" data-field="modelable_in_bim_ai" data-value="true">
-        <span class="pill-n">${mod}</span> ✓ modellierbar
-      </span>
-      <span class="pill bad ${fMod === 'false' ? 'active' : ''}"
-            data-action="set-filter" data-field="modelable_in_bim_ai" data-value="false">
-        <span class="pill-n">${blk}</span> ✗ blockiert
-      </span>
-      <span class="pill gold ${fTier === 'T3' ? 'active' : ''}"
-            data-action="set-filter" data-field="min_tier" data-value="T3">
-        <span class="pill-n">${t34}</span> T3+ Fidelity
-      </span>
+      <span class="hdr-lbl">${n === 1 ? 'Haus' : 'Häuser'}</span>
       <span class="hdr-spacer"></span>
       ${filtered ? `<span class="hdr-reset" data-action="reset">Reset</span>` : ''}
     </div>`;
 
-  // Composition bars — primary filter UI for source/type/construction/roof/style/tier
+  // Composition bars — every filterable axis is a bar, none is special-cased
   const rows = `
     <div class="stats-rows">
-      ${makeBar('Quelle',       group('source'),        PALETTES.source,        'sources',        n, 'source')}
-      ${makeBar('Gebäudetyp',   group('building_type'), PALETTES.building_type, 'building_types', n, 'building_type')}
-      ${makeBar('Bauweise',     group('construction'),  PALETTES.construction,  'constructions',  n, 'construction')}
-      ${makeBar('Dachform',     group('roof_type'),     PALETTES.roof_type,     'roof_types',     n, 'roof_type')}
-      ${makeBar('Stil',         group('style'),         PALETTES.style,         'styles',         n, 'style')}
-      ${makeBar('Tier',         groupTier(),            PALETTES.tier,          'reconstructability_tiers', n, 'min_tier')}
+      ${makeBar('Quelle',       group('source'),        PALETTES.source,        'sources',          n, 'source')}
+      ${makeBar('Gebäudetyp',   group('building_type'), PALETTES.building_type, 'building_types',   n, 'building_type')}
+      ${makeBar('Bauweise',     group('construction'),  PALETTES.construction,  'constructions',    n, 'construction')}
+      ${makeBar('Dachform',     group('roof_type'),     PALETTES.roof_type,     'roof_types',       n, 'roof_type')}
+      ${makeBar('Stil',         group('style'),         PALETTES.style,         'styles',           n, 'style')}
+      ${makeBar('Tier',         groupTier(),            PALETTES_BY_KEY.tier,   'reconstructability_tiers', n, 'min_tier')}
+      ${makeBar('bim-ai',       groupBim(),             PALETTES_BY_KEY.bim_ai, 'modelable_states', n, 'modelable_in_bim_ai')}
     </div>`;
 
   // Compact misc row for axes the bars can't cover (numeric ranges, keller, energy)
