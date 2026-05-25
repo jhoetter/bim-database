@@ -7,21 +7,30 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": 108,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "BioSolar-Haus mit steilem Satteldach, gekrümmter Tonnendach-Anbau über Wintergarten/Terrasse, große Giebelverglasung, weiße Putzfassade.",
+  "agent_notes": "Tonnendach + Wintergarten blockiert (#114). Giebelverglasung blockiert (#109).",
+  "tags": [
+    "biosolar",
+    "satteldach",
+    "tonnendach",
+    "wintergarten",
+    "giebelverglasung"
+  ],
   "images": [
     {
       "file": "108sb10_exterior1.original.avif",
@@ -37,5 +46,9 @@
       "floor": null,
       "caption": null
     }
+  ],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#109",
+    "jhoetter/bim-ai#114"
   ]
 }
