@@ -7,21 +7,30 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
+  "roof_type": "Satteldach",
   "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": "Mehrgenerationen-EFH in vier Größenvarianten: 179 m², 182 m², 191 m², 200 m² (je Entwurf 2)",
-  "agent_notes": null,
-  "tags": [],
+  "character": "Mehrgenerationen-EFH in vier Größen (179/182/191/200 m²), überwiegend Satteldach mit Galerie, Erker und Balkonen.",
+  "agent_notes": "Satteldach + Erker (#102 closed) + Balkon + Galerie. Voll modellierbar.",
+  "tags": [
+    "mehrgenerationen",
+    "satteldach",
+    "erker",
+    "galerie",
+    "balkon"
+  ],
   "images": [
     {
       "file": "schwabenhaus_solitaire-gen01_179e2-exterior.original.avif",
@@ -107,5 +116,6 @@
       "floor": null,
       "caption": "200 m² Entwurf 2 — Grundriss 2"
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
