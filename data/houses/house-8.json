@@ -7,42 +7,43 @@
   "source_origin": null,
   "building_type": "Bungalow",
   "construction": "Massivhaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Walmdach",
+  "style": "klassisch",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG"],
   "area_m2": 127,
   "rooms": 4,
   "floors": 1.0,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Eingeschossiger Massiv-Bungalow mit Walmdach, gelber Putzfassade, zwei Dachflächenfenstern und integrierter Garage links. Klassischer Bungalow-Grundriss.",
+  "agent_notes": "Walmdach + rechteckiges EG + angebaute Garage = bim-ai Standard (hip-Modus, edge_overhang_mm, RoofOpeningElem für Velux).",
   "tags": [],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "weiott_bungalow353_exterior1.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "front",
+      "caption": "Straßenseite — Walmdach mit zwei Velux, Garage links"
     },
     {
       "file": "weiott_bungalow353_exterior2.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht"
     },
     {
       "file": "weiott_bungalow353_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     }
   ]
 }
