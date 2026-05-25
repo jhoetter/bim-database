@@ -7,21 +7,30 @@
   "source_origin": null,
   "building_type": "Landhaus",
   "construction": "Fertighaus",
-  "roof_type": null,
+  "roof_type": "Satteldach",
   "style": "landhaus",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": 146,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Landhaus mit steilem Satteldach, großer Giebelverglasung (zwei Geschosse Fenster im Giebel), Klinker/Putz-Mix, PV-Anlage.",
+  "agent_notes": "Giebelverglasung blockiert (#109). Sonst Standard-Satteldach.",
+  "tags": [
+    "landhaus",
+    "satteldach",
+    "giebelverglasung",
+    "klinker",
+    "solar"
+  ],
   "images": [
     {
       "file": "nurda_landhaus-la146_exterior1.original.avif",
@@ -51,5 +60,8 @@
       "floor": null,
       "caption": null
     }
+  ],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#109"
   ]
 }
