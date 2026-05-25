@@ -7,70 +7,50 @@
   "source_origin": null,
   "building_type": "MFH",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "landhaus",
   "energy_standard": "Effizienzhaus 40",
   "year_built": null,
-  "has_basement": null,
-  "levels": null,
+  "has_basement": true,
+  "levels": ["UG", "EG", "1. OG", "2. OG"],
   "area_m2": 237,
   "rooms": null,
   "floors": 2.5,
   "price_eur": 1035000,
   "price_on_request": false,
-  "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "site": "Hanglage — Daylight-Souterrain frontseitig sichtbar",
+  "character": "Alpenländisch-modernes MFH mit Satteldach und betont weitem Dachüberstand. Holzfassade, 3 Geschosse + ausgebautes Souterrain im Hang, zwei sichtbare Edelstahl-Kamine. Loggia auf der Westseite unter dem überhöhten Dachüberstand.",
+  "agent_notes": "MFH-Semantik (mehrere Einheiten) wird von bim-ai heute als ein Gebäude gerendert — visuell egal. Dachüberstand via edge_overhang_mm. Hanglage + Daylight-UG via Toposolid (analog testhouse beta).",
+  "tags": ["hillside"],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "baufritz-mfh_herndl_exterior1.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "rear",
+      "caption": "Hangseite abends — Souterrain freiliegend, Loggia unter weit auskragendem Dach"
     },
     {
       "file": "baufritz-mfh_herndl_exterior2.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
-    },
-    {
-      "file": "baufritz-mfh_herndl_exterior3.original.avif",
-      "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
-    },
-    {
-      "file": "baufritz-mfh_herndl_exterior4.original.avif",
-      "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht"
     },
     {
       "file": "baufritz-mfh_herndl_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     },
     {
       "file": "baufritz-mfh_herndl_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
-    },
-    {
-      "file": "baufritz-mfh_herndl_floorplan3.original.avif",
-      "category": "floorplan",
-      "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "1. OG",
+      "caption": "Grundriss 1. OG"
     }
   ]
 }
