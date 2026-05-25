@@ -1,10 +1,16 @@
 import type { House } from '../../api/types';
 import { Badge } from '../Badge';
 import { FactValueRenderer } from './FactValueRenderer';
+import { formatFactValue } from '../../lib/format';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return v != null && typeof v === 'object' && !Array.isArray(v);
 }
+
+// Anything wider than this (formatted-string chars) is forced into a
+// stacked key-above-value layout; otherwise we keep the compact
+// key-left / value-right row.
+const INLINE_VALUE_MAX_CHARS = 24;
 
 // Sidebar section primitive: small uppercase title + spacing + content.
 // Lower visual weight than the (deleted) bordered card so sidebar reads as
@@ -54,6 +60,10 @@ export function DerivedFactsPanel({ derived }: { derived: House['derived_facts']
           const status = v.ok === true ? '✓' : v.ok === false ? '✗' : '·';
           const sources = v.sources ?? [];
           const isObject = isPlainObject(v.value);
+          const formattedLength = isObject
+            ? Infinity
+            : formatFactValue(v.value, v.unit).length;
+          const shouldStack = isObject || formattedLength > INLINE_VALUE_MAX_CHARS;
 
           return (
             <li
@@ -63,22 +73,29 @@ export function DerivedFactsPanel({ derived }: { derived: House['derived_facts']
               <div className="flex items-start gap-1.5 min-w-0">
                 <span className="text-muted font-mono shrink-0 mt-px">{status}</span>
                 <div className="min-w-0 flex-1">
-                  {/* Layout flips for object values: key on its own line so the
-                      value (which can be a nested expandable block) has full width. */}
-                  {isObject ? (
+                  {/* Stacked layout for object values OR long-string values —
+                      otherwise the value column hogs the row width and squeezes
+                      the key column to one-character-per-line wraps. */}
+                  {shouldStack ? (
                     <>
                       <div className="font-mono text-[0.7rem] text-muted break-all mb-1">
                         {k}
-                        {v.unit && <span className="text-zinc-400"> [{v.unit}]</span>}
+                        {v.unit && !isObject && (
+                          <span className="text-zinc-400"> [{v.unit}]</span>
+                        )}
                       </div>
-                      <FactValueRenderer value={v.value} unit={v.unit} />
+                      <div className="break-words leading-snug">
+                        <FactValueRenderer value={v.value} unit={v.unit} />
+                      </div>
                     </>
                   ) : (
                     <div className="flex items-baseline gap-2 min-w-0">
                       <span className="font-mono text-[0.7rem] text-muted break-all min-w-0 flex-1">
                         {k}
                       </span>
-                      <FactValueRenderer value={v.value} unit={v.unit} />
+                      <span className="shrink-0">
+                        <FactValueRenderer value={v.value} unit={v.unit} />
+                      </span>
                     </div>
                   )}
                   {sources.length > 0 && (
