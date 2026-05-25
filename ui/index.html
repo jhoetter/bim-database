@@ -410,6 +410,89 @@
       padding: 1px 6px; border-radius: 99px;
       box-shadow: 0 1px 3px rgba(0,0,0,.25);
     }
+    .img-tile .src-badge {
+      position: absolute; top: 4px; left: 4px;
+      background: rgba(31, 41, 55, .82); color: white;
+      font-size: 0.575rem; font-weight: 500;
+      padding: 1px 6px; border-radius: 4px;
+      max-width: calc(100% - 50px); overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .img-tile.is-original .cap { background: rgba(37, 99, 235, .75); }
+
+    /* View-mode toggle (segmented pill) in the Bilder section */
+    .img-section-hdr {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 9px;
+    }
+    .img-section-hdr h4 { margin-bottom: 0; }
+    .view-toggle {
+      display: inline-flex;
+      background: #f3f4f6; border-radius: 6px; padding: 2px;
+      margin-left: auto;
+    }
+    .view-toggle button {
+      background: transparent; border: none; cursor: pointer;
+      padding: 3px 10px; border-radius: 4px;
+      font-size: 0.7rem; color: var(--muted);
+      font-family: inherit;
+      transition: background .12s, color .12s;
+    }
+    .view-toggle button:hover { color: var(--text); }
+    .view-toggle button.active {
+      background: white; color: var(--text); font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    }
+
+    /* Source-grouped view: card per source PDF */
+    .src-card {
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .src-card.original { background: #eff6ff; border-color: #bfdbfe; }
+    .src-card-hdr {
+      display: flex; align-items: baseline; gap: 8px;
+      margin-bottom: 10px;
+      font-size: 0.8125rem;
+    }
+    .src-card-hdr .src-icon { font-size: 0.9rem; }
+    .src-card-hdr .src-name {
+      font-weight: 600; color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.78rem;
+    }
+    .src-card-hdr .src-count { color: var(--muted); font-size: 0.7rem; margin-left: auto; }
+    .src-card-hdr .src-open {
+      font-size: 0.7rem; color: var(--accent);
+      text-decoration: none;
+    }
+    .src-card-hdr .src-open:hover { text-decoration: underline; }
+
+    /* Enhanced Source PDFs section */
+    .src-pdf-list { display: grid; grid-template-columns: 1fr; gap: 4px; }
+    .src-pdf-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 10px;
+      background: #f9fafb; border-radius: 6px;
+      font-size: 0.75rem;
+    }
+    .src-pdf-row .pdf-name {
+      flex: 1; font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.72rem; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .src-pdf-row .pdf-count {
+      color: #15803d; font-weight: 600; font-size: 0.7rem;
+      background: #dcfce7; padding: 1px 8px; border-radius: 99px;
+    }
+    .src-pdf-row .pdf-count.none { color: var(--muted); background: #f3f4f6; font-weight: 400; }
+    .src-pdf-row .pdf-open {
+      color: var(--accent); text-decoration: none; font-size: 0.7rem;
+    }
+    .src-pdf-row .pdf-open:hover { text-decoration: underline; }
 
     /* ── derived facts + anomaly flag panels (in main modal) ─────────── */
     .anomaly-list {
@@ -535,7 +618,10 @@
       <table class="spec-table" id="m-specs"></table>
       <div class="modal-actions" id="m-actions"></div>
       <div class="img-section" id="m-images" style="display:none">
-        <h4>Bilder</h4>
+        <div class="img-section-hdr">
+          <h4>Bilder</h4>
+          <span class="view-toggle" id="m-view-toggle"></span>
+        </div>
         <div id="m-image-groups"></div>
       </div>
       <div class="img-section" id="m-anomalies" style="display:none">
@@ -551,8 +637,8 @@
         <div id="m-modelable-body"></div>
       </div>
       <div class="img-section" id="m-source-pdfs" style="display:none">
-        <h4>Source PDFs</h4>
-        <div class="img-grid" id="m-source-pdf-list"></div>
+        <h4>Originaldateien (Quellen)</h4>
+        <div class="src-pdf-list" id="m-source-pdf-list"></div>
       </div>
     </div>
   </div>
@@ -677,6 +763,8 @@ function anyActive() {
 // Free-text search across id/key/manufacturer/model. Applied client-side
 // after the server filter so it's independent of the filter axes.
 let SEARCH = '';
+// 'category' (group by image.category) | 'source' (group by source_ref.file)
+let IMG_VIEW_MODE = 'category';
 let _searchDebounce;
 function onSearch(value) {
   SEARCH = (value || '').trim();
@@ -1157,6 +1245,7 @@ async function load() {
 const cache = {};
 async function openModal(key) {
   if (!cache[key]) cache[key] = await fetch(`/houses/${key}`).then(r => r.json());
+  currentKey = key;
   const h = cache[key];
 
   document.getElementById('m-mfr').textContent  = h.manufacturer ? `${h.manufacturer} · ${h.key}` : h.key;
@@ -1214,48 +1303,8 @@ async function openModal(key) {
   if (h.source_url) acts.innerHTML += `<a class="btn btn-secondary" href="${esc(h.source_url)}" target="_blank">Quelle ↗</a>`;
   if (h.pdf_url)    acts.innerHTML += `<a class="btn btn-primary"   href="${esc(h.pdf_url)}"    target="_blank">PDF öffnen</a>`;
 
-  // Images grouped by category, then by floor for floorplans
-  const groups = {};
-  for (const i of (h.images || [])) {
-    (groups[i.category] ||= []).push(i);
-  }
-  const groupOrder = ['exterior','elevation','interior','perspective','floorplan','section','roof_plan','detail','site_plan'];
-  const sortedCats = Object.keys(groups).sort((a,b) => {
-    const ai = groupOrder.indexOf(a), bi = groupOrder.indexOf(b);
-    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-  });
-  const imgSec = document.getElementById('m-images');
-  const imgRoot = document.getElementById('m-image-groups');
-  if (sortedCats.length) {
-    imgSec.style.display = '';
-    imgRoot.innerHTML = sortedCats.map(cat => {
-      let list = groups[cat];
-      // For floorplans, group by floor in ontology order
-      if (cat === 'floorplan') {
-        const floorOrder = Object.keys(ONTOLOGY.levels || {});
-        list = [...list].sort((a,b) => {
-          const ai = floorOrder.indexOf(a.floor), bi = floorOrder.indexOf(b.floor);
-          return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-        });
-      }
-      const tiles = list.map(i => {
-        const cap = i.caption || [i.floor && ontoLabel('levels', i.floor), i.view && ontoLabel('image_views', i.view)].filter(Boolean).join(' · ');
-        const nFacts = Object.keys(i.facts || {}).length;
-        const hasFacts = nFacts > 0;
-        return `<div class="img-tile${hasFacts ? ' has-facts' : ''}"
-                     data-action="open-scene" data-key="${esc(h.key)}" data-file="${esc(i.file)}"
-                     title="Klick öffnet Szenen-Detail">
-          <img class="medium-${i.medium}" src="${esc(i.url)}">
-          ${hasFacts ? `<span class="fact-badge" title="${nFacts} Fakten extrahiert">${nFacts}</span>` : ''}
-          ${cap ? `<span class="cap">${esc(cap)}</span>` : ''}
-        </div>`;
-      }).join('');
-      return `<h5>${esc(ontoLabel('image_categories', cat))} <span style="color:var(--muted);font-weight:400">(${list.length})</span></h5>
-              <div class="img-grid">${tiles}</div>`;
-    }).join('');
-  } else {
-    imgSec.style.display = 'none';
-  }
+  // Render images section — toggle between category-grouped and source-grouped
+  renderImagesSection(h);
 
   // Anomaly flags (house-level) — render before derived_facts so warnings come first
   const aSec = document.getElementById('m-anomalies');
@@ -1317,15 +1366,154 @@ async function openModal(key) {
       `<div style="font-size:.85rem"><span class="badge b-ok">✓ modellierbar</span> Keine offenen Blocker.</div>`;
   }
 
-  // Source PDFs
+  // Source PDFs — augment each row with scene-derivation count
   const src = h.source_pdfs || [];
   const srcSec = document.getElementById('m-source-pdfs');
   srcSec.style.display = src.length ? '' : 'none';
+  // Count scenes per source filename
+  const scenesPerSrc = {};
+  for (const i of (h.images || [])) {
+    const f = i.source_ref?.file;
+    if (f) scenesPerSrc[f] = (scenesPerSrc[f] || 0) + 1;
+  }
   document.getElementById('m-source-pdf-list').innerHTML =
-    src.map(s => `<a href="${esc(s)}" target="_blank" class="btn btn-secondary" style="height:auto;padding:5px 10px;font-size:.7rem">${esc(s.split('/').pop())}</a>`).join('');
+    src.map(s => {
+      const fname = s.split('/').pop();
+      const n = scenesPerSrc[fname] || 0;
+      const countCls = n > 0 ? 'pdf-count' : 'pdf-count none';
+      const countText = n > 0 ? `→ ${n} Szene${n !== 1 ? 'n' : ''}` : 'noch nicht zerlegt';
+      return `<div class="src-pdf-row">
+        <span class="pdf-name" title="${esc(fname)}">📄 ${esc(fname)}</span>
+        <span class="${countCls}">${countText}</span>
+        <a class="pdf-open" href="${esc(s)}" target="_blank">öffnen ↗</a>
+      </div>`;
+    }).join('');
 
   document.getElementById('overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
+}
+
+// ── images section: tile + grouping helpers ───────────────────────────────
+function imageTile(h, i) {
+  const cap = i.caption || [
+    i.floor && ontoLabel('levels', i.floor),
+    i.view  && ontoLabel('image_views', i.view),
+  ].filter(Boolean).join(' · ');
+  const nFacts = Object.keys(i.facts || {}).length;
+  const hasFacts = nFacts > 0;
+  const isOriginal = !i.source_ref;
+  const srcFile = i.source_ref?.file;
+  const srcBadge = srcFile
+    ? `<span class="src-badge" title="aus ${esc(srcFile)}${i.source_ref.page ? ' p.' + i.source_ref.page : ''}">←&nbsp;${esc(srcFile)}</span>`
+    : '';
+  return `<div class="img-tile${hasFacts ? ' has-facts' : ''}${isOriginal ? ' is-original' : ''}"
+               data-action="open-scene" data-key="${esc(h.key)}" data-file="${esc(i.file)}"
+               title="Klick öffnet Szenen-Detail">
+    <img class="medium-${i.medium}" src="${esc(i.url)}">
+    ${srcBadge}
+    ${hasFacts ? `<span class="fact-badge" title="${nFacts} Fakten extrahiert">${nFacts}</span>` : ''}
+    ${cap ? `<span class="cap">${esc(cap)}</span>` : ''}
+  </div>`;
+}
+
+function setImgView(mode) {
+  IMG_VIEW_MODE = mode;
+  const h = cache[currentKey];
+  if (h) renderImagesSection(h);
+}
+
+let currentKey = null;  // set in openModal; used by setImgView for re-render
+
+function renderImagesSection(h) {
+  const sec = document.getElementById('m-images');
+  const root = document.getElementById('m-image-groups');
+  const toggle = document.getElementById('m-view-toggle');
+  const imgs = h.images || [];
+  if (!imgs.length) {
+    sec.style.display = 'none';
+    return;
+  }
+  sec.style.display = '';
+
+  // View-mode toggle
+  toggle.innerHTML = `
+    <button class="${IMG_VIEW_MODE === 'category' ? 'active' : ''}" onclick="setImgView('category')">nach Kategorie</button>
+    <button class="${IMG_VIEW_MODE === 'source'   ? 'active' : ''}" onclick="setImgView('source')">nach Quelle</button>
+  `;
+
+  if (IMG_VIEW_MODE === 'source') {
+    root.innerHTML = renderImagesGroupedBySource(h, imgs);
+  } else {
+    root.innerHTML = renderImagesGroupedByCategory(h, imgs);
+  }
+}
+
+function renderImagesGroupedByCategory(h, imgs) {
+  const groups = {};
+  for (const i of imgs) (groups[i.category] ||= []).push(i);
+  const groupOrder = ['exterior','elevation','interior','perspective','floorplan','section','roof_plan','detail','site_plan'];
+  const sortedCats = Object.keys(groups).sort((a,b) => {
+    const ai = groupOrder.indexOf(a), bi = groupOrder.indexOf(b);
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+  });
+  return sortedCats.map(cat => {
+    let list = groups[cat];
+    if (cat === 'floorplan') {
+      const floorOrder = Object.keys(ONTOLOGY.levels || {});
+      list = [...list].sort((a,b) => {
+        const ai = floorOrder.indexOf(a.floor), bi = floorOrder.indexOf(b.floor);
+        return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+      });
+    }
+    const tiles = list.map(i => imageTile(h, i)).join('');
+    return `<h5>${esc(ontoLabel('image_categories', cat))} <span style="color:var(--muted);font-weight:400">(${list.length})</span></h5>
+            <div class="img-grid">${tiles}</div>`;
+  }).join('');
+}
+
+function renderImagesGroupedBySource(h, imgs) {
+  const bySource = new Map();   // source_file -> [images]
+  const originals = [];
+  for (const i of imgs) {
+    if (i.source_ref?.file) {
+      const k = i.source_ref.file;
+      if (!bySource.has(k)) bySource.set(k, []);
+      bySource.get(k).push(i);
+    } else {
+      originals.push(i);
+    }
+  }
+  const sourcePdfUrl = (file) => `/static/${h.key}/${encodeURIComponent(file)}`;
+  const cards = [];
+
+  if (originals.length) {
+    const tiles = originals.map(i => imageTile(h, i)).join('');
+    cards.push(`
+      <div class="src-card original">
+        <div class="src-card-hdr">
+          <span class="src-icon">📷</span>
+          <span class="src-name">Originalbilder</span>
+          <span class="src-count">${originals.length} Bild${originals.length !== 1 ? 'er' : ''}</span>
+        </div>
+        <div class="img-grid">${tiles}</div>
+      </div>`);
+  }
+
+  for (const [src, list] of bySource) {
+    const tiles = list.map(i => imageTile(h, i)).join('');
+    const pdfHref = src.toLowerCase().endsWith('.pdf') ? sourcePdfUrl(src) : null;
+    cards.push(`
+      <div class="src-card">
+        <div class="src-card-hdr">
+          <span class="src-icon">${pdfHref ? '📄' : '🖼'}</span>
+          <span class="src-name">${esc(src)}</span>
+          ${pdfHref ? `<a class="src-open" href="${pdfHref}" target="_blank">Quelle öffnen ↗</a>` : ''}
+          <span class="src-count">${list.length} Szene${list.length !== 1 ? 'n' : ''}</span>
+        </div>
+        <div class="img-grid">${tiles}</div>
+      </div>`);
+  }
+  return cards.join('');
 }
 
 function closeModal() {
