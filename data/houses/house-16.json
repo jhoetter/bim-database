@@ -7,56 +7,57 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Massivhaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Flachdach",
+  "style": "bauhaus",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG", "1. OG"],
   "area_m2": 200,
   "rooms": null,
   "floors": 2.0,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Bauhaus-EFH mit Flachdach, weiße Putzfassade. Markant: auskragende OG-Masse über EG-Fläche (Auskragung), eingeschnittene Dachterrasse / Loggia im OG, U-förmiger Grundriss mit tiefer Süd-Terrasse, bodentiefe Glasfronten.",
+  "agent_notes": "Riskanter aber primitiv-modellierbar: Auskragung über SlabElem mit verlängertem polygon; Dachterrasse über SlabOpeningElem + Brüstungswände. Kein dezidierter Engine-Gap; Render-Treue ist zu prüfen.",
   "tags": [],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "kbs_nolte_exterior1.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "rear",
+      "caption": "Gartenseite — auskragendes OG, Dachterrasse mit Brüstung"
     },
     {
       "file": "kbs_nolte_exterior2.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht"
     },
     {
       "file": "kbs_nolte_exterior3.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "front",
+      "caption": "Frontansicht"
     },
     {
       "file": "kbs_nolte_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     },
     {
       "file": "kbs_nolte_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "1. OG",
+      "caption": "Grundriss 1. OG"
     }
   ]
 }
