@@ -156,8 +156,8 @@
     "full_baubeschreibung":  "Vollständige Baubeschreibung"
   },
   "reconstructability_tiers": {
-    "T0_visual_only":        "Nur Fotos, keine Pläne",
-    "T1_schematic":          "Skizzenhafte Pläne, keine Maße",
+    "T0_visual_only":        "Keine Daten vorhanden",
+    "T1_schematic":          "Unvollständig: nur Fotos ODER nur Skizzenpläne",
     "T2_dimensioned_plans":  "Vermaßte Katalog-Grundrisse + Außenansicht",
     "T3_architectural_set":  "Vollständiger Architekten-Satz (Grundrisse + Ansichten + Schnitt)",
     "T4_construction_grade": "Werkpläne mit Wandaufbau / Baubeschreibung"

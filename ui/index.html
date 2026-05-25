@@ -63,6 +63,68 @@
 
     .results-bar { padding: 10px 24px 0; font-size: 0.8125rem; color: var(--muted); }
 
+    /* ── stats dashboard (below filters, above grid) ─────────────── */
+    .stats {
+      background: white;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px 16px;
+    }
+    .stats-tiles {
+      display: flex; gap: 28px;
+      padding-bottom: 12px;
+      border-bottom: 1px dashed var(--border);
+      margin-bottom: 10px;
+    }
+    .tile {
+      display: flex; flex-direction: column; gap: 1px;
+      min-width: 70px;
+    }
+    .tile .n {
+      font-size: 1.5rem; font-weight: 600; color: var(--text);
+      line-height: 1.1;
+    }
+    .tile .n.ok      { color: #15803d; }
+    .tile .n.blocked { color: #b91c1c; }
+    .tile .n.t34     { color: #5b21b6; }
+    .tile .lbl {
+      font-size: 0.6875rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+    .stats-rows {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 4px 14px;
+      font-size: 0.75rem;
+      align-items: center;
+    }
+    .stats-rows .ax-lbl {
+      color: var(--muted); text-align: right;
+    }
+    .bar {
+      display: flex; height: 14px;
+      border-radius: 3px; overflow: hidden;
+      background: #f3f4f6;
+    }
+    .bar-seg {
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 0.6rem; font-weight: 600;
+      min-width: 0; padding: 0 3px;
+      white-space: nowrap; overflow: hidden;
+      transition: filter .1s;
+      cursor: default;
+    }
+    .bar-seg:hover { filter: brightness(1.12); }
+    .bar-legend {
+      grid-column: 2;
+      display: flex; flex-wrap: wrap; gap: 4px 12px;
+      font-size: 0.6875rem; color: var(--muted);
+      margin-top: -2px; margin-bottom: 4px;
+    }
+    .bar-legend .swatch {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 2px; margin-right: 4px; vertical-align: middle;
+    }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -181,6 +243,7 @@
   <button class="reset" onclick="resetFilters()">Reset</button>
 </div>
 
+<div class="stats" id="stats"></div>
 <div class="results-bar" id="results-bar"></div>
 <div class="grid" id="grid"></div>
 
@@ -350,6 +413,97 @@ function renderCard(h) {
 }
 
 // ── load ───────────────────────────────────────────────────────────────────
+// ── stats dashboard ────────────────────────────────────────────────────────
+// Distinct colour palettes per axis. Roughly Linear-ish: muted, deliberate.
+const PALETTES = {
+  source:        ['#1d4ed8', '#92400e'],                                            // catalog, documentation
+  building_type: ['#1d4ed8','#15803d','#6d28d9','#b45309','#be123c','#0891b2','#65a30d','#7c2d12','#0e7490','#7e22ce','#a16207','#9d174d','#374151'],
+  construction:  ['#1d4ed8','#15803d','#b45309','#6d28d9','#be123c','#0891b2'],     // Fertighaus, Massivhaus, Blockhaus, Holzbau, Hybridbau, Modulhaus
+  roof_type:     ['#6d28d9','#0891b2','#7c3aed','#9333ea','#a855f7','#7e22ce','#5b21b6','#4c1d95','#312e81','#1e1b4b'],
+  style:         ['#be123c','#dc2626','#9d174d','#7c2d12','#9a3412','#831843','#0e7490','#a16207','#374151'],
+  tier:          ['#9ca3af','#fbbf24','#3b82f6','#22c55e','#a855f7'],               // T0..T4
+};
+
+function makeBar(label, axis, counts, palette, ontologyGroup, total) {
+  // counts: [[key, n], ...]; total is full N so missing axes can show as grey "unset" tail.
+  const sum = counts.reduce((a,[,n]) => a+n, 0);
+  const missing = total - sum;
+  const items = counts.map(([k,n], i) => [k, n, palette[i % palette.length]]);
+  if (missing > 0) items.push([null, missing, '#e5e7eb']);
+
+  const segs = items.map(([k,n,col]) => {
+    const pct = (n / total * 100).toFixed(1);
+    const lbl = k ? (ONTOLOGY?.[ontologyGroup]?.[k] || k) : 'unbekannt';
+    const text = n / total > 0.06 ? n : '';   // hide label on tiny segments
+    return `<div class="bar-seg" style="flex:${n} 1 0;background:${col};color:${k ? 'white' : '#6b7280'}"
+                 title="${lbl}: ${n} (${pct}%)">${text}</div>`;
+  }).join('');
+
+  const legend = counts.slice(0, 6).map(([k,n], i) => {
+    const lbl = ONTOLOGY?.[ontologyGroup]?.[k] || k;
+    return `<span><span class="swatch" style="background:${palette[i % palette.length]}"></span>${lbl} <strong>${n}</strong></span>`;
+  }).join('');
+  const tail = counts.length > 6 ? ` <em>… +${counts.length - 6}</em>` : '';
+
+  return `
+    <div class="ax-lbl">${label}</div>
+    <div class="bar">${segs}</div>
+    <div class="bar-legend">${legend}${tail}</div>`;
+}
+
+function renderStats(recs) {
+  const n = recs.length;
+  const mod = recs.filter(r => r.modelable_in_bim_ai === true).length;
+  const blk = recs.filter(r => r.modelable_in_bim_ai === false).length;
+  const t34 = recs.filter(r => {
+    const t = r.reconstructability_tier;
+    return t && parseInt(t.replace(/^T/, '')) >= 3;
+  }).length;
+  const t2 = recs.filter(r => r.reconstructability_tier === 'T2_dimensioned_plans').length;
+
+  // Group counts per axis, sorted descending.
+  const group = (field) => {
+    const m = new Map();
+    for (const r of recs) {
+      const v = r[field];
+      if (v) m.set(v, (m.get(v) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+  const groupTier = () => {
+    const m = new Map();
+    for (const r of recs) {
+      const t = r.reconstructability_tier;
+      if (t) m.set(t, (m.get(t) || 0) + 1);
+    }
+    // Tier order T0…T4 not alphabetic.
+    return [...m.entries()].sort(
+      (a, b) => parseInt(a[0].replace(/^T/, '')) - parseInt(b[0].replace(/^T/, ''))
+    );
+  };
+
+  const tiles = `
+    <div class="stats-tiles">
+      <div class="tile"><span class="n">${n}</span><span class="lbl">Häuser</span></div>
+      <div class="tile"><span class="n ok">${mod}</span><span class="lbl">✓ modellierbar</span></div>
+      <div class="tile"><span class="n blocked">${blk}</span><span class="lbl">✗ blockiert</span></div>
+      <div class="tile"><span class="n t34">${t34}</span><span class="lbl">T3+ Fidelity</span></div>
+      <div class="tile"><span class="n">${t2}</span><span class="lbl">T2 (Katalog)</span></div>
+    </div>`;
+
+  const rows = `
+    <div class="stats-rows">
+      ${makeBar('Quelle',       'source',        group('source'),        PALETTES.source,        'sources',        n)}
+      ${makeBar('Gebäudetyp',   'building_type', group('building_type'), PALETTES.building_type, 'building_types', n)}
+      ${makeBar('Bauweise',     'construction',  group('construction'),  PALETTES.construction,  'constructions',  n)}
+      ${makeBar('Dachform',     'roof_type',     group('roof_type'),     PALETTES.roof_type,     'roof_types',     n)}
+      ${makeBar('Stil',         'style',         group('style'),         PALETTES.style,         'styles',         n)}
+      ${makeBar('Tier',         'tier',          groupTier(),            PALETTES.tier,          'reconstructability_tiers', n)}
+    </div>`;
+
+  document.getElementById('stats').innerHTML = tiles + rows;
+}
+
 async function load() {
   const p = new URLSearchParams();
   document.querySelectorAll('.filters input, .filters select').forEach(el => {
@@ -359,6 +513,7 @@ async function load() {
   const recs = await fetch(`/houses?${p}`).then(r => r.json());
   document.getElementById('hdr-count').textContent = `${recs.length} Häuser`;
   document.getElementById('results-bar').textContent = `${recs.length} ${recs.length === 1 ? 'Eintrag' : 'Einträge'} gefunden`;
+  renderStats(recs);
   document.getElementById('grid').innerHTML = recs.map(renderCard).join('');
 }
 
