@@ -7,21 +7,27 @@
   "source_origin": null,
   "building_type": "Bungalow",
   "construction": "Fertighaus",
-  "roof_type": null,
+  "roof_type": "Walmdach",
   "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": ["EG"],
+  "levels": [
+    "EG"
+  ],
   "area_m2": 110,
   "rooms": null,
   "floors": 1.0,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Eleganter Bungalow mit flachem Walmdach in anthrazit, weit auskragendem Vordach über der Terrasse und großen Fensterflächen.",
+  "agent_notes": "Walmdach-Bungalow + weit auskragendes Terrassendach. Voll modellierbar.",
+  "tags": [
+    "bungalow",
+    "walmdach",
+    "terrassendach"
+  ],
   "images": [
     {
       "file": "schwabenhaus_solitaire-bungalow01_110e3-exterior.original.avif",
@@ -37,5 +43,6 @@
       "floor": "EG",
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
