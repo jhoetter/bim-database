@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Holzbau",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Krüppelwalmdach",
+  "style": "historisch",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": "Fachwerkhaus (Zweiständer-Konstruktion)",
-  "agent_notes": null,
-  "tags": [],
+  "character": "Aufwendiges Fachwerk-Zweiständerhaus mit Krüppelwalm, mehreren Zwerchgiebeln und Schleppgauben, Backsteinausfachung, Balkon mit Holzstützen.",
+  "agent_notes": "Krüppelwalm (#105 closed) + sichtbares Fachwerk blockiert (#111). Zwerchgiebel via #65 (closed).",
+  "tags": [
+    "fachwerk",
+    "krüppelwalm",
+    "historisch",
+    "zwerchgiebel"
+  ],
   "images": [
     {
       "file": "fuhrberger_zweistaenderhaus_exterior1.original.avif",
@@ -51,5 +59,8 @@
       "view": null,
       "caption": null
     }
+  ],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#111"
   ]
 }
