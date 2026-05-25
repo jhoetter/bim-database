@@ -67,63 +67,110 @@
     .stats {
       background: white;
       border-bottom: 1px solid var(--border);
-      padding: 14px 24px 16px;
+      padding: 16px 24px 18px;
     }
     .stats-tiles {
-      display: flex; gap: 28px;
-      padding-bottom: 12px;
+      display: flex; gap: 8px;
+      padding-bottom: 14px;
       border-bottom: 1px dashed var(--border);
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .tile {
-      display: flex; flex-direction: column; gap: 1px;
-      min-width: 70px;
+      display: flex; flex-direction: column; gap: 2px;
+      min-width: 84px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .12s, box-shadow .12s, transform .08s;
+      user-select: none;
+    }
+    .tile:hover { background: #f9fafb; }
+    .tile:active { transform: translateY(1px); }
+    .tile.active {
+      background: #eef2ff;
+      box-shadow: inset 0 0 0 1px #c7d2fe;
     }
     .tile .n {
-      font-size: 1.5rem; font-weight: 600; color: var(--text);
-      line-height: 1.1;
+      font-size: 1.55rem; font-weight: 600; color: var(--text);
+      line-height: 1.05; letter-spacing: -.01em;
     }
     .tile .n.ok      { color: #15803d; }
     .tile .n.blocked { color: #b91c1c; }
     .tile .n.t34     { color: #5b21b6; }
+    .tile .n.muted   { color: #6b7280; }
     .tile .lbl {
       font-size: 0.6875rem; color: var(--muted);
       text-transform: uppercase; letter-spacing: .04em;
+      font-weight: 500;
     }
     .stats-rows {
       display: grid;
-      grid-template-columns: 110px 1fr;
-      gap: 4px 14px;
+      grid-template-columns: 100px 1fr;
+      gap: 6px 14px;
       font-size: 0.75rem;
       align-items: center;
     }
     .stats-rows .ax-lbl {
       color: var(--muted); text-align: right;
+      font-weight: 500; letter-spacing: .01em;
+    }
+    .stats-rows .ax-lbl.has-filter {
+      color: var(--accent); font-weight: 600;
     }
     .bar {
-      display: flex; height: 14px;
-      border-radius: 3px; overflow: hidden;
+      display: flex; height: 16px;
+      border-radius: 4px; overflow: hidden;
       background: #f3f4f6;
     }
     .bar-seg {
       display: flex; align-items: center; justify-content: center;
       color: white; font-size: 0.6rem; font-weight: 600;
-      min-width: 0; padding: 0 3px;
+      min-width: 0; padding: 0 4px;
       white-space: nowrap; overflow: hidden;
-      transition: filter .1s;
-      cursor: default;
+      transition: opacity .15s, filter .12s;
+      cursor: pointer;
+      opacity: 0.95;
     }
-    .bar-seg:hover { filter: brightness(1.12); }
+    .bar-seg:hover { filter: brightness(1.12); opacity: 1; }
+    .bar.has-filter .bar-seg:not(.active) { opacity: 0.25; cursor: pointer; }
+    .bar.has-filter .bar-seg.active {
+      opacity: 1;
+      box-shadow: inset 0 0 0 2px rgba(0,0,0,.18);
+    }
+    .bar-seg.unset { color: #6b7280; cursor: default; }
+    .bar-seg.unset:hover { filter: none; opacity: 0.95; }
     .bar-legend {
       grid-column: 2;
-      display: flex; flex-wrap: wrap; gap: 4px 12px;
+      display: flex; flex-wrap: wrap; gap: 4px 0;
       font-size: 0.6875rem; color: var(--muted);
       margin-top: -2px; margin-bottom: 4px;
     }
+    .bar-legend .leg-item {
+      display: inline-flex; align-items: center;
+      padding: 1px 8px 1px 4px;
+      margin-right: 4px;
+      border-radius: 99px;
+      cursor: pointer;
+      transition: background .12s;
+      user-select: none;
+    }
+    .bar-legend .leg-item:hover { background: #f3f4f6; }
+    .bar-legend .leg-item.active {
+      background: #eef2ff; color: var(--text); font-weight: 600;
+    }
+    .bar-legend .leg-item.dim { opacity: 0.45; }
     .bar-legend .swatch {
       display: inline-block; width: 8px; height: 8px;
-      border-radius: 2px; margin-right: 4px; vertical-align: middle;
+      border-radius: 2px; margin-right: 6px;
     }
+    .bar-legend strong { color: var(--text); font-weight: 600; margin-left: 4px; }
+    .bar-legend .leg-more { color: var(--muted); padding: 1px 6px; font-style: italic; }
+    .ax-clear {
+      grid-column: 1; text-align: right; padding-right: 4px;
+      font-size: 0.6875rem; color: var(--accent);
+      cursor: pointer; user-select: none;
+    }
+    .ax-clear:hover { text-decoration: underline; }
 
     .grid {
       display: grid;
@@ -414,41 +461,103 @@ function renderCard(h) {
 
 // ── load ───────────────────────────────────────────────────────────────────
 // ── stats dashboard ────────────────────────────────────────────────────────
-// Distinct colour palettes per axis. Roughly Linear-ish: muted, deliberate.
+// Distinct, slightly muted palettes per axis — color reserved for state.
 const PALETTES = {
-  source:        ['#1d4ed8', '#92400e'],                                            // catalog, documentation
+  source:        ['#1d4ed8','#92400e'],                                              // catalog, documentation
   building_type: ['#1d4ed8','#15803d','#6d28d9','#b45309','#be123c','#0891b2','#65a30d','#7c2d12','#0e7490','#7e22ce','#a16207','#9d174d','#374151'],
-  construction:  ['#1d4ed8','#15803d','#b45309','#6d28d9','#be123c','#0891b2'],     // Fertighaus, Massivhaus, Blockhaus, Holzbau, Hybridbau, Modulhaus
+  construction:  ['#1d4ed8','#15803d','#b45309','#6d28d9','#be123c','#0891b2'],
   roof_type:     ['#6d28d9','#0891b2','#7c3aed','#9333ea','#a855f7','#7e22ce','#5b21b6','#4c1d95','#312e81','#1e1b4b'],
   style:         ['#be123c','#dc2626','#9d174d','#7c2d12','#9a3412','#831843','#0e7490','#a16207','#374151'],
-  tier:          ['#9ca3af','#fbbf24','#3b82f6','#22c55e','#a855f7'],               // T0..T4
+  tier:          ['#9ca3af','#fbbf24','#3b82f6','#22c55e','#a855f7'],                // T0…T4
 };
 
-function makeBar(label, axis, counts, palette, ontologyGroup, total) {
-  // counts: [[key, n], ...]; total is full N so missing axes can show as grey "unset" tail.
-  const sum = counts.reduce((a,[,n]) => a+n, 0);
+// ── interaction wiring ─────────────────────────────────────────────────────
+// Set / toggle a filter dropdown and trigger reload. Toggle: clicking the
+// already-active value clears the filter.
+function setFilter(filterId, value) {
+  const el = document.getElementById(filterId);
+  if (!el) return;
+  el.value = el.value === String(value) ? '' : String(value);
+  load();
+}
+function clearFilter(filterId) {
+  const el = document.getElementById(filterId);
+  if (el) { el.value = ''; load(); }
+}
+
+// Single delegated click handler — looks for data-action attributes on
+// any element under the stats panel. Avoids the inline-onclick + nested-
+// quotes mess that broke segment/legend clicks earlier.
+document.addEventListener('click', (e) => {
+  const action = e.target.closest('[data-action]');
+  if (!action) return;
+  const a = action.dataset.action;
+  if (a === 'set-filter')   setFilter(action.dataset.filterId, action.dataset.filterValue);
+  else if (a === 'clear-filter') clearFilter(action.dataset.filterId);
+  else if (a === 'reset')   resetFilters();
+});
+
+// ── bar renderer ───────────────────────────────────────────────────────────
+// Tier semantics differ from other axes: the filter is a *minimum*, so
+// clicking T2 means "T2 and above". These helpers normalize that.
+const _tierNum = s => s ? parseInt(String(s).replace(/^T/, '').split('_')[0]) : null;
+const _tierFilterValue = k => `T${_tierNum(k)}`;
+function _matchesActive(filterId, key, activeVal) {
+  if (!activeVal || key == null) return false;
+  if (filterId === 'f-min_tier') {
+    const a = _tierNum(activeVal), b = _tierNum(key);
+    return a != null && b != null && b >= a;
+  }
+  return key === activeVal;
+}
+function _toFilterValue(filterId, key) {
+  return filterId === 'f-min_tier' ? _tierFilterValue(key) : key;
+}
+
+function makeBar(label, counts, palette, ontologyGroup, total, filterId) {
+  const sum = counts.reduce((a, [, n]) => a + n, 0);
   const missing = total - sum;
-  const items = counts.map(([k,n], i) => [k, n, palette[i % palette.length]]);
+  const items = counts.map(([k, n], i) => [k, n, palette[i % palette.length]]);
   if (missing > 0) items.push([null, missing, '#e5e7eb']);
 
-  const segs = items.map(([k,n,col]) => {
+  const activeVal = document.getElementById(filterId)?.value || '';
+  const hasFilter = activeVal !== '';
+
+  const segs = items.map(([k, n, col]) => {
     const pct = (n / total * 100).toFixed(1);
     const lbl = k ? (ONTOLOGY?.[ontologyGroup]?.[k] || k) : 'unbekannt';
-    const text = n / total > 0.06 ? n : '';   // hide label on tiny segments
-    return `<div class="bar-seg" style="flex:${n} 1 0;background:${col};color:${k ? 'white' : '#6b7280'}"
-                 title="${lbl}: ${n} (${pct}%)">${text}</div>`;
+    const text = n / total > 0.06 ? n : '';
+    const isActive = _matchesActive(filterId, k, activeVal);
+    const unsetCls = k ? '' : ' unset';
+    const activeCls = isActive ? ' active' : '';
+    const dataAttrs = k
+      ? `data-action="set-filter" data-filter-id="${filterId}" data-filter-value="${esc(_toFilterValue(filterId, k))}"`
+      : '';
+    return `<div class="bar-seg${unsetCls}${activeCls}" ${dataAttrs}
+                 style="flex:${n} 1 0;background:${col};color:${k ? 'white' : '#6b7280'}"
+                 title="${esc(lbl)}: ${n} (${pct}%)">${text}</div>`;
   }).join('');
 
-  const legend = counts.slice(0, 6).map(([k,n], i) => {
+  const legendItems = counts.slice(0, 6).map(([k, n], i) => {
     const lbl = ONTOLOGY?.[ontologyGroup]?.[k] || k;
-    return `<span><span class="swatch" style="background:${palette[i % palette.length]}"></span>${lbl} <strong>${n}</strong></span>`;
+    const isActive = _matchesActive(filterId, k, activeVal);
+    const cls = isActive ? 'leg-item active' : (hasFilter ? 'leg-item dim' : 'leg-item');
+    return `<span class="${cls}" data-action="set-filter"
+                  data-filter-id="${filterId}" data-filter-value="${esc(_toFilterValue(filterId, k))}">
+              <span class="swatch" style="background:${palette[i % palette.length]}"></span>${esc(lbl)} <strong>${n}</strong>
+            </span>`;
   }).join('');
-  const tail = counts.length > 6 ? ` <em>… +${counts.length - 6}</em>` : '';
+  const tail = counts.length > 6 ? `<span class="leg-more">… +${counts.length - 6}</span>` : '';
+
+  const lblCls = hasFilter ? 'ax-lbl has-filter' : 'ax-lbl';
+  const lblHtml = hasFilter
+    ? `<div class="${lblCls}">${label} · <span class="ax-clear" data-action="clear-filter" data-filter-id="${filterId}">×</span></div>`
+    : `<div class="${lblCls}">${label}</div>`;
 
   return `
-    <div class="ax-lbl">${label}</div>
-    <div class="bar">${segs}</div>
-    <div class="bar-legend">${legend}${tail}</div>`;
+    ${lblHtml}
+    <div class="bar${hasFilter ? ' has-filter' : ''}">${segs}</div>
+    <div class="bar-legend">${legendItems}${tail}</div>`;
 }
 
 function renderStats(recs) {
@@ -461,7 +570,6 @@ function renderStats(recs) {
   }).length;
   const t2 = recs.filter(r => r.reconstructability_tier === 'T2_dimensioned_plans').length;
 
-  // Group counts per axis, sorted descending.
   const group = (field) => {
     const m = new Map();
     for (const r of recs) {
@@ -476,29 +584,48 @@ function renderStats(recs) {
       const t = r.reconstructability_tier;
       if (t) m.set(t, (m.get(t) || 0) + 1);
     }
-    // Tier order T0…T4 not alphabetic.
     return [...m.entries()].sort(
       (a, b) => parseInt(a[0].replace(/^T/, '')) - parseInt(b[0].replace(/^T/, ''))
     );
   };
 
+  // Tile active states derived from current filter values
+  const fMod = document.getElementById('f-modelable_in_bim_ai')?.value || '';
+  const fTier = document.getElementById('f-min_tier')?.value || '';
+  const anyFilter = Array.from(document.querySelectorAll('.filters input, .filters select'))
+    .some(el => el.value !== '');
+
   const tiles = `
     <div class="stats-tiles">
-      <div class="tile"><span class="n">${n}</span><span class="lbl">Häuser</span></div>
-      <div class="tile"><span class="n ok">${mod}</span><span class="lbl">✓ modellierbar</span></div>
-      <div class="tile"><span class="n blocked">${blk}</span><span class="lbl">✗ blockiert</span></div>
-      <div class="tile"><span class="n t34">${t34}</span><span class="lbl">T3+ Fidelity</span></div>
-      <div class="tile"><span class="n">${t2}</span><span class="lbl">T2 (Katalog)</span></div>
+      <div class="tile ${anyFilter ? '' : 'active'}" data-action="reset" title="Alle Filter zurücksetzen">
+        <span class="n">${n}</span><span class="lbl">Häuser</span>
+      </div>
+      <div class="tile ${fMod === 'true' ? 'active' : ''}" data-action="set-filter"
+           data-filter-id="f-modelable_in_bim_ai" data-filter-value="true">
+        <span class="n ok">${mod}</span><span class="lbl">✓ modellierbar</span>
+      </div>
+      <div class="tile ${fMod === 'false' ? 'active' : ''}" data-action="set-filter"
+           data-filter-id="f-modelable_in_bim_ai" data-filter-value="false">
+        <span class="n blocked">${blk}</span><span class="lbl">✗ blockiert</span>
+      </div>
+      <div class="tile ${fTier === 'T3' ? 'active' : ''}" data-action="set-filter"
+           data-filter-id="f-min_tier" data-filter-value="T3">
+        <span class="n t34">${t34}</span><span class="lbl">T3+ Fidelity</span>
+      </div>
+      <div class="tile ${fTier === 'T2' ? 'active' : ''}" data-action="set-filter"
+           data-filter-id="f-min_tier" data-filter-value="T2">
+        <span class="n muted">${t2}</span><span class="lbl">T2 (Katalog)</span>
+      </div>
     </div>`;
 
   const rows = `
     <div class="stats-rows">
-      ${makeBar('Quelle',       'source',        group('source'),        PALETTES.source,        'sources',        n)}
-      ${makeBar('Gebäudetyp',   'building_type', group('building_type'), PALETTES.building_type, 'building_types', n)}
-      ${makeBar('Bauweise',     'construction',  group('construction'),  PALETTES.construction,  'constructions',  n)}
-      ${makeBar('Dachform',     'roof_type',     group('roof_type'),     PALETTES.roof_type,     'roof_types',     n)}
-      ${makeBar('Stil',         'style',         group('style'),         PALETTES.style,         'styles',         n)}
-      ${makeBar('Tier',         'tier',          groupTier(),            PALETTES.tier,          'reconstructability_tiers', n)}
+      ${makeBar('Quelle',       group('source'),        PALETTES.source,        'sources',        n, 'f-source')}
+      ${makeBar('Gebäudetyp',   group('building_type'), PALETTES.building_type, 'building_types', n, 'f-building_type')}
+      ${makeBar('Bauweise',     group('construction'),  PALETTES.construction,  'constructions',  n, 'f-construction')}
+      ${makeBar('Dachform',     group('roof_type'),     PALETTES.roof_type,     'roof_types',     n, 'f-roof_type')}
+      ${makeBar('Stil',         group('style'),         PALETTES.style,         'styles',         n, 'f-style')}
+      ${makeBar('Tier',         groupTier(),            PALETTES.tier,          'reconstructability_tiers', n, 'f-min_tier')}
     </div>`;
 
   document.getElementById('stats').innerHTML = tiles + rows;
