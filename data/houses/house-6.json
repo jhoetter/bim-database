@@ -7,119 +7,120 @@
   "source_origin": null,
   "building_type": "Doppelhaus",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "modern",
   "energy_standard": "Effizienzhaus 40",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG", "1. OG", "DG"],
   "area_m2": 134,
   "rooms": null,
   "floors": 2.5,
   "price_eur": 308171,
   "price_on_request": false,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Doppelhaus mit symmetrischem Satteldach. Auf jeder Haushälfte eine sehr breite Schleppgaube (holzverkleidet) über die Frontfassade. Eingeschossiger Flachdach-Anbau über der Eingangs- und Wohnzone. Variantenvielfalt im Katalog (e1–e5) mit unterschiedlichen Grundrissen.",
+  "agent_notes": "Doppelhaus rendert in bim-ai als ein gemeinsamer Baukörper (DH-Trennung ist nur Metadaten). Schleppgauben via DormerRoofKind=flat. Front-Anbau als Flachdach-Volumen.",
   "tags": [],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "schwabenhaus_smartspace-dh01_111e1exterior.original.avif",
       "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "medium": "render",
+      "view": "front",
+      "caption": "Straßenseite (Variante e1)"
     },
     {
       "file": "schwabenhaus_smartspace-dh02_111e1floorplan1.original.avif",
-      "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": "EG",
+      "caption": "Grundriss EG (Variante e1)"
     },
     {
       "file": "schwabenhaus_smartspace-dh03_111e1floorplan2.original.avif",
-      "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "category": "floorplan",
+      "medium": "drawing",
+      "floor": "1. OG",
+      "caption": "Grundriss OG (Variante e1)"
     },
     {
       "file": "schwabenhaus_smartspace-dh04_111e3_exterior.original.avif",
       "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "medium": "render",
+      "view": "rear",
+      "caption": "Gartenseite — sehr breite Schleppgaube auf jeder Hälfte, Flachdach-Anbau (Variante e3)"
     },
     {
       "file": "schwabenhaus_smartspace-dh08_111e3_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG (Variante e3)"
     },
     {
       "file": "schwabenhaus_smartspace-dh09_111e3_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "1. OG",
+      "caption": "Grundriss OG (Variante e3)"
     },
     {
       "file": "schwabenhaus_smartspace-dh10_111e3_floorplan3.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "DG",
+      "caption": "Grundriss DG (Variante e3)"
     },
     {
       "file": "schwabenhaus_smartspace-dh11_111e4_exterior.original.avif",
       "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "medium": "render",
+      "view": "corner",
+      "caption": "Eckansicht (Variante e4)"
     },
     {
       "file": "schwabenhaus_smartspace-dh12_111e4_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG (Variante e4)"
     },
     {
       "file": "schwabenhaus_smartspace-dh13_111e4_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "1. OG",
+      "caption": "Grundriss OG (Variante e4)"
     },
     {
       "file": "schwabenhaus_smartspace-dh14_111e4_floorplan3.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "DG",
+      "caption": "Grundriss DG (Variante e4)"
     },
     {
       "file": "schwabenhaus_smartspace-dh15_111e5_exterior.original.avif",
       "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "medium": "render",
+      "view": "corner",
+      "caption": "Eckansicht (Variante e5)"
     },
     {
       "file": "schwabenhaus_smartspace-dh16_111e5_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG (Variante e5)"
     },
     {
       "file": "schwabenhaus_smartspace-dh17_111e5_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "1. OG",
+      "caption": "Grundriss OG (Variante e5)"
     }
   ]
 }
