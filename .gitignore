@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .venv/
+
+# Stray output of build_houses.py — never tracked
+**/_combined.pdf

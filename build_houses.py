@@ -11,9 +11,16 @@ Prefix detection is fully dynamic — no hardcoded mappings. The script:
 
 import re
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
+
+# pillow-avif-plugin (optional) registers AVIF decoders into Pillow. Falls
+# back gracefully when not installed (e.g. on macOS where `sips` is used).
+try:
+    import pillow_avif  # noqa: F401
+except ImportError:
+    pass
+
 from PIL import Image
 
 BASE = Path(__file__).parent
@@ -88,11 +95,16 @@ def move_loose_files(prefix_map: dict[str, str]) -> dict[str, str]:
 
 
 def avif_to_png(avif_path: Path, out_path: Path) -> None:
-    subprocess.run(
-        ["sips", "-s", "format", "png", str(avif_path), "--out", str(out_path)],
-        check=True,
-        capture_output=True,
-    )
+    """Decode AVIF and write PNG. Uses Pillow + pillow-avif-plugin when
+    available (Linux), falls back to sips (macOS)."""
+    try:
+        Image.open(avif_path).convert("RGB").save(out_path, "PNG")
+    except Exception:
+        import subprocess
+        subprocess.run(
+            ["sips", "-s", "format", "png", str(avif_path), "--out", str(out_path)],
+            check=True, capture_output=True,
+        )
 
 
 def sort_key(path: Path) -> tuple:
