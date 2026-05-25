@@ -1,56 +1,31 @@
-import { Link, useParams } from 'react-router';
-import { fetchHouse, useResource } from '../api/client';
-import type { FactEntry, SceneImage } from '../api/types';
-import { formatFactValue } from '../lib/format';
-import { ontoLabel, useOntology } from '../api/ontology';
+import type { FactEntry, SceneImage } from '../../api/types';
+import { formatFactValue } from '../../lib/format';
+import { ontoLabel, useOntology } from '../../api/ontology';
 
-export function ScenePage() {
-  const { key = '', file = '' } = useParams();
-  const decodedFile = decodeURIComponent(file);
-  const { data: h, error, loading } = useResource(() => fetchHouse(key), [key]);
-
-  if (loading) return <Status text="Lade…" />;
-  if (error) return <Status text={`Fehler: ${error.message}`} tone="error" />;
-  if (!h) return <Status text="Haus nicht gefunden." />;
-
-  const img = h.images.find((x) => x.file === decodedFile);
-  if (!img) return <Status text={`Szene "${decodedFile}" nicht in ${h.key}.`} />;
-
+// The slide-in right-rail panel that shows full detail for one scene.
+// Image at top, then orientation chip + caption + provenance + facts + anomalies.
+export function SceneDetailPanel({ img }: { img: SceneImage }) {
   const factEntries = Object.entries(img.facts ?? {});
   const anomalies = img.anomaly_flags ?? [];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-4">
-      <nav className="text-sm mb-3">
-        <Link to="/" className="text-accent hover:underline">
-          Alle Häuser
-        </Link>
-        <span className="text-muted"> / </span>
-        <Link to={`/house/${h.key}`} className="text-accent hover:underline">
-          {h.model}
-        </Link>
-      </nav>
-      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-0 bg-white border border-border rounded-xl overflow-hidden">
-        <div className="bg-zinc-800 flex items-center justify-center p-4 overflow-auto max-h-[88vh]">
-          <img
-            src={img.url}
-            alt={img.caption ?? img.file}
-            className="max-w-full max-h-[80vh] object-contain bg-white"
-          />
-        </div>
-        <aside className="p-5 overflow-y-auto max-h-[88vh]">
-          <div className="text-[0.95rem] font-semibold mb-0.5">{img.file}</div>
-          <SceneOrientation img={img} />
-          {img.caption && (
-            <div className="text-[0.825rem] text-muted mb-4 leading-relaxed">
-              {img.caption}
-            </div>
-          )}
-
-          {img.source_ref && <SourceSection src={img.source_ref} />}
-          <FactsSection entries={factEntries} />
-          {anomalies.length > 0 && <SceneAnomalies flags={anomalies} />}
-        </aside>
+    <div className="flex flex-col">
+      <div className="bg-zinc-800 flex items-center justify-center p-3">
+        <img
+          src={img.url}
+          alt={img.caption ?? img.file}
+          className="max-w-full max-h-[40vh] object-contain bg-white"
+        />
+      </div>
+      <div className="p-4">
+        <div className="text-[0.85rem] font-semibold mb-1 break-all">{img.file}</div>
+        <SceneOrientation img={img} />
+        {img.caption && (
+          <p className="text-[0.8125rem] text-muted mb-4 leading-relaxed">{img.caption}</p>
+        )}
+        {img.source_ref && <SourceSection src={img.source_ref} />}
+        <FactsSection entries={factEntries} />
+        {anomalies.length > 0 && <SceneAnomalies flags={anomalies} />}
       </div>
     </div>
   );
@@ -61,8 +36,6 @@ function SceneOrientation({ img }: { img: SceneImage }) {
   const isCompassView = (v?: string | null) =>
     v != null && ['north', 'south', 'east', 'west'].includes(v);
 
-  // Floorplans → floor level chip; elevations → compass direction chip.
-  // Skip when the field isn't populated (no fabrication).
   let label: string | null = null;
   let kind: string | null = null;
   let tone: 'blue' | 'amber' | 'zinc' = 'zinc';
@@ -85,12 +58,12 @@ function SceneOrientation({ img }: { img: SceneImage }) {
       ? 'bg-amber-100 text-amber-900 border-amber-200'
       : 'bg-zinc-100 text-zinc-800 border-zinc-200';
   return (
-    <div className="mb-3 flex items-center gap-2">
+    <div className="mb-3 flex items-center gap-2 flex-wrap">
       <span className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">
         {kind}
       </span>
       <span
-        className={`text-[0.9rem] font-semibold px-2 py-0.5 rounded border ${toneClass}`}
+        className={`text-[0.85rem] font-semibold px-2 py-0.5 rounded border ${toneClass}`}
       >
         {label}
       </span>
@@ -120,7 +93,7 @@ function SourceSection({ src }: { src: NonNullable<SceneImage['source_ref']> }) 
         {filled.map(([k, v]) => (
           <div key={k} className="flex gap-2 mb-0.5 last:mb-0">
             <span className="text-muted min-w-[80px]">{k}</span>
-            <span className="font-mono text-[0.74rem]">{v}</span>
+            <span className="font-mono text-[0.74rem] break-all">{v}</span>
           </div>
         ))}
       </div>
@@ -198,18 +171,5 @@ function SceneAnomalies({ flags }: { flags: string[] }) {
         ))}
       </ul>
     </section>
-  );
-}
-
-function Status({ text, tone = 'normal' }: { text: string; tone?: 'normal' | 'error' }) {
-  return (
-    <div
-      className={
-        'max-w-7xl mx-auto px-6 py-12 text-sm ' +
-        (tone === 'error' ? 'text-red-700' : 'text-muted')
-      }
-    >
-      {text}
-    </div>
   );
 }

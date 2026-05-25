@@ -4,6 +4,8 @@ import type { House } from '../api/types';
 import { matchesSearch, useFiltersFromUrl } from '../lib/filters';
 import { HouseCard } from '../components/HouseCard';
 import { StatsDashboard } from '../components/stats/StatsDashboard';
+import { Shell } from '../components/layout/Shell';
+import { Breadcrumb } from '../components/layout/Breadcrumb';
 
 // TOTAL is the unfiltered count — survives across renders so the header can
 // show "9 / 57 Häuser" once a filter is active.
@@ -36,41 +38,46 @@ export function HousesPage() {
     return () => {
       cancelled = true;
     };
-    // Stringify so the effect re-runs on any change to the URL state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(filters), search]);
 
   return (
-    <div>
-      <StatsDashboard
-        recs={recs}
-        total={total || recs.length}
-        search={search}
-        filters={filters}
-        anyActive={anyActive}
-        onSearch={setSearch}
-        onPick={setFilter}
-        onClear={(f) => setFilter(f, '')}
-        onPickRange={setRange}
-        onClearRange={(fmin, fmax) => {
-          setRange(fmin, '', fmax, '');
-        }}
-        onReset={reset}
-      />
-      <div className="px-6 pt-2 text-[0.8125rem] text-muted">
+    <Shell
+      breadcrumb={<Breadcrumb items={[{ label: 'Alle Häuser' }]} />}
+      leftSidebar={
+        <div className="p-3">
+          <StatsDashboard
+            recs={recs}
+            total={total || recs.length}
+            search={search}
+            filters={filters}
+            anyActive={anyActive}
+            onSearch={setSearch}
+            onPick={setFilter}
+            onClear={(f) => setFilter(f, '')}
+            onPickRange={setRange}
+            onClearRange={(fmin, fmax) => {
+              setRange(fmin, '', fmax, '');
+            }}
+            onReset={reset}
+          />
+        </div>
+      }
+    >
+      <div className="px-6 pt-3 pb-2 text-[0.8125rem] text-muted">
         {loading
           ? 'Lade…'
           : error
           ? `Fehler: ${error.message}`
           : `${recs.length} ${recs.length === 1 ? 'Eintrag' : 'Einträge'} gefunden`}
       </div>
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3.5 px-6 pt-3 pb-6 list-none">
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3.5 px-6 pt-2 pb-6 list-none">
         {recs.map((h) => (
           <li key={h.key}>
             <HouseCard h={h} />
           </li>
         ))}
       </ul>
-    </div>
+    </Shell>
   );
 }
