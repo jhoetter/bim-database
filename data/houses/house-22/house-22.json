@@ -69,5 +69,14 @@
       "caption": "Schnitt"
     }
   ],
-  "bim_ai_blocking_issues": []
+  "bim_ai_blocking_issues": [],
+  "data_quality": {
+    "floorplan_grade": "fully_specified",
+    "exterior_coverage": "multi_view",
+    "elevation_set": "dimensioned",
+    "section_drawing": "dimensioned",
+    "roof_plan": "absent",
+    "site_plan": "absent",
+    "construction_specs": "summary"
+  }
 }

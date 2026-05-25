@@ -42,6 +42,21 @@
       "type": ["array", "null"],
       "items": {"type": "string", "pattern": "^[^/]+/[^#]+#[0-9]+$"},
       "description": "Tri-state: field missing OR null → not yet assessed (UI shows no badge). Empty list → assessed, no blockers (✓ modellierbar). Non-empty list → blocked by these issues until they close. Format: 'owner/repo#NNN'. Cache in data/.issue_state.json, refresh via `make refresh-issue-state`."
+    },
+
+    "data_quality": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "How reconstructable the house is from THIS entry alone. The API derives a single `reconstructability_tier` from these fields (rolled up, not stored on disk). Most axes can be auto-populated by scripts/derive_data_quality.py from the images array; upgrading past 'dimensioned' / 'summary' requires reading the source.",
+      "properties": {
+        "floorplan_grade":    {"type": ["string", "null"], "description": "Enum: ontology.floorplan_grades"},
+        "exterior_coverage":  {"type": ["string", "null"], "description": "Enum: ontology.exterior_coverages"},
+        "elevation_set":      {"type": ["string", "null"], "description": "Enum: ontology.elevation_sets"},
+        "section_drawing":    {"type": ["string", "null"], "description": "Enum: ontology.section_drawings"},
+        "roof_plan":          {"type": ["string", "null"], "description": "Enum: ontology.presence_flags"},
+        "site_plan":          {"type": ["string", "null"], "description": "Enum: ontology.presence_flags"},
+        "construction_specs": {"type": ["string", "null"], "description": "Enum: ontology.construction_specs_grades"}
+      }
     }
   },
   "$defs": {

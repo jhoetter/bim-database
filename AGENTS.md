@@ -247,6 +247,62 @@ Convention (matches existing issues like #31, #53, #56):
 Worked example: **#101 (Versetztes Pultdach)** and **#102 (Erker)** —
 both filed from `house-18`. Read those before writing your first.
 
+---
+
+## Data quality — how reconstructable is this entry?
+
+Every record carries an optional `data_quality` object that grades the
+source material on seven axes. The API rolls them into a single
+`reconstructability_tier` for filtering and badge display:
+
+| Tier | Means                                                                | Typical record       |
+|------|----------------------------------------------------------------------|----------------------|
+| **T0** | Only photos, no plans                                              | _(none today)_       |
+| **T1** | Schematic plans (room labels, no dimensions)                       | _(none today)_       |
+| **T2** | Catalog floor plans with outer dimensions + ≥1 exterior render     | All 53 catalog houses |
+| **T3** | Architects' set — plans + elevations + section                     | h22, h23             |
+| **T4** | Construction-grade — also wall buildup / Baubeschreibung           | h21                  |
+
+### Axes (stored on disk)
+
+```json
+"data_quality": {
+  "floorplan_grade":    "dimensioned",   // ontology.floorplan_grades
+  "exterior_coverage":  "all_facades",   // ontology.exterior_coverages
+  "elevation_set":      "none",          // ontology.elevation_sets
+  "section_drawing":    "none",          // ontology.section_drawings
+  "roof_plan":          "absent",        // ontology.presence_flags
+  "site_plan":          "absent",        // ontology.presence_flags
+  "construction_specs": "summary"        // ontology.construction_specs_grades
+}
+```
+
+### Auto-derivation vs human input
+
+`make derive-quality` (`scripts/derive_data_quality.py`) infers each axis
+from the `images` array + `source` field. It's **conservative**:
+
+- It can reach up to `dimensioned` (floorplan), `dimensioned` (elevation +
+  section), `summary` (construction).
+- It **cannot** invent `fully_specified` / `construction_grade` /
+  `wall_buildup` / `full_baubeschreibung` — those signal that a human read
+  the source PDFs and confirmed extra detail.
+- Human-set higher values **survive** subsequent reruns of the derivation.
+
+So the workflow is: add a house → run `make derive-quality` → optionally
+upgrade individual axes by hand if the source PDFs reveal more (e.g. you
+extracted a Baubeschreibung from the testhouse archive).
+
+### Validator backstop
+
+`make validate` emits a `⚠` warning (non-fatal) when a record claims
+`bim_ai_blocking_issues=[]` (assessed modelable) but `data_quality` is
+empty or floorplan_grade is `none` / `room_labels`. Rationale: a
+"modelable" verdict requires at least catalog-grade dimensioned plans —
+without them, the verdict is undersupported and should be revisited.
+
+---
+
 ### Reusing issues across houses
 
 Multiple houses can list the same issue. When that issue closes, every one

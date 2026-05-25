@@ -41,6 +41,42 @@ app.mount("/static", StaticFiles(directory=str(HOUSES_DIR)), name="static")
 
 # ── record loading + enrichment ─────────────────────────────────────────────
 
+_FP_TIER = {"none": 0, "room_labels": 1, "dimensioned": 2,
+            "fully_specified": 3, "construction_grade": 4}
+_EXT_TIER = {"none": 0, "single_view": 1, "multi_view": 2, "all_facades": 3}
+_ELEV_TIER = {"none": 0, "schematic": 1, "dimensioned": 2}
+_SEC_TIER = {"none": 0, "schematic": 1, "dimensioned": 2}
+_CSPECS_TIER = {"none": 0, "summary": 1, "wall_buildup": 2, "full_baubeschreibung": 3}
+
+
+def _reconstructability_tier(dq: dict | None) -> str | None:
+    """Roll the data-quality axes into a single tier for filtering. Returns
+    a tier id from ontology.reconstructability_tiers, or None if dq absent.
+
+    Rules (most permissive matched):
+      T4: floorplan ≥ construction_grade OR (fully_specified + full_baubeschreibung)
+      T3: floorplan ≥ fully_specified AND section ≥ schematic
+      T2: floorplan ≥ dimensioned AND exterior_coverage ≥ single_view
+      T1: floorplan ≥ room_labels OR exterior_coverage ≥ single_view
+      T0: otherwise
+    """
+    if not dq:
+        return None
+    fp = _FP_TIER.get(dq.get("floorplan_grade", "none"), 0)
+    ext = _EXT_TIER.get(dq.get("exterior_coverage", "none"), 0)
+    sec = _SEC_TIER.get(dq.get("section_drawing", "none"), 0)
+    cspecs = _CSPECS_TIER.get(dq.get("construction_specs", "none"), 0)
+    if fp >= 4 or (fp >= 3 and cspecs >= 3):
+        return "T4_construction_grade"
+    if fp >= 3 and sec >= 1:
+        return "T3_architectural_set"
+    if fp >= 2 and ext >= 1:
+        return "T2_dimensioned_plans"
+    if fp >= 1 or ext >= 1:
+        return "T1_schematic"
+    return "T0_visual_only"
+
+
 def _issue_state() -> dict:
     if not ISSUE_STATE_FILE.exists():
         return {}
@@ -101,6 +137,7 @@ def _enrich(rec: dict, state: dict) -> dict:
         if folder.exists() else []
     )
     out.update(_modelable(rec, state))
+    out["reconstructability_tier"] = _reconstructability_tier(rec.get("data_quality"))
     return out
 
 
@@ -160,6 +197,7 @@ def list_houses(
     min_year:        Optional[int]   = Query(None),
     max_year:        Optional[int]   = Query(None),
     modelable_in_bim_ai: Optional[bool] = Query(None, description="true → only houses bim-ai can model today; false → only blocked houses"),
+    min_tier: Optional[str] = Query(None, description="Lowest acceptable reconstructability_tier: T0/T1/T2/T3/T4 — filters out records below it"),
 ):
     """List records with optional filters. Records missing the filtered field
     are excluded (i.e. roof_type=Satteldach excludes records where roof_type
@@ -182,6 +220,12 @@ def list_houses(
     if max_year is not None: recs = [r for r in recs if r.get("year_built") is not None and r["year_built"] <= max_year]
     if modelable_in_bim_ai is not None:
         recs = [r for r in recs if r.get("modelable_in_bim_ai") is modelable_in_bim_ai]
+    if min_tier:
+        # Compare by leading "TN" prefix so callers can pass "T2" or full id.
+        wanted = int(min_tier.lstrip("T").split("_")[0])
+        recs = [r for r in recs
+                if r.get("reconstructability_tier")
+                and int(r["reconstructability_tier"].lstrip("T").split("_")[0]) >= wanted]
     return recs
 
 

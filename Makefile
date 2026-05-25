@@ -41,3 +41,8 @@ validate:
 # `modelable_in_bim_ai` flag from this cache. Uses the gh CLI.
 refresh-issue-state:
 	$(PYTHON) scripts/refresh_issue_state.py
+
+# Auto-derive each house's data_quality from its images array + source.
+# Preserves human-set 'fully_specified' / 'wall_buildup' / etc. axes.
+derive-quality:
+	$(PYTHON) scripts/derive_data_quality.py

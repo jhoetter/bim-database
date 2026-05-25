@@ -103,6 +103,17 @@
     .b-ok     { background: #dcfce7; color: #15803d; }
     .b-blocked{ background: #fee2e2; color: #b91c1c; }
     .b-unknown{ background: #f3f4f6; color: #6b7280; }
+    .b-tier-0 { background: #f3f4f6; color: #6b7280; }
+    .b-tier-1 { background: #fef3c7; color: #92400e; }
+    .b-tier-2 { background: #dbeafe; color: #1d4ed8; }
+    .b-tier-3 { background: #dcfce7; color: #15803d; }
+    .b-tier-4 { background: #ddd6fe; color: #5b21b6; }
+    .card-tier {
+      position: absolute; top: 8px; left: 8px;
+      font-size: 0.625rem; font-weight: 700;
+      padding: 3px 7px; border-radius: 99px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    }
     .card-modelable {
       position: absolute; top: 8px; right: 8px;
       font-size: 0.625rem; font-weight: 700; letter-spacing: .04em;
@@ -228,6 +239,14 @@ function modelableTitle(h) {
   if (h.modelable_in_bim_ai === false) return 'Blocked: ' + (h.blocking_open || []).map(b => b.ref).join(', ');
   return 'Unknown — refresh issue-state cache (`make refresh-issue-state`)';
 }
+function tierBadge(h) {
+  const t = h.reconstructability_tier;
+  if (!t) return '';
+  const n = parseInt(t.replace(/^T/, ''));
+  const label = `T${n}`;
+  const full = ontoLabel('reconstructability_tiers', t);
+  return `<span class="card-tier badge b-tier-${n}" title="${esc(full)}">${label}</span>`;
+}
 
 // ── filter rendering (driven by ontology) ──────────────────────────────────
 const FILTER_DEFS = [
@@ -253,6 +272,15 @@ function buildFilters() {
         <option value="">egal</option>
         <option value="true">✓ modellierbar</option>
         <option value="false">✗ blockiert</option>
+      </select>
+    </label>
+    <label>min. Tier
+      <select id="f-min_tier">
+        <option value="">egal</option>
+        <option value="T1">≥ T1 schematisch</option>
+        <option value="T2">≥ T2 vermaßt</option>
+        <option value="T3">≥ T3 Architekten-Satz</option>
+        <option value="T4">T4 Werkplan</option>
       </select>
     </label>
     <label>Keller<select id="f-has_basement"><option value="">egal</option><option value="true">mit</option><option value="false">ohne</option></select></label>
@@ -304,6 +332,7 @@ function renderCard(h) {
   return `
     <div class="card" onclick="openModal('${h.key}')">
       ${showBadge ? `<span class="card-modelable badge ${mClass}" title="${esc(modelableTitle(h))}">${mLabel}</span>` : ''}
+      ${tierBadge(h)}
       ${img}
       <div class="card-body">
         <div class="card-mfr">${esc(h.manufacturer ?? '–')}</div>
@@ -378,6 +407,12 @@ async function openModal(key) {
     ['Lage / Standort',  h.site],
     ['Charakter',        h.character],
     ['Agent notes',      h.agent_notes],
+    ['Rekonstruierbarkeit', h.reconstructability_tier && ontoLabel('reconstructability_tiers', h.reconstructability_tier)],
+    ['Grundriss-Qualität', h.data_quality && ontoLabel('floorplan_grades', h.data_quality.floorplan_grade)],
+    ['Außenansicht-Abdeckung', h.data_quality && ontoLabel('exterior_coverages', h.data_quality.exterior_coverage)],
+    ['Ansichten',        h.data_quality && ontoLabel('elevation_sets', h.data_quality.elevation_set)],
+    ['Schnitt',          h.data_quality && ontoLabel('section_drawings', h.data_quality.section_drawing)],
+    ['Bau-Spezifikation', h.data_quality && ontoLabel('construction_specs_grades', h.data_quality.construction_specs)],
   ].filter(([, v]) => v != null && v !== '');
   document.getElementById('m-specs').innerHTML =
     rows.map(([k,v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('');

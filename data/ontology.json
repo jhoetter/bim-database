@@ -118,5 +118,48 @@
     "west":   "Westansicht",
     "corner": "Eckansicht / 3/4-Ansicht",
     "aerial": "Vogelperspektive"
+  },
+
+  "_quality_doc": "Quality axes describe how reconstructable the house is from this entry alone. The API derives a single `reconstructability_tier` per house from these. Set 'fully_specified' / 'construction_grade' / 'full_baubeschreibung' only after a human read of the source — heuristic derivation from images caps at 'dimensioned' / 'summary'.",
+
+  "floorplan_grades": {
+    "none":               "Kein Grundriss vorhanden",
+    "room_labels":        "Räume beschriftet, keine Maße",
+    "dimensioned":        "Mit Außen-/Raum-Maßen (Katalog-Standard)",
+    "fully_specified":    "Architekten-Plan mit Wandstärken + Maßen",
+    "construction_grade": "Werkplan inkl. Schichtaufbau"
+  },
+  "exterior_coverages": {
+    "none":         "Kein Außenbild",
+    "single_view":  "1 Foto/Render",
+    "multi_view":   "2–3 Ansichten",
+    "all_facades":  "≥4 Ansichten (alle Fassaden abgedeckt)"
+  },
+  "elevation_sets": {
+    "none":        "Keine Ansichtszeichnungen",
+    "schematic":   "Ansichten ohne / wenig Maße",
+    "dimensioned": "Maßstäblich vermaßte Architektur-Ansichten"
+  },
+  "section_drawings": {
+    "none":        "Kein Schnitt",
+    "schematic":   "Schnitt ohne Maße",
+    "dimensioned": "Vermaßter Architektur-Schnitt"
+  },
+  "presence_flags": {
+    "absent":  "Nicht vorhanden",
+    "present": "Vorhanden"
+  },
+  "construction_specs_grades": {
+    "none":                  "Keine Bau-Spezifikation",
+    "summary":               "Kurzbeschreibung (z.B. Bauweise-Tag)",
+    "wall_buildup":          "Wandaufbau mit Schichtdicken",
+    "full_baubeschreibung":  "Vollständige Baubeschreibung"
+  },
+  "reconstructability_tiers": {
+    "T0_visual_only":        "Nur Fotos, keine Pläne",
+    "T1_schematic":          "Skizzenhafte Pläne, keine Maße",
+    "T2_dimensioned_plans":  "Vermaßte Katalog-Grundrisse + Außenansicht",
+    "T3_architectural_set":  "Vollständiger Architekten-Satz (Grundrisse + Ansichten + Schnitt)",
+    "T4_construction_grade": "Werkpläne mit Wandaufbau / Baubeschreibung"
   }
 }

@@ -12,7 +12,10 @@
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": false,
-  "levels": ["EG", "1. OG"],
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": 220,
   "rooms": 4,
   "floors": 2.0,
@@ -21,7 +24,11 @@
   "site": null,
   "character": "Sonnenenergiehaus mit versetztem Pultdach: zwei Pultdach-Ebenen mit dazwischenliegendem Lichtband, das die Solarthermie-Kollektoren trägt. Erker am Esszimmer (Südseite, gefast), 2-geschossige Glasfront, Galerie im OG, separater Anbau mit eigenem Pultdach (Garage, PV-belegt).",
   "agent_notes": "Lighthouse house for the two open bim-ai engine capability gaps: jhoetter/bim-ai#101 (Versetztes Pultdach) and jhoetter/bim-ai#102 (Erker/facade_bay). Once both close, the bim-agent should be able to honestly render the south facade including the clerestory band and the chamfered Essen bay.",
-  "tags": ["solar", "garage", "galerie"],
+  "tags": [
+    "solar",
+    "garage",
+    "galerie"
+  ],
   "bim_ai_blocking_issues": [
     "jhoetter/bim-ai#101",
     "jhoetter/bim-ai#102"
@@ -69,5 +76,14 @@
       "floor": "1. OG",
       "caption": "Grundriss OG — Galerie als Luftraum über Wohnen/Essen"
     }
-  ]
+  ],
+  "data_quality": {
+    "floorplan_grade": "dimensioned",
+    "exterior_coverage": "all_facades",
+    "elevation_set": "none",
+    "section_drawing": "none",
+    "roof_plan": "absent",
+    "site_plan": "absent",
+    "construction_specs": "summary"
+  }
 }

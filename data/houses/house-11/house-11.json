@@ -12,7 +12,9 @@
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": ["EG"],
+  "levels": [
+    "EG"
+  ],
   "area_m2": 115,
   "rooms": 5,
   "floors": 1.0,
@@ -45,5 +47,14 @@
       "floor": "EG",
       "caption": "Grundriss EG — Mehrflügel-Komposition mit Garage rechts (Flachdach)"
     }
-  ]
+  ],
+  "data_quality": {
+    "floorplan_grade": "dimensioned",
+    "exterior_coverage": "multi_view",
+    "elevation_set": "none",
+    "section_drawing": "none",
+    "roof_plan": "absent",
+    "site_plan": "absent",
+    "construction_specs": "summary"
+  }
 }

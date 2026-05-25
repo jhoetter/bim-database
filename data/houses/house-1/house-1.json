@@ -12,7 +12,10 @@
   "energy_standard": "Effizienzhaus 40 Plus",
   "year_built": null,
   "has_basement": null,
-  "levels": ["EG", "DG"],
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": 156,
   "rooms": 7,
   "floors": 1.5,
@@ -21,7 +24,9 @@
   "site": null,
   "character": "Klassisches EFH mit symmetrischem Satteldach (PV-belegt) auf rechteckigem Grundriss. Anbau mit Glas-Vordach über der Eingangsterrasse, kleinere Naturstein-verkleidete Rückausführung. EG offen geplant (Wohnen/Essen/Kochen 41+12 m²), DG ausgebaut.",
   "agent_notes": "Vanilla Satteldach + rechteckiges EG = sauberer Baseline-Case für bim-ai. Glas-Vordach als Flachdach-Anbau modellieren (analog Carport-Pattern aus testhouse beta).",
-  "tags": ["solar"],
+  "tags": [
+    "solar"
+  ],
   "bim_ai_blocking_issues": [],
   "images": [
     {
@@ -45,5 +50,14 @@
       "floor": "DG",
       "caption": "Grundriss DG"
     }
-  ]
+  ],
+  "data_quality": {
+    "floorplan_grade": "dimensioned",
+    "exterior_coverage": "single_view",
+    "elevation_set": "none",
+    "section_drawing": "none",
+    "roof_plan": "absent",
+    "site_plan": "absent",
+    "construction_specs": "summary"
+  }
 }

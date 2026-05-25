@@ -12,7 +12,12 @@
   "energy_standard": "Effizienzhaus 40",
   "year_built": null,
   "has_basement": true,
-  "levels": ["UG", "EG", "1. OG", "2. OG"],
+  "levels": [
+    "UG",
+    "EG",
+    "1. OG",
+    "2. OG"
+  ],
   "area_m2": 237,
   "rooms": null,
   "floors": 2.5,
@@ -21,7 +26,9 @@
   "site": "Hanglage — Daylight-Souterrain frontseitig sichtbar",
   "character": "Alpenländisch-modernes MFH mit Satteldach und betont weitem Dachüberstand. Holzfassade, 3 Geschosse + ausgebautes Souterrain im Hang, zwei sichtbare Edelstahl-Kamine. Loggia auf der Westseite unter dem überhöhten Dachüberstand.",
   "agent_notes": "MFH-Semantik (mehrere Einheiten) wird von bim-ai heute als ein Gebäude gerendert — visuell egal. Dachüberstand via edge_overhang_mm. Hanglage + Daylight-UG via Toposolid (analog testhouse beta).",
-  "tags": ["hillside"],
+  "tags": [
+    "hillside"
+  ],
   "bim_ai_blocking_issues": [],
   "images": [
     {
@@ -52,5 +59,14 @@
       "floor": "1. OG",
       "caption": "Grundriss 1. OG"
     }
-  ]
+  ],
+  "data_quality": {
+    "floorplan_grade": "dimensioned",
+    "exterior_coverage": "multi_view",
+    "elevation_set": "none",
+    "section_drawing": "none",
+    "roof_plan": "absent",
+    "site_plan": "absent",
+    "construction_specs": "summary"
+  }
 }

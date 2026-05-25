@@ -12,7 +12,10 @@
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": ["EG", "DG"],
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": 182,
   "rooms": 8,
   "floors": 1.5,
@@ -52,5 +55,14 @@
       "floor": null,
       "caption": "Einliegerwohnung Grundriss"
     }
-  ]
+  ],
+  "data_quality": {
+    "floorplan_grade": "dimensioned",
+    "exterior_coverage": "single_view",
+    "elevation_set": "none",
+    "section_drawing": "none",
+    "roof_plan": "absent",
+    "site_plan": "absent",
+    "construction_specs": "summary"
+  }
 }

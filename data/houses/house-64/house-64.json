@@ -84,5 +84,14 @@
   "bim_ai_blocking_issues": [
     "jhoetter/bim-ai#109",
     "jhoetter/bim-ai#113"
-  ]
+  ],
+  "data_quality": {
+    "floorplan_grade": "dimensioned",
+    "exterior_coverage": "all_facades",
+    "elevation_set": "none",
+    "section_drawing": "none",
+    "roof_plan": "absent",
+    "site_plan": "absent",
+    "construction_specs": "summary"
+  }
 }

@@ -72,8 +72,25 @@ def check_image_files_exist(rec: dict, name: str, folder: Path) -> list[str]:
     return errs
 
 
+def check_modelable_support(rec: dict, name: str) -> list[str]:
+    """Warn (not fail) when a house claims to be assessed-modelable
+    (bim_ai_blocking_issues=[]) but the source data is too thin to back it
+    up — i.e. data_quality is missing or below T2."""
+    if rec.get("bim_ai_blocking_issues") != []:
+        return []
+    dq = rec.get("data_quality") or {}
+    fp = dq.get("floorplan_grade", "none")
+    ext = dq.get("exterior_coverage", "none")
+    if fp == "none" and ext == "none":
+        return [f"{name}: WARN — claims modelable but data_quality is empty (no floorplan, no exterior). Run `make derive-quality`."]
+    if fp == "none" or fp == "room_labels":
+        return [f"{name}: WARN — claims modelable but floorplan_grade={fp!r}. The 'modelable' verdict is undersupported."]
+    return []
+
+
 def main():
     all_errs: list[str] = []
+    warnings: list[str] = []
     files = sorted(HOUSES.glob("house-*/house-*.json"),
                    key=lambda q: int(q.stem.split("-")[1]))
     for path in files:
@@ -87,13 +104,17 @@ def main():
         all_errs += check_id_matches_filename(rec, path)
         all_errs += check_enums(rec, name)
         all_errs += check_image_files_exist(rec, name, path.parent)
+        warnings += check_modelable_support(rec, name)
 
     if all_errs:
         for e in all_errs:
             print("✗", e)
         print(f"\n{len(all_errs)} issue(s) across {len(files)} record(s)")
         sys.exit(1)
-    print(f"✓ {len(files)} records valid")
+    for w in warnings:
+        print("⚠", w)
+    suffix = f" ({len(warnings)} warning(s))" if warnings else ""
+    print(f"✓ {len(files)} records valid{suffix}")
 
 
 if __name__ == "__main__":

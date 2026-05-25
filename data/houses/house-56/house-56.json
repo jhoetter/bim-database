@@ -68,5 +68,14 @@
       "caption": null
     }
   ],
-  "bim_ai_blocking_issues": []
+  "bim_ai_blocking_issues": [],
+  "data_quality": {
+    "floorplan_grade": "dimensioned",
+    "exterior_coverage": "multi_view",
+    "elevation_set": "none",
+    "section_drawing": "none",
+    "roof_plan": "absent",
+    "site_plan": "absent",
+    "construction_specs": "none"
+  }
 }
