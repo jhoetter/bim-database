@@ -7,56 +7,50 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Massivhaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "modern",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG", "DG"],
   "area_m2": 123,
   "rooms": 5,
   "floors": 1.5,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Schlichtes weißes EFH mit klassischem Satteldach, rechteckigem Grundriss. Solarthermie + Velux-Dachfenster auf der Süd-Dachfläche.",
+  "agent_notes": "Baseline-Case wie house-1. Dachfenster sind RoofOpeningElem in bim-ai.",
+  "tags": ["solar"],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "plan-concept_paulik_exterior1.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "rear",
+      "caption": "Gartenseite — Satteldach mit Solarthermie + Velux-Dachfenster"
     },
     {
       "file": "plan-concept_paulik_exterior2.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
-    },
-    {
-      "file": "plan-concept_paulik_exterior3.original.avif",
-      "category": "exterior",
-      "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht"
     },
     {
       "file": "plan-concept_paulik_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     },
     {
       "file": "plan-concept_paulik_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "DG",
+      "caption": "Grundriss DG"
     }
   ]
 }
