@@ -284,6 +284,7 @@
           0.74,
           1.0
         ],
+        "rotation_deg": 90,
         "page_title": "STRASSENANSICHT, Blatt 07, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:50"
       },
@@ -357,6 +358,7 @@
           0.78,
           1.0
         ],
+        "rotation_deg": 90,
         "page_title": "EINGANGSANSICHT, Blatt 09, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:50"
       },
@@ -416,6 +418,7 @@
           0.8,
           1.0
         ],
+        "rotation_deg": 90,
         "page_title": "GARTENANSICHT, Blatt 08, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:50"
       },
@@ -478,6 +481,7 @@
           0.44,
           0.66
         ],
+        "rotation_deg": 90,
         "page_title": "SCHNITT A-A, Blatt 06, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:50"
       },
@@ -558,6 +562,7 @@
           0.83,
           0.62
         ],
+        "rotation_deg": 90,
         "page_title": "SCHNITT B-B, Blatt 06, M 1:50 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:50"
       },
@@ -618,6 +623,7 @@
           0.6,
           1.0
         ],
+        "rotation_deg": 90,
         "page_title": "DETAIL DACHÜBERSTAND M 1:10, Blatt 06 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:10"
       },
@@ -687,6 +693,7 @@
           0.5,
           0.38
         ],
+        "rotation_deg": 90,
         "page_title": "DETAIL DACHGAUBE M 1:10, Blatt 08 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:10"
       },
@@ -746,6 +753,7 @@
           0.395,
           0.38
         ],
+        "rotation_deg": 90,
         "page_title": "DETAIL FLACHDACH M 1:10, Blatt 07 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:10"
       },
@@ -786,9 +794,10 @@
         "crop_box_pct": [
           0.41,
           0.0,
-          0.80,
+          0.8,
           0.38
         ],
+        "rotation_deg": 90,
         "page_title": "DETAIL DECKEN ABSENKUNG IN DG M 1:10, Blatt 07 (PDF-Seite um 90° gegen Leserichtung gedreht)",
         "scale": "1:10"
       },

@@ -9,3 +9,8 @@ __pycache__/
 # Render cache for PDF-sourced scenes (api/scene_render.py). Reconstructed
 # from data/houses/*/house-*.json + source PDFs; safe to delete any time.
 tmp/scene-cache/
+
+# PDF-sourced scene crops — reconstructed by api/scene_render.py from the
+# source PDF + JSON coords. Catalog originals (*.original.avif, *.original.jpg)
+# are NOT matched by this glob and stay tracked. Pattern: house-<id>-<category>-<label>.jpg
+data/houses/house-*/house-*.jpg

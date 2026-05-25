@@ -65,6 +65,7 @@ def render_scene(key: str, file: str, *, force: bool = False) -> Path:
         raise FileNotFoundError(f"source PDF not found: {pdf}")
     page = int(src.get("page") or 1)
     dpi = int(src.get("dpi") or DEFAULT_DPI)
+    rotation_deg = int(src.get("rotation_deg") or 0)
     crop_box = src.get("crop_box_pct") or [0, 0, 1, 1]
 
     cache_path = _cache_path(key, file)
@@ -94,6 +95,10 @@ def render_scene(key: str, file: str, *, force: bool = False) -> Path:
         if rendered is None:
             raise RuntimeError(f"pdftoppm produced no output for {pdf} p.{page}")
         with Image.open(rendered) as im:
+            # Rotation must happen pre-crop because crop_box_pct is in the
+            # readable orientation (post-rotation), not the raw PDF orientation.
+            if rotation_deg:
+                im = im.rotate(rotation_deg, expand=True)
             w, h = im.size
             x0, y0, x1, y1 = crop_box
             im.crop(
