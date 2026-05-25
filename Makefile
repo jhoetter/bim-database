@@ -15,7 +15,7 @@ PIP    := $(VENV)/bin/pip
 UV     := $(VENV)/bin/uvicorn
 CONCURRENTLY := ./ui/node_modules/.bin/concurrently
 
-.PHONY: install dev dev-forwarded dev-api dev-web kill-ports build mcp validate new-house refresh-issue-state derive-quality
+.PHONY: install dev dev-forwarded dev-api dev-web kill-ports build mcp validate new-house refresh-issue-state derive-quality warm-cache clean-cache
 
 install:
 	python3 -m venv $(VENV)
@@ -87,3 +87,12 @@ refresh-issue-state:
 # Preserves human-set 'fully_specified' / 'wall_buildup' / etc. axes.
 derive-quality:
 	$(PYTHON) scripts/derive_data_quality.py
+
+# Pre-render every PDF-sourced scene into tmp/scene-cache/. The API renders
+# on demand too, so warming is purely for first-request latency. Re-renders
+# only when the source JSON is newer than the cached image.
+warm-cache:
+	$(PYTHON) scripts/render_scene.py --all
+
+clean-cache:
+	rm -rf tmp/scene-cache

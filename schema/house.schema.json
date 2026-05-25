@@ -100,6 +100,7 @@
             "file":          {"type": "string", "description": "Source filename relative to the house folder (e.g. 'Ansichten.pdf' or 'mhstyle_floorplan1.original.avif')."},
             "page":          {"type": ["integer", "null"], "description": "PDF page number (1-indexed). Null for non-PDF sources."},
             "crop_box_pct":  {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4, "description": "[x0, y0, x1, y1] as fractions of the source-page dimensions (DPI-independent)."},
+            "dpi":           {"type": ["integer", "null"], "description": "Render DPI for the source PDF page when reconstructing the scene image. Optional; the renderer defaults to 200 if omitted."},
             "page_title":    {"type": ["string", "null"], "description": "Title block / page header text observed on the source page."},
             "scale":         {"type": ["string", "null"], "description": "Drawing scale label, e.g. '1:100'."}
           }

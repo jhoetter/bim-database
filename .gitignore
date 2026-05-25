@@ -5,3 +5,7 @@ __pycache__/
 
 # Stray output of build_houses.py — never tracked
 **/_combined.pdf
+
+# Render cache for PDF-sourced scenes (api/scene_render.py). Reconstructed
+# from data/houses/*/house-*.json + source PDFs; safe to delete any time.
+tmp/scene-cache/

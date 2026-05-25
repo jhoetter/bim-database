@@ -122,16 +122,28 @@ def _issue_url(ref: str) -> str:
     return f"https://github.com/{repo}/issues/{num}"
 
 
+def _image_url(hid: int, img: dict) -> str:
+    """PDF-sourced scenes go through the /scene/ render-cache endpoint; everything
+    else (catalog AVIFs, original photos, unchanged-from-source files) goes through
+    /static/ as before."""
+    src = img.get("source_ref") or {}
+    src_file = src.get("file") or ""
+    if src_file.lower().endswith(".pdf"):
+        return f"/scene/house-{hid}/{img['file']}"
+    return f"/static/house-{hid}/{img['file']}"
+
+
 def _enrich(rec: dict, state: dict) -> dict:
-    """Resolve `images[].file` to absolute `/static/...` URLs, attach
-    pdf_url + source_pdfs, and project the `modelable_in_bim_ai` flag
-    derived from the cached issue state."""
+    """Resolve `images[].file` to absolute URLs, attach pdf_url + source_pdfs,
+    and project the `modelable_in_bim_ai` flag derived from the cached issue
+    state. PDF-sourced scenes resolve to `/scene/...` (renderer); everything
+    else to `/static/...`."""
     hid = rec["id"]
     folder = _house_dir(hid)
     out = dict(rec)
     out["key"] = f"house-{hid}"
     out["images"] = [
-        {**img, "url": f"/static/house-{hid}/{img['file']}"}
+        {**img, "url": _image_url(hid, img)}
         for img in rec.get("images") or []
     ]
     pdf = folder / f"house-{hid}.pdf"
@@ -283,3 +295,23 @@ def get_images(key: str):
     if not rec:
         raise HTTPException(status_code=404, detail=f"House {key!r} not found")
     return rec["images"]
+
+
+# ── scene render cache ───────────────────────────────────────────────────────
+# PDF-sourced scenes are reconstructed on demand from (PDF, page, crop_box, dpi)
+# in the JSON record, written to tmp/scene-cache/<key>/<file>, and served from
+# there. A JSON edit (newer mtime) triggers a re-render; otherwise the cache
+# is reused. Non-PDF scenes never reach this route — they go through /static/.
+
+@app.get("/scene/{key}/{file}", tags=["houses"])
+def get_scene(key: str, file: str):
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad scene filename")
+    from .scene_render import render_scene
+    try:
+        path = render_scene(key, file)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return FileResponse(str(path), media_type="image/jpeg")
