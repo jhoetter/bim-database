@@ -1,8 +1,15 @@
 # Scene-image storage strategy
 
-**Status:** draft / decision pending
+**Status:** implemented (Phase 1 + 2). History rewrite (Phase 3) still deferred.
 **Owner:** jhoetter
 **Last touched:** 2026-05-25
+
+## What shipped
+
+- **Phase 1** (`d7d6bc2`): `api/scene_render.py` (pdftoppm + Pillow, mtime-keyed cache at `tmp/scene-cache/`), `/scene/{key}/{file}` route, URL routing in `_enrich` (PDF-sourced → `/scene/`, originals → `/static/`), `scripts/render_scene.py` CLI, `make warm-cache`, `source_ref.dpi` (default 200), Vite proxy.
+- **Phase 2** (this commit): `.gitignore` glob `data/houses/house-*/house-*.jpg`, `git rm --cached` all 35 committed JPGs (+ removed 2 orphans), `source_ref.rotation_deg` (default 0) for PDFs whose content is drawn rotated relative to page orientation. Verified: renderer reproduces the historical JPGs visually-identically (26/35 byte-identical; 9 rotated h23 scenes visually-identical with byte variance from JPEG encoder nondeterminism).
+- **Phase 3** — `git filter-repo` to drop historical JPG blobs from the pack. Still deferred. Needed to actually reclaim disk; without it, the bloat sits in `.git/objects` even though no further JPGs commit.
+- **Phase 4** — Optional AVIF q80 output for ~50% cache size reduction. Skipped for now.
 
 ## Problem
 
