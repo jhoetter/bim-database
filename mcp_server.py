@@ -26,10 +26,42 @@ from mcp.server.fastmcp import FastMCP
 BASE = Path(__file__).parent
 HOUSES_DIR = BASE / "data" / "houses"
 ONTOLOGY_FILE = BASE / "data" / "ontology.json"
+ISSUE_STATE_FILE = BASE / "data" / ".issue_state.json"
 API_BASE = "http://localhost:2500"
 
 
-def _enrich(rec: dict) -> dict:
+def _issue_state() -> dict:
+    if not ISSUE_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(ISSUE_STATE_FILE.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
+def _issue_url(ref: str) -> str:
+    repo, _, num = ref.partition("#")
+    return f"https://github.com/{repo}/issues/{num}"
+
+
+def _modelable(rec: dict, state: dict) -> dict:
+    """Tri-state — see api/main.py:_modelable docstring."""
+    if "bim_ai_blocking_issues" not in rec or rec["bim_ai_blocking_issues"] is None:
+        return {"modelable_in_bim_ai": None, "blocking_open": [], "blocking_unknown": [], "assessed": False}
+    refs = rec["bim_ai_blocking_issues"]
+    if not refs:
+        return {"modelable_in_bim_ai": True, "blocking_open": [], "blocking_unknown": [], "assessed": True}
+    open_, unknown = [], []
+    for r in refs:
+        s = state.get(r)
+        if s == "open":   open_.append({"ref": r, "url": _issue_url(r)})
+        elif s != "closed": unknown.append({"ref": r, "url": _issue_url(r)})
+    if unknown:
+        return {"modelable_in_bim_ai": None, "blocking_open": open_, "blocking_unknown": unknown, "assessed": True}
+    return {"modelable_in_bim_ai": not open_, "blocking_open": open_, "blocking_unknown": [], "assessed": True}
+
+
+def _enrich(rec: dict, state: dict) -> dict:
     hid = rec["id"]
     folder = BASE / f"house-{hid}"
     out = dict(rec)
@@ -44,16 +76,18 @@ def _enrich(rec: dict) -> dict:
         sorted(f"{API_BASE}/static/house-{hid}/{p.name}" for p in folder.glob("*.pdf"))
         if folder.exists() else []
     )
+    out.update(_modelable(rec, state))
     return out
 
 
 def _load_all() -> list[dict]:
     if not HOUSES_DIR.exists():
         return []
+    state = _issue_state()
     recs = []
     for p in sorted(HOUSES_DIR.glob("house-*.json"), key=lambda q: int(q.stem.split("-")[1])):
         try:
-            recs.append(_enrich(json.loads(p.read_text())))
+            recs.append(_enrich(json.loads(p.read_text()), state))
         except (json.JSONDecodeError, KeyError, ValueError):
             continue
     return recs
@@ -123,6 +157,7 @@ def list_houses(
     min_year: Optional[int] = None,
     max_year: Optional[int] = None,
     energy_standard: Optional[str] = None,
+    modelable_in_bim_ai: Optional[bool] = None,
 ) -> list[dict]:
     """List house records with optional filters. Records missing a filtered
     field are excluded — i.e. roof_type='Satteldach' excludes records where
@@ -155,6 +190,8 @@ def list_houses(
     if max_price is not None: recs = [r for r in recs if r.get("price_eur") is not None and r["price_eur"] <= max_price]
     if min_year is not None: recs = [r for r in recs if r.get("year_built") is not None and r["year_built"] >= min_year]
     if max_year is not None: recs = [r for r in recs if r.get("year_built") is not None and r["year_built"] <= max_year]
+    if modelable_in_bim_ai is not None:
+        recs = [r for r in recs if r.get("modelable_in_bim_ai") is modelable_in_bim_ai]
     return recs
 
 

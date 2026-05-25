@@ -36,7 +36,13 @@
     "tags":          {"type": "array", "items": {"type": "string"}, "description": "Freiform-Tags."},
 
     "images":        {"type": "array", "items": {"$ref": "#/$defs/Image"}, "description": "Per-image metadata. Empty array if no images yet."},
-    "source_pdfs":   {"type": "array", "items": {"type": "string"}, "description": "List of source-PDF filenames in the house folder (auto-discovered if omitted)."}
+    "source_pdfs":   {"type": "array", "items": {"type": "string"}, "description": "List of source-PDF filenames in the house folder (auto-discovered if omitted)."},
+
+    "bim_ai_blocking_issues": {
+      "type": ["array", "null"],
+      "items": {"type": "string", "pattern": "^[^/]+/[^#]+#[0-9]+$"},
+      "description": "Tri-state: field missing OR null → not yet assessed (UI shows no badge). Empty list → assessed, no blockers (✓ modellierbar). Non-empty list → blocked by these issues until they close. Format: 'owner/repo#NNN'. Cache in data/.issue_state.json, refresh via `make refresh-issue-state`."
+    }
   },
   "$defs": {
     "Image": {

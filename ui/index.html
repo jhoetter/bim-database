@@ -100,6 +100,15 @@
     .b-block  { background: #fef3c7; color: #92400e; }
     .b-roof   { background: #ede9fe; color: #6d28d9; }
     .b-style  { background: #ffe4e6; color: #be123c; }
+    .b-ok     { background: #dcfce7; color: #15803d; }
+    .b-blocked{ background: #fee2e2; color: #b91c1c; }
+    .b-unknown{ background: #f3f4f6; color: #6b7280; }
+    .card-modelable {
+      position: absolute; top: 8px; right: 8px;
+      font-size: 0.625rem; font-weight: 700; letter-spacing: .04em;
+      padding: 3px 8px; border-radius: 99px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    }
 
     /* Modal */
     .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; overflow-y: auto; padding: 40px 16px; }
@@ -181,6 +190,10 @@
         <h4>Bilder</h4>
         <div id="m-image-groups"></div>
       </div>
+      <div class="img-section" id="m-modelable" style="display:none">
+        <h4>bim-ai Modellierbarkeit</h4>
+        <div id="m-modelable-body"></div>
+      </div>
       <div class="img-section" id="m-source-pdfs" style="display:none">
         <h4>Source PDFs</h4>
         <div class="img-grid" id="m-source-pdf-list"></div>
@@ -210,6 +223,11 @@ function esc(s) { return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&a
 function ontoLabel(group, key) {
   return ONTOLOGY?.[group]?.[key] || key;
 }
+function modelableTitle(h) {
+  if (h.modelable_in_bim_ai === true)  return 'bim-ai can model this house today';
+  if (h.modelable_in_bim_ai === false) return 'Blocked: ' + (h.blocking_open || []).map(b => b.ref).join(', ');
+  return 'Unknown — refresh issue-state cache (`make refresh-issue-state`)';
+}
 
 // ── filter rendering (driven by ontology) ──────────────────────────────────
 const FILTER_DEFS = [
@@ -230,6 +248,13 @@ function buildFilters() {
     </label>`;
   }).join('');
   const numeric = `
+    <label>bim-ai
+      <select id="f-modelable_in_bim_ai">
+        <option value="">egal</option>
+        <option value="true">✓ modellierbar</option>
+        <option value="false">✗ blockiert</option>
+      </select>
+    </label>
     <label>Keller<select id="f-has_basement"><option value="">egal</option><option value="true">mit</option><option value="false">ohne</option></select></label>
     <label>Fläche min (m²)<input type="number" id="f-min_area" placeholder="–"></label>
     <label>Fläche max (m²)<input type="number" id="f-max_area" placeholder="–"></label>
@@ -270,8 +295,15 @@ function renderCard(h) {
     h.year_built != null ? `Bj. ${h.year_built}` : null,
   ].filter(Boolean);
   const price = fmtPrice(h);
+  const m = h.modelable_in_bim_ai;
+  // Don't show a badge for not-yet-assessed houses — the absence is itself
+  // the signal. We only render a badge once the house has been looked at.
+  const showBadge = h.assessed === true;
+  const mLabel = m === true ? 'BIM-AI ✓' : m === false ? 'BIM-AI ✗' : 'BIM-AI ?';
+  const mClass = m === true ? 'b-ok'   : m === false ? 'b-blocked' : 'b-unknown';
   return `
     <div class="card" onclick="openModal('${h.key}')">
+      ${showBadge ? `<span class="card-modelable badge ${mClass}" title="${esc(modelableTitle(h))}">${mLabel}</span>` : ''}
       ${img}
       <div class="card-body">
         <div class="card-mfr">${esc(h.manufacturer ?? '–')}</div>
@@ -392,6 +424,32 @@ async function openModal(key) {
     }).join('');
   } else {
     imgSec.style.display = 'none';
+  }
+
+  // bim-ai modelability
+  const mSec = document.getElementById('m-modelable');
+  const refs = (h.bim_ai_blocking_issues || []);
+  if (refs.length || h.modelable_in_bim_ai === false || h.modelable_in_bim_ai === null) {
+    mSec.style.display = '';
+    const m = h.modelable_in_bim_ai;
+    const headline = m === true
+      ? `<span class="badge b-ok">✓ modellierbar</span> Keine offenen Blocker.`
+      : m === false
+        ? `<span class="badge b-blocked">✗ blockiert</span> Mindestens ein referenziertes Issue ist noch offen.`
+        : `<span class="badge b-unknown">? unbekannt</span> Cache fehlt für mindestens ein Issue – <code>make refresh-issue-state</code> ausführen.`;
+    const issueLinks = refs.length
+      ? `<ul style="margin-top:8px;padding-left:18px;font-size:.85rem">${refs.map(r => {
+            const open = (h.blocking_open || []).some(b => b.ref === r);
+            const unknown = (h.blocking_unknown || []).some(b => b.ref === r);
+            const state = open ? '🟠 open' : unknown ? '⚪ unknown' : '🟢 closed';
+            return `<li>${state} · <a href="https://github.com/${esc(r.split('#')[0])}/issues/${esc(r.split('#')[1])}" target="_blank"><code>${esc(r)}</code></a></li>`;
+        }).join('')}</ul>`
+      : '';
+    document.getElementById('m-modelable-body').innerHTML = `<div style="font-size:.85rem">${headline}</div>${issueLinks}`;
+  } else {
+    mSec.style.display = '';
+    document.getElementById('m-modelable-body').innerHTML =
+      `<div style="font-size:.85rem"><span class="badge b-ok">✓ modellierbar</span> Keine offenen Blocker.</div>`;
   }
 
   // Source PDFs

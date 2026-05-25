@@ -35,3 +35,9 @@ new-house:
 # the ontology in data/ontology.json.
 validate:
 	$(PYTHON) scripts/validate.py
+
+# Refresh data/.issue_state.json with the current open/closed state of
+# every bim_ai_blocking_issues reference. The UI derives each house's
+# `modelable_in_bim_ai` flag from this cache. Uses the gh CLI.
+refresh-issue-state:
+	$(PYTHON) scripts/refresh_issue_state.py
