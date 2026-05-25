@@ -4,16 +4,22 @@ PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip
 UV     := $(VENV)/bin/uvicorn
 
-.PHONY: install dev dev-forwarded mcp validate new-house
+.PHONY: install dev dev-forwarded web mcp validate new-house
 
 install:
 	python3 -m venv $(VENV)
 	$(PIP) install --upgrade pip -q
 	$(PIP) install -r requirements.txt -q
-	@echo "✓ installed – run 'make dev' to start on http://localhost:$(PORT)"
+	cd ui && npm install
+	@echo "✓ installed – run 'make dev' (API on :$(PORT)) and 'make web' (Vite on :5173)"
 
 dev:
 	$(UV) api.main:app --reload --port $(PORT)
+
+# Vite dev server for the React UI. Proxies /houses, /ontology, /static
+# to the FastAPI on :$(PORT) — run `make dev` in a separate shell first.
+web:
+	cd ui && npm run dev
 
 # Alias for cross-repo convention parity with bim-ai (which uses
 # `make dev-forwarded` to start API+web with the bound host its dev

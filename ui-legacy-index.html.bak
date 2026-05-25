@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BIM House Database</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f4f4f0;
+      --card: #ffffff;
+      --border: #e0e0d8;
+      --text: #1a1a1a;
+      --muted: #666;
+      --accent: #2563eb;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      background: white;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    header h1 { font-size: 1.125rem; font-weight: 600; }
+    header span { color: var(--muted); font-size: 0.8125rem; }
+
+    /* ── unified controls (replaces the old dropdown row) ──────────── */
+    .smart-hdr {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: 6px 14px;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+      border-bottom: 1px dashed var(--border);
+    }
+    .hdr-count {
+      font-size: 1.625rem; font-weight: 600; color: var(--text);
+      letter-spacing: -.015em;
+      margin-right: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .hdr-count em {
+      font-style: normal; color: var(--muted); font-weight: 400;
+      font-size: 0.875rem;
+    }
+    .hdr-lbl {
+      font-size: 0.875rem; color: var(--muted); font-weight: 400;
+      margin-right: 6px;
+    }
+    .hdr-spacer { flex: 1 1 auto; }
+    .hdr-search {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f3f4f6; border-radius: 8px;
+      padding: 5px 12px;
+      border: 1px solid transparent;
+      transition: background .12s, border-color .12s, box-shadow .12s;
+      min-width: 220px;
+    }
+    .hdr-search:focus-within {
+      background: white; border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+    }
+    .hdr-search svg { color: var(--muted); flex-shrink: 0; }
+    .hdr-search input {
+      flex: 1; border: none; background: transparent;
+      font-size: 0.85rem; color: var(--text); outline: none;
+      font-family: inherit;
+      min-width: 0;
+    }
+    .hdr-search input::placeholder { color: #9ca3af; }
+    .hdr-search .clear-x {
+      display: none; cursor: pointer; color: var(--muted);
+      width: 16px; height: 16px; border-radius: 50%;
+      align-items: center; justify-content: center;
+      font-size: 0.7rem; line-height: 1;
+      background: rgba(0,0,0,.08);
+    }
+    .hdr-search.has-text .clear-x { display: inline-flex; }
+    .hdr-search .clear-x:hover { background: rgba(0,0,0,.16); color: var(--text); }
+    .hdr-reset {
+      font-size: 0.8125rem; color: var(--muted);
+      cursor: pointer; padding: 5px 12px; border-radius: 6px;
+      transition: background .12s, color .12s;
+      user-select: none;
+    }
+    .hdr-reset:hover { background: #f3f4f6; color: var(--text); }
+
+    /* Range + misc row (below the bars) */
+    .misc-row {
+      display: flex; align-items: center; flex-wrap: wrap;
+      gap: 12px 20px;
+      margin-top: 14px; padding-top: 12px;
+      border-top: 1px dashed var(--border);
+      font-size: 0.75rem;
+    }
+    .misc-row .mgroup { display: flex; align-items: center; gap: 6px; }
+    .misc-row .mlbl  { color: var(--muted); font-weight: 500; letter-spacing: .01em; }
+    .num-pair {
+      display: inline-flex; align-items: center;
+      background: #f9fafb; border-radius: 6px; padding: 2px 6px;
+      border: 1px solid transparent;
+      transition: background .12s, border-color .12s;
+    }
+    .num-pair:focus-within { background: white; border-color: var(--accent); }
+    .num-pair input {
+      width: 52px; border: none; background: transparent;
+      font-size: 0.75rem; padding: 2px 0; text-align: center;
+      color: var(--text); outline: none;
+      font-variant-numeric: tabular-nums;
+    }
+    .num-pair input::placeholder { color: #c4c4c0; }
+    .num-pair .dash { color: #c4c4c0; font-weight: 600; padding: 0 4px; }
+    .num-pair .unit { color: var(--muted); padding-left: 4px; padding-right: 2px; }
+    .seg-toggle {
+      display: inline-flex;
+      background: #f3f4f6; border-radius: 6px; padding: 2px;
+    }
+    .seg-toggle button {
+      background: transparent; border: none; cursor: pointer;
+      padding: 3px 10px; border-radius: 4px;
+      font-size: 0.7rem; color: var(--muted);
+      transition: background .12s, color .12s;
+    }
+    .seg-toggle button:hover { color: var(--text); }
+    .seg-toggle button.active {
+      background: white; color: var(--text); font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    }
+    .text-input {
+      background: #f9fafb; border: 1px solid transparent;
+      border-radius: 6px; padding: 3px 8px;
+      font-size: 0.75rem; color: var(--text); outline: none;
+      width: 84px;
+      transition: background .12s, border-color .12s;
+      font-family: inherit;
+    }
+    .text-input:focus { background: white; border-color: var(--accent); }
+    .text-input::placeholder { color: #c4c4c0; }
+
+    /* Active filter chips strip (only shows when any filter is set) */
+    .active-chips {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-top: 12px; padding-top: 12px;
+      border-top: 1px dashed var(--border);
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #eef2ff; color: #3730a3;
+      padding: 4px 4px 4px 10px; border-radius: 99px;
+      font-size: 0.75rem; font-weight: 500;
+    }
+    .chip .chip-axis { color: var(--muted); font-weight: 400; margin-right: 2px; }
+    .chip .chip-x {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: rgba(55,48,163,.12); color: #3730a3;
+      cursor: pointer; font-size: 0.75rem; line-height: 1;
+      transition: background .12s;
+    }
+    .chip .chip-x:hover { background: rgba(55,48,163,.3); }
+
+    .results-bar { padding: 10px 24px 0; font-size: 0.8125rem; color: var(--muted); }
+
+    /* ── stats dashboard (below filters, above grid) ─────────────── */
+    .stats {
+      background: white;
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px 18px;
+    }
+    .stats-tiles {
+      display: flex; gap: 8px;
+      padding-bottom: 14px;
+      border-bottom: 1px dashed var(--border);
+      margin-bottom: 12px;
+    }
+    .tile {
+      display: flex; flex-direction: column; gap: 2px;
+      min-width: 84px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .12s, box-shadow .12s, transform .08s;
+      user-select: none;
+    }
+    .tile:hover { background: #f9fafb; }
+    .tile:active { transform: translateY(1px); }
+    .tile.active {
+      background: #eef2ff;
+      box-shadow: inset 0 0 0 1px #c7d2fe;
+    }
+    .tile .n {
+      font-size: 1.55rem; font-weight: 600; color: var(--text);
+      line-height: 1.05; letter-spacing: -.01em;
+    }
+    .tile .n.ok      { color: #15803d; }
+    .tile .n.blocked { color: #b91c1c; }
+    .tile .n.t34     { color: #5b21b6; }
+    .tile .n.muted   { color: #6b7280; }
+    .tile .lbl {
+      font-size: 0.6875rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .04em;
+      font-weight: 500;
+    }
+    .stats-rows {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 6px 14px;
+      font-size: 0.75rem;
+      align-items: center;
+    }
+    .stats-rows .ax-lbl {
+      color: var(--muted); text-align: right;
+      font-weight: 500; letter-spacing: .01em;
+    }
+    .stats-rows .ax-lbl.has-filter {
+      color: var(--accent); font-weight: 600;
+    }
+    .bar {
+      display: flex; height: 16px;
+      border-radius: 4px; overflow: hidden;
+      background: #f3f4f6;
+    }
+    .bar-seg {
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 0.6rem; font-weight: 600;
+      min-width: 0; padding: 0 4px;
+      white-space: nowrap; overflow: hidden;
+      transition: opacity .15s, filter .12s;
+      cursor: pointer;
+      opacity: 0.95;
+    }
+    .bar-seg:hover { filter: brightness(1.12); opacity: 1; }
+    .bar.has-filter .bar-seg:not(.active) { opacity: 0.25; cursor: pointer; }
+    .bar.has-filter .bar-seg.active {
+      opacity: 1;
+      box-shadow: inset 0 0 0 2px rgba(0,0,0,.18);
+    }
+    /* "unset" = the grey "unbekannt" tail when records don't have this field
+       populated. Striped pattern signals "missing data", not a real category. */
+    .bar-seg.unset {
+      color: #6b7280; cursor: default;
+      background-image: repeating-linear-gradient(
+        45deg, transparent 0 4px,
+        rgba(0,0,0,.04) 4px 8px) !important;
+    }
+    .bar-seg.unset:hover { filter: none; opacity: 0.95; }
+    .leg-item.unset {
+      color: var(--muted); cursor: default;
+      background: transparent !important;
+    }
+    .leg-item.unset:hover { background: transparent; }
+    .leg-item.unset .swatch {
+      background: #e5e7eb !important;
+      background-image: repeating-linear-gradient(
+        45deg, #e5e7eb 0 2px,
+        #f3f4f6 2px 4px);
+    }
+    .ax-coverage {
+      color: #9ca3af; font-size: 0.625rem; font-weight: 400;
+      margin-left: 4px; font-variant-numeric: tabular-nums;
+    }
+    .bar-legend {
+      grid-column: 2;
+      display: flex; flex-wrap: wrap; gap: 4px 0;
+      font-size: 0.6875rem; color: var(--muted);
+      margin-top: -2px; margin-bottom: 4px;
+    }
+    .bar-legend .leg-item {
+      display: inline-flex; align-items: center;
+      padding: 1px 8px 1px 4px;
+      margin-right: 4px;
+      border-radius: 99px;
+      cursor: pointer;
+      transition: background .12s;
+      user-select: none;
+    }
+    .bar-legend .leg-item:hover { background: #f3f4f6; }
+    .bar-legend .leg-item.active {
+      background: #eef2ff; color: var(--text); font-weight: 600;
+    }
+    .bar-legend .leg-item.dim { opacity: 0.45; }
+    .bar-legend .swatch {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 2px; margin-right: 6px;
+    }
+    .bar-legend strong { color: var(--text); font-weight: 600; margin-left: 4px; }
+    .bar-legend .leg-more { color: var(--muted); padding: 1px 6px; font-style: italic; }
+    .ax-clear {
+      grid-column: 1; text-align: right; padding-right: 4px;
+      font-size: 0.6875rem; color: var(--accent);
+      cursor: pointer; user-select: none;
+    }
+    .ax-clear:hover { text-decoration: underline; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px; padding: 12px 24px 24px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden; cursor: pointer;
+      transition: box-shadow .15s, transform .1s;
+      position: relative;
+    }
+    .card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.1); transform: translateY(-1px); }
+    .card-img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
+    /* Hand-drawn scans / drawings are portrait-page artefacts — show the
+       whole page rather than crop the middle out. */
+    .card-img.medium-scan, .card-img.medium-drawing { object-fit: contain; background: #fafaf5; padding: 6px; }
+    .card-no-img {
+      width: 100%; aspect-ratio: 4/3; background: #eee;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 0.75rem;
+    }
+    .card-body { padding: 11px 13px; }
+    .card-mfr  { font-size: 0.6875rem; color: var(--muted); margin-bottom: 1px; }
+    .card-name { font-weight: 600; font-size: 0.9375rem; margin-bottom: 6px; }
+    .card-specs { display: flex; gap: 12px; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; flex-wrap: wrap; }
+    .card-price { font-weight: 600; font-size: 0.9rem; }
+    .badges { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+    .badge { font-size: 0.625rem; padding: 2px 7px; border-radius: 99px; font-weight: 500; }
+    .b-type   { background: #f3f4f6; color: #374151; }
+    .b-fertig { background: #dbeafe; color: #1d4ed8; }
+    .b-massiv { background: #dcfce7; color: #15803d; }
+    .b-block  { background: #fef3c7; color: #92400e; }
+    .b-roof   { background: #ede9fe; color: #6d28d9; }
+    .b-style  { background: #ffe4e6; color: #be123c; }
+    .b-ok     { background: #dcfce7; color: #15803d; }
+    .b-blocked{ background: #fee2e2; color: #b91c1c; }
+    .b-unknown{ background: #f3f4f6; color: #6b7280; }
+    .b-tier-0 { background: #f3f4f6; color: #6b7280; }
+    .b-tier-1 { background: #fef3c7; color: #92400e; }
+    .b-tier-2 { background: #dbeafe; color: #1d4ed8; }
+    .b-tier-3 { background: #dcfce7; color: #15803d; }
+    .b-tier-4 { background: #ddd6fe; color: #5b21b6; }
+    .card-tier {
+      position: absolute; top: 8px; left: 8px;
+      font-size: 0.625rem; font-weight: 700;
+      padding: 3px 7px; border-radius: 99px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    }
+    .card-modelable {
+      position: absolute; top: 8px; right: 8px;
+      font-size: 0.625rem; font-weight: 700; letter-spacing: .04em;
+      padding: 3px 8px; border-radius: 99px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    }
+
+    /* Modal */
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; overflow-y: auto; padding: 40px 16px; }
+    .overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+    .modal { background: white; border-radius: 12px; width: 100%; max-width: 900px; overflow: hidden; }
+    .modal-hdr { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+    .modal-hdr h2 { font-size: 1.2rem; }
+    .modal-hdr .mfr { font-size: 0.75rem; color: var(--muted); margin-bottom: 2px; }
+    .close-btn { background: none; border: none; font-size: 1.6rem; cursor: pointer; color: var(--muted); line-height: 1; padding: 0 4px; }
+
+    .gallery { display: grid; gap: 2px; background: #000; }
+    .gallery.g1 { grid-template-columns: 1fr; }
+    .gallery.g2 { grid-template-columns: 1fr 1fr; }
+    .gallery .gal-tile { position: relative; }
+    .gallery img { width: 100%; object-fit: cover; display: block; }
+    .gallery.g1 img { max-height: 380px; }
+    .gallery.g2 img { max-height: 260px; }
+    .gallery.has-scan { background: #fafaf5; }
+    .gallery img.medium-scan, .gallery img.medium-drawing { object-fit: contain; background: #fff; }
+    .gal-badge { position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,.55); color: white; font-size: .65rem; padding: 2px 6px; border-radius: 4px; }
+
+    .modal-body { padding: 18px 22px; }
+    .spec-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .spec-table tr { border-bottom: 1px solid var(--border); }
+    .spec-table td { padding: 7px 0; vertical-align: top; }
+    .spec-table td:first-child { color: var(--muted); width: 30%; }
+    .spec-table td:last-child  { font-weight: 500; }
+
+    .modal-actions { display: flex; gap: 9px; margin-top: 15px; flex-wrap: wrap; }
+    .btn { padding: 7px 16px; border-radius: 6px; font-size: 0.8125rem; text-decoration: none; cursor: pointer; display: inline-block; }
+    .btn-primary   { background: var(--accent); color: white; border: none; }
+    .btn-secondary { background: white; color: var(--text); border: 1px solid var(--border); }
+    .btn:hover { opacity: .88; }
+
+    .img-section { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .img-section h4 { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 9px; }
+    .img-section h5 { font-size: 0.75rem; color: var(--text); margin: 12px 0 6px; font-weight: 600; }
+    .img-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+    .img-tile { position: relative; display: block; }
+    .img-tile img { height: 130px; border-radius: 4px; border: 1px solid var(--border); cursor: zoom-in; background: #fff; display: block; }
+    .img-tile .cap {
+      position: absolute; bottom: 4px; left: 4px; right: 4px;
+      background: rgba(0,0,0,.55); color: white; font-size: .6rem;
+      padding: 2px 5px; border-radius: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .img-tile.has-facts img { box-shadow: inset 0 0 0 2px #86efac; }
+    .img-tile .fact-badge {
+      position: absolute; top: 4px; right: 4px;
+      background: #15803d; color: white;
+      font-size: 0.6rem; font-weight: 700;
+      padding: 1px 6px; border-radius: 99px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    }
+    .img-tile .src-badge {
+      position: absolute; top: 4px; left: 4px;
+      background: rgba(31, 41, 55, .82); color: white;
+      font-size: 0.575rem; font-weight: 500;
+      padding: 1px 6px; border-radius: 4px;
+      max-width: calc(100% - 50px); overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .img-tile.is-original .cap { background: rgba(37, 99, 235, .75); }
+
+    /* View-mode toggle (segmented pill) in the Bilder section */
+    .img-section-hdr {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 9px;
+    }
+    .img-section-hdr h4 { margin-bottom: 0; }
+    .view-toggle {
+      display: inline-flex;
+      background: #f3f4f6; border-radius: 6px; padding: 2px;
+      margin-left: auto;
+    }
+    .view-toggle button {
+      background: transparent; border: none; cursor: pointer;
+      padding: 3px 10px; border-radius: 4px;
+      font-size: 0.7rem; color: var(--muted);
+      font-family: inherit;
+      transition: background .12s, color .12s;
+    }
+    .view-toggle button:hover { color: var(--text); }
+    .view-toggle button.active {
+      background: white; color: var(--text); font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    }
+
+    /* Source-grouped view: card per source PDF */
+    .src-card {
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .src-card.original { background: #eff6ff; border-color: #bfdbfe; }
+    .src-card-hdr {
+      display: flex; align-items: baseline; gap: 8px;
+      margin-bottom: 10px;
+      font-size: 0.8125rem;
+    }
+    .src-card-hdr .src-icon { font-size: 0.9rem; }
+    .src-card-hdr .src-name {
+      font-weight: 600; color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.78rem;
+    }
+    .src-card-hdr .src-count { color: var(--muted); font-size: 0.7rem; margin-left: auto; }
+    .src-card-hdr .src-open {
+      font-size: 0.7rem; color: var(--accent);
+      text-decoration: none;
+    }
+    .src-card-hdr .src-open:hover { text-decoration: underline; }
+
+    /* Enhanced Source PDFs section */
+    .src-pdf-list { display: grid; grid-template-columns: 1fr; gap: 4px; }
+    .src-pdf-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 10px;
+      background: #f9fafb; border-radius: 6px;
+      font-size: 0.75rem;
+    }
+    .src-pdf-row .pdf-name {
+      flex: 1; font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.72rem; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .src-pdf-row .pdf-count {
+      color: #15803d; font-weight: 600; font-size: 0.7rem;
+      background: #dcfce7; padding: 1px 8px; border-radius: 99px;
+    }
+    .src-pdf-row .pdf-count.none { color: var(--muted); background: #f3f4f6; font-weight: 400; }
+    .src-pdf-row .pdf-open {
+      color: var(--accent); text-decoration: none; font-size: 0.7rem;
+    }
+    .src-pdf-row .pdf-open:hover { text-decoration: underline; }
+
+    /* ── derived facts + anomaly flag panels (in main modal) ─────────── */
+    .anomaly-list {
+      list-style: none; padding: 0; margin: 0;
+      background: #fef3c7; border: 1px solid #fde68a; border-radius: 6px;
+    }
+    .anomaly-list li {
+      padding: 8px 12px; font-size: 0.8125rem; color: #78350f;
+      line-height: 1.45;
+      border-bottom: 1px solid #fde68a;
+    }
+    .anomaly-list li:last-child { border-bottom: none; }
+    .derived-list { display: grid; grid-template-columns: 1fr; gap: 6px; }
+    .derived-row {
+      display: grid; grid-template-columns: 1fr auto;
+      gap: 4px 10px; padding: 8px 12px;
+      background: #f9fafb; border-radius: 6px; border: 1px solid var(--border);
+      font-size: 0.8125rem;
+    }
+    .derived-row.ok    { border-color: #bbf7d0; background: #f0fdf4; }
+    .derived-row.warn  { border-color: #fed7aa; background: #fff7ed; }
+    .derived-row .dr-key { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.72rem; color: var(--muted); }
+    .derived-row .dr-val { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .derived-row .dr-meta { grid-column: 1 / -1; font-size: 0.7rem; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .derived-row .dr-sources code {
+      background: #e5e7eb; border-radius: 3px;
+      padding: 0 4px; font-size: 0.65rem;
+      margin-right: 3px; font-family: ui-monospace, SFMono-Regular, monospace;
+    }
+
+    /* ── scene-detail lightbox ───────────────────────────────────────── */
+    .scene-overlay { z-index: 200; padding: 24px 16px; background: rgba(0,0,0,.78); }
+    .scene-modal {
+      background: white; border-radius: 12px; overflow: hidden;
+      width: 100%; max-width: 1280px; max-height: 92vh;
+      position: relative;
+    }
+    .scene-modal .close-btn {
+      position: absolute; top: 10px; right: 14px; z-index: 1;
+      background: rgba(255,255,255,.92); border-radius: 50%;
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem; line-height: 1;
+      box-shadow: 0 2px 6px rgba(0,0,0,.2);
+      border: none; cursor: pointer;
+    }
+    .scene-grid {
+      display: grid; grid-template-columns: 1.6fr 1fr;
+      max-height: 92vh;
+    }
+    .scene-img-wrap {
+      background: #1f2937; display: flex; align-items: center; justify-content: center;
+      padding: 18px; overflow: auto;
+    }
+    .scene-img-wrap img { max-width: 100%; max-height: 88vh; object-fit: contain; background: #fff; }
+    .scene-meta { padding: 22px 26px; overflow-y: auto; max-height: 92vh; }
+    .sc-title { font-size: 0.95rem; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .sc-caption { font-size: 0.825rem; color: var(--muted); margin-bottom: 16px; line-height: 1.5; }
+    .sc-section { margin-bottom: 18px; }
+    .sc-section h5 {
+      font-size: 0.7rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .05em; margin-bottom: 8px; font-weight: 600;
+    }
+    .sc-count { color: var(--muted); font-weight: 400; text-transform: none; margin-left: 4px; }
+    #sc-source-body {
+      font-size: 0.8rem; line-height: 1.55;
+      background: #f9fafb; border-radius: 6px; padding: 10px 12px;
+    }
+    #sc-source-body .src-row { display: flex; gap: 8px; margin-bottom: 2px; }
+    #sc-source-body .src-row:last-child { margin-bottom: 0; }
+    #sc-source-body .src-key { color: var(--muted); min-width: 80px; }
+    #sc-source-body .src-val { color: var(--text); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.74rem; }
+    #sc-facts-body { margin: 0; }
+    #sc-facts-body dt {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.7rem; color: var(--muted);
+      margin-top: 12px;
+    }
+    #sc-facts-body dt:first-child { margin-top: 0; }
+    #sc-facts-body dd {
+      margin: 2px 0 0; padding-left: 12px;
+      font-size: 0.825rem; color: var(--text); font-weight: 600;
+      border-left: 2px solid #e5e7eb;
+      line-height: 1.45;
+    }
+    #sc-facts-body dd .fact-evidence {
+      display: block; margin-top: 3px;
+      font-weight: 400; font-style: italic;
+      color: var(--muted); font-size: 0.7rem;
+    }
+    #sc-facts-body dd .fact-obj {
+      display: grid; grid-template-columns: max-content auto;
+      column-gap: 12px; row-gap: 1px;
+      font-weight: 500; font-size: 0.75rem;
+      margin-top: 4px;
+    }
+    #sc-facts-body dd .fact-obj .ok { color: var(--muted); font-weight: 400; }
+    #sc-facts-body dd .fact-obj .ov { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>BIM House Database</h1>
+  <span id="hdr-count"></span>
+</header>
+
+<div class="stats" id="stats"></div>
+<div class="results-bar" id="results-bar"></div>
+<div class="grid" id="grid"></div>
+
+<div class="overlay" id="overlay" onclick="maybeClose(event)">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div>
+        <div class="mfr" id="m-mfr"></div>
+        <h2 id="m-name"></h2>
+      </div>
+      <button class="close-btn" onclick="closeModal()">×</button>
+    </div>
+    <div class="gallery" id="m-gallery"></div>
+    <div class="modal-body">
+      <table class="spec-table" id="m-specs"></table>
+      <div class="modal-actions" id="m-actions"></div>
+      <div class="img-section" id="m-images" style="display:none">
+        <div class="img-section-hdr">
+          <h4>Bilder</h4>
+          <span class="view-toggle" id="m-view-toggle"></span>
+        </div>
+        <div id="m-image-groups"></div>
+      </div>
+      <div class="img-section" id="m-anomalies" style="display:none">
+        <h4>⚠ Anomalien für Review</h4>
+        <ul id="m-anomalies-list" class="anomaly-list"></ul>
+      </div>
+      <div class="img-section" id="m-derived" style="display:none">
+        <h4>Abgeleitete Fakten (verifiziert)</h4>
+        <div id="m-derived-list" class="derived-list"></div>
+      </div>
+      <div class="img-section" id="m-modelable" style="display:none">
+        <h4>bim-ai Modellierbarkeit</h4>
+        <div id="m-modelable-body"></div>
+      </div>
+      <div class="img-section" id="m-source-pdfs" style="display:none">
+        <h4>Originaldateien (Quellen)</h4>
+        <div class="src-pdf-list" id="m-source-pdf-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scene-detail lightbox (opens on top of the main modal) -->
+<div class="overlay scene-overlay" id="scene-overlay" onclick="maybeCloseScene(event)">
+  <div class="scene-modal">
+    <button class="close-btn" onclick="closeScene()" title="Esc">×</button>
+    <div class="scene-grid">
+      <div class="scene-img-wrap"><img id="sc-img" alt=""></div>
+      <div class="scene-meta">
+        <div class="sc-title" id="sc-title"></div>
+        <div class="sc-caption" id="sc-caption"></div>
+        <div class="sc-section" id="sc-source">
+          <h5>Herkunft</h5>
+          <div id="sc-source-body"></div>
+        </div>
+        <div class="sc-section" id="sc-facts">
+          <h5>Fakten <span id="sc-facts-count" class="sc-count"></span></h5>
+          <dl id="sc-facts-body"></dl>
+        </div>
+        <div class="sc-section" id="sc-anom" style="display:none">
+          <h5>⚠ Szene-Anomalien</h5>
+          <ul id="sc-anom-body" class="anomaly-list"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let ONTOLOGY = null;
+
+// ── helpers ────────────────────────────────────────────────────────────────
+const fmt = (n, suf='') => n != null ? n.toLocaleString('de-DE') + suf : '–';
+function fmtPrice(h) {
+  if (h.price_on_request) return 'Preis auf Anfrage';
+  return h.price_eur != null ? '€ ' + h.price_eur.toLocaleString('de-DE') : null;
+}
+function bClass(c) {
+  if (!c) return 'b-type';
+  const l = c.toLowerCase();
+  if (l.includes('fertig')) return 'b-fertig';
+  if (l.includes('massiv')) return 'b-massiv';
+  if (l.includes('block'))  return 'b-block';
+  return 'b-type';
+}
+function esc(s) { return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function ontoLabel(group, key) {
+  return ONTOLOGY?.[group]?.[key] || key;
+}
+function modelableTitle(h) {
+  if (h.modelable_in_bim_ai === true)  return 'bim-ai can model this house today';
+  if (h.modelable_in_bim_ai === false) return 'Blocked: ' + (h.blocking_open || []).map(b => b.ref).join(', ');
+  return 'Unknown — refresh issue-state cache (`make refresh-issue-state`)';
+}
+function tierBadge(h) {
+  const t = h.reconstructability_tier;
+  if (!t) return '';
+  const n = parseInt(t.replace(/^T/, ''));
+  const label = `T${n}`;
+  const full = ontoLabel('reconstructability_tiers', t);
+  return `<span class="card-tier badge b-tier-${n}" title="${esc(full)}">${label}</span>`;
+}
+
+// ── filter state ───────────────────────────────────────────────────────────
+// Single source of truth. Replaces the old DOM-input-as-state pattern; the
+// new UI writes into FILTERS, load() serializes it to /houses?... query.
+const FILTERS = {
+  source: '', building_type: '', construction: '',
+  roof_type: '', style: '', min_tier: '',
+  modelable_in_bim_ai: '',
+  has_basement: '',
+  energy_standard: '',
+  min_area: '', max_area: '',
+  min_price: '', max_price: '',
+  min_year: '', max_year: '',
+};
+
+// Human label per axis — shown in the active-filter chip strip
+const AXIS_LABELS = {
+  source: 'Quelle', building_type: 'Gebäudetyp', construction: 'Bauweise',
+  roof_type: 'Dachform', style: 'Stil', min_tier: 'min. Tier',
+  modelable_in_bim_ai: 'bim-ai',
+  has_basement: 'Keller', min_area: 'Fläche ≥', max_area: 'Fläche ≤',
+  max_price: 'Preis ≤', min_year: 'Baujahr ≥', max_year: 'Baujahr ≤',
+  energy_standard: 'Energie',
+};
+// Per-axis ontology group for resolving display labels of a value
+const AXIS_ONTO = {
+  source: 'sources', building_type: 'building_types', construction: 'constructions',
+  roof_type: 'roof_types', style: 'styles', min_tier: 'reconstructability_tiers',
+  energy_standard: 'energy_standards',
+};
+
+// Range fields grouped — for collapsing two filters into one chip
+const RANGE_GROUPS = [
+  { fmin: 'min_area',  fmax: 'max_area',  label: 'Fläche',  unit: 'm²' },
+  { fmin: 'min_price', fmax: 'max_price', label: 'Preis',   unit: '€', priceFmt: true },
+  { fmin: 'min_year',  fmax: 'max_year',  label: 'Baujahr', unit: '' },
+];
+const _fmtPriceShort = v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v);
+function rangeLabel(group, min, max) {
+  const fmt = group.priceFmt
+    ? v => _fmtPriceShort(parseFloat(v))
+    : v => v;
+  if (min && max) return `${fmt(min)}–${fmt(max)} ${group.unit}`.trim();
+  if (min)        return `≥ ${fmt(min)} ${group.unit}`.trim();
+  if (max)        return `< ${fmt(max)} ${group.unit}`.trim();
+  return '';
+}
+
+function resetFilters() {
+  Object.keys(FILTERS).forEach(k => FILTERS[k] = '');
+  load();
+}
+function anyActive() {
+  return Object.values(FILTERS).some(v => v !== '');
+}
+
+// Free-text search across id/key/manufacturer/model. Applied client-side
+// after the server filter so it's independent of the filter axes.
+let SEARCH = '';
+// 'category' (group by image.category) | 'source' (group by source_ref.file)
+let IMG_VIEW_MODE = 'category';
+let _searchDebounce;
+function onSearch(value) {
+  SEARCH = (value || '').trim();
+  // Preserve focus across re-render
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(() => {
+    load().then(() => {
+      const el = document.getElementById('hdr-search-input');
+      if (el) {
+        el.focus();
+        const v = el.value.length;
+        try { el.setSelectionRange(v, v); } catch (e) {}
+      }
+    });
+  }, 150);
+}
+function matchesSearch(r, q) {
+  if (!q) return true;
+  const ql = q.toLowerCase();
+  const hay = [r.id, r.key, r.manufacturer, r.model]
+    .filter(Boolean).map(x => String(x).toLowerCase()).join(' ');
+  return hay.includes(ql);
+}
+
+// ── card ───────────────────────────────────────────────────────────────────
+function pickThumbnail(h) {
+  // Prefer an exterior; fall back to elevation, perspective, anything visual.
+  const order = ['exterior', 'elevation', 'perspective', 'interior', 'detail', 'floorplan', 'section'];
+  const rank = c => { const i = order.indexOf(c); return i < 0 ? 999 : i; };
+  const sorted = [...(h.images || [])].sort((a, b) => rank(a.category) - rank(b.category));
+  return sorted[0] || null;
+}
+function renderCard(h) {
+  const thumb = pickThumbnail(h);
+  const img = thumb
+    ? `<img class="card-img medium-${thumb.medium}" src="${thumb.url}" loading="lazy"
+            onerror="this.parentNode.innerHTML='<div class=card-no-img>Kein Bild</div>'">`
+    : `<div class="card-no-img">Kein Bild</div>`;
+  const specs = [
+    h.area_m2 != null ? `${fmt(h.area_m2, ' m²')}` : null,
+    h.rooms != null ? `${h.rooms} Zi.` : null,
+    h.floors != null ? `${h.floors} Gesch.` : (h.levels ? `${h.levels.length} Gesch.` : null),
+    h.year_built != null ? `Bj. ${h.year_built}` : null,
+  ].filter(Boolean);
+  const price = fmtPrice(h);
+  const m = h.modelable_in_bim_ai;
+  // Don't show a badge for not-yet-assessed houses — the absence is itself
+  // the signal. We only render a badge once the house has been looked at.
+  const showBadge = h.assessed === true;
+  const mLabel = m === true ? 'BIM-AI ✓' : m === false ? 'BIM-AI ✗' : 'BIM-AI ?';
+  const mClass = m === true ? 'b-ok'   : m === false ? 'b-blocked' : 'b-unknown';
+  return `
+    <div class="card" onclick="openModal('${h.key}')">
+      ${showBadge ? `<span class="card-modelable badge ${mClass}" title="${esc(modelableTitle(h))}">${mLabel}</span>` : ''}
+      ${tierBadge(h)}
+      ${img}
+      <div class="card-body">
+        <div class="card-mfr">${esc(h.manufacturer ?? '–')}</div>
+        <div class="card-name">${esc(h.model)}</div>
+        ${specs.length ? `<div class="card-specs">${specs.map(s => `<span>${esc(s)}</span>`).join('')}</div>` : ''}
+        ${price ? `<div class="card-price">${esc(price)}</div>` : ''}
+        <div class="badges">
+          ${h.building_type ? `<span class="badge b-type">${esc(h.building_type)}</span>` : ''}
+          ${h.construction  ? `<span class="badge ${bClass(h.construction)}">${esc(h.construction)}</span>` : ''}
+          ${h.roof_type     ? `<span class="badge b-roof">${esc(h.roof_type)}</span>` : ''}
+          ${h.style         ? `<span class="badge b-style">${esc(ontoLabel('styles', h.style))}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── load ───────────────────────────────────────────────────────────────────
+// ── stats dashboard ────────────────────────────────────────────────────────
+// Distinct, slightly muted palettes per axis — color reserved for state.
+// Index-based palettes: colour comes from the ordinal position of the
+// category in the (sorted-by-count) list. Fine for categorical enums with
+// no semantic colour meaning.
+const PALETTES = {
+  source:        ['#1d4ed8','#92400e'],
+  building_type: ['#1d4ed8','#15803d','#6d28d9','#b45309','#be123c','#0891b2','#65a30d','#7c2d12','#0e7490','#7e22ce','#a16207','#9d174d','#374151'],
+  construction:  ['#1d4ed8','#15803d','#b45309','#6d28d9','#be123c','#0891b2'],
+  roof_type:     ['#6d28d9','#0891b2','#7c3aed','#9333ea','#a855f7','#7e22ce','#5b21b6','#4c1d95','#312e81','#1e1b4b'],
+  style:         ['#be123c','#dc2626','#9d174d','#7c2d12','#9a3412','#831843','#0e7490','#a16207','#374151'],
+  energy:        ['#0891b2','#0e7490','#155e75','#164e63','#1e3a8a','#1d4ed8','#3b82f6'],
+};
+
+// Key-mapped palettes: colour is attached to the *value*, not its position,
+// so filtering doesn't shift the colour. Axes where colour means something.
+const PALETTES_BY_KEY = {
+  tier: {
+    'T0_visual_only':        '#9ca3af',
+    'T1_schematic':          '#fbbf24',
+    'T2_dimensioned_plans':  '#3b82f6',
+    'T3_architectural_set':  '#22c55e',
+    'T4_construction_grade': '#a855f7',
+  },
+  bim_ai: {
+    'true':    '#15803d',
+    'false':   '#b91c1c',
+    'unknown': '#9ca3af',
+  },
+  keller: {
+    'true':  '#0891b2',
+    'false': '#94a3b8',
+  },
+};
+const _colorFor = (palette, key, idx) =>
+  Array.isArray(palette) ? palette[idx % palette.length] : (palette[key] || '#9ca3af');
+
+// ── range-bucket definitions for numeric axes ─────────────────────────────
+// Each bucket: { key, label, min, max, fieldMin, fieldMax }
+// Click a bucket -> sets BOTH FILTERS[fieldMin] and FILTERS[fieldMax] together.
+// min is inclusive, max is exclusive. null = open-ended.
+const BUCKETS = {
+  // Non-overlapping inclusive integer ranges so bucket counts match API filter
+  area_m2: {
+    fieldMin: 'min_area', fieldMax: 'max_area',
+    buckets: [
+      { key: '<120',    label: '< 120 m²',  min: null, max: 119 },
+      { key: '120-179', label: '120–179',   min: 120,  max: 179 },
+      { key: '180-239', label: '180–239',   min: 180,  max: 239 },
+      { key: '240+',    label: '≥ 240 m²',  min: 240,  max: null },
+    ],
+  },
+  price_eur: {
+    fieldMin: 'min_price', fieldMax: 'max_price',
+    buckets: [
+      { key: '<300k',     label: '< 300k €',    min: null,   max: 299999 },
+      { key: '300-499k',  label: '300–499k €',  min: 300000, max: 499999 },
+      { key: '500-799k',  label: '500–799k €',  min: 500000, max: 799999 },
+      { key: '800k+',     label: '≥ 800k €',    min: 800000, max: null   },
+    ],
+  },
+  year_built: {
+    fieldMin: 'min_year', fieldMax: 'max_year',
+    buckets: [
+      { key: '<1950',     label: '< 1950',    min: null, max: 1949 },
+      { key: '1950-1979', label: '1950–1979', min: 1950, max: 1979 },
+      { key: '1980-2009', label: '1980–2009', min: 1980, max: 2009 },
+      { key: '2010+',     label: '≥ 2010',    min: 2010, max: null },
+    ],
+  },
+};
+// Range palettes — sequential greys/cools so the order reads like a scale.
+const RANGE_PALETTES = {
+  area_m2:    { '<120':'#93c5fd', '120-179':'#3b82f6', '180-239':'#1d4ed8', '240+':'#1e3a8a' },
+  price_eur:  { '<300k':'#fcd34d', '300-499k':'#f59e0b', '500-799k':'#d97706', '800k+':'#92400e' },
+  year_built: { '<1950':'#a78bfa', '1950-1979':'#7c3aed', '1980-2009':'#5b21b6', '2010+':'#312e81' },
+};
+
+// Set a range filter (two fields at once). Toggle: same click clears both.
+function setRange(fieldMin, minVal, fieldMax, maxVal) {
+  const cur = FILTERS[fieldMin] === String(minVal ?? '') &&
+              FILTERS[fieldMax] === String(maxVal ?? '');
+  if (cur) {
+    FILTERS[fieldMin] = '';
+    FILTERS[fieldMax] = '';
+  } else {
+    FILTERS[fieldMin] = minVal == null ? '' : String(minVal);
+    FILTERS[fieldMax] = maxVal == null ? '' : String(maxVal);
+  }
+  load();
+}
+
+// ── interaction wiring ─────────────────────────────────────────────────────
+// Toggle a filter (click active value to clear). All UI writes go through here.
+function setFilter(field, value) {
+  if (!(field in FILTERS)) return;
+  FILTERS[field] = FILTERS[field] === String(value) ? '' : String(value);
+  load();
+}
+function clearFilter(field) {
+  if (field in FILTERS) { FILTERS[field] = ''; load(); }
+}
+
+// Delegated click handler — looks for data-action on any element.
+document.addEventListener('click', (e) => {
+  const action = e.target.closest('[data-action]');
+  if (!action) return;
+  const a = action.dataset.action;
+  if (a === 'set-filter')         setFilter(action.dataset.field, action.dataset.value);
+  else if (a === 'clear-filter')  clearFilter(action.dataset.field);
+  else if (a === 'reset')         resetFilters();
+  else if (a === 'open-scene')    openScene(action.dataset.key, action.dataset.file);
+  else if (a === 'set-range') {
+    const fmin = action.dataset.fieldMin, fmax = action.dataset.fieldMax;
+    const min = action.dataset.min === '' ? null : action.dataset.min;
+    const max = action.dataset.max === '' ? null : action.dataset.max;
+    setRange(fmin, min, fmax, max);
+    // also clear that range pair when toggled off — handled inside setRange
+  } else if (a === 'clear-range') {
+    FILTERS[action.dataset.fieldMin] = '';
+    FILTERS[action.dataset.fieldMax] = '';
+    load();
+  }
+});
+
+// Debounced text/number input handler (so we don't fire load() on every keystroke).
+let _typeDebounce;
+function onFilterInput(field, raw) {
+  clearTimeout(_typeDebounce);
+  _typeDebounce = setTimeout(() => {
+    FILTERS[field] = raw.trim();
+    load();
+  }, 300);
+}
+
+// ── bar renderer ───────────────────────────────────────────────────────────
+// Tier semantics: the filter is a *minimum*, so clicking T2 means "T2+".
+const _tierNum = s => s ? parseInt(String(s).replace(/^T/, '').split('_')[0]) : null;
+const _tierFilterValue = k => `T${_tierNum(k)}`;
+function _matchesActive(field, key, activeVal) {
+  if (!activeVal || key == null) return false;
+  if (field === 'min_tier') {
+    const a = _tierNum(activeVal), b = _tierNum(key);
+    return a != null && b != null && b >= a;
+  }
+  return key === activeVal;
+}
+function _toFilterValue(field, key) {
+  return field === 'min_tier' ? _tierFilterValue(key) : key;
+}
+
+// Renders a bucketed numeric axis (Fläche / Preis / Baujahr). Buckets are
+// pre-defined; each segment click sets min+max FILTERS together.
+function makeBucketBar(label, field, recs, total) {
+  const def = BUCKETS[field];
+  const palette = RANGE_PALETTES[field] || {};
+  const fMin = FILTERS[def.fieldMin] || '';
+  const fMax = FILTERS[def.fieldMax] || '';
+  const hasFilter = fMin !== '' || fMax !== '';
+
+  // Count records per bucket — inclusive on both ends so counts match the
+  // API filter (>= min AND <= max). Buckets are defined as non-overlapping.
+  const counts = def.buckets.map(b => {
+    let n = 0;
+    for (const r of recs) {
+      const v = r[field];
+      if (v == null) continue;
+      if (b.min != null && v < b.min) continue;
+      if (b.max != null && v > b.max) continue;
+      n++;
+    }
+    return [b, n];
+  });
+
+  const sum = counts.reduce((a, [, n]) => a + n, 0);
+  const missing = total - sum;
+
+  // Bar segments
+  const segs = counts.map(([b, n]) => {
+    if (n === 0) return '';
+    const col = palette[b.key] || '#cbd5e1';
+    const pct = (n / total * 100).toFixed(1);
+    const isActive = String(b.min ?? '') === fMin && String(b.max ?? '') === fMax;
+    const text = n / total > 0.06 ? n : '';
+    return `<div class="bar-seg${isActive ? ' active' : ''}"
+                 data-action="set-range"
+                 data-field-min="${def.fieldMin}" data-min="${b.min ?? ''}"
+                 data-field-max="${def.fieldMax}" data-max="${b.max ?? ''}"
+                 style="flex:${n} 1 0;background:${col}"
+                 title="${esc(b.label)}: ${n} (${pct}%)">${text}</div>`;
+  }).join('');
+  const missingSeg = missing > 0
+    ? `<div class="bar-seg unset" style="flex:${missing} 1 0;background:#e5e7eb;color:#6b7280"
+            title="unbekannt: ${missing}">${missing / total > 0.06 ? missing : ''}</div>`
+    : '';
+
+  // Legend — include zero-count buckets so the user sees the full scale
+  const legend = counts.map(([b, n]) => {
+    const col = palette[b.key] || '#cbd5e1';
+    const isActive = String(b.min ?? '') === fMin && String(b.max ?? '') === fMax;
+    const cls = isActive ? 'leg-item active' : (hasFilter ? 'leg-item dim' : 'leg-item');
+    return `<span class="${cls}" data-action="set-range"
+                  data-field-min="${def.fieldMin}" data-min="${b.min ?? ''}"
+                  data-field-max="${def.fieldMax}" data-max="${b.max ?? ''}">
+              <span class="swatch" style="background:${col}"></span>${esc(b.label)} <strong>${n}</strong>
+            </span>`;
+  }).join('');
+  const unsetLegend = missing > 0
+    ? `<span class="leg-item unset" title="${missing} Eintrag(e) haben kein ${label}">
+         <span class="swatch"></span>unbekannt <strong>${missing}</strong>
+       </span>`
+    : '';
+
+  const coverage = total > 0 ? Math.round((total - missing) / total * 100) : 0;
+  const lblInner = hasFilter
+    ? `${label} · <span class="ax-clear" data-action="clear-range"
+                          data-field-min="${def.fieldMin}" data-field-max="${def.fieldMax}">×</span>`
+    : `${label}<span class="ax-coverage" title="${total - missing}/${total} Einträge haben dieses Feld">${coverage}%</span>`;
+
+  return `
+    <div class="ax-lbl${hasFilter ? ' has-filter' : ''}">${lblInner}</div>
+    <div class="bar${hasFilter ? ' has-filter' : ''}">${segs}${missingSeg}</div>
+    <div class="bar-legend">${legend}${unsetLegend}</div>`;
+}
+
+function makeBar(label, counts, palette, ontologyGroup, total, field) {
+  const sum = counts.reduce((a, [, n]) => a + n, 0);
+  const missing = total - sum;
+  const items = counts.map(([k, n], i) => [k, n, _colorFor(palette, k, i)]);
+  if (missing > 0) items.push([null, missing, '#e5e7eb']);
+
+  const activeVal = FILTERS[field] || '';
+  const hasFilter = activeVal !== '';
+
+  const segs = items.map(([k, n, col]) => {
+    const pct = (n / total * 100).toFixed(1);
+    const lbl = k ? (ONTOLOGY?.[ontologyGroup]?.[k] || k) : 'unbekannt';
+    const text = n / total > 0.06 ? n : '';
+    const isActive = _matchesActive(field, k, activeVal);
+    const unsetCls = k ? '' : ' unset';
+    const activeCls = isActive ? ' active' : '';
+    const dataAttrs = k
+      ? `data-action="set-filter" data-field="${field}" data-value="${esc(_toFilterValue(field, k))}"`
+      : '';
+    return `<div class="bar-seg${unsetCls}${activeCls}" ${dataAttrs}
+                 style="flex:${n} 1 0;background:${col};color:${k ? 'white' : '#6b7280'}"
+                 title="${esc(lbl)}: ${n} (${pct}%)">${text}</div>`;
+  }).join('');
+
+  const legendItems = counts.slice(0, 6).map(([k, n], i) => {
+    const lbl = ONTOLOGY?.[ontologyGroup]?.[k] || k;
+    const isActive = _matchesActive(field, k, activeVal);
+    const cls = isActive ? 'leg-item active' : (hasFilter ? 'leg-item dim' : 'leg-item');
+    return `<span class="${cls}" data-action="set-filter"
+                  data-field="${field}" data-value="${esc(_toFilterValue(field, k))}">
+              <span class="swatch" style="background:${_colorFor(palette, k, i)}"></span>${esc(lbl)} <strong>${n}</strong>
+            </span>`;
+  }).join('');
+  const tail = counts.length > 6 ? `<span class="leg-more">… +${counts.length - 6}</span>` : '';
+  const unsetLegend = missing > 0
+    ? `<span class="leg-item unset" title="${missing} Eintrag(e) haben dieses Feld nicht gesetzt">
+         <span class="swatch"></span>unbekannt <strong>${missing}</strong>
+       </span>`
+    : '';
+
+  const coverage = total > 0 ? Math.round((total - missing) / total * 100) : 0;
+  const lblCls = hasFilter ? 'ax-lbl has-filter' : 'ax-lbl';
+  const lblInner = hasFilter
+    ? `${label} · <span class="ax-clear" data-action="clear-filter" data-field="${field}">×</span>`
+    : `${label}<span class="ax-coverage" title="${total - missing}/${total} Einträge haben dieses Feld">${coverage}%</span>`;
+
+  return `
+    <div class="${lblCls}">${lblInner}</div>
+    <div class="bar${hasFilter ? ' has-filter' : ''}">${segs}</div>
+    <div class="bar-legend">${legendItems}${tail}${unsetLegend}</div>`;
+}
+
+function renderStats(recs) {
+  const n = recs.length;
+  const filtered = anyActive();
+
+  const group = (field) => {
+    const m = new Map();
+    for (const r of recs) {
+      const v = r[field];
+      if (v) m.set(v, (m.get(v) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+  const groupTier = () => {
+    const m = new Map();
+    for (const r of recs) {
+      const t = r.reconstructability_tier;
+      if (t) m.set(t, (m.get(t) || 0) + 1);
+    }
+    return [...m.entries()].sort(
+      (a, b) => parseInt(a[0].replace(/^T/, '')) - parseInt(b[0].replace(/^T/, ''))
+    );
+  };
+  const groupBool = (field) => {
+    const m = new Map();
+    for (const r of recs) {
+      const v = r[field];
+      if (v === true)  m.set('true',  (m.get('true')  || 0) + 1);
+      if (v === false) m.set('false', (m.get('false') || 0) + 1);
+    }
+    return [...m.entries()].sort(([a]) => a === 'true' ? -1 : 1);
+  };
+  const groupBim = () => groupBool('modelable_in_bim_ai');
+  const groupKeller = () => groupBool('has_basement');
+
+  // Smart header: count + search + (conditional) Reset
+  const hasSearch = SEARCH !== '';
+  const hdr = `
+    <div class="smart-hdr">
+      <span class="hdr-count">${n}${filtered || hasSearch ? ` <em>/ ${TOTAL_COUNT}</em>` : ''}</span>
+      <span class="hdr-lbl">${n === 1 ? 'Haus' : 'Häuser'}</span>
+      <span class="hdr-spacer"></span>
+      <label class="hdr-search ${hasSearch ? 'has-text' : ''}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+        </svg>
+        <input id="hdr-search-input" type="search" placeholder="Suchen: Hersteller, Modell, ID …"
+               value="${esc(SEARCH)}" oninput="onSearch(this.value)">
+        <span class="clear-x" onclick="onSearch('')">×</span>
+      </label>
+      ${filtered ? `<span class="hdr-reset" data-action="reset">Reset</span>` : ''}
+    </div>`;
+
+  // Composition bars — every filterable axis is a bar, none is special-cased
+  const rows = `
+    <div class="stats-rows">
+      ${makeBar('Quelle',       group('source'),        PALETTES.source,        'sources',          n, 'source')}
+      ${makeBar('Gebäudetyp',   group('building_type'), PALETTES.building_type, 'building_types',   n, 'building_type')}
+      ${makeBar('Bauweise',     group('construction'),  PALETTES.construction,  'constructions',    n, 'construction')}
+      ${makeBar('Dachform',     group('roof_type'),     PALETTES.roof_type,     'roof_types',       n, 'roof_type')}
+      ${makeBar('Stil',         group('style'),         PALETTES.style,         'styles',           n, 'style')}
+      ${makeBar('Tier',          groupTier(),               PALETTES_BY_KEY.tier,    'reconstructability_tiers', n, 'min_tier')}
+      ${makeBar('bim-ai',        groupBim(),                PALETTES_BY_KEY.bim_ai,  'modelable_states',         n, 'modelable_in_bim_ai')}
+      ${makeBar('Keller',        groupKeller(),             PALETTES_BY_KEY.keller,  'keller_states',            n, 'has_basement')}
+      ${makeBar('Energiestandard', group('energy_standard'), PALETTES.energy,         'energy_standards',         n, 'energy_standard')}
+      ${makeBucketBar('Fläche',  'area_m2',    recs, n)}
+      ${makeBucketBar('Preis',   'price_eur',  recs, n)}
+      ${makeBucketBar('Baujahr', 'year_built', recs, n)}
+    </div>`;
+
+  // Active filter chip strip — only renders when at least one filter is set
+  const chips = filtered ? renderChips() : '';
+
+  document.getElementById('stats').innerHTML = hdr + rows + chips;
+}
+
+// Build a humane label for an active filter value
+function chipValueLabel(field, value) {
+  if (field === 'modelable_in_bim_ai') return value === 'true' ? '✓ modellierbar' : '✗ blockiert';
+  if (field === 'has_basement') return value === 'true' ? 'mit Keller' : 'ohne Keller';
+  if (field === 'min_tier') return `≥ ${value}`;
+  if (AXIS_ONTO[field]) return ONTOLOGY?.[AXIS_ONTO[field]]?.[value] || value;
+  return value;
+}
+
+function renderChips() {
+  // Collapse min_X/max_X pairs into one chip; track which range fields are already chipped.
+  const rangeFields = new Set();
+  const rangeChips = [];
+  for (const g of RANGE_GROUPS) {
+    const lo = FILTERS[g.fmin], hi = FILTERS[g.fmax];
+    if (lo === '' && hi === '') continue;
+    rangeFields.add(g.fmin); rangeFields.add(g.fmax);
+    rangeChips.push(`
+      <span class="chip">
+        <span class="chip-axis">${esc(g.label)}</span>
+        ${esc(rangeLabel(g, lo, hi))}
+        <span class="chip-x" data-action="clear-range"
+              data-field-min="${g.fmin}" data-field-max="${g.fmax}">×</span>
+      </span>`);
+  }
+  // Single-value filters
+  const singles = Object.entries(FILTERS)
+    .filter(([f, v]) => v !== '' && !rangeFields.has(f))
+    .map(([f, v]) => `
+      <span class="chip">
+        <span class="chip-axis">${esc(AXIS_LABELS[f] || f)}</span>
+        ${esc(chipValueLabel(f, v))}
+        <span class="chip-x" data-action="clear-filter" data-field="${f}">×</span>
+      </span>`);
+  return `<div class="active-chips">${[...rangeChips, ...singles].join('')}</div>`;
+}
+
+// Remember the unfiltered total so the header can show "9 / 57 Häuser"
+let TOTAL_COUNT = 0;
+
+async function load() {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(FILTERS)) if (v !== '') p.set(k, v);
+  let recs = await fetch(`/houses?${p}`).then(r => r.json());
+  if (!anyActive() && !SEARCH) TOTAL_COUNT = recs.length;
+  if (SEARCH) recs = recs.filter(r => matchesSearch(r, SEARCH));
+  document.getElementById('hdr-count').textContent = `${recs.length} Häuser`;
+  document.getElementById('results-bar').textContent = `${recs.length} ${recs.length === 1 ? 'Eintrag' : 'Einträge'} gefunden`;
+  renderStats(recs);
+  document.getElementById('grid').innerHTML = recs.map(renderCard).join('');
+}
+
+// ── modal ──────────────────────────────────────────────────────────────────
+const cache = {};
+async function openModal(key) {
+  if (!cache[key]) cache[key] = await fetch(`/houses/${key}`).then(r => r.json());
+  currentKey = key;
+  const h = cache[key];
+
+  document.getElementById('m-mfr').textContent  = h.manufacturer ? `${h.manufacturer} · ${h.key}` : h.key;
+  document.getElementById('m-name').textContent = h.model;
+
+  // Gallery: pick top 2 by category preference
+  const order = ['exterior', 'elevation', 'perspective', 'interior'];
+  const rankH = c => { const i = order.indexOf(c); return i < 0 ? 999 : i; };
+  const heroImages = [...(h.images || [])]
+    .filter(i => order.includes(i.category))
+    .sort((a,b) => rankH(a.category) - rankH(b.category))
+    .slice(0, 2);
+  const hasScan = heroImages.some(i => i.medium === 'scan' || i.medium === 'drawing');
+  const gEl = document.getElementById('m-gallery');
+  gEl.className = 'gallery g' + (heroImages.length || 1) + (hasScan ? ' has-scan' : '');
+  gEl.innerHTML = heroImages.length
+    ? heroImages.map(i => `<div class="gal-tile">
+        <img class="medium-${i.medium}" src="${i.url}" loading="lazy">
+        <span class="gal-badge">${esc(ontoLabel('image_mediums', i.medium))}${i.view ? ' · ' + esc(ontoLabel('image_views', i.view)) : ''}</span>
+      </div>`).join('')
+    : `<div class="card-no-img">Kein Bild</div>`;
+
+  // Specs — only fields that have a value
+  const rows = [
+    ['Hersteller',       h.manufacturer],
+    ['Modell',           h.model],
+    ['Quelle',           h.source && ontoLabel('sources', h.source)],
+    ['Gebäudetyp',       h.building_type],
+    ['Bauweise',         h.construction],
+    ['Dachform',         h.roof_type],
+    ['Stil',             h.style && ontoLabel('styles', h.style)],
+    ['Baujahr',          h.year_built],
+    ['Keller',           h.has_basement == null ? null : (h.has_basement ? 'ja' : 'nein')],
+    ['Geschosse',        h.levels?.join(' → ') ?? h.floors],
+    ['Wohnfläche',       h.area_m2 != null ? fmt(h.area_m2, ' m²') : null],
+    ['Zimmer',           h.rooms],
+    ['Energiestandard',  h.energy_standard],
+    ['Preis',            fmtPrice(h)],
+    ['Lage / Standort',  h.site],
+    ['Charakter',        h.character],
+    ['Agent notes',      h.agent_notes],
+    ['Rekonstruierbarkeit', h.reconstructability_tier && ontoLabel('reconstructability_tiers', h.reconstructability_tier)],
+    ['Grundriss-Qualität', h.data_quality && ontoLabel('floorplan_grades', h.data_quality.floorplan_grade)],
+    ['Außenansicht-Abdeckung', h.data_quality && ontoLabel('exterior_coverages', h.data_quality.exterior_coverage)],
+    ['Ansichten',        h.data_quality && ontoLabel('elevation_sets', h.data_quality.elevation_set)],
+    ['Schnitt',          h.data_quality && ontoLabel('section_drawings', h.data_quality.section_drawing)],
+    ['Bau-Spezifikation', h.data_quality && ontoLabel('construction_specs_grades', h.data_quality.construction_specs)],
+  ].filter(([, v]) => v != null && v !== '');
+  document.getElementById('m-specs').innerHTML =
+    rows.map(([k,v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('');
+
+  // Actions
+  const acts = document.getElementById('m-actions');
+  acts.innerHTML = '';
+  if (h.source_url) acts.innerHTML += `<a class="btn btn-secondary" href="${esc(h.source_url)}" target="_blank">Quelle ↗</a>`;
+  if (h.pdf_url)    acts.innerHTML += `<a class="btn btn-primary"   href="${esc(h.pdf_url)}"    target="_blank">PDF öffnen</a>`;
+
+  // Render images section — toggle between category-grouped and source-grouped
+  renderImagesSection(h);
+
+  // Anomaly flags (house-level) — render before derived_facts so warnings come first
+  const aSec = document.getElementById('m-anomalies');
+  const flags = h.anomaly_flags || [];
+  if (flags.length) {
+    aSec.style.display = '';
+    document.getElementById('m-anomalies-list').innerHTML =
+      flags.map(f => `<li>${esc(f)}</li>`).join('');
+  } else {
+    aSec.style.display = 'none';
+  }
+
+  // Derived facts (house-level)
+  const dSec = document.getElementById('m-derived');
+  const derived = h.derived_facts || {};
+  const dEntries = Object.entries(derived);
+  if (dEntries.length) {
+    dSec.style.display = '';
+    document.getElementById('m-derived-list').innerHTML =
+      dEntries.map(([k, v]) => {
+        const cls = v.ok === true ? 'ok' : v.ok === false ? 'warn' : '';
+        const status = v.ok === true ? '✓' : v.ok === false ? '✗' : '';
+        const valStr = formatFactValue(v.value, v.unit);
+        const srcs = (v.sources || []).map(s => `<code>${esc(s.replace(/^house-\d+-/, ''))}</code>`).join('');
+        const exp = v.expected ? `Erwartet: ${esc(v.expected)}` : '';
+        return `<div class="derived-row ${cls}">
+          <div class="dr-key">${status ? `<span style="color:${v.ok ? '#15803d' : '#b91c1c'}">${status}</span> ` : ''}${esc(k)}</div>
+          <div class="dr-val">${esc(valStr)}</div>
+          ${(srcs || exp) ? `<div class="dr-meta">${exp ? exp + ' · ' : ''}<span class="dr-sources">aus ${srcs}</span></div>` : ''}
+        </div>`;
+      }).join('');
+  } else {
+    dSec.style.display = 'none';
+  }
+
+  // bim-ai modelability
+  const mSec = document.getElementById('m-modelable');
+  const refs = (h.bim_ai_blocking_issues || []);
+  if (refs.length || h.modelable_in_bim_ai === false || h.modelable_in_bim_ai === null) {
+    mSec.style.display = '';
+    const m = h.modelable_in_bim_ai;
+    const headline = m === true
+      ? `<span class="badge b-ok">✓ modellierbar</span> Keine offenen Blocker.`
+      : m === false
+        ? `<span class="badge b-blocked">✗ blockiert</span> Mindestens ein referenziertes Issue ist noch offen.`
+        : `<span class="badge b-unknown">? unbekannt</span> Cache fehlt für mindestens ein Issue – <code>make refresh-issue-state</code> ausführen.`;
+    const issueLinks = refs.length
+      ? `<ul style="margin-top:8px;padding-left:18px;font-size:.85rem">${refs.map(r => {
+            const open = (h.blocking_open || []).some(b => b.ref === r);
+            const unknown = (h.blocking_unknown || []).some(b => b.ref === r);
+            const state = open ? '🟠 open' : unknown ? '⚪ unknown' : '🟢 closed';
+            return `<li>${state} · <a href="https://github.com/${esc(r.split('#')[0])}/issues/${esc(r.split('#')[1])}" target="_blank"><code>${esc(r)}</code></a></li>`;
+        }).join('')}</ul>`
+      : '';
+    document.getElementById('m-modelable-body').innerHTML = `<div style="font-size:.85rem">${headline}</div>${issueLinks}`;
+  } else {
+    mSec.style.display = '';
+    document.getElementById('m-modelable-body').innerHTML =
+      `<div style="font-size:.85rem"><span class="badge b-ok">✓ modellierbar</span> Keine offenen Blocker.</div>`;
+  }
+
+  // Source PDFs — augment each row with scene-derivation count
+  const src = h.source_pdfs || [];
+  const srcSec = document.getElementById('m-source-pdfs');
+  srcSec.style.display = src.length ? '' : 'none';
+  // Count scenes per source filename
+  const scenesPerSrc = {};
+  for (const i of (h.images || [])) {
+    const f = i.source_ref?.file;
+    if (f) scenesPerSrc[f] = (scenesPerSrc[f] || 0) + 1;
+  }
+  document.getElementById('m-source-pdf-list').innerHTML =
+    src.map(s => {
+      const fname = s.split('/').pop();
+      const n = scenesPerSrc[fname] || 0;
+      const countCls = n > 0 ? 'pdf-count' : 'pdf-count none';
+      const countText = n > 0 ? `→ ${n} Szene${n !== 1 ? 'n' : ''}` : 'noch nicht zerlegt';
+      return `<div class="src-pdf-row">
+        <span class="pdf-name" title="${esc(fname)}">📄 ${esc(fname)}</span>
+        <span class="${countCls}">${countText}</span>
+        <a class="pdf-open" href="${esc(s)}" target="_blank">öffnen ↗</a>
+      </div>`;
+    }).join('');
+
+  document.getElementById('overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+// ── images section: tile + grouping helpers ───────────────────────────────
+function imageTile(h, i) {
+  const cap = i.caption || [
+    i.floor && ontoLabel('levels', i.floor),
+    i.view  && ontoLabel('image_views', i.view),
+  ].filter(Boolean).join(' · ');
+  const nFacts = Object.keys(i.facts || {}).length;
+  const hasFacts = nFacts > 0;
+  const isOriginal = !i.source_ref;
+  const srcFile = i.source_ref?.file;
+  const srcBadge = srcFile
+    ? `<span class="src-badge" title="aus ${esc(srcFile)}${i.source_ref.page ? ' p.' + i.source_ref.page : ''}">←&nbsp;${esc(srcFile)}</span>`
+    : '';
+  return `<div class="img-tile${hasFacts ? ' has-facts' : ''}${isOriginal ? ' is-original' : ''}"
+               data-action="open-scene" data-key="${esc(h.key)}" data-file="${esc(i.file)}"
+               title="Klick öffnet Szenen-Detail">
+    <img class="medium-${i.medium}" src="${esc(i.url)}">
+    ${srcBadge}
+    ${hasFacts ? `<span class="fact-badge" title="${nFacts} Fakten extrahiert">${nFacts}</span>` : ''}
+    ${cap ? `<span class="cap">${esc(cap)}</span>` : ''}
+  </div>`;
+}
+
+function setImgView(mode) {
+  IMG_VIEW_MODE = mode;
+  const h = cache[currentKey];
+  if (h) renderImagesSection(h);
+}
+
+let currentKey = null;  // set in openModal; used by setImgView for re-render
+
+function renderImagesSection(h) {
+  const sec = document.getElementById('m-images');
+  const root = document.getElementById('m-image-groups');
+  const toggle = document.getElementById('m-view-toggle');
+  const imgs = h.images || [];
+  if (!imgs.length) {
+    sec.style.display = 'none';
+    return;
+  }
+  sec.style.display = '';
+
+  // View-mode toggle
+  toggle.innerHTML = `
+    <button class="${IMG_VIEW_MODE === 'category' ? 'active' : ''}" onclick="setImgView('category')">nach Kategorie</button>
+    <button class="${IMG_VIEW_MODE === 'source'   ? 'active' : ''}" onclick="setImgView('source')">nach Quelle</button>
+  `;
+
+  if (IMG_VIEW_MODE === 'source') {
+    root.innerHTML = renderImagesGroupedBySource(h, imgs);
+  } else {
+    root.innerHTML = renderImagesGroupedByCategory(h, imgs);
+  }
+}
+
+function renderImagesGroupedByCategory(h, imgs) {
+  const groups = {};
+  for (const i of imgs) (groups[i.category] ||= []).push(i);
+  const groupOrder = ['exterior','elevation','interior','perspective','floorplan','section','roof_plan','detail','site_plan'];
+  const sortedCats = Object.keys(groups).sort((a,b) => {
+    const ai = groupOrder.indexOf(a), bi = groupOrder.indexOf(b);
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+  });
+  return sortedCats.map(cat => {
+    let list = groups[cat];
+    if (cat === 'floorplan') {
+      const floorOrder = Object.keys(ONTOLOGY.levels || {});
+      list = [...list].sort((a,b) => {
+        const ai = floorOrder.indexOf(a.floor), bi = floorOrder.indexOf(b.floor);
+        return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+      });
+    }
+    const tiles = list.map(i => imageTile(h, i)).join('');
+    return `<h5>${esc(ontoLabel('image_categories', cat))} <span style="color:var(--muted);font-weight:400">(${list.length})</span></h5>
+            <div class="img-grid">${tiles}</div>`;
+  }).join('');
+}
+
+function renderImagesGroupedBySource(h, imgs) {
+  const bySource = new Map();   // source_file -> [images]
+  const originals = [];
+  for (const i of imgs) {
+    if (i.source_ref?.file) {
+      const k = i.source_ref.file;
+      if (!bySource.has(k)) bySource.set(k, []);
+      bySource.get(k).push(i);
+    } else {
+      originals.push(i);
+    }
+  }
+  const sourcePdfUrl = (file) => `/static/${h.key}/${encodeURIComponent(file)}`;
+  const cards = [];
+
+  if (originals.length) {
+    const tiles = originals.map(i => imageTile(h, i)).join('');
+    cards.push(`
+      <div class="src-card original">
+        <div class="src-card-hdr">
+          <span class="src-icon">📷</span>
+          <span class="src-name">Originalbilder</span>
+          <span class="src-count">${originals.length} Bild${originals.length !== 1 ? 'er' : ''}</span>
+        </div>
+        <div class="img-grid">${tiles}</div>
+      </div>`);
+  }
+
+  for (const [src, list] of bySource) {
+    const tiles = list.map(i => imageTile(h, i)).join('');
+    const pdfHref = src.toLowerCase().endsWith('.pdf') ? sourcePdfUrl(src) : null;
+    cards.push(`
+      <div class="src-card">
+        <div class="src-card-hdr">
+          <span class="src-icon">${pdfHref ? '📄' : '🖼'}</span>
+          <span class="src-name">${esc(src)}</span>
+          ${pdfHref ? `<a class="src-open" href="${pdfHref}" target="_blank">Quelle öffnen ↗</a>` : ''}
+          <span class="src-count">${list.length} Szene${list.length !== 1 ? 'n' : ''}</span>
+        </div>
+        <div class="img-grid">${tiles}</div>
+      </div>`);
+  }
+  return cards.join('');
+}
+
+function closeModal() {
+  document.getElementById('overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function maybeClose(e) { if (e.target === document.getElementById('overlay')) closeModal(); }
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  // Close the scene lightbox first (it's on top of the modal)
+  const sc = document.getElementById('scene-overlay');
+  if (sc.classList.contains('open')) closeScene();
+  else closeModal();
+});
+
+// ── scene-detail lightbox ─────────────────────────────────────────────────
+function formatFactValue(v, unit) {
+  if (v == null) return '–';
+  if (Array.isArray(v)) return v.map(x => formatFactValue(x, '')).join(' × ') + (unit ? ' ' + unit : '');
+  if (typeof v === 'number') {
+    // Pretty-print mm as m if >= 1000
+    if (unit === 'mm' && v >= 1000) return (v/1000).toLocaleString('de-DE', {maximumFractionDigits: 3}) + ' m';
+    if (typeof v === 'number') return v.toLocaleString('de-DE') + (unit ? ' ' + unit : '');
+  }
+  if (typeof v === 'boolean') return v ? 'ja' : 'nein';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v) + (unit ? ' ' + unit : '');
+}
+
+function renderFactValue(v, unit) {
+  // For object-valued facts (e.g. room_areas_m2 = {Wohnzimmer: 18.65, ...}),
+  // render a mini two-column table; otherwise inline.
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const rows = Object.entries(v).map(([k, val]) =>
+      `<span class="ok">${esc(k)}</span><span class="ov">${esc(formatFactValue(val, unit))}</span>`
+    ).join('');
+    return `<div class="fact-obj">${rows}</div>`;
+  }
+  return esc(formatFactValue(v, unit));
+}
+
+function openScene(key, file) {
+  const h = cache[key];
+  if (!h) return;
+  const i = (h.images || []).find(x => x.file === file);
+  if (!i) return;
+
+  document.getElementById('sc-img').src = i.url;
+  document.getElementById('sc-img').alt = i.caption || file;
+  document.getElementById('sc-title').textContent = file;
+  document.getElementById('sc-caption').textContent = i.caption || '';
+
+  // Source provenance
+  const src = i.source_ref;
+  const srcSec = document.getElementById('sc-source');
+  if (src) {
+    srcSec.style.display = '';
+    const rows = [
+      ['Datei',       src.file],
+      ['Seite',       src.page != null ? String(src.page) : null],
+      ['Crop',        src.crop_box_pct ? `[${src.crop_box_pct.map(n => n.toFixed(2)).join(', ')}]` : null],
+      ['Titel',       src.page_title],
+      ['Maßstab',     src.scale],
+    ].filter(([, v]) => v);
+    document.getElementById('sc-source-body').innerHTML = rows.map(([k, v]) =>
+      `<div class="src-row"><span class="src-key">${k}</span><span class="src-val">${esc(v)}</span></div>`
+    ).join('');
+  } else {
+    srcSec.style.display = 'none';
+  }
+
+  // Facts
+  const facts = i.facts || {};
+  const factEntries = Object.entries(facts);
+  document.getElementById('sc-facts-count').textContent = factEntries.length ? `(${factEntries.length})` : '';
+  document.getElementById('sc-facts-body').innerHTML = factEntries.length
+    ? factEntries.map(([k, f]) => `
+        <dt>${esc(k)}${f.unit ? ' <span style="color:#9ca3af">[' + esc(f.unit) + ']</span>' : ''}</dt>
+        <dd>${renderFactValue(f.value, f.unit)}${f.evidence ? `<span class="fact-evidence">${esc(f.evidence)}</span>` : ''}</dd>
+      `).join('')
+    : '<p style="font-size:.8125rem;color:var(--muted);font-style:italic">Noch keine Fakten extrahiert.</p>';
+
+  // Scene anomalies
+  const sFlags = i.anomaly_flags || [];
+  const anomSec = document.getElementById('sc-anom');
+  if (sFlags.length) {
+    anomSec.style.display = '';
+    document.getElementById('sc-anom-body').innerHTML = sFlags.map(f => `<li>${esc(f)}</li>`).join('');
+  } else {
+    anomSec.style.display = 'none';
+  }
+
+  document.getElementById('scene-overlay').classList.add('open');
+}
+function closeScene() {
+  document.getElementById('scene-overlay').classList.remove('open');
+}
+function maybeCloseScene(e) { if (e.target === document.getElementById('scene-overlay')) closeScene(); }
+
+// ── bootstrap ──────────────────────────────────────────────────────────────
+(async () => {
+  ONTOLOGY = await fetch('/ontology').then(r => r.json());
+  await load();
+})();
+</script>
+</body>
+</html>

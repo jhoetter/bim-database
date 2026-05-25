@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-zinc-900 antialiased font-sans;
+  }
+  /* Diagonal stripe used by the "unbekannt" segment on stat bars */
+  .bg-stripes {
+    background-image: repeating-linear-gradient(
+      45deg, transparent 0 4px, rgba(0, 0, 0, 0.04) 4px 8px
+    );
+  }
+}
