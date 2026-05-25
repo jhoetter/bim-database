@@ -7,84 +7,85 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "modern",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG", "DG"],
   "area_m2": 205,
   "rooms": 6,
   "floors": 1.5,
   "price_eur": 593766,
   "price_on_request": false,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Modernes EFH-Musterhaus: weiße Satteldach-Hauptmasse mit anthrazitfarbenem, vorgesetztem Flachdach-Kubus über Eingang und 2-geschossigem Wohnbereich. Auskragender Vordach-Anbau, weite Sparrenüberstände.",
+  "agent_notes": "Kanonisches h13 Multi-Volume-Komposition (siehe geschlossene jhoetter/bim-ai#52). Mit gefixtem Multi-Volume + roof_join sollte das renderbar sein. Vordach via edge_overhang_mm.",
   "tags": [],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "fingerhut_mhbadvilbel1_exterior11.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "front",
+      "caption": "Frontansicht — Satteldach-Hauptmasse + Flachdach-Anbau-Kubus über Eingang"
     },
     {
       "file": "fingerhut_mhbadvilbel1_exterior12.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht Süd-Ost — Giebel rechts, Anbau links"
     },
     {
       "file": "fingerhut_mhbadvilbel1_exterior3.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "side",
+      "caption": "Seitenansicht"
     },
     {
       "file": "fingerhut_mhbadvilbel1_exterior4.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "rear",
+      "caption": "Rückseite"
     },
     {
       "file": "fingerhut_mhbadvilbel1_exterior5.original.avif",
-      "category": "exterior",
+      "category": "interior",
       "medium": "photo",
       "view": null,
-      "caption": null
+      "caption": "Innenansicht"
     },
     {
       "file": "fingerhut_mhbadvilbel1_exterior6.original.avif",
-      "category": "exterior",
+      "category": "interior",
       "medium": "photo",
       "view": null,
-      "caption": null
+      "caption": "Innenansicht"
     },
     {
       "file": "fingerhut_mhbadvilbel1_exterior7.original.avif",
-      "category": "exterior",
+      "category": "interior",
       "medium": "photo",
       "view": null,
-      "caption": null
+      "caption": "Innenansicht"
     },
     {
       "file": "fingerhut_mhbadvilbel1_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     },
     {
       "file": "fingerhut_mhbadvilbel1_floorplan2.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "DG",
+      "caption": "Grundriss DG"
     }
   ]
 }
