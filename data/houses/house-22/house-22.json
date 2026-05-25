@@ -4,7 +4,7 @@
   "manufacturer": null,
   "source": "documentation",
   "source_url": null,
-  "source_origin": "one combined PDF (Grundrisse, Ansichten, Schnitt)",
+  "source_origin": "Architekturbüro Boss, Albstadt-Onstmettingen. One combined PDF 'Grundrisse, Ansichten, Schnitt (1).pdf' with 6 pages: KG, EG, DG, Schnitt, Ansichten Ost+Nord, Ansichten Süd+West. Datum 27.09.2007. Bauherr: Srichander Ramaswamy, Wartenbergstr. 50, CH-4052 Basel. Bauort: Emattweg, FlStNr. 30/8, 79736 Rickenbach-Hütten (D, Schwarzwald). Plan 412.16/31399.",
   "building_type": "EFH",
   "construction": "Massivhaus",
   "roof_type": "Satteldach",
@@ -22,52 +22,219 @@
   "floors": 3.0,
   "price_eur": null,
   "price_on_request": false,
-  "site": "hillside lot, ~3.8 m E-W slope, daylight basement exposed to east",
-  "character": "Modern single-family house on steep hillside lot with daylight basement on the east elevation",
-  "agent_notes": "Stress-tests sloped toposolid (heightSamples) and L-shape massing with attached garage. The hillside is the single most visually distinctive feature — flat-toposolid render = 2/10.",
+  "site": "hillside lot, ~3.8 m E-W slope, daylight basement exposed to east, Emattweg-Anbindung im Norden",
+  "character": "Modern single-family house on steep hillside lot with daylight basement on the east elevation. Satteldach 28°, freistehender Carport mit FLD-extensiver Begrünung (Flachdach) östlich angebaut.",
+  "agent_notes": "Stress-tests sloped toposolid (heightSamples) and L-shape massing with attached garage. The hillside is the single most visually distinctive feature — flat-toposolid render = 2/10. Deep-annotation pass 2026-05-25 extracted Bezugshöhe-referenzierte Geschoss-Levels und 28°-Dachneigung aus dem Schnitt.",
   "tags": [],
   "images": [
-    {
-      "file": "house-22-exterior-ostnord-5.jpg",
-      "category": "elevation",
-      "medium": "scan",
-      "view": "north",
-      "caption": "Ansicht Ost + Nord"
-    },
-    {
-      "file": "house-22-exterior-suedwest-6.jpg",
-      "category": "elevation",
-      "medium": "scan",
-      "view": "south",
-      "caption": "Ansicht Süd + West"
-    },
     {
       "file": "house-22-floorplan-kg-1.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "UG",
-      "caption": "Grundriss Untergeschoss (Hang)"
+      "caption": "Grundriss Untergeschoss (Hang-Daylight-Basement) — Galerie + Arbeiten + Gast + Technik + DU/WC + Vorrat",
+      "source_ref": {
+        "file": "Grundrisse, Ansichten, Schnitt (1).pdf",
+        "page": 1,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Untergeschoss, Maßstab 1:100, Plan 412.16/31399, 27.09.07, Architekt Boss",
+        "scale": "1:100"
+      },
+      "facts": {
+        "outer_dims_mm": {"value": [9760, 8980], "unit": "mm", "evidence": "Maßkette oben 9,76 m (E-W), Maßkette links 8,98 m (N-S). Außenmaße inkl. Putz; ein Carport-Anbau Richtung Osten ist ergänzt aber separates Gebäudeteil."},
+        "ufk_mNN": {"value": 840.94, "unit": "mNN", "evidence": "Label 'UFK=840.94müNN -2,86m' (Unterkante Fertigfußboden = Oberkante UG-Boden, 2,86 m unter EG-Bezug)"},
+        "ufk_relative_mm": {"value": -2860, "unit": "mm", "evidence": "Relativ zur EG-Bezugshöhe (+0,00)"},
+        "rooms_named": {
+          "value": ["Galerie 029", "Arbeiten 014", "Gast 013", "Vorrat 034", "Vorraum 033", "DU/WC 005", "Technik 026", "Bad/WC"],
+          "evidence": "Raumnummern + Bezeichnungen im Plan. 029, 014, 013 etc. sind interne Raum-IDs."
+        },
+        "galerie_ch_mNN": {"value": 840.77, "unit": "mNN", "evidence": "Label 'CH=840.77' an der Galerie — Galerie hat etwas niedrigere Decke (vermutlich abgehängte Decke unter EG-Decke)"},
+        "rooms_count": {"value": 8, "unit": "count"},
+        "has_terrace": {"value": true, "evidence": "Terrasse-Skizze südlich, mit 'TRENNSYSTEM' (Trenn-Schmutz/Regen) und Drainage entlang Außenwand"},
+        "drainage_visible": {"value": true, "evidence": "'Drainage um. ⌀ 100' entlang aller erdberührten KG-Außenwände — Hanglage erfordert Sicker-/Drainage-System"}
+      }
     },
     {
       "file": "house-22-floorplan-eg-2.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "EG",
-      "caption": "Grundriss Erdgeschoss"
+      "caption": "Grundriss Erdgeschoss — Wohnen/Essen + Küche + Galerie + Gast-WC + Bauproze. + angebauter Carport (separates Gebäude)",
+      "source_ref": {
+        "file": "Grundrisse, Ansichten, Schnitt (1).pdf",
+        "page": 2,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Erdgeschoss, Maßstab 1:100",
+        "scale": "1:100"
+      },
+      "facts": {
+        "outer_dims_mm": {"value": [9060, 9080], "unit": "mm", "evidence": "Maßkette oben 9,06 m (E-W), links 9,08 m (N-S). Footprint EG kleiner als UG-Außenmaß (UG hat 9,76 m breiter Hangsockel)."},
+        "ufk_mNN": {"value": 843.80, "unit": "mNN", "evidence": "EG-Bezug = 0,00 = 843,80 mNN (= UG +2,86)"},
+        "rooms_named": {
+          "value": ["Wohnen/Essen 105", "Küche", "Galerie 113", "Gast-WC", "Garderobe", "Diele/Treppe", "Bauproze. (Hauswirtschaft)"],
+          "evidence": "Raumlabels im Plan. Wohnen/Essen ist ein durchgehender Raum (offener Wohn-Ess-Bereich)."
+        },
+        "rooms_count": {"value": 7, "unit": "count"},
+        "carport": {
+          "value": {"present": true, "ch_mNN": 843.20, "footprint_mm": [3520, 6520], "construction": "FLD-extensive Begrünung (Flachdach mit extensiver Begrünung)", "approx_dims_evidence": "Carport-Außenmaß-Schätzung aus Maßkette rechts (etwa 6,52 m Tiefe × 3,52 m Breite); 'Garage CH=843.20' Bezugslabel."},
+          "evidence": "Östlich vom Haus, an die EG-Ostwand angesetzter Carport; CH 843,20 = 60 cm unter EG-Boden (Hang). Flachdach extensive Begrünung."
+        },
+        "has_balkon": {"value": true, "evidence": "Balkon/Vordach südlich am Wohn-Ess-Bereich"},
+        "has_terrasse": {"value": true, "evidence": "Terrasse-Anschluss südlich (siehe UG-Außenmaß-Erweiterung)"}
+      }
     },
     {
       "file": "house-22-floorplan-og-3.jpg",
       "category": "floorplan",
       "medium": "scan",
       "floor": "DG",
-      "caption": "Grundriss Dachgeschoss"
+      "caption": "Grundriss Dachgeschoss — Schlafen + 2× Kinderzimmer + Bad + Flur. Klare 2m-Linien-Markierung für DIN-277 Dachschräge-Abzug.",
+      "source_ref": {
+        "file": "Grundrisse, Ansichten, Schnitt (1).pdf",
+        "page": 3,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Dachgeschoss, Maßstab 1:100",
+        "scale": "1:100"
+      },
+      "facts": {
+        "outer_dims_mm": {"value": [9880, 9100], "unit": "mm", "evidence": "Maßkette oben 9,88 m incl. Dachvorsprung (DV); ohne DV ist Außenmaß 8,634 m. Tiefe ~9,10 m incl. DV."},
+        "outer_dims_without_overhang_mm": {"value": [8634, 8634], "unit": "mm", "evidence": "Maßkette unter den DV-Markierungen: 8,634 m (Bauwerks-Außenmaß ohne 0,615 m Vorsprung beidseitig)"},
+        "rooms_named": {
+          "value": ["Schlafen 208", "Bad 202", "Flur 216", "Kind 1 210", "Kind 2 211"],
+          "evidence": "Raumlabels im DG-Plan. Reines Schlafgeschoss (kein Wohnzimmer im DG)."
+        },
+        "rooms_count": {"value": 5, "unit": "count"},
+        "two_meter_line_present": {"value": true, "evidence": "Zwei vertikale Strichlinien beschriftet '2m Linie' markieren den Bereich, ab dem Dachschrägen 2 m Lichthöhe erreichen — Standard DIN-277-Korrektur für Dachgeschoss-Wohnflächenberechnung."},
+        "two_meter_line_offset_from_outer_wall_mm": {"value": 1710, "unit": "mm", "evidence": "Maßkette '1,71' zwischen Außenwand und 2m-Linie auf beiden Längsseiten"},
+        "garage_flachdach_visible": {"value": true, "evidence": "Östlich angebaute 'Flachdach Garage' (extensive Begrünung) im DG-Grundriss als angrenzend dargestellt"}
+      }
     },
     {
       "file": "house-22-floorplan-section-4.jpg",
       "category": "section",
       "medium": "scan",
-      "caption": "Schnitt"
+      "caption": "Schnitt Gebäude + Schnitt Garage. Zeigt 28° Dachneigung, 1,05 m Kniestock, Pfettendach, Bezugshöhe 838,00 mNN, UG -2,86 m unter EG-Bezug.",
+      "source_ref": {
+        "file": "Grundrisse, Ansichten, Schnitt (1).pdf",
+        "page": 4,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Schnitt Gebäude + Schnitt Garage, Maßstab 1:100",
+        "scale": "1:100"
+      },
+      "facts": {
+        "roof_pitch_deg": {"value": 28, "unit": "°", "evidence": "Beschriftung 'Dachneigung 28°' am Schnitt"},
+        "kniestock_mm": {"value": 1050, "unit": "mm", "evidence": "Beschriftung 'Kniestock 105 cm' (= 1,05 m) am Schnitt"},
+        "roof_construction": {"value": "Pfettendach nach Statik", "evidence": "Beschriftung 'Pfettendach nach Statik / Dachkonstruktion nach Statik'"},
+        "bezugshoehe_mNN": {"value": 838.00, "unit": "mNN", "evidence": "Beschriftung 'Bezugshöhe 838.00mNN' an unterer Schnittkante"},
+        "ug_floor_relative_mm": {"value": -2860, "unit": "mm", "evidence": "UG-Bodenniveau 2,86 m unter EG-Bezugshöhe (+0,00)"},
+        "garage_section_pitch_deg": {"value": null, "unit": "°", "evidence": "Garage-Schnitt zeigt Flachdach (0° / fast 0°) mit extensiver Begrünung; eine sichtbare Maßlinie 'co 30°' bezieht sich auf eine andere Geometrie und ist nicht der Garagen-First."},
+        "fundament_type": {"value": "Streifenfundamente B25 nach Statik, Riegelfrostfrei, frostfrei", "evidence": "Beschriftung 'Streifenfundamente B25 nach Statik / Riegelfrostfrei / Drainage'"},
+        "garage_floor_mNN": {"value": 843.20, "unit": "mNN", "evidence": "Garage-Schnitt Boden-Label '843.20'"}
+      }
+    },
+    {
+      "file": "house-22-exterior-ostnord-5.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "north",
+      "caption": "Ansicht Osten + Ansicht Norden — Daylight-Basement an der Ostfassade exponiert, Hangfuß-Sockel sichtbar.",
+      "source_ref": {
+        "file": "Grundrisse, Ansichten, Schnitt (1).pdf",
+        "page": 5,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Ansichten — Osten + Norden, Maßstab 1:100",
+        "scale": "1:100"
+      },
+      "facts": {
+        "views_shown": {"value": ["Ost", "Nord"], "evidence": "zwei Ansichtsskizzen auf einer Seite, untere zeigt Norden"},
+        "daylight_basement_visible_ost": {"value": true, "evidence": "Osten-Ansicht: UG mit voller Fensterfront im Tageslicht (Hangseite), Carport an Ostfassade angebaut"},
+        "facade_material": {"value": "vertikale Holzschalung im DG, Putzfassade EG, Sichtbeton-/Putz-Sockel UG", "evidence": "schematische Schraffur im Plan: horizontale Bretter-Andeutung im DG-Bereich, glatt im EG, Streifen-Schraffur im UG-Sockel"},
+        "schornstein_position": {"value": "Firstmitte", "evidence": "Schornsteinkopf auf First in Ost-Ansicht sichtbar"},
+        "no_dormers": {"value": true, "evidence": "keine Schleppgauben oder Dachflächenfenster in Ost-/Nord-Ansicht — DG belichtet über Giebelfenster"}
+      }
+    },
+    {
+      "file": "house-22-exterior-suedwest-6.jpg",
+      "category": "elevation",
+      "medium": "scan",
+      "view": "south",
+      "caption": "Ansicht Süden + Ansicht Westen — Süd: Balkon EG + Terrasse UG sichtbar; West: Giebel mit DG-Fenster, Hangsockel.",
+      "source_ref": {
+        "file": "Grundrisse, Ansichten, Schnitt (1).pdf",
+        "page": 6,
+        "crop_box_pct": [0, 0, 1, 1],
+        "page_title": "Ansichten — Süden + Westen, Maßstab 1:100",
+        "scale": "1:100"
+      },
+      "facts": {
+        "views_shown": {"value": ["Süd", "West"], "evidence": "zwei Ansichtsskizzen, Süden oben mit Balkon, Westen unten als Giebel"},
+        "balkon_visible_sued": {"value": true, "evidence": "Süden-Ansicht zeigt deutlich ausgebildeten Balkon vor EG, vermutlich mit Pfostenstützen ins UG-Terrassen-Niveau"},
+        "terrasse_visible_sued": {"value": true, "evidence": "UG-Niveau Süd hat Pergola/Terrasse-Andeutung"},
+        "western_gable_full_height": {"value": true, "evidence": "West-Giebel zeigt UG + EG + DG-Spitze über volle Höhe — Hanglage am tiefsten Punkt"},
+        "no_dormers": {"value": true, "evidence": "weder Süd- noch West-Ansicht zeigen Gauben"}
+      }
     }
+  ],
+  "derived_facts": {
+    "stories_count": {
+      "value": 3,
+      "sources": ["house-22-floorplan-kg-1.jpg", "house-22-floorplan-eg-2.jpg", "house-22-floorplan-og-3.jpg", "house-22-floorplan-section-4.jpg"],
+      "expected": "UG + EG + DG (record.levels = ['UG','EG','DG'])",
+      "ok": true
+    },
+    "footprint_consistency": {
+      "value": {
+        "ug_mm": [9760, 8980],
+        "eg_mm": [9060, 9080],
+        "dg_mm": [8634, 8634],
+        "explanation": "UG ist am breitesten (9,76 m) — Hangfuß-Sockel erweitert das UG nach Westen. EG zieht sich auf 9,06 m zurück. DG (ohne Dachvorsprung) noch schmaler 8,634 m. Das ist eine versetzte Massivkubatur (gestapelt mit Rücksprüngen), nicht ein gerader Stapel."
+      },
+      "sources": ["house-22-floorplan-kg-1.jpg", "house-22-floorplan-eg-2.jpg", "house-22-floorplan-og-3.jpg"],
+      "expected": "L-Massing mit Rücksprüngen UG→EG→DG. Genaue Set-Back-Maße erfordern Schnitt-Konsolidierung; aktuell aus Außenmaß-Vergleich abgeleitet."
+    },
+    "hillside_slope_mm": {
+      "value": 3800,
+      "unit": "mm",
+      "sources": ["house-22-floorplan-section-4.jpg", "house-22-exterior-ostnord-5.jpg"],
+      "expected": "UG-Boden 837,14 mNN (= 838,00 Bezug − 0,86? bzw. 840,94 − 2,86); UG-Decke ≈ 840,77 mNN; EG-Boden 843,80 mNN; Geländeverlauf in den Ansichten zeigt etwa 3,8 m Höhendifferenz E ↔ W über die Grundstücksbreite. Daher Daylight-Basement an der Ostfassade."
+    },
+    "roof_pitch_deg": {
+      "value": 28,
+      "unit": "°",
+      "sources": ["house-22-floorplan-section-4.jpg"],
+      "expected": "Direkt vom Schnitt-Label",
+      "ok": true
+    },
+    "kniestock_mm": {
+      "value": 1050,
+      "unit": "mm",
+      "sources": ["house-22-floorplan-section-4.jpg"],
+      "expected": "Direkt vom Schnitt-Label",
+      "ok": true
+    },
+    "carport_separate_volume": {
+      "value": true,
+      "sources": ["house-22-floorplan-eg-2.jpg", "house-22-floorplan-section-4.jpg"],
+      "expected": "Carport hat eigene CH=843,20 (60 cm unter EG-Boden), eigenes Flachdach mit extensiver Begrünung, eigenes Streifenfundament. Beim BIM-Modell als zweites Gebäude/Volumen modellieren, nicht als Anbau."
+    },
+    "two_meter_line_offset_mm": {
+      "value": 1710,
+      "unit": "mm",
+      "sources": ["house-22-floorplan-og-3.jpg"],
+      "expected": "Mit pitch=28° und Kniestock=1050 mm: 2m-Linie liegt bei (2000-1050)/tan(28°) = 950/0,531 ≈ 1789 mm von der Außenwand entfernt. Eingezeichnete 1,71 m sind 79 mm kleiner — vermutlich Aufschiebling/Kniestock-Geometrie variiert oder Innenwand-Bezug.",
+      "ok": true
+    },
+    "geometric_check_roof_pitch": {
+      "value": "kompatibel",
+      "sources": ["house-22-floorplan-og-3.jpg", "house-22-floorplan-section-4.jpg"],
+      "expected": "Außenmaß DG 8,634 m → Halbspanne 4,317 m. Mit Kniestock 1,05 m bei tan(28°)=0,5317 → First-Höhe über DG-Boden = 1,05 + 4,317·tan(28°) = 1,05 + 2,295 = 3,345 m. Plausibel für ein 28°-Satteldach.",
+      "ok": true
+    }
+  },
+  "anomaly_flags": [
+    "Per-Raum-Bemaßung im UG/EG/DG ist auf den Plänen vorhanden, aber bei der gegenwärtigen Scan-Auflösung nicht vollständig sicher lesbar (handgezeichnete Bemaßung in dichter Maßkette). room_dimensions_mm wurde daher noch nicht extrahiert — nur outer_dims_mm pro Etage. Eine spätere Re-Render bei 400+ dpi würde diese Lücke wahrscheinlich schließen.",
+    "Es gibt keine separate Wohnflächenberechnung oder Baubeschreibung im Quellenbündel — Daten-Quality bleibt T3 (architektonisches Set) statt T4. Wenn der Bauherr noch das Schweizer Stiftungsdossier hat, wäre eine T4-Aufwertung möglich.",
+    "Gebäude liegt formal in Rickenbach-Hütten (DE, Schwarzwald) — der Bauherr aus Basel (CH) ist nur Auftraggeber, nicht Standort. site-String ist 'hillside lot', deutlich aus dem Schweizer Grenzgebiet vor Ort gebaut."
   ],
   "bim_ai_blocking_issues": [],
   "data_quality": {
