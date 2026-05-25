@@ -97,5 +97,8 @@
       "medium": "scan",
       "caption": "Architekten-Anschreiben (Übergabe-Brief mit Verzeichnis Blatt 01–09)"
     }
+  ],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#109"
   ]
 }
