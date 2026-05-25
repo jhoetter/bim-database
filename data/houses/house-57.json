@@ -7,21 +7,28 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": null,
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Satteldach",
+  "style": "landhaus",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "DG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": null,
-  "agent_notes": null,
-  "tags": [],
+  "character": "Klassisches Blockhaus mit steilem Satteldach, integrierter Garage unter verlängertem Pultdach-Anbau, naturbelassene Holzbohlen.",
+  "agent_notes": "Satteldach-Hauptmasse + Pultdach-Anbau (Garage). Multi-Volumen, modellierbar.",
+  "tags": [
+    "blockhaus",
+    "landhaus",
+    "garage"
+  ],
   "images": [
     {
       "file": "rappenau_exterior_0.original.avif",
@@ -51,5 +58,6 @@
       "floor": null,
       "caption": null
     }
-  ]
+  ],
+  "bim_ai_blocking_issues": []
 }
