@@ -7,21 +7,29 @@
   "source_origin": null,
   "building_type": "EFH",
   "construction": "Fertighaus",
-  "roof_type": "Flachdach",
+  "roof_type": "Satteldach",
   "style": "modern",
   "energy_standard": null,
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": [
+    "EG",
+    "1. OG"
+  ],
   "area_m2": null,
   "rooms": null,
   "floors": null,
   "price_eur": null,
   "price_on_request": true,
   "site": null,
-  "character": "Post-and-beam Fertighaus mit großen Glasfronten (Huf Haus Art-Linie)",
-  "agent_notes": null,
-  "tags": [],
+  "character": "Klassisches Huf Haus Art-5 mit flach geneigtem Satteldach, vollverglaste Pfosten-Riegel-Fassade mit charakteristischen Diagonalstreben, umlaufender Balkon.",
+  "agent_notes": "Huf-Haus-Pfosten-Riegel-Strukturfassade blockiert (#113). Auch Giebelverglasung #109.",
+  "tags": [
+    "hufhaus",
+    "glasfassade",
+    "pfosten-riegel",
+    "modern"
+  ],
   "images": [
     {
       "file": "hufhaus_art5-bsp5_exterior1.original.avif",
@@ -72,5 +80,9 @@
       "floor": null,
       "caption": null
     }
+  ],
+  "bim_ai_blocking_issues": [
+    "jhoetter/bim-ai#109",
+    "jhoetter/bim-ai#113"
   ]
 }
