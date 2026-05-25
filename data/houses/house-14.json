@@ -7,49 +7,50 @@
   "source_origin": null,
   "building_type": "Doppelhaus",
   "construction": "Blockhaus",
-  "roof_type": null,
-  "style": null,
+  "roof_type": "Walmdach",
+  "style": "landhaus",
   "energy_standard": "Effizienzhaus 55",
   "year_built": null,
   "has_basement": null,
-  "levels": null,
+  "levels": ["EG"],
   "area_m2": 151,
   "rooms": 6,
   "floors": 1.0,
   "price_eur": 182558,
   "price_on_request": false,
   "site": null,
-  "character": null,
-  "agent_notes": null,
+  "character": "Eingeschossiger Doppelhaus-Blockbau (Vollholz, sichtbare Rundholz-Eckverbindungen) mit Walmdach. Kleinerer Anbau rechts mit eigenem Satteldach (vermutlich Carport).",
+  "agent_notes": "Walmdach + 1-Geschoss + Holzfassade = bim-ai Standard. Sichtbare Rundholz-Wandstruktur ist nur Materialdetail (siehe geschlossenes #42 für log_courses Cosmetic).",
   "tags": [],
+  "bim_ai_blocking_issues": [],
   "images": [
     {
       "file": "holzbau-rustikal_bh-bodensee_exterior1.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "front",
+      "caption": "Frontansicht — Walmdach-Blockhaus-Doppelhaus mit Anbau rechts"
     },
     {
       "file": "holzbau-rustikal_bh-bodensee_exterior2.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "corner",
+      "caption": "Eckansicht"
     },
     {
       "file": "holzbau-rustikal_bh-bodensee_exterior3.original.avif",
       "category": "exterior",
       "medium": "photo",
-      "view": null,
-      "caption": null
+      "view": "rear",
+      "caption": "Rückansicht"
     },
     {
       "file": "holzbau-rustikal_bh-bodensee_floorplan1.original.avif",
       "category": "floorplan",
       "medium": "drawing",
-      "floor": null,
-      "caption": null
+      "floor": "EG",
+      "caption": "Grundriss EG"
     }
   ]
 }
