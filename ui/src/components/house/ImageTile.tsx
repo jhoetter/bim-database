@@ -15,6 +15,23 @@ export function ImageTile({ houseKey, img }: { houseKey: string; img: SceneImage
   const nFacts = Object.keys(img.facts ?? {}).length;
   const isOriginal = !img.source_ref;
   const srcFile = img.source_ref?.file ?? null;
+  const isCompassView = (v?: string | null) =>
+    v != null && ['north', 'south', 'east', 'west'].includes(v);
+
+  // Persistent orientation chip — floor for floorplans, compass/view for elevations.
+  // Shown alongside the caption so it doesn't get buried.
+  const orientationLabel =
+    img.category === 'floorplan' && img.floor
+      ? ontoLabel(onto, 'levels', img.floor) || img.floor
+      : img.category === 'elevation' && img.view
+      ? ontoLabel(onto, 'image_views', img.view) || img.view
+      : null;
+  const orientationTone =
+    img.category === 'floorplan'
+      ? 'bg-blue-600/85'
+      : isCompassView(img.view)
+      ? 'bg-amber-600/90'
+      : 'bg-zinc-700/85';
 
   const objectFit =
     img.medium === 'scan' || img.medium === 'drawing' ? 'object-contain bg-white' : 'object-cover';
@@ -39,6 +56,16 @@ export function ImageTile({ houseKey, img }: { houseKey: string; img: SceneImage
           title={`aus ${srcFile}${img.source_ref?.page ? ' p.' + img.source_ref.page : ''}`}
         >
           ←&nbsp;{srcFile}
+        </span>
+      )}
+      {orientationLabel && (
+        <span
+          className={`absolute ${
+            srcFile ? 'top-7' : 'top-1'
+          } left-1 ${orientationTone} text-white text-[0.625rem] font-semibold px-1.5 py-0.5 rounded shadow`}
+          title={`${img.category === 'floorplan' ? 'Geschoss' : 'Ansicht'}: ${orientationLabel}`}
+        >
+          {orientationLabel}
         </span>
       )}
       {nFacts > 0 && (

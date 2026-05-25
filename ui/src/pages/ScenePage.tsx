@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router';
 import { fetchHouse, useResource } from '../api/client';
 import type { FactEntry, SceneImage } from '../api/types';
 import { formatFactValue } from '../lib/format';
+import { ontoLabel, useOntology } from '../api/ontology';
 
 export function ScenePage() {
   const { key = '', file = '' } = useParams();
@@ -39,6 +40,7 @@ export function ScenePage() {
         </div>
         <aside className="p-5 overflow-y-auto max-h-[88vh]">
           <div className="text-[0.95rem] font-semibold mb-0.5">{img.file}</div>
+          <SceneOrientation img={img} />
           {img.caption && (
             <div className="text-[0.825rem] text-muted mb-4 leading-relaxed">
               {img.caption}
@@ -50,6 +52,48 @@ export function ScenePage() {
           {anomalies.length > 0 && <SceneAnomalies flags={anomalies} />}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function SceneOrientation({ img }: { img: SceneImage }) {
+  const onto = useOntology();
+  const isCompassView = (v?: string | null) =>
+    v != null && ['north', 'south', 'east', 'west'].includes(v);
+
+  // Floorplans → floor level chip; elevations → compass direction chip.
+  // Skip when the field isn't populated (no fabrication).
+  let label: string | null = null;
+  let kind: string | null = null;
+  let tone: 'blue' | 'amber' | 'zinc' = 'zinc';
+
+  if (img.category === 'floorplan' && img.floor) {
+    label = ontoLabel(onto, 'levels', img.floor) || img.floor;
+    kind = 'Geschoss';
+    tone = 'blue';
+  } else if (img.category === 'elevation' && img.view) {
+    label = ontoLabel(onto, 'image_views', img.view) || img.view;
+    kind = isCompassView(img.view) ? 'Himmelsrichtung' : 'Ansicht';
+    tone = isCompassView(img.view) ? 'amber' : 'zinc';
+  }
+
+  if (!label) return null;
+  const toneClass =
+    tone === 'blue'
+      ? 'bg-blue-100 text-blue-900 border-blue-200'
+      : tone === 'amber'
+      ? 'bg-amber-100 text-amber-900 border-amber-200'
+      : 'bg-zinc-100 text-zinc-800 border-zinc-200';
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <span className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">
+        {kind}
+      </span>
+      <span
+        className={`text-[0.9rem] font-semibold px-2 py-0.5 rounded border ${toneClass}`}
+      >
+        {label}
+      </span>
     </div>
   );
 }
