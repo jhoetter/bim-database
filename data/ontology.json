@@ -167,5 +167,10 @@
     "true":    "✓ modellierbar",
     "false":   "✗ blockiert",
     "unknown": "? nicht bewertet"
+  },
+
+  "keller_states": {
+    "true":  "mit Keller",
+    "false": "ohne Keller"
   }
 }

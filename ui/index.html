@@ -436,10 +436,10 @@ const FILTERS = {
   roof_type: '', style: '', min_tier: '',
   modelable_in_bim_ai: '',
   has_basement: '',
-  min_area: '', max_area: '',
-  max_price: '',
-  min_year: '', max_year: '',
   energy_standard: '',
+  min_area: '', max_area: '',
+  min_price: '', max_price: '',
+  min_year: '', max_year: '',
 };
 
 // Human label per axis — shown in the active-filter chip strip
@@ -455,7 +455,25 @@ const AXIS_LABELS = {
 const AXIS_ONTO = {
   source: 'sources', building_type: 'building_types', construction: 'constructions',
   roof_type: 'roof_types', style: 'styles', min_tier: 'reconstructability_tiers',
+  energy_standard: 'energy_standards',
 };
+
+// Range fields grouped — for collapsing two filters into one chip
+const RANGE_GROUPS = [
+  { fmin: 'min_area',  fmax: 'max_area',  label: 'Fläche',  unit: 'm²' },
+  { fmin: 'min_price', fmax: 'max_price', label: 'Preis',   unit: '€', priceFmt: true },
+  { fmin: 'min_year',  fmax: 'max_year',  label: 'Baujahr', unit: '' },
+];
+const _fmtPriceShort = v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : String(v);
+function rangeLabel(group, min, max) {
+  const fmt = group.priceFmt
+    ? v => _fmtPriceShort(parseFloat(v))
+    : v => v;
+  if (min && max) return `${fmt(min)}–${fmt(max)} ${group.unit}`.trim();
+  if (min)        return `≥ ${fmt(min)} ${group.unit}`.trim();
+  if (max)        return `< ${fmt(max)} ${group.unit}`.trim();
+  return '';
+}
 
 function resetFilters() {
   Object.keys(FILTERS).forEach(k => FILTERS[k] = '');
@@ -524,6 +542,7 @@ const PALETTES = {
   construction:  ['#1d4ed8','#15803d','#b45309','#6d28d9','#be123c','#0891b2'],
   roof_type:     ['#6d28d9','#0891b2','#7c3aed','#9333ea','#a855f7','#7e22ce','#5b21b6','#4c1d95','#312e81','#1e1b4b'],
   style:         ['#be123c','#dc2626','#9d174d','#7c2d12','#9a3412','#831843','#0e7490','#a16207','#374151'],
+  energy:        ['#0891b2','#0e7490','#155e75','#164e63','#1e3a8a','#1d4ed8','#3b82f6'],
 };
 
 // Key-mapped palettes: colour is attached to the *value*, not its position,
@@ -541,9 +560,68 @@ const PALETTES_BY_KEY = {
     'false':   '#b91c1c',
     'unknown': '#9ca3af',
   },
+  keller: {
+    'true':  '#0891b2',
+    'false': '#94a3b8',
+  },
 };
 const _colorFor = (palette, key, idx) =>
   Array.isArray(palette) ? palette[idx % palette.length] : (palette[key] || '#9ca3af');
+
+// ── range-bucket definitions for numeric axes ─────────────────────────────
+// Each bucket: { key, label, min, max, fieldMin, fieldMax }
+// Click a bucket -> sets BOTH FILTERS[fieldMin] and FILTERS[fieldMax] together.
+// min is inclusive, max is exclusive. null = open-ended.
+const BUCKETS = {
+  // Non-overlapping inclusive integer ranges so bucket counts match API filter
+  area_m2: {
+    fieldMin: 'min_area', fieldMax: 'max_area',
+    buckets: [
+      { key: '<120',    label: '< 120 m²',  min: null, max: 119 },
+      { key: '120-179', label: '120–179',   min: 120,  max: 179 },
+      { key: '180-239', label: '180–239',   min: 180,  max: 239 },
+      { key: '240+',    label: '≥ 240 m²',  min: 240,  max: null },
+    ],
+  },
+  price_eur: {
+    fieldMin: 'min_price', fieldMax: 'max_price',
+    buckets: [
+      { key: '<300k',     label: '< 300k €',    min: null,   max: 299999 },
+      { key: '300-499k',  label: '300–499k €',  min: 300000, max: 499999 },
+      { key: '500-799k',  label: '500–799k €',  min: 500000, max: 799999 },
+      { key: '800k+',     label: '≥ 800k €',    min: 800000, max: null   },
+    ],
+  },
+  year_built: {
+    fieldMin: 'min_year', fieldMax: 'max_year',
+    buckets: [
+      { key: '<1950',     label: '< 1950',    min: null, max: 1949 },
+      { key: '1950-1979', label: '1950–1979', min: 1950, max: 1979 },
+      { key: '1980-2009', label: '1980–2009', min: 1980, max: 2009 },
+      { key: '2010+',     label: '≥ 2010',    min: 2010, max: null },
+    ],
+  },
+};
+// Range palettes — sequential greys/cools so the order reads like a scale.
+const RANGE_PALETTES = {
+  area_m2:    { '<120':'#93c5fd', '120-179':'#3b82f6', '180-239':'#1d4ed8', '240+':'#1e3a8a' },
+  price_eur:  { '<300k':'#fcd34d', '300-499k':'#f59e0b', '500-799k':'#d97706', '800k+':'#92400e' },
+  year_built: { '<1950':'#a78bfa', '1950-1979':'#7c3aed', '1980-2009':'#5b21b6', '2010+':'#312e81' },
+};
+
+// Set a range filter (two fields at once). Toggle: same click clears both.
+function setRange(fieldMin, minVal, fieldMax, maxVal) {
+  const cur = FILTERS[fieldMin] === String(minVal ?? '') &&
+              FILTERS[fieldMax] === String(maxVal ?? '');
+  if (cur) {
+    FILTERS[fieldMin] = '';
+    FILTERS[fieldMax] = '';
+  } else {
+    FILTERS[fieldMin] = minVal == null ? '' : String(minVal);
+    FILTERS[fieldMax] = maxVal == null ? '' : String(maxVal);
+  }
+  load();
+}
 
 // ── interaction wiring ─────────────────────────────────────────────────────
 // Toggle a filter (click active value to clear). All UI writes go through here.
@@ -564,6 +642,17 @@ document.addEventListener('click', (e) => {
   if (a === 'set-filter')         setFilter(action.dataset.field, action.dataset.value);
   else if (a === 'clear-filter')  clearFilter(action.dataset.field);
   else if (a === 'reset')         resetFilters();
+  else if (a === 'set-range') {
+    const fmin = action.dataset.fieldMin, fmax = action.dataset.fieldMax;
+    const min = action.dataset.min === '' ? null : action.dataset.min;
+    const max = action.dataset.max === '' ? null : action.dataset.max;
+    setRange(fmin, min, fmax, max);
+    // also clear that range pair when toggled off — handled inside setRange
+  } else if (a === 'clear-range') {
+    FILTERS[action.dataset.fieldMin] = '';
+    FILTERS[action.dataset.fieldMax] = '';
+    load();
+  }
 });
 
 // Debounced text/number input handler (so we don't fire load() on every keystroke).
@@ -590,6 +679,76 @@ function _matchesActive(field, key, activeVal) {
 }
 function _toFilterValue(field, key) {
   return field === 'min_tier' ? _tierFilterValue(key) : key;
+}
+
+// Renders a bucketed numeric axis (Fläche / Preis / Baujahr). Buckets are
+// pre-defined; each segment click sets min+max FILTERS together.
+function makeBucketBar(label, field, recs, total) {
+  const def = BUCKETS[field];
+  const palette = RANGE_PALETTES[field] || {};
+  const fMin = FILTERS[def.fieldMin] || '';
+  const fMax = FILTERS[def.fieldMax] || '';
+  const hasFilter = fMin !== '' || fMax !== '';
+
+  // Count records per bucket — inclusive on both ends so counts match the
+  // API filter (>= min AND <= max). Buckets are defined as non-overlapping.
+  const counts = def.buckets.map(b => {
+    let n = 0;
+    for (const r of recs) {
+      const v = r[field];
+      if (v == null) continue;
+      if (b.min != null && v < b.min) continue;
+      if (b.max != null && v > b.max) continue;
+      n++;
+    }
+    return [b, n];
+  });
+
+  const sum = counts.reduce((a, [, n]) => a + n, 0);
+  const missing = total - sum;
+
+  // Bar segments
+  const segs = counts.map(([b, n]) => {
+    if (n === 0) return '';
+    const col = palette[b.key] || '#cbd5e1';
+    const pct = (n / total * 100).toFixed(1);
+    const isActive = String(b.min ?? '') === fMin && String(b.max ?? '') === fMax;
+    const text = n / total > 0.06 ? n : '';
+    return `<div class="bar-seg${isActive ? ' active' : ''}"
+                 data-action="set-range"
+                 data-field-min="${def.fieldMin}" data-min="${b.min ?? ''}"
+                 data-field-max="${def.fieldMax}" data-max="${b.max ?? ''}"
+                 style="flex:${n} 1 0;background:${col}"
+                 title="${esc(b.label)}: ${n} (${pct}%)">${text}</div>`;
+  }).join('');
+  const missingSeg = missing > 0
+    ? `<div class="bar-seg unset" style="flex:${missing} 1 0;background:#e5e7eb;color:#6b7280"
+            title="unbekannt: ${missing}">${missing / total > 0.06 ? missing : ''}</div>`
+    : '';
+
+  // Legend — include zero-count buckets so the user sees the full scale
+  const legend = counts.map(([b, n]) => {
+    const col = palette[b.key] || '#cbd5e1';
+    const isActive = String(b.min ?? '') === fMin && String(b.max ?? '') === fMax;
+    const cls = isActive ? 'leg-item active' : (hasFilter ? 'leg-item dim' : 'leg-item');
+    return `<span class="${cls}" data-action="set-range"
+                  data-field-min="${def.fieldMin}" data-min="${b.min ?? ''}"
+                  data-field-max="${def.fieldMax}" data-max="${b.max ?? ''}">
+              <span class="swatch" style="background:${col}"></span>${esc(b.label)} <strong>${n}</strong>
+            </span>`;
+  }).join('');
+
+  const lblHtml = hasFilter
+    ? `<div class="ax-lbl has-filter">${label} · <span class="ax-clear"
+                                                       data-action="clear-range"
+                                                       data-field-min="${def.fieldMin}"
+                                                       data-field-max="${def.fieldMax}">×</span></div>`
+    : `<div class="ax-lbl">${label}</div>`;
+
+  return `
+    ${lblHtml}
+    <div class="bar${hasFilter ? ' has-filter' : ''}">${segs}${missingSeg}</div>
+    <div class="bar-legend">${legend}</div>`;
 }
 
 function makeBar(label, counts, palette, ontologyGroup, total, field) {
@@ -660,18 +819,17 @@ function renderStats(recs) {
       (a, b) => parseInt(a[0].replace(/^T/, '')) - parseInt(b[0].replace(/^T/, ''))
     );
   };
-  const groupBim = () => {
+  const groupBool = (field) => {
     const m = new Map();
     for (const r of recs) {
-      const v = r.modelable_in_bim_ai;
+      const v = r[field];
       if (v === true)  m.set('true',  (m.get('true')  || 0) + 1);
       if (v === false) m.set('false', (m.get('false') || 0) + 1);
-      // null = not assessed; goes into the grey "unbekannt" tail via the
-      // total-vs-sum gap, no explicit bucket needed.
     }
-    // Stable display order: ✓ first, ✗ second
-    return [...m.entries()].sort(([a], [b]) => a === 'true' ? -1 : 1);
+    return [...m.entries()].sort(([a]) => a === 'true' ? -1 : 1);
   };
+  const groupBim = () => groupBool('modelable_in_bim_ai');
+  const groupKeller = () => groupBool('has_basement');
 
   // Smart header: big count (with /total when filtered) + Reset link
   const hdr = `
@@ -690,80 +848,56 @@ function renderStats(recs) {
       ${makeBar('Bauweise',     group('construction'),  PALETTES.construction,  'constructions',    n, 'construction')}
       ${makeBar('Dachform',     group('roof_type'),     PALETTES.roof_type,     'roof_types',       n, 'roof_type')}
       ${makeBar('Stil',         group('style'),         PALETTES.style,         'styles',           n, 'style')}
-      ${makeBar('Tier',         groupTier(),            PALETTES_BY_KEY.tier,   'reconstructability_tiers', n, 'min_tier')}
-      ${makeBar('bim-ai',       groupBim(),             PALETTES_BY_KEY.bim_ai, 'modelable_states', n, 'modelable_in_bim_ai')}
-    </div>`;
-
-  // Compact misc row for axes the bars can't cover (numeric ranges, keller, energy)
-  const numPair = (lbl, fMin, fMax, unit, ph) => {
-    const minInput = fMin
-      ? `<input type="number" placeholder="${ph[0]}" value="${FILTERS[fMin]}"
-                oninput="onFilterInput('${fMin}', this.value)" />
-         <span class="dash">—</span>`
-      : `<span class="dash" style="padding-right:6px">bis</span>`;
-    return `
-      <div class="mgroup">
-        <span class="mlbl">${lbl}</span>
-        <span class="num-pair">
-          ${minInput}
-          <input type="number" placeholder="${ph[1]}" value="${FILTERS[fMax]}"
-                 oninput="onFilterInput('${fMax}', this.value)" />
-          ${unit ? `<span class="unit">${unit}</span>` : ''}
-        </span>
-      </div>`;
-  };
-  const kellerVal = FILTERS.has_basement;
-  const kellerTog = `
-    <div class="mgroup">
-      <span class="mlbl">Keller</span>
-      <span class="seg-toggle">
-        <button class="${kellerVal === '' ? 'active' : ''}" data-action="clear-filter" data-field="has_basement">egal</button>
-        <button class="${kellerVal === 'true' ? 'active' : ''}" data-action="set-filter" data-field="has_basement" data-value="true">mit</button>
-        <button class="${kellerVal === 'false' ? 'active' : ''}" data-action="set-filter" data-field="has_basement" data-value="false">ohne</button>
-      </span>
-    </div>`;
-  const energyIn = `
-    <div class="mgroup">
-      <span class="mlbl">Energie</span>
-      <input class="text-input" type="text" placeholder="z.B. 40, 55"
-             value="${esc(FILTERS.energy_standard)}"
-             oninput="onFilterInput('energy_standard', this.value)" />
-    </div>`;
-  const misc = `
-    <div class="misc-row">
-      ${numPair('Fläche',  'min_area',  'max_area',  'm²', ['107','237'])}
-      ${numPair('Preis',   '',          'max_price', '€',  ['', '500k'])}
-      ${numPair('Baujahr', 'min_year',  'max_year',  '',   ['1956','2007'])}
-      ${kellerTog}
-      ${energyIn}
+      ${makeBar('Tier',          groupTier(),               PALETTES_BY_KEY.tier,    'reconstructability_tiers', n, 'min_tier')}
+      ${makeBar('bim-ai',        groupBim(),                PALETTES_BY_KEY.bim_ai,  'modelable_states',         n, 'modelable_in_bim_ai')}
+      ${makeBar('Keller',        groupKeller(),             PALETTES_BY_KEY.keller,  'keller_states',            n, 'has_basement')}
+      ${makeBar('Energiestandard', group('energy_standard'), PALETTES.energy,         'energy_standards',         n, 'energy_standard')}
+      ${makeBucketBar('Fläche',  'area_m2',    recs, n)}
+      ${makeBucketBar('Preis',   'price_eur',  recs, n)}
+      ${makeBucketBar('Baujahr', 'year_built', recs, n)}
     </div>`;
 
   // Active filter chip strip — only renders when at least one filter is set
   const chips = filtered ? renderChips() : '';
 
-  document.getElementById('stats').innerHTML = hdr + rows + misc + chips;
+  document.getElementById('stats').innerHTML = hdr + rows + chips;
 }
 
 // Build a humane label for an active filter value
 function chipValueLabel(field, value) {
   if (field === 'modelable_in_bim_ai') return value === 'true' ? '✓ modellierbar' : '✗ blockiert';
-  if (field === 'has_basement') return value === 'true' ? 'mit' : 'ohne';
+  if (field === 'has_basement') return value === 'true' ? 'mit Keller' : 'ohne Keller';
   if (field === 'min_tier') return `≥ ${value}`;
   if (AXIS_ONTO[field]) return ONTOLOGY?.[AXIS_ONTO[field]]?.[value] || value;
   return value;
 }
 
 function renderChips() {
-  const items = Object.entries(FILTERS)
-    .filter(([, v]) => v !== '')
+  // Collapse min_X/max_X pairs into one chip; track which range fields are already chipped.
+  const rangeFields = new Set();
+  const rangeChips = [];
+  for (const g of RANGE_GROUPS) {
+    const lo = FILTERS[g.fmin], hi = FILTERS[g.fmax];
+    if (lo === '' && hi === '') continue;
+    rangeFields.add(g.fmin); rangeFields.add(g.fmax);
+    rangeChips.push(`
+      <span class="chip">
+        <span class="chip-axis">${esc(g.label)}</span>
+        ${esc(rangeLabel(g, lo, hi))}
+        <span class="chip-x" data-action="clear-range"
+              data-field-min="${g.fmin}" data-field-max="${g.fmax}">×</span>
+      </span>`);
+  }
+  // Single-value filters
+  const singles = Object.entries(FILTERS)
+    .filter(([f, v]) => v !== '' && !rangeFields.has(f))
     .map(([f, v]) => `
       <span class="chip">
         <span class="chip-axis">${esc(AXIS_LABELS[f] || f)}</span>
         ${esc(chipValueLabel(f, v))}
         <span class="chip-x" data-action="clear-filter" data-field="${f}">×</span>
-      </span>`)
-    .join('');
-  return `<div class="active-chips">${items}</div>`;
+      </span>`);
+  return `<div class="active-chips">${[...rangeChips, ...singles].join('')}</div>`;
 }
 
 // Remember the unfiltered total so the header can show "9 / 57 Häuser"

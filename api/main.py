@@ -189,10 +189,11 @@ def list_houses(
     construction:    Optional[str]   = Query(None),
     roof_type:       Optional[str]   = Query(None),
     style:           Optional[str]   = Query(None),
-    energy_standard: Optional[str]   = Query(None, description="Substring match"),
+    energy_standard: Optional[str]   = Query(None, description="Exact match (enum from /ontology.energy_standards)"),
     has_basement:    Optional[bool]  = Query(None),
     min_area:        Optional[float] = Query(None),
     max_area:        Optional[float] = Query(None),
+    min_price:       Optional[float] = Query(None),
     max_price:       Optional[float] = Query(None),
     min_year:        Optional[int]   = Query(None),
     max_year:        Optional[int]   = Query(None),
@@ -210,11 +211,12 @@ def list_houses(
     if construction:    recs = eq("construction",  construction)
     if roof_type:       recs = eq("roof_type",     roof_type)
     if style:           recs = eq("style",         style)
-    if energy_standard: recs = [r for r in recs if energy_standard.lower() in (r.get("energy_standard") or "").lower()]
+    if energy_standard: recs = eq("energy_standard", energy_standard)
     if has_basement is not None:
         recs = [r for r in recs if r.get("has_basement") is has_basement]
     if min_area is not None: recs = [r for r in recs if r.get("area_m2") is not None and r["area_m2"] >= min_area]
     if max_area is not None: recs = [r for r in recs if r.get("area_m2") is not None and r["area_m2"] <= max_area]
+    if min_price is not None: recs = [r for r in recs if r.get("price_eur") is not None and r["price_eur"] >= min_price]
     if max_price is not None: recs = [r for r in recs if r.get("price_eur") is not None and r["price_eur"] <= max_price]
     if min_year is not None: recs = [r for r in recs if r.get("year_built") is not None and r["year_built"] >= min_year]
     if max_year is not None: recs = [r for r in recs if r.get("year_built") is not None and r["year_built"] <= max_year]
