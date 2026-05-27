@@ -68,26 +68,29 @@ type Tool =
   | 'height_mark'
   | 'link';
 
-// Tag → which tools are available. Dimensioned_distance + dimension_number
-// + select + link are always available where labels can exist; the rest
-// depend on the scene's tag.
+// Tag → which tools are available. The 'link' tool was removed once
+// linking became implicit: placing a dim_distance now auto-creates a
+// dim_number at its midpoint with the relation already set, and the
+// inspector exposes a manual link picker when you want to relink.
+// 'dimension_number' is kept as a tool but only useful for the rare case
+// of a number text whose stroke isn't being labeled.
 const TOOLS_BY_TAG: Record<SceneTag, Tool[]> = {
   grundriss: [
     'select', 'wall', 'floorplan_opening',
-    'dimensioned_distance', 'dimension_number', 'link',
+    'dimensioned_distance', 'dimension_number',
   ],
   ansicht: [
     'select', 'view_opening', 'component_line', 'height_mark',
-    'dimensioned_distance', 'dimension_number', 'link',
+    'dimensioned_distance', 'dimension_number',
   ],
   schnitt: [
     'select', 'view_opening', 'component_line', 'height_mark',
-    'dimensioned_distance', 'dimension_number', 'link',
+    'dimensioned_distance', 'dimension_number',
   ],
   sonstiges: [
     'select', 'wall', 'floorplan_opening', 'view_opening',
     'component_line', 'height_mark',
-    'dimensioned_distance', 'dimension_number', 'link',
+    'dimensioned_distance', 'dimension_number',
   ],
   nicht_klassifiziert: ['select'],
 };
@@ -223,6 +226,10 @@ export function AnnotatePage() {
   // chainAnchor remembers the start of the current chain so we can offer
   // 'close the polygon' when the chain's tip returns to it.
   const [wallChainAnchor, setWallChainAnchor] = useState<Point | null>(null);
+  // Bumped every time the chip bar writes a new default so the bar (which
+  // reads from localStorage via getDefaults) re-renders to show the new
+  // selection. Cheap; getDefaults is a synchronous read.
+  const [defaultsRev, setDefaultsRev] = useState(0);
   // Snap target computed on every pointermove during drawing — render at
   // §15's green circle if non-null, and use as the actual commit point on
   // the next click instead of the raw cursor.
@@ -233,12 +240,15 @@ export function AnnotatePage() {
   const [pendingAttachedWallId, setPendingAttachedWallId] = useState<string | null>(null);
   // M12 inline edit: render a floating <input> instead of using window.prompt.
   // `wasJustCreated` lets Esc delete the freshly-placed label as if the user
-  // cancelled placement.
+  // cancelled placement. `autoLinkAsDimNumber` is set when the inline edit
+  // belongs to a dim_distance — on commit we additionally create a
+  // dim_number at the given point with a labels-relation back to labelId.
   const [pendingInlineEdit, setPendingInlineEdit] = useState<{
     labelId: string;
     field: 'text' | 'value_mm';
     screenPos: [number, number];
     wasJustCreated: boolean;
+    autoLinkAsDimNumber?: { at: Point };
   } | null>(null);
   // M13: keyboard cheatsheet overlay.
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
@@ -437,6 +447,21 @@ export function AnnotatePage() {
           } else {
             setPendingStart(pt);
           }
+        } else if (tool === 'dimensioned_distance') {
+          // Dim-chain along the facade: next click extends from this endpoint.
+          // Open an inline edit at the midpoint asking for the value. On
+          // commit, also create a paired dim_number with a labels-relation —
+          // so users no longer have to think about "Maßzahl" as a separate
+          // tool. Esc just closes the edit (the dim_distance stays placed).
+          setPendingStart(pt);
+          const mid: Point = [(pendingStart[0] + pt[0]) / 2, (pendingStart[1] + pt[1]) / 2];
+          setPendingInlineEdit({
+            labelId: label.id,
+            field: 'value_mm',
+            screenPos: [e.clientX, e.clientY],
+            wasJustCreated: false,
+            autoLinkAsDimNumber: { at: mid },
+          });
         } else {
           setPendingStart(null);
         }
@@ -1042,7 +1067,6 @@ export function AnnotatePage() {
       if (e.key === 'o') trySetTool(sceneTag === 'grundriss' ? 'floorplan_opening' : 'view_opening');
       if (e.key === 'l') trySetTool('component_line');
       if (e.key === 'h' && !e.metaKey && !e.ctrlKey) trySetTool('height_mark');
-      if (e.key === 'k' && !e.metaKey && !e.ctrlKey) trySetTool('link');
       if (e.key === 's' && !e.metaKey && !e.ctrlKey) trySetTool('select');
       if (e.key === 'r') resetView();
     };
@@ -1170,59 +1194,6 @@ export function AnnotatePage() {
           }}
         />
       }
-      rightRailMode="overlay-pinnable"
-      rightRail={
-        // Dim the rail to ~5% opacity + disable pointer events during drag
-        // so the user can see what they're moving even if the cursor passes
-        // under the overlay.
-        ((selectedIds.size > 1) || selectedLabel) ? (
-          <div style={{
-            opacity: isDragging ? 0.05 : 1,
-            pointerEvents: isDragging ? 'none' : 'auto',
-            transition: 'opacity 120ms',
-          }}>{(
-        selectedIds.size > 1 ? (
-          <MultiInspector
-            labels={labels.filter((l) => selectedIds.has(l.id))}
-            onBulkStatus={(status) => {
-              pushUndo();
-              setLabels((prev) =>
-                prev.map((l) =>
-                  selectedIds.has(l.id) ? ({ ...l, status, updated_at: nowIso() } as Label) : l,
-                ),
-              );
-              setDirty(true);
-            }}
-            onBulkDelete={() => {
-              const ids = Array.from(selectedIds);
-              for (const id of ids) deleteLabel(id);
-            }}
-            onClear={() => setSelectedIds(new Set())}
-          />
-        ) : selectedLabel ? (
-          <Inspector
-            label={selectedLabel}
-            allLabels={labels}
-            onChange={(patch) => updateLabel(selectedLabel.id, patch)}
-            onDelete={() => deleteLabel(selectedLabel.id)}
-            onUnlink={(otherId) => {
-              const sel = selectedLabel;
-              if (sel.type === 'dimension_number') {
-                unlinkPair(sel.id, otherId);
-              } else if (sel.type === 'dimensioned_distance') {
-                unlinkPair(otherId, sel.id);
-              }
-            }}
-            onSelectId={(id) => setSelectedIds(new Set([id]))}
-          />
-        ) : null
-        )}</div>
-        ) : null
-      }
-      rightRailLabel={
-        selectedIds.size > 1 ? `${selectedIds.size} Labels` : selectedLabel ? 'Inspector' : undefined
-      }
-      onCloseRightRail={() => setSelectedIds(new Set())}
     >
       <div className="h-full bg-zinc-800 relative overflow-hidden">
         {loading && <p className="absolute top-4 left-4 text-white text-sm">Lade Labels…</p>}
@@ -1443,6 +1414,17 @@ export function AnnotatePage() {
             </>
           )}
         </svg>
+        {/* Sub-kind chip bar — shown when a tool with multiple sub-types is
+            active. Picking a chip writes to the per-house defaults so the
+            next drawn label of this type is pre-classified. */}
+        <SubKindChips
+          tool={tool}
+          scope={scope}
+          houseKey={key}
+          sceneTag={sceneTag}
+          rev={defaultsRev}
+          onPick={() => setDefaultsRev((v) => v + 1)}
+        />
         <div className="absolute bottom-3 left-3 text-[0.7rem] text-zinc-300 bg-black/50 px-2 py-1 rounded leading-snug pointer-events-none">
           [S] Select · [D] Bemaßte Strecke · [N] Maßzahl · [W] Wand · [O] Öffnung · [L] Linie · [H] Höhenkote
           <br />
@@ -1454,8 +1436,9 @@ export function AnnotatePage() {
             click again). */}
         {pendingInlineEdit && (
           <InlineEditInput
+            key={pendingInlineEdit.labelId}
             screenPos={pendingInlineEdit.screenPos}
-            placeholder={pendingInlineEdit.field === 'text' ? 'z. B. 1,75' : 'z. B. 2750 (mm)'}
+            placeholder={pendingInlineEdit.field === 'text' ? 'z. B. 1,75' : 'z. B. 1,75 oder 1750'}
             onCommit={(value) => {
               const trimmed = value.trim();
               if (trimmed === '') {
@@ -1472,10 +1455,30 @@ export function AnnotatePage() {
                   attributes: { text: trimmed, parsed_value_mm: parsed },
                 } as Partial<Label>);
               } else {
-                updateLabel(pendingInlineEdit.labelId, {
-                  attributes: { value_mm: parsed, reference_line_id: null },
-                  notes: trimmed,
-                } as Partial<Label>);
+                // Update the dim_distance.
+                const distanceLabel = labels.find((l) => l.id === pendingInlineEdit.labelId);
+                const isDistance = distanceLabel?.type === 'dimensioned_distance';
+                updateLabel(pendingInlineEdit.labelId, isDistance
+                  ? ({ attributes: { value_mm: parsed } } as Partial<Label>)
+                  : ({ attributes: { value_mm: parsed, reference_line_id: null }, notes: trimmed } as Partial<Label>));
+                // If this inline edit belongs to a freshly-placed dim_distance,
+                // automatically create a paired dim_number at the line's
+                // midpoint with a labels-relation. That removes the need for
+                // the user to think about "Maßzahl" or "Verknüpfen" as
+                // separate tools.
+                if (pendingInlineEdit.autoLinkAsDimNumber && isDistance) {
+                  const numberLabel: DimensionNumberLabel = {
+                    id: uuid(),
+                    type: 'dimension_number',
+                    geometry: { anchor: pendingInlineEdit.autoLinkAsDimNumber.at },
+                    attributes: { text: trimmed, parsed_value_mm: parsed },
+                    status: 'readable',
+                    relations: [{ other_id: pendingInlineEdit.labelId, kind: 'labels' }],
+                    created_at: nowIso(),
+                    updated_at: nowIso(),
+                  };
+                  setLabels((prev) => [...prev, numberLabel]);
+                }
               }
               setPendingInlineEdit(null);
             }}
@@ -1494,17 +1497,65 @@ export function AnnotatePage() {
         {cheatsheetOpen && (
           <Cheatsheet onClose={() => setCheatsheetOpen(false)} />
         )}
-        {tool === 'link' && (
-          <div className="absolute top-3 right-3 bg-black/75 text-white px-3 py-2 rounded text-[0.78rem] leading-snug pointer-events-none min-w-[240px]">
-            <div className="font-semibold mb-1">Verknüpfen 🔗</div>
-            <div className="text-[0.72rem] text-zinc-300">
-              {linkSource == null
-                ? 'Maßzahl oder Bemaßung anklicken…'
-                : 'Jetzt das Gegenstück anklicken'}
-            </div>
-            <div className="text-[0.65rem] text-zinc-400 mt-1">
-              Esc = abbrechen · S = zurück zu Select
-            </div>
+        {/* Floating inspector popover — replaces the old fixed right-rail.
+            Dragable header, position persists in localStorage. Fades during
+            label-drag so it doesn't visually obscure the moving geometry. */}
+        {(selectedIds.size > 1 || selectedLabel) && (
+          <div style={{
+            opacity: isDragging ? 0.05 : 1,
+            pointerEvents: isDragging ? 'none' : 'auto',
+            transition: 'opacity 120ms',
+          }}>
+            <FloatingPopover
+              title={
+                selectedIds.size > 1
+                  ? `${selectedIds.size} Labels`
+                  : selectedLabel ? `Inspector: ${selectedLabel.type}` : 'Inspector'
+              }
+              storageKey="inspector"
+              onClose={() => setSelectedIds(new Set())}
+            >
+              {selectedIds.size > 1 ? (
+                <MultiInspector
+                  labels={labels.filter((l) => selectedIds.has(l.id))}
+                  onBulkStatus={(status) => {
+                    pushUndo();
+                    setLabels((prev) =>
+                      prev.map((l) =>
+                        selectedIds.has(l.id) ? ({ ...l, status, updated_at: nowIso() } as Label) : l,
+                      ),
+                    );
+                    setDirty(true);
+                  }}
+                  onBulkDelete={() => {
+                    const ids = Array.from(selectedIds);
+                    for (const id of ids) deleteLabel(id);
+                  }}
+                  onClear={() => setSelectedIds(new Set())}
+                />
+              ) : selectedLabel ? (
+                <Inspector
+                  label={selectedLabel}
+                  allLabels={labels}
+                  onChange={(patch) => updateLabel(selectedLabel.id, patch)}
+                  onDelete={() => deleteLabel(selectedLabel.id)}
+                  onUnlink={(otherId) => {
+                    const sel = selectedLabel;
+                    if (sel.type === 'dimension_number') {
+                      unlinkPair(sel.id, otherId);
+                    } else if (sel.type === 'dimensioned_distance') {
+                      unlinkPair(otherId, sel.id);
+                    }
+                  }}
+                  onSelectId={(id) => setSelectedIds(new Set([id]))}
+                  onLinkTo={(otherId) => {
+                    if (!selectedLabel) return;
+                    if (selectedLabel.type === 'dimension_number') linkPair(selectedLabel.id, otherId);
+                    else if (selectedLabel.type === 'dimensioned_distance') linkPair(otherId, selectedLabel.id);
+                  }}
+                />
+              ) : null}
+            </FloatingPopover>
           </div>
         )}
       </div>
@@ -1949,17 +2000,18 @@ function LabelGlyph({
       break;
     }
     case 'wall': {
-      // M9: walls render as a perpendicular BAND, not a fat stroke. The
-      // band's width = thickness_mm * WALL_PX_PER_MM, computed perpendicular
-      // to the wall axis. The axis line is drawn on top so the wall direction
-      // stays legible at any thickness.
+      // Walls render as a perpendicular BAND. The band is extended past each
+      // endpoint by half-thickness in wallBandPath() so adjacent walls'
+      // fills overlap into the corner. No stroke on the band: a stroke
+      // would draw visible borders that don't merge between separate walls
+      // and re-introduce the corner gap we just fixed.
       const { start, end } = label.geometry;
       const thicknessMm = label.attributes.thickness_mm ?? 365;
       const path = wallBandPath(start, end, thicknessMm, WALL_PX_PER_MM);
       body = (
         <g {...bodyProps}>
           {path && (
-            <path d={path} fill={stroke} fillOpacity={0.18} stroke={stroke} strokeWidth={sw} />
+            <path d={path} fill={stroke} fillOpacity={0.28} stroke="none" />
           )}
           <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={stroke} strokeWidth={sw} />
         </g>
@@ -1969,9 +2021,7 @@ function LabelGlyph({
     case 'floorplan_opening': {
       const [a, b, c, d] = label.geometry.quad;
       const attached = (label.relations ?? []).some((r) => r.kind === 'belongs_to');
-      // Attached openings get an opaque white underlay so the wall band beneath
-      // visually reads as "cut" by the opening (M10's cut-out hint).
-      // An extra magenta dashed outer ring marks attached state.
+      const inner = floorplanOpeningInner(label.geometry.quad, label.attributes, stroke);
       body = (
         <g {...bodyProps}>
           {attached && (
@@ -1982,6 +2032,7 @@ function LabelGlyph({
           )}
           <polygon points={`${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`}
                    fill={fill} stroke={stroke} strokeWidth={sw} />
+          {inner}
         </g>
       );
       break;
@@ -2144,7 +2195,6 @@ function Cheatsheet({ onClose }: { onClose: () => void }) {
       ['O', 'Öffnung (tag-abhängig)'],
       ['L', 'Bauteillinie'],
       ['H', 'Höhenkote'],
-      ['K', 'Verknüpfen'],
     ]],
     ['Zeichnen', [
       ['Shift (halten)', 'Achsen-/Winkel-Lock (0/45/90/135°)'],
@@ -2452,7 +2502,10 @@ function LinkVisuals({ labels, selectedId }: { labels: Label[]; selectedId: stri
 }
 
 // Compute a wall's perpendicular band as an SVG path. Returns '' for a
-// degenerate zero-length wall (avoids NaN in the path string).
+// degenerate zero-length wall (avoids NaN in the path string). The band is
+// EXTENDED along the axis by half-thickness on each end so that adjacent
+// walls meeting at a corner naturally overlap into the corner area
+// (creating a clean visual L-join instead of a gap).
 function wallBandPath(start: Point, end: Point, thicknessMm: number, pxPerMm: number): string {
   const dx = end[0] - start[0];
   const dy = end[1] - start[1];
@@ -2460,15 +2513,94 @@ function wallBandPath(start: Point, end: Point, thicknessMm: number, pxPerMm: nu
   if (len === 0) return '';
   const ux = dx / len;
   const uy = dy / len;
-  // Perpendicular unit vector (90° CCW)
   const px = -uy;
   const py = ux;
   const half = (thicknessMm * pxPerMm) / 2;
-  const a: Point = [start[0] + px * half, start[1] + py * half];
-  const b: Point = [end[0] + px * half, end[1] + py * half];
-  const c: Point = [end[0] - px * half, end[1] - py * half];
-  const d: Point = [start[0] - px * half, start[1] - py * half];
+  // Extend each endpoint along the axis by half-thickness.
+  const s: Point = [start[0] - ux * half, start[1] - uy * half];
+  const e: Point = [end[0] + ux * half, end[1] + uy * half];
+  const a: Point = [s[0] + px * half, s[1] + py * half];
+  const b: Point = [e[0] + px * half, e[1] + py * half];
+  const c: Point = [e[0] - px * half, e[1] - py * half];
+  const d: Point = [s[0] - px * half, s[1] - py * half];
   return `M ${a[0]},${a[1]} L ${b[0]},${b[1]} L ${c[0]},${c[1]} L ${d[0]},${d[1]} Z`;
+}
+
+// Inner graphics for a floorplan_opening — door swing arc / window sashes.
+// `quad` is ordered as built in onCanvasPointerDown: [a, b, c, d] where a→b
+// runs along the opening's length and a→d runs perpendicular (the wall
+// depth). The choice of hinge corner is driven by attributes.swing_side and
+// the swing direction by attributes.swing.
+function floorplanOpeningInner(
+  quad: Quad,
+  attrs: FloorplanOpeningLabel['attributes'],
+  color: string,
+): React.ReactNode {
+  const [a, b, , d] = quad;
+  const lenX = b[0] - a[0]; const lenY = b[1] - a[1];
+  const lenMag = Math.hypot(lenX, lenY);
+  if (lenMag < 1) return null;
+  const depX = d[0] - a[0]; const depY = d[1] - a[1];
+  const depMag = Math.hypot(depX, depY);
+  if (depMag < 1) return null;
+  const depUx = depX / depMag; const depUy = depY / depMag;
+
+  if (attrs.opening_kind === 'door') {
+    const swingSide = attrs.swing_side ?? 'left';
+    const swing = attrs.swing ?? 'in';
+    const hinge = swingSide === 'right' ? b : a;
+    // Closed leaf endpoint = the opening corner opposite the hinge.
+    const closedSign = swingSide === 'right' ? -1 : 1;
+    const closedTip: Point = [hinge[0] + closedSign * lenX, hinge[1] + closedSign * lenY];
+    // Open leaf endpoint = perpendicular from hinge into the room. We don't
+    // know which side is "inside", so use depUx/depUy direction for
+    // 'in' and the opposite for 'out'.
+    const perpSign = swing === 'out' ? -1 : 1;
+    const openTip: Point = [
+      hinge[0] + perpSign * depUx * lenMag,
+      hinge[1] + perpSign * depUy * lenMag,
+    ];
+    // Build the 90° arc as a polyline.
+    const startAng = Math.atan2(closedTip[1] - hinge[1], closedTip[0] - hinge[0]);
+    const endAng = Math.atan2(openTip[1] - hinge[1], openTip[0] - hinge[0]);
+    let delta = endAng - startAng;
+    while (delta > Math.PI) delta -= 2 * Math.PI;
+    while (delta < -Math.PI) delta += 2 * Math.PI;
+    const steps = 22;
+    const arcPts: Point[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const ang = startAng + delta * (i / steps);
+      arcPts.push([hinge[0] + lenMag * Math.cos(ang), hinge[1] + lenMag * Math.sin(ang)]);
+    }
+    return (
+      <g pointerEvents="none" opacity={0.75}>
+        <line x1={hinge[0]} y1={hinge[1]} x2={openTip[0]} y2={openTip[1]}
+              stroke={color} strokeWidth={1.6} />
+        <polyline points={arcPts.map(p => `${p[0]},${p[1]}`).join(' ')}
+                  fill="none" stroke={color} strokeWidth={1} strokeDasharray="3,2" />
+      </g>
+    );
+  }
+
+  if (attrs.opening_kind === 'window') {
+    // Three parallel lines spanning the long axis at depth t = 0.25, 0.5, 0.75.
+    const ts = [0.25, 0.5, 0.75];
+    return (
+      <g pointerEvents="none" opacity={0.65}>
+        {ts.map((t, i) => {
+          const x1 = a[0] + depX * t;
+          const y1 = a[1] + depY * t;
+          const x2 = x1 + lenX;
+          const y2 = y1 + lenY;
+          return (
+            <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
+                  stroke={color} strokeWidth={i === 1 ? 0.8 : 1.4} />
+          );
+        })}
+      </g>
+    );
+  }
+  return null;
 }
 
 // Position of the wall's perpendicular thickness handle: midpoint + perp
@@ -2602,6 +2734,7 @@ function Inspector({
   onDelete,
   onUnlink,
   onSelectId,
+  onLinkTo,
 }: {
   label: Label;
   allLabels: Label[];
@@ -2609,6 +2742,7 @@ function Inspector({
   onDelete: () => void;
   onUnlink: (otherId: string) => void;
   onSelectId: (id: string) => void;
+  onLinkTo: (otherId: string) => void;
 }) {
   return (
     <div className="p-4 space-y-4">
@@ -2646,6 +2780,7 @@ function Inspector({
           allLabels={allLabels}
           onUnlink={onUnlink}
           onSelectId={onSelectId}
+          onLinkTo={onLinkTo}
         />
       )}
 
@@ -2680,11 +2815,13 @@ function LinksSection({
   allLabels,
   onUnlink,
   onSelectId,
+  onLinkTo,
 }: {
   label: DimensionNumberLabel | DimensionedDistanceLabel;
   allLabels: Label[];
   onUnlink: (otherId: string) => void;
   onSelectId: (id: string) => void;
+  onLinkTo: (otherId: string) => void;
 }) {
   const linkedIds =
     label.type === 'dimension_number'
@@ -2695,6 +2832,14 @@ function LinksSection({
           .map((l) => l.id);
 
   const linked = linkedIds.map((id) => allLabels.find((l) => l.id === id)).filter((x): x is Label => !!x);
+
+  // Eligible candidates for linking = labels of the complementary type that
+  // aren't already linked to this one.
+  const wantType: Label['type'] =
+    label.type === 'dimension_number' ? 'dimensioned_distance' : 'dimension_number';
+  const candidates = allLabels.filter(
+    (l) => l.type === wantType && !linkedIds.includes(l.id),
+  );
 
   return (
     <section>
@@ -2707,7 +2852,6 @@ function LinksSection({
           {label.type === 'dimension_number'
             ? 'Diese Maßzahl ist noch keiner Strecke zugeordnet.'
             : 'Diese Strecke hat noch keine Maßzahl.'}
-          {' '}Verwende das Verknüpfen-Werkzeug (K).
         </p>
       ) : (
         <ul className="space-y-1">
@@ -2744,6 +2888,35 @@ function LinksSection({
             );
           })}
         </ul>
+      )}
+      {candidates.length > 0 && (
+        <div className="mt-2">
+          <label className="block">
+            <span className="text-[0.65rem] text-muted">
+              {wantType === 'dimensioned_distance' ? 'Mit Strecke verknüpfen…' : 'Mit Maßzahl verknüpfen…'}
+            </span>
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) onLinkTo(e.target.value);
+              }}
+              className="w-full mt-0.5 px-2 py-1 rounded border border-border text-[0.72rem] bg-white"
+            >
+              <option value="">— auswählen —</option>
+              {candidates.map((c) => {
+                const desc =
+                  c.type === 'dimension_number'
+                    ? `"${c.attributes.text ?? '?'}" (${c.attributes.parsed_value_mm ?? '?'} mm)`
+                    : c.type === 'dimensioned_distance'
+                    ? `↔ ${c.attributes.value_mm ?? '?'} mm`
+                    : c.id;
+                return (
+                  <option key={c.id} value={c.id}>{desc}</option>
+                );
+              })}
+            </select>
+          </label>
+        </div>
       )}
     </section>
   );
@@ -3177,5 +3350,249 @@ function HeightMarkFields({
         />
       </label>
     </section>
+  );
+}
+
+// Sub-kind chip bar — surfaces the named subtypes for tools whose primary
+// attribute is a categorical choice (component_line: First/Traufe/…;
+// floorplan_opening: Fenster/Tür/…; view_opening: …). Each chip writes the
+// selection back to the per-house defaults system, so the next drawn label
+// of that type comes pre-classified. Bumps `rev` on pick so the bar
+// re-renders to highlight the new selection.
+function SubKindChips({
+  tool,
+  scope,
+  houseKey,
+  sceneTag,
+  rev: _rev,
+  onPick,
+}: {
+  tool: Tool;
+  scope: LabelScope;
+  houseKey: string;
+  sceneTag: SceneTag;
+  rev: number;
+  onPick: () => void;
+}) {
+  // _rev is a render dependency; we don't actually use it directly but its
+  // presence forces a re-render when chips are picked.
+  void _rev;
+
+  type Opt = { value: string; label: string };
+  const COMPONENT_LINE_OPTS: Opt[] = [
+    { value: 'first', label: 'First' },
+    { value: 'traufe', label: 'Traufe' },
+    { value: 'gelaende', label: 'Gelände' },
+    { value: 'geschoss', label: 'Geschoss' },
+    { value: 'ok_ffb', label: 'OK FFB' },
+    { value: 'sockel', label: 'Sockel' },
+    { value: 'firstkante', label: 'Firstkante' },
+    { value: 'kniestock', label: 'Kniestock' },
+    { value: 'other', label: 'Sonstige' },
+  ];
+  const FLOORPLAN_OPTS: Opt[] = [
+    { value: 'window', label: 'Fenster' },
+    { value: 'door', label: 'Tür' },
+    { value: 'passage', label: 'Durchgang' },
+    { value: 'garage_door', label: 'Tor' },
+    { value: 'other', label: 'Sonstige' },
+  ];
+  const VIEW_OPTS: Opt[] = [
+    { value: 'window', label: 'Fenster' },
+    { value: 'door', label: 'Tür' },
+    { value: 'skylight', label: 'Dachfenster' },
+    { value: 'dormer', label: 'Gaube' },
+    { value: 'garage_door', label: 'Tor' },
+    { value: 'other', label: 'Sonstige' },
+  ];
+
+  let spec: { type: Label['type']; attr: string; options: Opt[]; defaultValue: string; title: string } | null = null;
+  if (tool === 'component_line') {
+    spec = {
+      type: 'component_line',
+      attr: 'line_kind',
+      options: COMPONENT_LINE_OPTS,
+      defaultValue: 'other',
+      title: 'Linienart',
+    };
+  } else if (tool === 'floorplan_opening') {
+    spec = {
+      type: 'floorplan_opening',
+      attr: 'opening_kind',
+      options: FLOORPLAN_OPTS,
+      defaultValue: 'window',
+      title: 'Öffnungstyp',
+    };
+  } else if (tool === 'view_opening') {
+    spec = {
+      type: 'view_opening',
+      attr: 'opening_kind',
+      options: VIEW_OPTS,
+      defaultValue: 'window',
+      title: 'Öffnungstyp',
+    };
+  }
+  if (!spec) return null;
+
+  const def = getDefaults(scope, houseKey, sceneTag, spec.type);
+  const current = (def[spec.attr] as string) ?? spec.defaultValue;
+
+  return (
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-white/95 border border-zinc-300 rounded-full shadow-md px-2 py-1 flex items-center gap-1 backdrop-blur-sm">
+      <span className="text-[0.65rem] uppercase tracking-wider text-zinc-500 px-2">{spec.title}</span>
+      {spec.options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => {
+            rememberDefaults(scope, houseKey, sceneTag, spec!.type, { [spec!.attr]: o.value });
+            onPick();
+          }}
+          className={`px-2 py-0.5 rounded-full text-[0.72rem] transition-colors ${
+            o.value === current
+              ? 'bg-accent text-white font-medium'
+              : 'text-zinc-700 hover:bg-zinc-100'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Floating, draggable popover for the inspector. Replaces the fixed
+// right-rail sidebar so the inspector can be moved out of the way of the
+// label being edited, or collapsed entirely. Position persists in
+// localStorage so it stays where the user put it across navigation.
+function FloatingPopover({
+  title,
+  onClose,
+  storageKey,
+  hidden,
+  children,
+}: {
+  title: string;
+  onClose?: () => void;
+  storageKey: string;
+  hidden?: boolean;
+  children: React.ReactNode;
+}) {
+  const STORAGE = `bim-db:annotate:popover:${storageKey}`;
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE);
+      if (raw) return JSON.parse(raw);
+    } catch { /* no-op */ }
+    return null;
+  });
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return window.localStorage.getItem(`${STORAGE}:collapsed`) === '1'; } catch { return false; }
+  });
+  const popRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ dx: number; dy: number } | null>(null);
+
+  // Default position: top-right of parent on first paint. We need to wait
+  // until the popover is mounted so we know its width and the parent's size.
+  useEffect(() => {
+    if (pos != null || hidden) return;
+    const el = popRef.current;
+    if (!el) return;
+    const parent = el.offsetParent as HTMLElement | null;
+    if (!parent) return;
+    const pr = parent.getBoundingClientRect();
+    const w = el.offsetWidth || 280;
+    setPos({ x: Math.max(8, pr.width - w - 16), y: 16 });
+  }, [pos, hidden]);
+
+  const onHeaderDown = useCallback((e: React.PointerEvent) => {
+    if (!popRef.current || !pos) return;
+    const r = popRef.current.getBoundingClientRect();
+    drag.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    (e.target as Element).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, [pos]);
+
+  const onHeaderMove = useCallback((e: React.PointerEvent) => {
+    if (!drag.current || !popRef.current) return;
+    const parent = popRef.current.offsetParent as HTMLElement | null;
+    if (!parent) return;
+    const pr = parent.getBoundingClientRect();
+    const w = popRef.current.offsetWidth;
+    const h = popRef.current.offsetHeight;
+    let x = e.clientX - pr.left - drag.current.dx;
+    let y = e.clientY - pr.top - drag.current.dy;
+    x = Math.max(8, Math.min(pr.width - w - 8, x));
+    y = Math.max(8, Math.min(pr.height - h - 8, y));
+    setPos({ x, y });
+  }, []);
+
+  const onHeaderUp = useCallback((e: React.PointerEvent) => {
+    if (!drag.current) return;
+    drag.current = null;
+    try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* no-op */ }
+    if (pos) {
+      try { window.localStorage.setItem(STORAGE, JSON.stringify(pos)); } catch { /* no-op */ }
+    }
+  }, [pos, STORAGE]);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((v) => {
+      const next = !v;
+      try { window.localStorage.setItem(`${STORAGE}:collapsed`, next ? '1' : '0'); } catch { /* no-op */ }
+      return next;
+    });
+  }, [STORAGE]);
+
+  if (hidden) return null;
+  return (
+    <div
+      ref={popRef}
+      className="absolute z-30 bg-white border border-zinc-300 rounded-lg shadow-xl flex flex-col"
+      style={{
+        left: pos?.x ?? 16,
+        top: pos?.y ?? 16,
+        width: 280,
+        maxHeight: 'calc(100% - 32px)',
+        visibility: pos == null ? 'hidden' : 'visible',
+      }}
+    >
+      <div
+        className="px-3 py-2 border-b border-zinc-200 flex items-center justify-between gap-2 cursor-grab active:cursor-grabbing select-none rounded-t-lg bg-zinc-50"
+        onPointerDown={onHeaderDown}
+        onPointerMove={onHeaderMove}
+        onPointerUp={onHeaderUp}
+        onPointerCancel={onHeaderUp}
+      >
+        <span className="font-medium text-[0.78rem] text-zinc-800 truncate">{title}</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); toggleCollapsed(); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="w-5 h-5 inline-flex items-center justify-center rounded text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 text-[0.85rem] leading-none"
+            title={collapsed ? 'Aufklappen' : 'Einklappen'}
+            aria-label={collapsed ? 'Aufklappen' : 'Einklappen'}
+          >
+            {collapsed ? '+' : '–'}
+          </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onClose(); }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="w-5 h-5 inline-flex items-center justify-center rounded text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 text-base leading-none"
+              title="Schließen"
+              aria-label="Schließen"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+      {!collapsed && (
+        <div className="overflow-y-auto flex-1 p-3 text-[0.8rem]">{children}</div>
+      )}
+    </div>
   );
 }
