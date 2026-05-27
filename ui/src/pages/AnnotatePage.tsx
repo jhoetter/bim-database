@@ -728,6 +728,17 @@ export function AnnotatePage() {
     setLengthMatch(null);
     setPostDrawChip(null);
   }, [tool]);
+  // K11: when sceneTag changes, validate the current tool against the new
+  // tag's allowed set (subject to the allTools override). If invalid,
+  // fall back to 'select' — otherwise the user can be stuck in a tool
+  // whose palette button isn't visible.
+  useEffect(() => {
+    const allowed = allTools ? TOOLS_BY_TAG.sonstiges : TOOLS_BY_TAG[sceneTag];
+    if (!allowed.includes(tool)) {
+      setTool('select');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneTag, allTools]);
   useEffect(() => {
     if (data) {
       setLabels(data.labels ?? []);
@@ -1754,8 +1765,22 @@ export function AnnotatePage() {
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // K10: don't steal keys from text inputs (typing "2" into a value
+      // field shouldn't flip the status of a label).
       const t = e.target as HTMLElement;
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+      // K12: cheatsheet modality. While it's open, only Esc/? pass through
+      // (the cheatsheet's own listener handles those). Background tool
+      // shortcuts mustn't fire under the modal overlay.
+      if (cheatsheetOpen) return;
+      // K9: ignore key-repeat for action keys so holding Esc / Enter /
+      // Delete / Backspace doesn't double-fire. Modifiers (Shift/Alt/etc.)
+      // still register normally because they don't trigger actions here.
+      if (e.repeat && (
+        e.key === 'Escape' || e.key === 'Enter' ||
+        e.key === 'Delete' || e.key === 'Backspace' ||
+        e.key === '?' || e.key === ',' || e.key === '.'
+      )) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         save();
@@ -1835,6 +1860,14 @@ export function AnnotatePage() {
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        // K4: Backspace inside a pending polyline removes the LAST placed
+        // vertex (instead of deleting the selection). Lets the user
+        // recover from a misclick mid-draw. Delete always deletes selection.
+        if (e.key === 'Backspace' && pendingPolyline.length > 0) {
+          e.preventDefault();
+          setPendingPolyline((prev) => prev.slice(0, -1));
+          return;
+        }
         if (selectedIds.size > 0) {
           e.preventDefault();
           // Delete all selected. For walls with attached openings, the
@@ -1994,7 +2027,7 @@ export function AnnotatePage() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, zoomBy, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel, prevScene, nextScene, goToScene, allTools]);
+  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, zoomBy, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel, prevScene, nextScene, goToScene, allTools, cheatsheetOpen]);
 
   const selectedLabel = labels.find((l) => l.id === selectedId) ?? null;
   const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`;
