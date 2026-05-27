@@ -73,18 +73,23 @@ type Tool =
 // inspector exposes a manual link picker when you want to relink.
 // 'dimension_number' is kept as a tool but only useful for the rare case
 // of a number text whose stroke isn't being labeled.
+// 'dimension_number' is intentionally OMITTED from the default per-tag
+// lists — it's the standalone Maßzahl tool which 99% of the time
+// shouldn't be reached for separately (the Bemaßung tool auto-creates a
+// paired Maßzahl). Only the 'sonstiges' / 'alle anzeigen' modes expose
+// it for the rare OCR-only case.
 const TOOLS_BY_TAG: Record<SceneTag, Tool[]> = {
   grundriss: [
     'select', 'wall', 'floorplan_opening',
-    'dimensioned_distance', 'dimension_number',
+    'dimensioned_distance',
   ],
   ansicht: [
     'select', 'view_opening', 'component_line', 'height_mark',
-    'dimensioned_distance', 'dimension_number',
+    'dimensioned_distance',
   ],
   schnitt: [
     'select', 'view_opening', 'component_line', 'height_mark',
-    'dimensioned_distance', 'dimension_number',
+    'dimensioned_distance',
   ],
   sonstiges: [
     'select', 'wall', 'floorplan_opening', 'view_opening',
@@ -213,8 +218,8 @@ const TOOL_FAMILIES: ToolFamily[] = [
     attrIsBoolean: true,
     applicableTags: ['grundriss', 'ansicht', 'schnitt', 'sonstiges'],
     options: [
-      { value: 'false', label: 'Maß',   hint: 'Bauteilmaß (M2) — wird als Längen-/Höhenangabe in das Trainingssignal aufgenommen.' },
-      { value: 'true',  label: 'Bezug', hint: 'Bezugsstrecke (M1) — wird zur Entzerrung der Zeichnung verwendet. Mindestens 1× horizontal + 1× vertikal pro Szene empfohlen.' },
+      { value: 'false', label: 'Maß (M2 Bauteilmaß)',     hint: 'Längen-/Höhenmaß am Bauteil. Liefert die reale Größe — das primäre Trainingssignal für Wand-/Geschoss-/Fensterabmessungen.' },
+      { value: 'true',  label: 'Bezug (M1 Entzerrung)',   hint: 'Bezugsstrecke für die Entzerrung der Zeichnung. Mindestens 1× horizontal + 1× vertikal pro Szene empfohlen. Wird visuell als amberfarbene gestrichelte Linie mit M1-Badge dargestellt.' },
     ],
     helpText: 'Nach 2 Klicks öffnet sich ein Eingabefeld am Mittelpunkt; auf Enter werden Strecke und passende Maßzahl gemeinsam erzeugt + verknüpft.',
   },
@@ -2298,14 +2303,35 @@ function LabelGlyph({
       // M1 reference strokes (is_reference=true) get a distinct visual
       // language: amber color, dashed line, thicker ticks, and a small
       // "M1" badge at the midpoint. M2 building dimensions stay green/
-      // solid. The dashed line reads as "this is a reference axis, not a
-      // measurement of a built thing".
+      // solid. The value (e.g. "1,75 m" or "Bezug") is shown above the
+      // line midpoint so the dim is readable without clicking through to
+      // the paired Maßzahl.
       const { start, end } = label.geometry;
       const isRef = !!label.attributes.is_reference;
       const refColor = isRef ? '#f59e0b' : stroke;
       const refWidth = isRef ? sw + 1 : sw;
       const dash = isRef ? '6,4' : undefined;
       const mid: Point = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
+      const dx = end[0] - start[0];
+      const dy = end[1] - start[1];
+      const len = Math.hypot(dx, dy) || 1;
+      // Perpendicular unit, used to offset the text slightly above the line
+      const perpX = -dy / len;
+      const perpY = dx / len;
+      const valueMm = label.attributes.value_mm;
+      const valueText = valueMm != null
+        ? (valueMm >= 1000
+            ? `${(valueMm / 1000).toFixed(2).replace('.', ',')} m`
+            : `${valueMm} mm`)
+        : null;
+      // Place value text 14px above the midpoint (in image coords).
+      const txOff = 14;
+      const tx = mid[0] + perpX * txOff;
+      const ty = mid[1] + perpY * txOff;
+      // Angle for text rotation — keep readable: limit to ±90° around 0.
+      let angDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+      if (angDeg > 90) angDeg -= 180;
+      if (angDeg < -90) angDeg += 180;
       body = (
         <g {...bodyProps}>
           <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]}
@@ -2313,14 +2339,29 @@ function LabelGlyph({
                 strokeDasharray={dash} />
           <Tick x={start[0]} y={start[1]} stroke={refColor} sw={refWidth} large={isRef} />
           <Tick x={end[0]} y={end[1]} stroke={refColor} sw={refWidth} large={isRef} />
+          {valueText && (
+            <text
+              x={tx} y={ty}
+              transform={`rotate(${angDeg} ${tx} ${ty})`}
+              textAnchor="middle"
+              fill={refColor}
+              fontFamily="ui-monospace, monospace"
+              fontSize={13}
+              fontWeight={600}
+              style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}
+              pointerEvents="none"
+            >
+              {valueText}
+            </text>
+          )}
           {isRef && (
-            <g pointerEvents="none">
+            <g pointerEvents="none" transform={`translate(${mid[0]} ${mid[1]})`}>
               <rect
-                x={mid[0] - 12} y={mid[1] - 7} width={24} height={14}
+                x={-13} y={-7} width={26} height={14}
                 rx={3} fill="#f59e0b" stroke="white" strokeWidth={1}
               />
               <text
-                x={mid[0]} y={mid[1] + 4} textAnchor="middle"
+                x={0} y={4} textAnchor="middle"
                 fill="white" fontFamily="ui-monospace, monospace"
                 fontSize={9} fontWeight={700}
               >

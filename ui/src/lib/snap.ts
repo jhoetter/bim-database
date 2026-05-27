@@ -201,7 +201,8 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
   }
 
   // view_opening, height_mark: snap to same-y as an existing same-type label
-  // (the "alignment guide" pattern).
+  // (the "alignment guide" pattern). height_mark also snaps to same-x —
+  // typical labeling pattern is a column of Höhenkoten on one vertical line.
   if (tool === 'view_opening' || tool === 'height_mark') {
     const sameType = labels.filter((l) => l.type === tool);
     for (const other of sameType) {
@@ -217,6 +218,48 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
           hint: 'gleiche Höhe',
           guide: { type: 'horizontal', value: otherY },
         });
+      }
+      if (tool === 'height_mark' && other.type === 'height_mark') {
+        const otherX = other.geometry.anchor[0];
+        if (Math.abs(otherX - cursor[0]) < args.imageRadiusPx * 1.5) {
+          cands.push({
+            pt: [otherX, cursor[1]],
+            kind: 'axis_align',
+            hint: 'gleiche Bezugsachse',
+            guide: { type: 'vertical', value: otherX },
+          });
+        }
+      }
+    }
+  }
+
+  // Wall / dim_distance / component_line: alignment guides to existing
+  // wall endpoints. When the cursor is within a tolerance of an existing
+  // wall's endpoint X or Y, snap to that X/Y so the new endpoint ends up
+  // exactly aligned (90° corner if the existing wall is orthogonal).
+  if (
+    tool === 'wall' || tool === 'dimensioned_distance' || tool === 'component_line'
+  ) {
+    for (const l of labels) {
+      if (l.id === excludeLabelId) continue;
+      if (l.type !== 'wall') continue;
+      for (const p of [l.geometry.start, l.geometry.end]) {
+        if (Math.abs(p[0] - cursor[0]) < args.imageRadiusPx * 1.2) {
+          cands.push({
+            pt: [p[0], cursor[1]],
+            kind: 'axis_align',
+            hint: 'X-Achse einer Wand',
+            guide: { type: 'vertical', value: p[0] },
+          });
+        }
+        if (Math.abs(p[1] - cursor[1]) < args.imageRadiusPx * 1.2) {
+          cands.push({
+            pt: [cursor[0], p[1]],
+            kind: 'axis_align',
+            hint: 'Y-Achse einer Wand',
+            guide: { type: 'horizontal', value: p[1] },
+          });
+        }
       }
     }
   }
