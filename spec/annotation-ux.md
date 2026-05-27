@@ -534,7 +534,7 @@ Implements §11:
 - Bulk delete / status / type-specific actions
 - Group-drag with shared snap
 
-### M12 — Inline editing + toast surface + auto-save option
+### M12 — Inline editing + toast surface + auto-save option ✅ shipped 2026-05-27
 
 - Replace `window.prompt` with inline canvas input for dim_number text + height_mark value (§12)
 - Toast surface (§13) for all event types listed

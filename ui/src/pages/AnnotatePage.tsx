@@ -192,6 +192,29 @@ export function AnnotatePage() {
   // wall (wall_line snap). We remember that wall's id so the second click
   // can attach the opening to it via a belongs_to relation.
   const [pendingAttachedWallId, setPendingAttachedWallId] = useState<string | null>(null);
+  // M12 inline edit: render a floating <input> instead of using window.prompt.
+  // `wasJustCreated` lets Esc delete the freshly-placed label as if the user
+  // cancelled placement.
+  const [pendingInlineEdit, setPendingInlineEdit] = useState<{
+    labelId: string;
+    field: 'text' | 'value_mm';
+    screenPos: [number, number];
+    wasJustCreated: boolean;
+  } | null>(null);
+  // M12 toasts.
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; tone: 'info' | 'success' | 'warn' | 'error' }>>([]);
+  const addToast = useCallback((message: string, tone: 'info' | 'success' | 'warn' | 'error' = 'info', ttl: number = 2500) => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((prev) => [...prev, { id, message, tone }]);
+    if (ttl > 0) {
+      window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), ttl);
+    }
+  }, []);
+  // M12 auto-save (off by default).
+  const [autosave, setAutosave] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bim-db:annotate:autosave') === 'true'; }
+    catch { return false; }
+  });
 
   // Pan/zoom on the SVG viewBox.
   const [view, setView] = useState({ x: 0, y: 0, w: 1024, h: 1024 });
@@ -243,7 +266,8 @@ export function AnnotatePage() {
     setDirty(true);
     setSelectedId(null);
     setPendingStart(null);
-  }, [labels, sceneTag]);
+    addToast('↶ Rückgängig', 'info', 1500);
+  }, [labels, sceneTag, setSelectedId, addToast]);
 
   const redo = useCallback(() => {
     const snap = redoStackRef.current.pop();
@@ -254,7 +278,8 @@ export function AnnotatePage() {
     setDirty(true);
     setSelectedId(null);
     setPendingStart(null);
-  }, [labels, sceneTag]);
+    addToast('↷ Wiederherstellen', 'info', 1500);
+  }, [labels, sceneTag, setSelectedId, addToast]);
 
   // ── coordinate helpers ────────────────────────────────────────────────────
   const eventToSvgPoint = useCallback((e: ReactPointerEvent<SVGSVGElement> | PointerEvent): Point | null => {
@@ -424,37 +449,39 @@ export function AnnotatePage() {
       }
 
       // ── 1-click tools ─────────────────────────────────────────────────────
+      // M12: inline-edit replaces window.prompt. Place the label first, then
+      // open a floating <input> at the cursor's screen position.
       if (tool === 'height_mark') {
-        const text = window.prompt('Höhenkote-Wert (m oder mm, z. B. "+ 2,75"):');
-        if (text == null) return;
-        const parsed = parseGermanNumber(text);
         pushUndo();
         const label: HeightMarkLabel = {
           id: uuid(),
           type: 'height_mark',
           geometry: { anchor: pt },
-          attributes: { value_mm: parsed, reference_line_id: null },
+          attributes: { value_mm: null, reference_line_id: null },
           status: 'readable',
           relations: [],
-          notes: text.trim() || undefined,
           created_at: nowIso(),
           updated_at: nowIso(),
         };
         setLabels([...labels, label]);
         setDirty(true);
-        setSelectedId(label.id);
+        setSelectedIds(new Set([label.id]));
+        setPendingInlineEdit({
+          labelId: label.id,
+          field: 'value_mm',
+          screenPos: [e.clientX, e.clientY],
+          wasJustCreated: true,
+        });
         return;
       }
 
       if (tool === 'dimension_number') {
-        const text = window.prompt('Maßzahl-Text (z. B. "1,75"):');
-        if (text == null || text.trim() === '') return;
         pushUndo();
         const label: DimensionNumberLabel = {
           id: uuid(),
           type: 'dimension_number',
           geometry: { anchor: pt },
-          attributes: { text: text.trim(), parsed_value_mm: parseGermanNumber(text) },
+          attributes: { text: '', parsed_value_mm: null },
           status: 'readable',
           relations: [],
           created_at: nowIso(),
@@ -462,7 +489,13 @@ export function AnnotatePage() {
         };
         setLabels([...labels, label]);
         setDirty(true);
-        setSelectedId(label.id);
+        setSelectedIds(new Set([label.id]));
+        setPendingInlineEdit({
+          labelId: label.id,
+          field: 'text',
+          screenPos: [e.clientX, e.clientY],
+          wasJustCreated: true,
+        });
         return;
       }
 
@@ -658,7 +691,6 @@ export function AnnotatePage() {
         prev.map((l) => {
           if (l.id !== numberId) return l;
           const existing = l.relations ?? [];
-          // Idempotent: don't add a duplicate.
           if (existing.some((r) => r.other_id === distanceId && r.kind === 'labels')) {
             return l;
           }
@@ -666,8 +698,9 @@ export function AnnotatePage() {
         }),
       );
       setDirty(true);
+      addToast('🔗 Verknüpft', 'success', 1500);
     },
-    [labels, pushUndo],
+    [labels, pushUndo, addToast],
   );
 
   const unlinkPair = useCallback(
@@ -710,12 +743,21 @@ export function AnnotatePage() {
       };
       await saveLabels(scope, key, decodedFile, payload);
       setDirty(false);
+      addToast(`✓ Gespeichert (${labels.length} Labels)`, 'success');
     } catch (e) {
-      window.alert(`Speichern fehlgeschlagen: ${(e as Error).message}`);
+      addToast(`✗ Speichern fehlgeschlagen: ${(e as Error).message}`, 'error', 6000);
     } finally {
       setSaving(false);
     }
-  }, [data, key, decodedFile, sceneTag, labels, imageSize, scope]);
+  }, [data, key, decodedFile, sceneTag, labels, imageSize, scope, addToast]);
+
+  // M12 auto-save: when enabled + dirty, schedule a save after 30 s of
+  // inactivity. Any new edit resets the timer.
+  useEffect(() => {
+    if (!autosave || !dirty || saving) return;
+    const t = window.setTimeout(() => save(), 30_000);
+    return () => window.clearTimeout(t);
+  }, [autosave, dirty, saving, save]);
 
   // Anomaly extractor — currently only the dim_number ↔ dim_distance
   // value-mismatch check. Other rules can pile in here later.
@@ -892,6 +934,15 @@ export function AnnotatePage() {
           onUndo={undo}
           undoDepth={undoStackRef.current.length}
           onResetView={resetView}
+          autosave={autosave}
+          onToggleAutosave={() => {
+            setAutosave((v) => {
+              const next = !v;
+              try { window.localStorage.setItem('bim-db:annotate:autosave', String(next)); } catch { /* no-op */ }
+              addToast(next ? 'Auto-Save aktiviert (30 s)' : 'Auto-Save deaktiviert', 'info');
+              return next;
+            });
+          }}
         />
       }
       rightRailMode="overlay-pinnable"
@@ -1127,6 +1178,47 @@ export function AnnotatePage() {
           Enter = Polylinie beenden · Esc = abbrechen · Shift/Right-Drag = Pan · Wheel = Zoom · R = Reset
         </div>
         <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} snap={snap} />
+        {/* M12 inline edit. <input> floats at the cursor; Enter commits, Esc
+            cancels (and deletes the freshly-created label so the user can
+            click again). */}
+        {pendingInlineEdit && (
+          <InlineEditInput
+            screenPos={pendingInlineEdit.screenPos}
+            placeholder={pendingInlineEdit.field === 'text' ? 'z. B. 1,75' : 'z. B. 2750 (mm)'}
+            onCommit={(value) => {
+              const trimmed = value.trim();
+              if (trimmed === '') {
+                if (pendingInlineEdit.wasJustCreated) {
+                  setLabels((prev) => prev.filter((l) => l.id !== pendingInlineEdit.labelId));
+                  setSelectedIds(new Set());
+                }
+                setPendingInlineEdit(null);
+                return;
+              }
+              const parsed = parseGermanNumber(trimmed);
+              if (pendingInlineEdit.field === 'text') {
+                updateLabel(pendingInlineEdit.labelId, {
+                  attributes: { text: trimmed, parsed_value_mm: parsed },
+                } as Partial<Label>);
+              } else {
+                updateLabel(pendingInlineEdit.labelId, {
+                  attributes: { value_mm: parsed, reference_line_id: null },
+                  notes: trimmed,
+                } as Partial<Label>);
+              }
+              setPendingInlineEdit(null);
+            }}
+            onCancel={() => {
+              if (pendingInlineEdit.wasJustCreated) {
+                setLabels((prev) => prev.filter((l) => l.id !== pendingInlineEdit.labelId));
+                setSelectedIds(new Set());
+              }
+              setPendingInlineEdit(null);
+            }}
+          />
+        )}
+        {/* M12 toast stack — bottom-center over the canvas */}
+        <ToastStack toasts={toasts} />
         {tool === 'link' && (
           <div className="absolute top-3 right-3 bg-black/75 text-white px-3 py-2 rounded text-[0.78rem] leading-snug pointer-events-none min-w-[240px]">
             <div className="font-semibold mb-1">Verknüpfen 🔗</div>
@@ -1158,6 +1250,8 @@ function ToolPalette({
   onUndo,
   undoDepth,
   onResetView,
+  autosave,
+  onToggleAutosave,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -1169,6 +1263,8 @@ function ToolPalette({
   onUndo: () => void;
   undoDepth: number;
   onResetView: () => void;
+  autosave: boolean;
+  onToggleAutosave: () => void;
 }) {
   return (
     <div className="px-3 py-3 space-y-4">
@@ -1210,6 +1306,18 @@ function ToolPalette({
             Setze einen Szenen-Tag oben, damit Werkzeuge verfügbar werden.
           </p>
         )}
+      </section>
+
+      <section>
+        <label className="flex items-center gap-2 text-[0.75rem] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autosave}
+            onChange={onToggleAutosave}
+            className="accent-accent"
+          />
+          <span>Auto-Save (30 s, wenn dirty)</span>
+        </label>
       </section>
 
       <section>
@@ -1652,6 +1760,75 @@ function LabelGlyph({
         </g>
       )}
     </g>
+  );
+}
+
+// M12 inline edit input — floats above the canvas at a fixed screen
+// position. Autofocused; Enter commits; Esc cancels (which may delete the
+// freshly-placed label so the user can re-place); blur commits silently.
+function InlineEditInput({
+  screenPos,
+  placeholder,
+  onCommit,
+  onCancel,
+}: {
+  screenPos: [number, number];
+  placeholder: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  return (
+    <input
+      ref={ref}
+      type="text"
+      placeholder={placeholder}
+      defaultValue=""
+      style={{
+        position: 'fixed',
+        left: screenPos[0] + 12,
+        top: screenPos[1] - 12,
+        zIndex: 100,
+      }}
+      className="px-2 py-1 rounded-md border-2 border-accent bg-white text-[0.85rem] shadow-lg outline-none w-44"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          onCommit(e.currentTarget.value);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
+      onBlur={(e) => onCommit(e.currentTarget.value)}
+    />
+  );
+}
+
+// M12 toast stack — bottom-center, fades in/out, doesn't block the canvas.
+function ToastStack({ toasts }: { toasts: Array<{ id: string; message: string; tone: string }> }) {
+  return (
+    <div className="absolute bottom-20 left-1/2 -translate-x-1/2 flex flex-col gap-1.5 pointer-events-none z-30">
+      {toasts.map((t) => {
+        const cls =
+          t.tone === 'success' ? 'bg-emerald-700 text-white' :
+          t.tone === 'warn' ? 'bg-amber-600 text-white' :
+          t.tone === 'error' ? 'bg-red-700 text-white' :
+                              'bg-zinc-800 text-white';
+        return (
+          <div
+            key={t.id}
+            className={`px-3 py-1.5 rounded shadow-lg text-[0.78rem] leading-snug ${cls}`}
+          >
+            {t.message}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
