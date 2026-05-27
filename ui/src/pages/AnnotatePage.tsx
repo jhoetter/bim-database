@@ -7,8 +7,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useLocation, useParams } from 'react-router';
-import { fetchLabels, saveLabels, useResource } from '../api/client';
+import { useLocation, useNavigate, useParams } from 'react-router';
+import { fetchHouse, fetchLabels, fetchSynthetic, saveLabels, useResource } from '../api/client';
 import type {
   ComponentLineLabel,
   DimensionNumberLabel,
@@ -138,6 +138,7 @@ function nowIso(): string {
 
 export function AnnotatePage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { key = '', file = '' } = useParams();
   const decodedFile = decodeURIComponent(file);
 
@@ -149,6 +150,25 @@ export function AnnotatePage() {
       : `/scene/${key}/${encodeURIComponent(decodedFile)}`;
 
   const { data, loading, error } = useResource(() => fetchLabels(scope, key, decodedFile), [scope, key, decodedFile]);
+
+  // Scene navigation (prev/next within the same house). Fetch the house's
+  // full scene list once per (scope, key); compute index from the current
+  // file. Re-fetches only when the house changes, not when the scene does.
+  const { data: houseScenes } = useResource(
+    async () => {
+      if (scope === 'synthetic') {
+        const h = await fetchSynthetic(key);
+        return h.drawings.map((d) => ({ file: d.file, title: d.title ?? d.file }));
+      }
+      const h = await fetchHouse(key);
+      return (h.images ?? []).map((i) => ({ file: i.file, title: i.caption ?? i.file }));
+    },
+    [scope, key],
+  );
+  const sceneList = houseScenes ?? [];
+  const sceneIndex = sceneList.findIndex((s) => s.file === decodedFile);
+  const prevScene = sceneIndex > 0 ? sceneList[sceneIndex - 1] : null;
+  const nextScene = sceneIndex >= 0 && sceneIndex < sceneList.length - 1 ? sceneList[sceneIndex + 1] : null;
 
   // Editable state — initialised from `data` once it loads.
   const [labels, setLabels] = useState<Label[]>([]);
@@ -742,6 +762,24 @@ export function AnnotatePage() {
     [pushUndo],
   );
 
+  // Scene navigation — prev/next within the same house. Dirty-state guard:
+  // if there are unsaved changes, prompt before navigating away. Autosave
+  // users skip the prompt (their work is/will be persisted).
+  const goToScene = useCallback((targetFile: string) => {
+    if (dirty && !autosave) {
+      const ok = window.confirm(
+        'Ungespeicherte Änderungen.\n\n' +
+        'OK = trotzdem weiter (Änderungen gehen verloren),\n' +
+        'Abbrechen = hier bleiben (Cmd+S um zu speichern).',
+      );
+      if (!ok) return;
+    }
+    const path = scope === 'synthetic'
+      ? `/synthetic/${key}/scene/${encodeURIComponent(targetFile)}/annotate`
+      : `/house/${key}/scene/${encodeURIComponent(targetFile)}/annotate`;
+    navigate(path);
+  }, [dirty, autosave, scope, key, navigate]);
+
   // ── save ──────────────────────────────────────────────────────────────────
   const save = useCallback(async () => {
     if (!data) return;
@@ -869,6 +907,17 @@ export function AnnotatePage() {
         setCheatsheetOpen((v) => !v);
         return;
       }
+      // Scene navigation: ',' prev, '.' next (both with + without Shift).
+      if (e.key === ',' || e.key === '<') {
+        e.preventDefault();
+        if (prevScene) goToScene(prevScene.file);
+        return;
+      }
+      if (e.key === '.' || e.key === '>') {
+        e.preventDefault();
+        if (nextScene) goToScene(nextScene.file);
+        return;
+      }
       // Wall-only: ← / → adjusts thickness (10 mm step, 50 with Shift).
       // For other types these will fall through to drawing-tool hotkeys
       // (none of which currently use bare arrow keys).
@@ -900,7 +949,7 @@ export function AnnotatePage() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel]);
+  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel, prevScene, nextScene, goToScene]);
 
   const selectedLabel = labels.find((l) => l.id === selectedId) ?? null;
   const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`;
@@ -918,6 +967,36 @@ export function AnnotatePage() {
       }
       topbarTrailing={
         <div className="flex items-center gap-2">
+          {sceneList.length > 1 && (
+            <div className="flex items-center gap-1 border border-border rounded-md px-1 py-0.5 bg-white"
+                 title="Szene wechseln — , = vorige, . = nächste">
+              <button
+                type="button"
+                onClick={() => prevScene && goToScene(prevScene.file)}
+                disabled={!prevScene}
+                aria-label="Vorige Szene (,)"
+                className={`w-6 h-6 inline-flex items-center justify-center rounded ${
+                  prevScene ? 'hover:bg-zinc-100 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
+                }`}
+              >
+                ‹
+              </button>
+              <span className="text-[0.7rem] font-mono tabular-nums text-muted px-1">
+                {sceneIndex >= 0 ? sceneIndex + 1 : '?'} / {sceneList.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => nextScene && goToScene(nextScene.file)}
+                disabled={!nextScene}
+                aria-label="Nächste Szene (.)"
+                className={`w-6 h-6 inline-flex items-center justify-center rounded ${
+                  nextScene ? 'hover:bg-zinc-100 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
+                }`}
+              >
+                ›
+              </button>
+            </div>
+          )}
           {dirty && (
             <span className="text-[0.7rem] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
               ● ungespeichert
@@ -1863,6 +1942,10 @@ function Cheatsheet({ onClose }: { onClose: () => void }) {
       ['Mausrad', 'Zoom'],
       ['Shift/Right-Drag', 'Pan'],
       ['R', 'Ansicht zurücksetzen'],
+    ]],
+    ['Szenen-Navigation', [
+      [',', 'Vorige Szene des Hauses'],
+      ['.', 'Nächste Szene des Hauses'],
     ]],
     ['Speichern', [
       ['⌘/Ctrl + S', 'Speichern'],
