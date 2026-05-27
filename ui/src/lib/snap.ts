@@ -67,6 +67,13 @@ export interface SnapArgs {
    *  snaps still fire. Shift hard-lock also still works (explicit opt-in).
    *  Used to model "user wants free-angle drawing right now." */
   disableSoftAxisSnap?: boolean;
+  /** When true, wall_line / perpendicular-projection candidates are
+   *  excluded — drawing a wall near an existing component_line edge won't
+   *  pull the cursor onto that edge. Endpoint snap still fires. Caller
+   *  sets this for the same Q-off / Alt-held conditions that disable
+   *  soft axis snap, so "no snap mode" really means no snap of any kind
+   *  except endpoint (which is structural). */
+  disableLineSnap?: boolean;
   /** Override the default 10° softAxisLock tolerance. Caller lowers this
    *  to ~3° when there's no confident axis signal yet (e.g. <2 walls on a
    *  potentially-tilted plan), so the system doesn't yank near-ortho
@@ -320,10 +327,13 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
         }
       }
       // P8 — snap to ANY point along an existing component_line segment when
-      // drawing another component_line, wall, or dim. Lets a new roof line
-      // start mid-edge of a wall polygon, etc.
+      // drawing another component_line, wall, or dim. Suppressed when the
+      // caller has disabled line-snap (Q-off or Alt-held), so "no snap"
+      // mode really means no pull from existing line edges.
       const useEdges =
-        tool === 'component_line' || tool === 'wall' || tool === 'dimensioned_distance';
+        !args.disableLineSnap && (
+          tool === 'component_line' || tool === 'wall' || tool === 'dimensioned_distance'
+        );
       if (useEdges) {
         const poly = l.geometry.polyline;
         for (let i = 0; i + 1 < poly.length; i++) {
@@ -355,10 +365,10 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
   }
 
   // floorplan_opening: snap to a wall (perpendicular projection onto wall axis).
-  // This is the headline "windows in walls" snap (UX called out as core).
-  // source_label_id carries the wall id so the editor can write a belongs_to
-  // relation on commit (M10).
-  if (tool === 'floorplan_opening') {
+  // This is the headline "windows in walls" snap (UX called out as core),
+  // but ALSO suppressed when the caller has set disableLineSnap — the user
+  // can hold Alt for a one-off bypass or turn Q on to get the helper back.
+  if (tool === 'floorplan_opening' && !args.disableLineSnap) {
     for (const l of labels) {
       if (l.type !== 'wall') continue;
       const proj = perpProjection(cursor, l.geometry.start, l.geometry.end);

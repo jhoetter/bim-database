@@ -1514,11 +1514,14 @@ export function AnnotatePage() {
           modifiers: { shift: e.shiftKey, alt: e.altKey },
           referenceAngleDeg: effectiveAxisDeg,
           pendingPolylineFirst,
-          // Q-disabled → no soft axis snap at all. Otherwise: wide 10° when
-          // we have axis confidence (≥2 lines), tight 3° when we don't —
-          // protects users on tilted plans from being yanked to image axes
-          // before the system has seen enough geometry to detect the tilt.
-          disableSoftAxisSnap: !adaptiveAxisEnabled,
+          // Q-disabled OR Alt-held → suppress every snap that isn't
+          // structural (endpoint snap stays). That covers both the soft
+          // axis-lock (no auto-straighten) AND the wall_line / line-edge
+          // perpendicular projection (no auto-pull onto existing line
+          // edges). Endpoint-snap is intentionally NOT gated: walls that
+          // meet at a corner should still latch.
+          disableSoftAxisSnap: !adaptiveAxisEnabled || e.altKey,
+          disableLineSnap: !adaptiveAxisEnabled || e.altKey,
           softAxisToleranceDeg: axisConfident ? 10 : 3,
         });
         setSnap(target);
