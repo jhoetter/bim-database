@@ -20,3 +20,6 @@ tmp/synthetic-prepared/
 # source PDF + JSON coords. Catalog originals (*.original.avif, *.original.jpg)
 # are NOT matched by this glob and stay tracked. Pattern: house-<id>-<category>-<label>.jpg
 data/houses/house-*/house-*.jpg
+
+# Stale agent worktrees (created by Agent harness)
+.claude/worktrees/
