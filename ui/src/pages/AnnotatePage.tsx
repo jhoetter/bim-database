@@ -895,10 +895,11 @@ export function AnnotatePage() {
       // Reuses the pendingPolyline state, gated on tool+shape, so we don't
       // collide with the regular component_line behavior.
       if (tool === 'view_opening' && viewOpeningShape === 'polygon') {
-        // P3 close-to-first-vertex (same as component_line above).
+        // P3 close-to-first-vertex — same radius as the visual hint so the
+        // click commits exactly when the green ring is showing.
         if (pendingPolyline.length >= 3) {
           const first = pendingPolyline[0];
-          if (Math.hypot(pt[0] - first[0], pt[1] - first[1]) <= imageSnapRadiusForView * 1.5) {
+          if (Math.hypot(pt[0] - first[0], pt[1] - first[1]) <= imageSnapRadiusForView * 2) {
             pushUndo();
             const def = getDefaults(scope, key, sceneTag, 'view_opening');
             const polyLabel: ViewOpeningLabel = {
@@ -1106,19 +1107,23 @@ export function AnnotatePage() {
 
       // ── Polyline tool (component_line) ────────────────────────────────────
       if (tool === 'component_line') {
-        // P3 close-to-first-vertex: if the click lands near the first vertex
-        // AND we have ≥3 points already, commit the polygon instead of
-        // appending a 4th duplicate point.
+        // P3 close-to-first-vertex: matches the visual close-polygon hint's
+        // "near" radius (2× snap) so the green ring AND the close-commit
+        // fire together. Click while the ring is visible = same as Enter.
         if (pendingPolyline.length >= 3) {
           const first = pendingPolyline[0];
-          if (Math.hypot(pt[0] - first[0], pt[1] - first[1]) <= imageSnapRadiusForView * 1.5) {
+          if (Math.hypot(pt[0] - first[0], pt[1] - first[1]) <= imageSnapRadiusForView * 2) {
             pushUndo();
             const def = getDefaults(scope, key, sceneTag, 'component_line');
-            const inferredLine = inferLineKind(pendingPolyline, imageSize[1]);
+            // Append the first vertex to actually close the geometry —
+            // otherwise the polyline ends with a gap and the closed-region
+            // fill (P9) wouldn't recognize it.
+            const closed = [...pendingPolyline, first];
+            const inferredLine = inferLineKind(closed, imageSize[1]);
             const label: ComponentLineLabel = {
               id: uuid(),
               type: 'component_line',
-              geometry: { polyline: pendingPolyline },
+              geometry: { polyline: closed },
               attributes: { line_kind: ((inferredLine as ComponentLineLabel['attributes']['line_kind'] | null)
                 ?? (def.line_kind as ComponentLineLabel['attributes']['line_kind'])) ?? 'other' },
               status: 'readable',
@@ -1129,7 +1134,7 @@ export function AnnotatePage() {
             setLabels((prev) => [...prev, label]);
             setDirty(true);
             setSelectedId(label.id);
-            const mid = pendingPolyline[Math.floor(pendingPolyline.length / 2)];
+            const mid = closed[Math.floor(closed.length / 2)];
             setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
             setPendingPolyline([]);
             addToast('Polygon geschlossen ✓', 'success', 1200);
@@ -1293,6 +1298,14 @@ export function AnnotatePage() {
         const svg = svgRef.current;
         const screenW = svg?.clientWidth ?? 1;
         const imageRadiusPx = (SNAP_SCREEN_RADIUS * view.w) / Math.max(1, screenW);
+        // Polyline close target: pass the first vertex when we have ≥3
+        // points so the cursor visibly snaps to it (and clicking commits,
+        // same as Enter).
+        const isPolyTool =
+          tool === 'component_line' ||
+          (tool === 'view_opening' && viewOpeningShape === 'polygon');
+        const pendingPolylineFirst =
+          isPolyTool && pendingPolyline.length >= 3 ? pendingPolyline[0] : undefined;
         const target = findSnap({
           cursor: pt,
           pendingStart,
@@ -1301,6 +1314,7 @@ export function AnnotatePage() {
           imageRadiusPx,
           modifiers: { shift: e.shiftKey, alt: e.altKey },
           referenceAngleDeg: effectiveAxisDeg,
+          pendingPolylineFirst,
         });
         setSnap(target);
 
@@ -4258,8 +4272,18 @@ function LabelGlyph({
     }
     case 'component_line': {
       const pts = label.geometry.polyline;
+      // P9: a closed polyline (first ≈ last within snap-radius equivalent)
+      // is conceptually an AREA. Render with a low-opacity fill so the user
+      // sees the enclosed region as a thing, not just an outline.
+      const isClosed = pts.length >= 3 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) <= 6;
+      const closedPath = isClosed
+        ? `M ${pts.map((p) => p.join(',')).join(' L ')} Z`
+        : null;
       body = (
         <g {...bodyProps}>
+          {closedPath && (
+            <path d={closedPath} fill={fill} stroke="none" />
+          )}
           <polyline points={pts.map(p => p.join(',')).join(' ')}
                     fill="none" stroke={stroke} strokeWidth={sw + 1} />
           {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill={stroke} />)}

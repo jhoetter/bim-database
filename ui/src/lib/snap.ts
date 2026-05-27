@@ -57,6 +57,11 @@ export interface SnapArgs {
    *  When the user disables adaptive snap (Q key), the caller passes 0
    *  even if a non-zero axis was detected. */
   referenceAngleDeg?: number;
+  /** First vertex of the currently-pending polyline (component_line or
+   *  polygon view_opening). When set and the cursor is within snap radius,
+   *  findSnap returns it as an endpoint target — clicking there closes the
+   *  polygon (same as Enter). */
+  pendingPolylineFirst?: Point;
 }
 
 export function findSnap(args: SnapArgs): SnapTarget | null {
@@ -227,8 +232,18 @@ export function referenceAngle(labels: Label[]): number {
 // ── candidate enumeration ───────────────────────────────────────────────────
 
 function collectCandidates(args: SnapArgs): SnapTarget[] {
-  const { tool, labels, cursor, excludeLabelId } = args;
+  const { tool, labels, cursor, excludeLabelId, pendingPolylineFirst } = args;
   const cands: SnapTarget[] = [];
+
+  // First-vertex close target for in-progress polylines (P7). Lets the
+  // user see + click the close-polygon snap exactly like Enter would commit.
+  if (pendingPolylineFirst && (tool === 'component_line' || tool === 'view_opening')) {
+    cands.push({
+      pt: pendingPolylineFirst,
+      kind: 'endpoint',
+      hint: 'schließen',
+    });
+  }
 
   // Endpoints of walls + dim_distances + opening corners are useful for the
   // "drag this near another existing geometry's point" pattern.
@@ -280,9 +295,33 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
     }
 
     if (l.type === 'component_line') {
-      if (tool === 'component_line' || tool === 'select-drag') {
+      const useVertices =
+        tool === 'component_line' ||
+        tool === 'select-drag' ||
+        tool === 'wall' ||
+        tool === 'dimensioned_distance';
+      if (useVertices) {
         for (const p of l.geometry.polyline) {
           cands.push({ pt: p, kind: 'endpoint', hint: 'line vertex' });
+        }
+      }
+      // P8 — snap to ANY point along an existing component_line segment when
+      // drawing another component_line, wall, or dim. Lets a new roof line
+      // start mid-edge of a wall polygon, etc.
+      const useEdges =
+        tool === 'component_line' || tool === 'wall' || tool === 'dimensioned_distance';
+      if (useEdges) {
+        const poly = l.geometry.polyline;
+        for (let i = 0; i + 1 < poly.length; i++) {
+          const proj = perpProjection(cursor, poly[i], poly[i + 1]);
+          if (proj.within) {
+            cands.push({
+              pt: proj.point,
+              kind: 'wall_line',
+              hint: 'an Linie',
+              source_label_id: l.id,
+            });
+          }
         }
       }
     }
