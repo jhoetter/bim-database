@@ -1680,10 +1680,21 @@ function LabelGlyph({
     e.stopPropagation();
     onSelect({ shift: e.shiftKey });
   };
+
+  // Drawing tools (everything except select/link) must let clicks pass
+  // straight through to the canvas — otherwise clicking ON an existing
+  // wall while drawing a new wall would be intercepted by the wall's own
+  // pointer handlers and the new wall never gets committed. The snap
+  // engine still picks up the wall's endpoints because snap math runs in
+  // the canvas-level pointermove handler, independent of pointer events.
+  const isDrawingTool = tool !== 'select' && tool !== 'link';
   const bodyProps = {
     onClick,
     onPointerDown: onPointerDownBody,
-    style: { cursor: selected ? 'move' : 'pointer' as const },
+    style: {
+      cursor: selected ? 'move' : 'pointer' as const,
+      pointerEvents: (isDrawingTool ? 'none' : 'auto') as 'none' | 'auto',
+    },
   };
 
   // Body geometry varies per type; selection handles are rendered uniformly
