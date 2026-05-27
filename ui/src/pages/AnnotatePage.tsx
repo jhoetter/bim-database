@@ -355,31 +355,39 @@ export function getHouseHeights(
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch { return {}; }
 }
-// M4.3 cross-scene Bezugsachse X: remember the X position (as ratio of
-// image width, so it survives differently-sized scene images) of the
-// Bezugsachse Höhenkote per house. New scenes of the same house default
-// their first Höhenkote to that X, so stacked elevations share a vertical
-// reference column without the user having to eyeball it.
-function bezugXRatioKey(scope: 'house' | 'dataset', houseKey: string): string {
-  return `bim-db:annotate:bezug-x-ratio:${scope}:${houseKey}`;
+// M4.3 + X3 cross-scene Bezugsachse X: remember the X position (as ratio of
+// image width) of the Bezugsachse Höhenkote per (house, sceneTag). New
+// scenes of the SAME sceneTag default their first Höhenkote to that X, so
+// stacked elevations share a vertical reference column without the user
+// having to eyeball it. The sceneTag scoping (X3) prevents a Schnitt's
+// column from leaking into an Ansicht (they aren't the same view) and
+// silences the fallback entirely in Grundriss (where Höhenkote isn't used).
+function bezugXRatioKey(scope: 'house' | 'dataset', houseKey: string, sceneTag: SceneTag): string {
+  return `bim-db:annotate:bezug-x-ratio:${scope}:${houseKey}:${sceneTag}`;
 }
-export function getHouseBezugXRatio(scope: 'house' | 'dataset', houseKey: string): number | null {
+export function getHouseBezugXRatio(
+  scope: 'house' | 'dataset', houseKey: string, sceneTag: SceneTag,
+): number | null {
+  // Only meaningful for sceneTags where Höhenkote is a thing.
+  if (sceneTag !== 'ansicht' && sceneTag !== 'schnitt' && sceneTag !== 'sonstiges') return null;
   try {
-    const v = window.localStorage.getItem(bezugXRatioKey(scope, houseKey));
+    const v = window.localStorage.getItem(bezugXRatioKey(scope, houseKey, sceneTag));
     if (v == null) return null;
     const n = parseFloat(v);
     return Number.isFinite(n) && n > 0 && n < 1 ? n : null;
   } catch { return null; }
 }
 function rememberHouseBezugXRatio(
-  scope: 'house' | 'dataset', houseKey: string, labels: Label[], imageWidth: number,
+  scope: 'house' | 'dataset', houseKey: string, sceneTag: SceneTag,
+  labels: Label[], imageWidth: number,
 ): void {
   if (imageWidth < 1) return;
+  if (sceneTag !== 'ansicht' && sceneTag !== 'schnitt' && sceneTag !== 'sonstiges') return;
   const first = labels.find((l) => l.type === 'height_mark');
   if (!first) return;
   const ratio = first.geometry.anchor[0] / imageWidth;
   if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) return;
-  try { window.localStorage.setItem(bezugXRatioKey(scope, houseKey), String(ratio)); }
+  try { window.localStorage.setItem(bezugXRatioKey(scope, houseKey, sceneTag), String(ratio)); }
   catch { /* no-op */ }
 }
 
@@ -630,6 +638,34 @@ export function AnnotatePage() {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const panStateRef = useRef<{ startX: number; startY: number; vx: number; vy: number } | null>(null);
 
+  // CRITICAL — immediate per-scene state reset on URL change. Without this,
+  // the labels from the PREVIOUS scene stay in local state during the async
+  // refetch window, and drawing during that window would: (a) treat
+  // previous-scene labels as neighbors for joint-snap / inherit-thickness /
+  // refine-queue heuristics, and (b) save the previous-scene labels back
+  // into the new scene's file. Both observable as "annotations from another
+  // scene leaking in."
+  useEffect(() => {
+    setLabels([]);
+    setSelectedIds(new Set());
+    setDirty(false);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setPostDrawChip(null);
+    setPendingStart(null);
+    setPendingPolyline([]);
+    setWallChainAnchor(null);
+  }, [scope, key, decodedFile]);
+  // X7: clear half-drawn state when the user switches tools. A pending
+  // wall chain or polyline shouldn't leak into the next tool's behavior.
+  useEffect(() => {
+    setPendingStart(null);
+    setPendingPolyline([]);
+    setWallChainAnchor(null);
+    setSnap(null);
+    setLengthMatch(null);
+    setPostDrawChip(null);
+  }, [tool]);
   useEffect(() => {
     if (data) {
       setLabels(data.labels ?? []);
@@ -1156,10 +1192,13 @@ export function AnnotatePage() {
         pushUndo();
         const existingHKs = labels.filter((l) => l.type === 'height_mark');
         // M4.3 sibling-scene fallback: when this scene has no Höhenkote yet,
-        // use the X-position remembered from another scene of the same house
-        // (stored as ratio of image width). Falls back to the raw click X
-        // when no sibling info exists.
-        const siblingRatio = existingHKs.length === 0 ? getHouseBezugXRatio(scope, key) : null;
+        // use the X-position remembered from another Ansicht of the same
+        // house. X3: ONLY applies sceneTag-to-sceneTag (ansicht↔ansicht,
+        // schnitt↔schnitt) — a Schnitt's column position is meaningful for
+        // the next Schnitt, but not for an Ansicht (and vice versa).
+        const siblingRatio = existingHKs.length === 0
+          ? getHouseBezugXRatio(scope, key, sceneTag)
+          : null;
         const bezugX = existingHKs.length > 0
           ? existingHKs[0].geometry.anchor[0]
           : (siblingRatio != null ? siblingRatio * imageSize[0] : null);
@@ -1541,11 +1580,16 @@ export function AnnotatePage() {
       // Lift this scene's Höhenkote { datum: value_mm } into the
       // per-house cache so subsequent scenes can auto-fill values
       // when the user picks the same datum.
-      rememberHouseHeights(scope, key, labels);
+      // X6: Heights are an Ansicht/Schnitt construct. Grundriss has no
+      // height_mark labels so this would be a no-op anyway, but be explicit
+      // — never let a Grundriss save touch the house-heights cache.
+      if (sceneTag === 'ansicht' || sceneTag === 'schnitt' || sceneTag === 'sonstiges') {
+        rememberHouseHeights(scope, key, labels);
+      }
       // M4.3: also remember the Bezugsachse X (as a ratio of image width)
       // so the next scene of the same house picks the same vertical
       // reference column for its first Höhenkote.
-      rememberHouseBezugXRatio(scope, key, labels, imageSize[0]);
+      rememberHouseBezugXRatio(scope, key, sceneTag, labels, imageSize[0]);
       addToast(`✓ Gespeichert (${labels.length} Labels)`, 'success');
     } catch (e) {
       addToast(`✗ Speichern fehlgeschlagen: ${(e as Error).message}`, 'error', 6000);
@@ -2328,7 +2372,9 @@ export function AnnotatePage() {
               X too, so the snapping is visible. */}
           {tool === 'height_mark' && hoverPt && (() => {
             const existingHKs = labels.filter((l) => l.type === 'height_mark');
-            const siblingRatio = existingHKs.length === 0 ? getHouseBezugXRatio(scope, key) : null;
+            const siblingRatio = existingHKs.length === 0
+              ? getHouseBezugXRatio(scope, key, sceneTag)
+              : null;
             const lockedX = existingHKs.length > 0
               ? existingHKs[0].geometry.anchor[0]
               : (siblingRatio != null ? siblingRatio * imageSize[0] : hoverPt[0]);

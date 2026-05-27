@@ -39,11 +39,41 @@ function save(tree: DefaultsTree): void {
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tree)); } catch { /* no-op */ }
 }
 
+// What attributes carry across scenes of the same house via this cache.
+//
+// We INTENTIONALLY do NOT cache:
+//   • wall.thickness_mm     — varies wall-by-wall; M4.2 neighbor-inherit
+//                              uses scene-local median instead
+//   • floorplan_opening.opening_kind, view_opening.opening_kind
+//                            — hugely variable; M3.3 auto-infer + M3.2
+//                              inline classifier chip + F/T/G/D/A/Z hotkeys
+//                              cover the in-scene case
+//   • component_line.line_kind
+//                            — geometric (Wand for vertical, Dach for
+//                              diagonal); inferLineKind handles it
+//   • floorplan_opening.width_mm
+//                            — M4.2 inherits from same-wall siblings;
+//                              cross-scene "this floor's window widths"
+//                              are misleading for different floors
+//
+// We DO cache:
+//   • dim_distance.target_orientation
+//                            — user often picks H/V consistently across
+//                              scenes (convention-driven)
+//   • view_opening.frame_visible
+//                            — drawing-style preference
+//   • floorplan_opening.swing + swing_side
+//                            — door convention (in/out, left/right)
+//                              tends to stay consistent within a house
+//   • height_mark.datum
+//                            — datum names propagate via the dedicated
+//                              house-heights cache; left here too as a
+//                              cheap fallback
 const LEARNABLE: Record<string, string[]> = {
-  wall: ['thickness_mm'],
-  floorplan_opening: ['opening_kind', 'swing', 'swing_side', 'width_mm'],
-  view_opening: ['opening_kind', 'frame_visible'],
-  component_line: ['line_kind'],
+  wall: [],
+  floorplan_opening: ['swing', 'swing_side'],
+  view_opening: ['frame_visible'],
+  component_line: [],
   dimensioned_distance: ['target_orientation', 'is_reference'],
   height_mark: ['datum'],
 };
