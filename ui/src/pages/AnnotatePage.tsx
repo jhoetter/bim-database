@@ -32,6 +32,9 @@ import {
   translateLabelGeometry,
   type HandleSpec,
 } from '../lib/labelGeometry';
+import { findSnap, SNAP_COLOR, type SnapTarget, type SnapTool } from '../lib/snap';
+
+const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel — see spec/annotation-ux.md §4
 
 // M2+M3 — Scene editor. All 7 label types implemented; tool palette is
 // gated by scene_tag (Grundriss vs Ansicht/Schnitt vs Sonstiges).
@@ -165,6 +168,10 @@ export function AnnotatePage() {
   const [pendingPolyline, setPendingPolyline] = useState<Point[]>([]);
   const [hoverPt, setHoverPt] = useState<Point | null>(null);
   const [linkSource, setLinkSource] = useState<string | null>(null);
+  // Snap target computed on every pointermove during drawing — render at
+  // §15's green circle if non-null, and use as the actual commit point on
+  // the next click instead of the raw cursor.
+  const [snap, setSnap] = useState<SnapTarget | null>(null);
 
   // Pan/zoom on the SVG viewBox.
   const [view, setView] = useState({ x: 0, y: 0, w: 1024, h: 1024 });
@@ -254,8 +261,12 @@ export function AnnotatePage() {
         return;
       }
       if (e.button !== 0) return;
-      const pt = eventToSvgPoint(e);
-      if (!pt) return;
+      const rawPt = eventToSvgPoint(e);
+      if (!rawPt) return;
+      // Always prefer the snapped point if the snap engine produced one.
+      // §4 of spec/annotation-ux.md — snap is the default; Alt is the
+      // universal "no snap" override and is already baked into snap = null.
+      const pt = snap?.pt ?? rawPt;
 
       // ── 2-click tools (line) ─────────────────────────────────────────────
       if (tool === 'dimensioned_distance' || tool === 'wall') {
@@ -403,7 +414,7 @@ export function AnnotatePage() {
       // tool === 'select' — clicking background deselects
       setSelectedId(null);
     },
-    [tool, pendingStart, labels, pushUndo, eventToSvgPoint, view],
+    [tool, pendingStart, labels, pushUndo, eventToSvgPoint, view, snap],
   );
 
   const onCanvasPointerMove = useCallback(
@@ -412,12 +423,42 @@ export function AnnotatePage() {
         (tool === 'dimensioned_distance' || tool === 'wall' ||
          tool === 'floorplan_opening' || tool === 'view_opening') && pendingStart != null;
       const previewablePoly = tool === 'component_line' && pendingPolyline.length > 0;
-      if (previewableWithStart || previewablePoly) {
-        const pt = eventToSvgPoint(e);
-        if (pt) setHoverPt(pt);
+      const previewSingle =
+        (tool === 'dimension_number' || tool === 'height_mark' ||
+         tool === 'floorplan_opening' || tool === 'view_opening' ||
+         tool === 'component_line') && pendingStart == null;
+
+      const pt = eventToSvgPoint(e);
+      if (!pt) return;
+
+      if (previewableWithStart || previewablePoly || previewSingle) {
+        setHoverPt(pt);
+      }
+
+      // Snap evaluation — even for single-click tools we want a snap target.
+      // For 'select' tool, skip (M11 will handle snap-on-drag).
+      const drawingTools: SnapTool[] = [
+        'wall', 'dimensioned_distance', 'dimension_number',
+        'floorplan_opening', 'view_opening', 'component_line', 'height_mark',
+      ];
+      if (drawingTools.includes(tool as SnapTool)) {
+        const svg = svgRef.current;
+        const screenW = svg?.clientWidth ?? 1;
+        const imageRadiusPx = (SNAP_SCREEN_RADIUS * view.w) / Math.max(1, screenW);
+        const target = findSnap({
+          cursor: pt,
+          pendingStart,
+          tool: tool as SnapTool,
+          labels,
+          imageRadiusPx,
+          modifiers: { shift: e.shiftKey, alt: e.altKey },
+        });
+        setSnap(target);
+      } else if (snap) {
+        setSnap(null);
       }
     },
-    [tool, pendingStart, pendingPolyline, eventToSvgPoint],
+    [tool, pendingStart, pendingPolyline, eventToSvgPoint, labels, view.w, snap],
   );
 
   const onCanvasWheel = useCallback(
@@ -597,6 +638,7 @@ export function AnnotatePage() {
         setPendingPolyline([]);
         setLinkSource(null);
         setSelectedId(null);
+        setSnap(null);
         return;
       }
       if (e.key === 'Enter' && tool === 'component_line' && pendingPolyline.length >= 2) {
@@ -803,11 +845,44 @@ export function AnnotatePage() {
               onStartDrag={pushUndo}
             />
           ))}
-          {/* In-progress preview — 2-click line tools */}
+          {/* Snap target — green circle + optional alignment guide */}
+          {snap && (
+            <g pointerEvents="none">
+              {snap.guide?.type === 'horizontal' && (
+                <line
+                  x1={0} y1={snap.guide.value}
+                  x2={imageSize[0]} y2={snap.guide.value}
+                  stroke="#94a3b8" strokeWidth={1 / Math.max(0.1, view.w / imageSize[0])}
+                  strokeDasharray="6,4" opacity={0.6}
+                />
+              )}
+              {snap.guide?.type === 'vertical' && (
+                <line
+                  x1={snap.guide.value} y1={0}
+                  x2={snap.guide.value} y2={imageSize[1]}
+                  stroke="#94a3b8" strokeWidth={1 / Math.max(0.1, view.w / imageSize[0])}
+                  strokeDasharray="6,4" opacity={0.6}
+                />
+              )}
+              <circle
+                cx={snap.pt[0]} cy={snap.pt[1]}
+                r={9 * (view.w / imageSize[0])}
+                fill="none" stroke={SNAP_COLOR[snap.kind]} strokeWidth={2.5 * (view.w / imageSize[0])}
+              />
+              <circle
+                cx={snap.pt[0]} cy={snap.pt[1]}
+                r={3 * (view.w / imageSize[0])}
+                fill={SNAP_COLOR[snap.kind]}
+              />
+            </g>
+          )}
+          {/* In-progress preview — 2-click line tools. Use snap point if
+              available so the preview tracks what the click will actually
+              commit. */}
           {pendingStart && hoverPt && (tool === 'dimensioned_distance' || tool === 'wall') && (
             <line
               x1={pendingStart[0]} y1={pendingStart[1]}
-              x2={hoverPt[0]} y2={hoverPt[1]}
+              x2={snap?.pt[0] ?? hoverPt[0]} y2={snap?.pt[1] ?? hoverPt[1]}
               stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
               strokeDasharray="6,4"
             />
@@ -815,10 +890,10 @@ export function AnnotatePage() {
           {/* In-progress preview — 2-click rectangle tools */}
           {pendingStart && hoverPt && (tool === 'floorplan_opening' || tool === 'view_opening') && (
             <rect
-              x={Math.min(pendingStart[0], hoverPt[0])}
-              y={Math.min(pendingStart[1], hoverPt[1])}
-              width={Math.abs(hoverPt[0] - pendingStart[0])}
-              height={Math.abs(hoverPt[1] - pendingStart[1])}
+              x={Math.min(pendingStart[0], snap?.pt[0] ?? hoverPt[0])}
+              y={Math.min(pendingStart[1], snap?.pt[1] ?? hoverPt[1])}
+              width={Math.abs((snap?.pt[0] ?? hoverPt[0]) - pendingStart[0])}
+              height={Math.abs((snap?.pt[1] ?? hoverPt[1]) - pendingStart[1])}
               fill="rgba(245, 158, 11, 0.15)"
               stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
               strokeDasharray="6,4"
@@ -854,7 +929,7 @@ export function AnnotatePage() {
           <br />
           Enter = Polylinie beenden · Esc = abbrechen · Shift/Right-Drag = Pan · Wheel = Zoom · R = Reset
         </div>
-        <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} />
+        <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} snap={snap} />
         {tool === 'link' && (
           <div className="absolute top-3 right-3 bg-black/75 text-white px-3 py-2 rounded text-[0.78rem] leading-snug pointer-events-none min-w-[240px]">
             <div className="font-semibold mb-1">Verknüpfen 🔗</div>
@@ -1276,11 +1351,13 @@ function DrawHUD({
   pendingStart,
   hoverPt,
   pendingPolyline,
+  snap,
 }: {
   tool: Tool;
   pendingStart: Point | null;
   hoverPt: Point | null;
   pendingPolyline: Point[];
+  snap: SnapTarget | null;
 }) {
   // 2-click line tools: angle from pendingStart → hoverPt
   if ((tool === 'dimensioned_distance' || tool === 'wall') && pendingStart && hoverPt) {
@@ -1304,6 +1381,11 @@ function DrawHUD({
         {(nearH || nearV) && (
           <div className="mt-1 text-[0.65rem] text-green-300 leading-tight">
             ≈ {nearH ? 'horizontal' : 'vertical'}
+          </div>
+        )}
+        {snap && (
+          <div className="mt-1 text-[0.65rem] text-green-300 leading-tight">
+            Snap → {snap.hint}
           </div>
         )}
       </div>

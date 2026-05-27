@@ -494,7 +494,7 @@ The headline experience win. Two intertwined deliverables:
 
 Scope cap: M7 does NOT include snap (M8) or wall thickness handle (M9). Just position handles + the overlay.
 
-### M8 — Snap system (the headline interaction win)
+### M8 — Snap system (the headline interaction win) ✅ shipped 2026-05-27
 
 Implements §4 in full:
 - Snap target enumeration per tool

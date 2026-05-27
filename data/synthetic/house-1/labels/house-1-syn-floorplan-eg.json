@@ -4,144 +4,194 @@
   "scene_key": "house-1",
   "scene_file": "house-1-syn-floorplan-eg.png",
   "scene_tag": "grundriss",
-  "image_size_px": [1024, 1024],
+  "image_size_px": [
+    1024,
+    1024
+  ],
   "annotated_by": "jhoetter",
-  "annotated_at": "2026-05-27T13:30:00Z",
+  "annotated_at": "2026-05-27T12:39:53.236Z",
   "labels": [
     {
-      "id": "1f2a4b21-0001-0000-0000-000000000001",
-      "type": "dimensioned_distance",
-      "geometry": {"start": [120, 920], "end": [904, 920]},
-      "attributes": {
-        "value_mm": 11750,
-        "target_orientation": "horizontal",
-        "is_reference": true
-      },
-      "status": "readable",
-      "source": "outer dimension chain along the bottom of the floorplan",
-      "relations": [],
-      "created_at": "2026-05-27T13:30:00Z",
-      "updated_at": "2026-05-27T13:30:00Z"
-    },
-    {
-      "id": "1f2a4b21-0001-0000-0000-000000000002",
-      "type": "dimensioned_distance",
-      "geometry": {"start": [80, 120], "end": [80, 880]},
-      "attributes": {
-        "value_mm": 9400,
-        "target_orientation": "vertical",
-        "is_reference": true
-      },
-      "status": "readable",
-      "source": "outer dimension chain along the left of the floorplan",
-      "relations": [],
-      "created_at": "2026-05-27T13:30:00Z",
-      "updated_at": "2026-05-27T13:30:00Z"
-    },
-    {
-      "id": "1f2a4b21-0001-0000-0000-000000000003",
-      "type": "dimension_number",
-      "geometry": {"anchor": [500, 960]},
-      "attributes": {"text": "11,75", "parsed_value_mm": 11750},
-      "status": "readable",
-      "relations": [
-        {"other_id": "1f2a4b21-0001-0000-0000-000000000001", "kind": "labels"}
-      ],
-      "created_at": "2026-05-27T13:30:00Z",
-      "updated_at": "2026-05-27T13:30:00Z"
-    },
-    {
-      "id": "1f2a4b21-0001-0000-0000-000000000004",
-      "type": "dimension_number",
-      "geometry": {"anchor": [40, 500]},
-      "attributes": {"text": "9,40", "parsed_value_mm": 9400},
-      "status": "readable",
-      "relations": [
-        {"other_id": "1f2a4b21-0001-0000-0000-000000000002", "kind": "labels"}
-      ],
-      "created_at": "2026-05-27T13:30:00Z",
-      "updated_at": "2026-05-27T13:30:00Z"
-    },
-    {
-      "id": "1f2a4b21-0001-0000-0000-000000000010",
+      "id": "20496d50-db1c-4918-a7c8-789bc1535082",
       "type": "wall",
-      "geometry": {"start": [120, 120], "end": [904, 120]},
-      "attributes": {"thickness_mm": 365},
-      "status": "readable",
-      "notes": "outer wall, top edge of footprint",
-      "relations": [],
-      "created_at": "2026-05-27T13:30:00Z",
-      "updated_at": "2026-05-27T13:30:00Z"
-    },
-    {
-      "id": "1f2a4b21-0001-0000-0000-000000000011",
-      "type": "wall",
-      "geometry": {"start": [120, 880], "end": [904, 880]},
-      "attributes": {"thickness_mm": 365},
-      "status": "readable",
-      "notes": "outer wall, bottom edge of footprint",
-      "relations": [],
-      "created_at": "2026-05-27T13:30:00Z",
-      "updated_at": "2026-05-27T13:30:00Z"
-    },
-    {
-      "id": "1f2a4b21-0001-0000-0000-000000000020",
-      "type": "floorplan_opening",
       "geometry": {
-        "quad": [
-          [430, 110],
-          [530, 110],
-          [530, 130],
-          [430, 130]
+        "start": [
+          253.9652557373047,
+          177.50965881347656
+        ],
+        "end": [
+          256.9652404785156,
+          587.4826049804688
         ]
       },
       "attributes": {
-        "opening_kind": "window",
-        "width_mm": 1000,
-        "swing": "none",
-        "swing_side": "none"
+        "thickness_mm": 365
       },
       "status": "readable",
       "relations": [],
-      "created_at": "2026-05-27T13:30:00Z",
-      "updated_at": "2026-05-27T13:30:00Z"
+      "created_at": "2026-05-27T12:38:03.975Z",
+      "updated_at": "2026-05-27T12:38:03.975Z"
     },
     {
-      "id": "1f2a4b21-0001-0000-0000-000000000021",
-      "type": "floorplan_opening",
+      "id": "2852c7df-08d6-47e3-9247-3e1b6c9ed70a",
+      "type": "wall",
       "geometry": {
-        "quad": [
-          [560, 870],
-          [660, 870],
-          [660, 890],
-          [560, 890]
+        "start": [
+          757.7026977539062,
+          585.2046508789062
+        ],
+        "end": [
+          256.146728515625,
+          583.355224609375
         ]
       },
       "attributes": {
-        "opening_kind": "door",
-        "width_mm": 950,
-        "swing": "in",
-        "swing_side": "right"
+        "thickness_mm": 365
       },
       "status": "readable",
       "relations": [],
-      "created_at": "2026-05-27T13:30:00Z",
-      "updated_at": "2026-05-27T13:30:00Z"
+      "created_at": "2026-05-27T12:38:16.019Z",
+      "updated_at": "2026-05-27T12:38:16.019Z"
+    },
+    {
+      "id": "ad356bf2-c960-4426-9f95-e5f7d8aff488",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          760.2664184570312,
+          179.270263671875
+        ],
+        "end": [
+          759.6525268554688,
+          588.4401245117188
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T12:38:19.859Z",
+      "updated_at": "2026-05-27T12:38:19.859Z"
+    },
+    {
+      "id": "327e5b73-ffe9-4ffc-ab4d-145b9ce23f4d",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          758.79150390625,
+          175.59458923339844
+        ],
+        "end": [
+          251.9691162109375,
+          176.05792236328125
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T12:38:23.118Z",
+      "updated_at": "2026-05-27T12:38:23.118Z"
+    },
+    {
+      "id": "d67459d5-c623-4aee-a30b-fa5a3ad7ae5e",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          252.91729736328125,
+          663.2551879882812
+        ],
+        "end": [
+          305.9997863769531,
+          662.8079833984375
+        ]
+      },
+      "attributes": {
+        "value_mm": null,
+        "target_orientation": "unknown",
+        "is_reference": false
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T12:39:04.697Z",
+      "updated_at": "2026-05-27T12:39:04.697Z"
+    },
+    {
+      "id": "7b558494-6e06-48e7-87ef-dec1bc512912",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          369.1675109863281,
+          667.0641479492188
+        ],
+        "end": [
+          305.3713684082031,
+          667.318603515625
+        ]
+      },
+      "attributes": {
+        "value_mm": null,
+        "target_orientation": "unknown",
+        "is_reference": false
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T12:39:07.220Z",
+      "updated_at": "2026-05-27T12:39:07.220Z"
+    },
+    {
+      "id": "cd6eb8fa-4295-439c-9bf8-2d651edb6e3c",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          418.88824462890625,
+          663.0817260742188
+        ],
+        "end": [
+          472.9152526855469,
+          666.8867797851562
+        ]
+      },
+      "attributes": {
+        "value_mm": null,
+        "target_orientation": "unknown",
+        "is_reference": false
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T12:39:15.276Z",
+      "updated_at": "2026-05-27T12:39:15.276Z"
     }
   ],
   "homography": {
     "status": "ok",
     "matrix": [
-      [1.0, 0.0, 0.0],
-      [0.0, 1.0, 0.0],
-      [0.0, 0.0, 1.0]
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        1
+      ]
     ],
     "computed_from": [
       "1f2a4b21-0001-0000-0000-000000000001",
       "1f2a4b21-0001-0000-0000-000000000002"
     ],
-    "rectified_size_px": [1024, 1024],
-    "rms_residual_px": 0.0
-  },
-  "anomalies": []
+    "rectified_size_px": [
+      1024,
+      1024
+    ],
+    "rms_residual_px": 0
+  }
 }
