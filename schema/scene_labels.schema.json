@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bim-database.local/schema/scene_labels.schema.json",
+  "title": "SceneLabels",
+  "description": "Annotation layer for one technical-drawing scene. The labels are stored in pixel coordinates of the ORIGINAL image; the homography that rectifies the image is computed from the dimensioned_distance labels with is_reference=true and used at export time to derive the rectified ground truth.",
+  "type": "object",
+  "required": ["schema_version", "scene_key", "scene_file", "scene_tag", "image_size_px", "labels"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Bumped on breaking changes. Migrations live in scripts/migrate_labels.py."
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["synthetic", "house"],
+      "description": "Which side of the database this scene belongs to. Optional — defaults to synthetic if the key has no real-house counterpart."
+    },
+    "scene_key": {
+      "type": "string",
+      "description": "House key, e.g. 'house-1'."
+    },
+    "scene_file": {
+      "type": "string",
+      "description": "Filename of the scene image, e.g. 'house-1-syn-floorplan-eg.png'."
+    },
+    "scene_tag": {
+      "type": "string",
+      "enum": ["grundriss", "ansicht", "schnitt", "sonstiges", "nicht_klassifiziert"],
+      "description": "Determines which label tools are available."
+    },
+    "image_size_px": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 1},
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[width, height] in pixels of the original image."
+    },
+    "annotated_by": {
+      "type": "string",
+      "description": "Static placeholder for now (single-user). Future multi-user systems can swap this for an account id."
+    },
+    "annotated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "labels": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/Label"}
+    },
+    "homography": {
+      "$ref": "#/$defs/Homography",
+      "description": "Derived field — re-computed from labels with is_reference=true. Stored only so exports are reproducible."
+    },
+    "anomalies": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Short human-readable strings surfacing consistency issues (e.g. dimension_number text doesn't match linked distance.value_mm)."
+    }
+  },
+  "$defs": {
+    "Point": {
+      "type": "array",
+      "items": {"type": "number"},
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[x, y] in pixel coordinates of the original image."
+    },
+    "Polyline": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/Point"},
+      "minItems": 2
+    },
+    "Quad": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/Point"},
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Oriented rectangle as 4 corner points (so it transforms correctly under a homography)."
+    },
+    "LabelStatus": {
+      "type": "string",
+      "enum": ["readable", "not_readable", "missing", "uncertain"],
+      "description": "Honesty axis — see §4.1 of spec/annotation-tool.md."
+    },
+    "Relation": {
+      "type": "object",
+      "required": ["other_id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "other_id": {"type": "string", "description": "Another label's id."},
+        "kind": {
+          "type": "string",
+          "enum": ["labels", "belongs_to", "references"],
+          "description": "Relation semantics: 'labels' = this is a dimension_number that labels another label; 'belongs_to' = part of a group; 'references' = generic pointer."
+        }
+      }
+    },
+    "LabelEnvelope": {
+      "type": "object",
+      "required": ["id", "type", "geometry", "status"],
+      "properties": {
+        "id": {"type": "string", "description": "UUID v4."},
+        "type": {"type": "string"},
+        "geometry": {"type": "object"},
+        "attributes": {"type": "object"},
+        "status": {"$ref": "#/$defs/LabelStatus"},
+        "source": {"type": "string"},
+        "relations": {"type": "array", "items": {"$ref": "#/$defs/Relation"}},
+        "notes": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "Label": {
+      "oneOf": [
+        {"$ref": "#/$defs/WallLabel"},
+        {"$ref": "#/$defs/FloorplanOpeningLabel"},
+        {"$ref": "#/$defs/ViewOpeningLabel"},
+        {"$ref": "#/$defs/ComponentLineLabel"},
+        {"$ref": "#/$defs/HeightMarkLabel"},
+        {"$ref": "#/$defs/DimensionedDistanceLabel"},
+        {"$ref": "#/$defs/DimensionNumberLabel"}
+      ]
+    },
+    "WallLabel": {
+      "allOf": [{"$ref": "#/$defs/LabelEnvelope"}, {
+        "properties": {
+          "type": {"const": "wall"},
+          "geometry": {
+            "type": "object",
+            "required": ["start", "end"],
+            "additionalProperties": false,
+            "properties": {
+              "start": {"$ref": "#/$defs/Point"},
+              "end": {"$ref": "#/$defs/Point"}
+            }
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "thickness_mm": {"type": ["number", "null"]}
+            }
+          }
+        }
+      }]
+    },
+    "FloorplanOpeningLabel": {
+      "allOf": [{"$ref": "#/$defs/LabelEnvelope"}, {
+        "properties": {
+          "type": {"const": "floorplan_opening"},
+          "geometry": {
+            "type": "object",
+            "required": ["quad"],
+            "additionalProperties": false,
+            "properties": {"quad": {"$ref": "#/$defs/Quad"}}
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "opening_kind": {"type": "string", "enum": ["door", "window", "passage", "garage_door", "other"]},
+              "width_mm": {"type": ["number", "null"]},
+              "swing": {"type": "string", "enum": ["in", "out", "sliding", "none"]},
+              "swing_side": {"type": "string", "enum": ["left", "right", "none"]}
+            }
+          }
+        }
+      }]
+    },
+    "ViewOpeningLabel": {
+      "allOf": [{"$ref": "#/$defs/LabelEnvelope"}, {
+        "properties": {
+          "type": {"const": "view_opening"},
+          "geometry": {
+            "type": "object",
+            "required": ["top_edge", "bottom_edge"],
+            "additionalProperties": false,
+            "properties": {
+              "top_edge": {"$ref": "#/$defs/Polyline"},
+              "bottom_edge": {"$ref": "#/$defs/Polyline"}
+            }
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "opening_kind": {"type": "string", "enum": ["door", "window", "skylight", "dormer", "garage_door", "other"]},
+              "frame_visible": {"type": "boolean"}
+            }
+          }
+        }
+      }]
+    },
+    "ComponentLineLabel": {
+      "allOf": [{"$ref": "#/$defs/LabelEnvelope"}, {
+        "properties": {
+          "type": {"const": "component_line"},
+          "geometry": {
+            "type": "object",
+            "required": ["polyline"],
+            "additionalProperties": false,
+            "properties": {"polyline": {"$ref": "#/$defs/Polyline"}}
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "line_kind": {"type": "string", "enum": [
+                "first", "traufe", "gelaende", "geschoss", "ok_ffb",
+                "sockel", "firstkante", "kniestock", "other"
+              ]}
+            }
+          }
+        }
+      }]
+    },
+    "HeightMarkLabel": {
+      "allOf": [{"$ref": "#/$defs/LabelEnvelope"}, {
+        "properties": {
+          "type": {"const": "height_mark"},
+          "geometry": {
+            "type": "object",
+            "required": ["anchor"],
+            "additionalProperties": false,
+            "properties": {"anchor": {"$ref": "#/$defs/Point"}}
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "value_mm": {"type": ["number", "null"]},
+              "reference_line_id": {"type": ["string", "null"], "description": "id of a component_line this height is measured from"}
+            }
+          }
+        }
+      }]
+    },
+    "DimensionedDistanceLabel": {
+      "allOf": [{"$ref": "#/$defs/LabelEnvelope"}, {
+        "properties": {
+          "type": {"const": "dimensioned_distance"},
+          "geometry": {
+            "type": "object",
+            "required": ["start", "end"],
+            "additionalProperties": false,
+            "properties": {
+              "start": {"$ref": "#/$defs/Point"},
+              "end": {"$ref": "#/$defs/Point"}
+            }
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target_orientation", "is_reference"],
+            "properties": {
+              "value_mm": {"type": ["number", "null"]},
+              "target_orientation": {
+                "oneOf": [
+                  {"type": "string", "enum": ["horizontal", "vertical", "unknown"]},
+                  {"type": "string", "pattern": "^angle_deg:-?[0-9]+(\\.[0-9]+)?$"}
+                ]
+              },
+              "is_reference": {
+                "type": "boolean",
+                "description": "Anchors the homography computation. Strokes with this true + a value_mm are what model 1 must detect."
+              }
+            }
+          }
+        }
+      }]
+    },
+    "DimensionNumberLabel": {
+      "allOf": [{"$ref": "#/$defs/LabelEnvelope"}, {
+        "properties": {
+          "type": {"const": "dimension_number"},
+          "geometry": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "anchor": {"$ref": "#/$defs/Point"},
+              "bbox": {"$ref": "#/$defs/Quad"}
+            },
+            "anyOf": [
+              {"required": ["anchor"]},
+              {"required": ["bbox"]}
+            ]
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "text": {"type": "string", "description": "As-written, e.g. '1,75'."},
+              "parsed_value_mm": {"type": ["number", "null"]}
+            }
+          }
+        }
+      }]
+    },
+    "Homography": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matrix": {
+          "type": "array",
+          "items": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "3x3 row-major. Multiplied by [x_px, y_px, 1]^T gives rectified pixel coords."
+        },
+        "computed_from": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "ids of the dimensioned_distance labels used."
+        },
+        "rectified_size_px": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 1},
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "rms_residual_px": {"type": "number"},
+        "status": {
+          "type": "string",
+          "enum": ["ok", "insufficient_references", "degenerate"],
+          "description": "Why the matrix may be missing."
+        }
+      }
+    }
+  }
+}

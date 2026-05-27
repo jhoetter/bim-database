@@ -8,8 +8,11 @@ from pathlib import Path
 
 BASE = Path(__file__).parent.parent
 HOUSES = BASE / "data" / "houses"
+SYNTHETIC = BASE / "data" / "synthetic"
 ONTOLOGY = json.loads((BASE / "data" / "ontology.json").read_text())
 SCHEMA = json.loads((BASE / "schema" / "house.schema.json").read_text())
+LABELS_SCHEMA_PATH = BASE / "schema" / "scene_labels.schema.json"
+LABELS_SCHEMA = json.loads(LABELS_SCHEMA_PATH.read_text()) if LABELS_SCHEMA_PATH.exists() else None
 
 try:
     import jsonschema
@@ -106,15 +109,38 @@ def main():
         all_errs += check_image_files_exist(rec, name, path.parent)
         warnings += check_modelable_support(rec, name)
 
+    # Scene-label files (M1+) — validate every data/{houses,synthetic}/<key>/labels/*.json
+    label_files: list[Path] = []
+    for root in (SYNTHETIC, HOUSES):
+        if root.exists():
+            label_files.extend(root.glob("*/labels/*.json"))
+    label_files.sort()
+    label_count = 0
+    for lp in label_files:
+        try:
+            labels = json.loads(lp.read_text())
+        except json.JSONDecodeError as e:
+            all_errs.append(f"{lp.relative_to(BASE)}: invalid JSON ({e})")
+            continue
+        if jsonschema and LABELS_SCHEMA:
+            try:
+                jsonschema.validate(labels, LABELS_SCHEMA)
+                label_count += 1
+            except jsonschema.ValidationError as e:
+                all_errs.append(f"{lp.relative_to(BASE)}: schema: {e.message} at {list(e.absolute_path)}")
+        else:
+            label_count += 1
+
     if all_errs:
         for e in all_errs:
             print("✗", e)
-        print(f"\n{len(all_errs)} issue(s) across {len(files)} record(s)")
+        print(f"\n{len(all_errs)} issue(s) across {len(files)} record(s) + {len(label_files)} label file(s)")
         sys.exit(1)
     for w in warnings:
         print("⚠", w)
     suffix = f" ({len(warnings)} warning(s))" if warnings else ""
-    print(f"✓ {len(files)} records valid{suffix}")
+    label_suffix = f", {label_count} label file(s)" if label_count else ""
+    print(f"✓ {len(files)} records valid{label_suffix}{suffix}")
 
 
 if __name__ == "__main__":

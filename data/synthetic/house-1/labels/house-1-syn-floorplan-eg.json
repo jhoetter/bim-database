@@ -1,0 +1,147 @@
+{
+  "schema_version": "1.0",
+  "scope": "synthetic",
+  "scene_key": "house-1",
+  "scene_file": "house-1-syn-floorplan-eg.png",
+  "scene_tag": "grundriss",
+  "image_size_px": [1024, 1024],
+  "annotated_by": "jhoetter",
+  "annotated_at": "2026-05-27T13:30:00Z",
+  "labels": [
+    {
+      "id": "1f2a4b21-0001-0000-0000-000000000001",
+      "type": "dimensioned_distance",
+      "geometry": {"start": [120, 920], "end": [904, 920]},
+      "attributes": {
+        "value_mm": 11750,
+        "target_orientation": "horizontal",
+        "is_reference": true
+      },
+      "status": "readable",
+      "source": "outer dimension chain along the bottom of the floorplan",
+      "relations": [],
+      "created_at": "2026-05-27T13:30:00Z",
+      "updated_at": "2026-05-27T13:30:00Z"
+    },
+    {
+      "id": "1f2a4b21-0001-0000-0000-000000000002",
+      "type": "dimensioned_distance",
+      "geometry": {"start": [80, 120], "end": [80, 880]},
+      "attributes": {
+        "value_mm": 9400,
+        "target_orientation": "vertical",
+        "is_reference": true
+      },
+      "status": "readable",
+      "source": "outer dimension chain along the left of the floorplan",
+      "relations": [],
+      "created_at": "2026-05-27T13:30:00Z",
+      "updated_at": "2026-05-27T13:30:00Z"
+    },
+    {
+      "id": "1f2a4b21-0001-0000-0000-000000000003",
+      "type": "dimension_number",
+      "geometry": {"anchor": [500, 960]},
+      "attributes": {"text": "11,75", "parsed_value_mm": 11750},
+      "status": "readable",
+      "relations": [
+        {"other_id": "1f2a4b21-0001-0000-0000-000000000001", "kind": "labels"}
+      ],
+      "created_at": "2026-05-27T13:30:00Z",
+      "updated_at": "2026-05-27T13:30:00Z"
+    },
+    {
+      "id": "1f2a4b21-0001-0000-0000-000000000004",
+      "type": "dimension_number",
+      "geometry": {"anchor": [40, 500]},
+      "attributes": {"text": "9,40", "parsed_value_mm": 9400},
+      "status": "readable",
+      "relations": [
+        {"other_id": "1f2a4b21-0001-0000-0000-000000000002", "kind": "labels"}
+      ],
+      "created_at": "2026-05-27T13:30:00Z",
+      "updated_at": "2026-05-27T13:30:00Z"
+    },
+    {
+      "id": "1f2a4b21-0001-0000-0000-000000000010",
+      "type": "wall",
+      "geometry": {"start": [120, 120], "end": [904, 120]},
+      "attributes": {"thickness_mm": 365},
+      "status": "readable",
+      "notes": "outer wall, top edge of footprint",
+      "relations": [],
+      "created_at": "2026-05-27T13:30:00Z",
+      "updated_at": "2026-05-27T13:30:00Z"
+    },
+    {
+      "id": "1f2a4b21-0001-0000-0000-000000000011",
+      "type": "wall",
+      "geometry": {"start": [120, 880], "end": [904, 880]},
+      "attributes": {"thickness_mm": 365},
+      "status": "readable",
+      "notes": "outer wall, bottom edge of footprint",
+      "relations": [],
+      "created_at": "2026-05-27T13:30:00Z",
+      "updated_at": "2026-05-27T13:30:00Z"
+    },
+    {
+      "id": "1f2a4b21-0001-0000-0000-000000000020",
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [430, 110],
+          [530, 110],
+          [530, 130],
+          [430, 130]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "window",
+        "width_mm": 1000,
+        "swing": "none",
+        "swing_side": "none"
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T13:30:00Z",
+      "updated_at": "2026-05-27T13:30:00Z"
+    },
+    {
+      "id": "1f2a4b21-0001-0000-0000-000000000021",
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [560, 870],
+          [660, 870],
+          [660, 890],
+          [560, 890]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "door",
+        "width_mm": 950,
+        "swing": "in",
+        "swing_side": "right"
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T13:30:00Z",
+      "updated_at": "2026-05-27T13:30:00Z"
+    }
+  ],
+  "homography": {
+    "status": "ok",
+    "matrix": [
+      [1.0, 0.0, 0.0],
+      [0.0, 1.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "computed_from": [
+      "1f2a4b21-0001-0000-0000-000000000001",
+      "1f2a4b21-0001-0000-0000-000000000002"
+    ],
+    "rectified_size_px": [1024, 1024],
+    "rms_residual_px": 0.0
+  },
+  "anomalies": []
+}
