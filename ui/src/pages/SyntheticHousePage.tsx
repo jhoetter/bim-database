@@ -336,6 +336,7 @@ function DrawingTile({ houseKey, d }: { houseKey: string; d: SyntheticDrawing })
 }
 
 function DrawingDetail({ d }: { d: SyntheticDrawing }) {
+  const { key = '' } = useParams();
   return (
     <div className="flex flex-col">
       <div className="bg-zinc-800 flex items-center justify-center p-3">
@@ -404,14 +405,22 @@ function DrawingDetail({ d }: { d: SyntheticDrawing }) {
           </section>
         )}
 
-        <a
-          href={d.url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-block text-[0.75rem] text-accent hover:underline"
-        >
-          Original PNG öffnen ↗
-        </a>
+        <div className="flex gap-2 flex-wrap">
+          <Link
+            to={`/synthetic/${key}/scene/${encodeURIComponent(d.file)}/annotate`}
+            className="inline-block px-3 py-1.5 rounded-md text-[0.78rem] font-medium bg-accent text-white hover:opacity-90"
+          >
+            Annotieren →
+          </Link>
+          <a
+            href={d.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-block px-3 py-1.5 rounded-md text-[0.75rem] text-accent border border-accent hover:bg-accent/10"
+          >
+            Original PNG ↗
+          </a>
+        </div>
       </div>
     </div>
   );

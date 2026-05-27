@@ -4,6 +4,7 @@ import { HousesPage } from './pages/HousesPage';
 import { HousePage } from './pages/HousePage';
 import { SyntheticPage } from './pages/SyntheticPage';
 import { SyntheticHousePage } from './pages/SyntheticHousePage';
+import { AnnotatePage } from './pages/AnnotatePage';
 
 export const router = createBrowserRouter([
   {
@@ -19,6 +20,11 @@ export const router = createBrowserRouter([
       { path: 'synthetic', Component: SyntheticPage },
       { path: 'synthetic/:key', Component: SyntheticHousePage },
       { path: 'synthetic/:key/scene/:file', Component: SyntheticHousePage },
+      // Annotation editor — same component handles both scopes; the URL
+      // prefix (/synthetic/... vs /house/...) decides which folder the
+      // labels live in.
+      { path: 'synthetic/:key/scene/:file/annotate', Component: AnnotatePage },
+      { path: 'house/:key/scene/:file/annotate', Component: AnnotatePage },
     ],
   },
 ]);

@@ -1,3 +1,4 @@
+import { Link, useParams } from 'react-router';
 import type { FactEntry, SceneImage } from '../../api/types';
 import { ontoLabel, useOntology } from '../../api/ontology';
 import { FactValueRenderer } from './FactValueRenderer';
@@ -9,6 +10,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 // The slide-in right-rail panel that shows full detail for one scene.
 // Image at top, then orientation chip + caption + provenance + facts + anomalies.
 export function SceneDetailPanel({ img }: { img: SceneImage }) {
+  const { key = '' } = useParams();
   const factEntries = Object.entries(img.facts ?? {});
   const anomalies = img.anomaly_flags ?? [];
 
@@ -27,6 +29,12 @@ export function SceneDetailPanel({ img }: { img: SceneImage }) {
         {img.caption && (
           <p className="text-[0.8125rem] text-muted mb-4 leading-relaxed">{img.caption}</p>
         )}
+        <Link
+          to={`/house/${key}/scene/${encodeURIComponent(img.file)}/annotate`}
+          className="inline-block mb-4 px-3 py-1.5 rounded-md text-[0.78rem] font-medium bg-accent text-white hover:opacity-90"
+        >
+          Annotieren →
+        </Link>
         {img.source_ref && <SourceSection src={img.source_ref} />}
         <FactsSection entries={factEntries} />
         {anomalies.length > 0 && <SceneAnomalies flags={anomalies} />}

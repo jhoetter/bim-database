@@ -1,7 +1,7 @@
 // Thin fetch wrappers + a couple of helper hooks. All endpoints come from
 // the FastAPI in api/main.py — dev proxies to :2500, prod is same-origin.
 import { useEffect, useState } from 'react';
-import type { House, Ontology, SyntheticHouse } from './types';
+import type { House, LabelScope, Ontology, SceneLabels, SyntheticHouse } from './types';
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -29,6 +29,32 @@ export function fetchSynthetics(): Promise<SyntheticHouse[]> {
 
 export function fetchSynthetic(key: string): Promise<SyntheticHouse> {
   return get<SyntheticHouse>(`/synthetics/${key}`);
+}
+
+// Annotation labels — works for both 'synthetic' and 'house' scopes. The
+// GET endpoint returns a freshly-constructed skeleton if no labels file
+// exists yet, so the editor never has to handle a separate "new" path.
+
+export function fetchLabels(scope: LabelScope, key: string, file: string): Promise<SceneLabels> {
+  return get<SceneLabels>(`/labels/${scope}/${key}/${encodeURIComponent(file)}`);
+}
+
+export async function saveLabels(
+  scope: LabelScope,
+  key: string,
+  file: string,
+  payload: SceneLabels,
+): Promise<{ saved: string; bytes: number }> {
+  const r = await fetch(`/labels/${scope}/${key}/${encodeURIComponent(file)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
 }
 
 // Tiny hook helpers — no react-query dep for this scale. Re-fetches when

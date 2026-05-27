@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -405,3 +405,90 @@ def get_synthetic(key: str):
     if data is None:
         raise HTTPException(status_code=404, detail=f"No synthetic manifest for {key!r}")
     return data
+
+
+# ── annotation labels ──────────────────────────────────────────────────────
+# Scope-aware label storage. Synthetic and real-house scenes share one schema
+# and one API surface; only the on-disk folder differs.
+
+LABELS_SCHEMA_PATH = BASE / "schema" / "scene_labels.schema.json"
+try:
+    LABELS_SCHEMA = json.loads(LABELS_SCHEMA_PATH.read_text()) if LABELS_SCHEMA_PATH.exists() else None
+except Exception:  # noqa: BLE001
+    LABELS_SCHEMA = None
+
+try:
+    import jsonschema as _jsonschema  # type: ignore
+except ImportError:
+    _jsonschema = None
+
+
+def _scope_root(scope: str) -> Path:
+    if scope == "synthetic":
+        return SYNTHETIC_DIR
+    if scope == "house":
+        return HOUSES_DIR
+    raise HTTPException(status_code=400, detail=f"bad scope {scope!r} — expected 'synthetic' or 'house'")
+
+
+def _safe_label_path(scope: str, key: str, file: str) -> Path:
+    if "/" in key or ".." in key or "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad key or file (traversal blocked)")
+    return _scope_root(scope) / key / "labels" / (Path(file).stem + ".json")
+
+
+def _scene_image_path(scope: str, key: str, file: str) -> Path:
+    if "/" in key or ".." in key or "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad key or file")
+    return _scope_root(scope) / key / file
+
+
+@app.get("/labels/{scope}/{key}/{file}", tags=["labels"])
+def get_labels(scope: str, key: str, file: str):
+    """Return the label set for one scene. If no labels file exists yet,
+    return a fresh skeleton with image_size_px pre-filled — so the UI can
+    open the editor on a brand-new scene without a separate 'create' step."""
+    label_path = _safe_label_path(scope, key, file)
+    if label_path.exists():
+        return json.loads(label_path.read_text())
+    img_path = _scene_image_path(scope, key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {scope}/{key}/{file}")
+    from PIL import Image as PILImage
+    with PILImage.open(img_path) as im:
+        w, h = im.size
+    return {
+        "schema_version": "1.0",
+        "scope": scope,
+        "scene_key": key,
+        "scene_file": file,
+        "scene_tag": "nicht_klassifiziert",
+        "image_size_px": [w, h],
+        "labels": [],
+    }
+
+
+@app.put("/labels/{scope}/{key}/{file}", tags=["labels"])
+def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(...)):
+    """Save the label set for one scene. Validates against the JSON schema
+    before writing; rejects on schema error so a buggy client can't corrupt
+    the on-disk file. Caller is responsible for round-tripping any unknown
+    fields (forward-compat)."""
+    label_path = _safe_label_path(scope, key, file)
+    # Enforce that the payload's identity matches the URL — prevents the
+    # editor from accidentally PUTting one scene's labels into another.
+    if payload.get("scene_key") not in (None, key):
+        raise HTTPException(status_code=400, detail=f"payload.scene_key {payload.get('scene_key')!r} != URL key {key!r}")
+    if payload.get("scene_file") not in (None, file):
+        raise HTTPException(status_code=400, detail=f"payload.scene_file != URL file")
+    payload.setdefault("scope", scope)
+    payload.setdefault("scene_key", key)
+    payload.setdefault("scene_file", file)
+    if _jsonschema and LABELS_SCHEMA:
+        try:
+            _jsonschema.validate(payload, LABELS_SCHEMA)
+        except _jsonschema.ValidationError as e:
+            raise HTTPException(status_code=422, detail=f"schema: {e.message} at {list(e.absolute_path)}")
+    label_path.parent.mkdir(parents=True, exist_ok=True)
+    label_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    return {"saved": str(label_path.relative_to(BASE)), "bytes": label_path.stat().st_size}
