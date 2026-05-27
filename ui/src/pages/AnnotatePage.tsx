@@ -217,6 +217,12 @@ export function AnnotatePage() {
   const [pendingPolyline, setPendingPolyline] = useState<Point[]>([]);
   const [hoverPt, setHoverPt] = useState<Point | null>(null);
   const [linkSource, setLinkSource] = useState<string | null>(null);
+  // Wall chaining: when drawing walls, every committed wall's end becomes
+  // the next wall's start so the user can outline a building footprint as
+  // a sequence of connected walls without releasing Esc between them.
+  // chainAnchor remembers the start of the current chain so we can offer
+  // 'close the polygon' when the chain's tip returns to it.
+  const [wallChainAnchor, setWallChainAnchor] = useState<Point | null>(null);
   // Snap target computed on every pointermove during drawing — render at
   // §15's green circle if non-null, and use as the actual commit point on
   // the next click instead of the raw cursor.
@@ -250,6 +256,10 @@ export function AnnotatePage() {
     try { return window.localStorage.getItem('bim-db:annotate:autosave') === 'true'; }
     catch { return false; }
   });
+  // Global drag flag — set true during any handle / body drag. The right
+  // rail dims to near-invisible while it's true so a wall being dragged
+  // doesn't disappear visually behind the inspector overlay.
+  const [isDragging, setIsDragging] = useState(false);
   // "Alle Werkzeuge" override: ignore tag-gating and show every tool.
   // Useful when the user wants flexibility (e.g. tag=nicht_klassifiziert
   // but they still want to drop a dim_distance to bootstrap the homography).
@@ -367,15 +377,17 @@ export function AnnotatePage() {
       if (e.button !== 0) return;
       const rawPt = eventToSvgPoint(e);
       if (!rawPt) return;
-      // Always prefer the snapped point if the snap engine produced one.
-      // §4 of spec/annotation-ux.md — snap is the default; Alt is the
-      // universal "no snap" override and is already baked into snap = null.
       const pt = snap?.pt ?? rawPt;
+      const imageSnapRadiusForView =
+        (SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1);
 
       // ── 2-click tools (line) ─────────────────────────────────────────────
       if (tool === 'dimensioned_distance' || tool === 'wall') {
         if (pendingStart == null) {
           setPendingStart(pt);
+          // Mark this as the chain anchor — if the user keeps drawing
+          // walls, they all originate from this point's polygon.
+          if (tool === 'wall') setWallChainAnchor(pt);
           return;
         }
         pushUndo();
@@ -411,8 +423,24 @@ export function AnnotatePage() {
         }
         setLabels([...labels, label]);
         setDirty(true);
-        setPendingStart(null);
-        setSelectedId(label.id);
+        // Wall chaining: keep drawing — the next wall starts where this one
+        // ended. The 'closing the polygon' case (user clicked back near the
+        // chain anchor) breaks the chain so the user isn't auto-extended
+        // out of a closed shape.
+        if (tool === 'wall') {
+          const closedToAnchor = wallChainAnchor && Math.hypot(pt[0] - wallChainAnchor[0], pt[1] - wallChainAnchor[1])
+              < (imageSnapRadiusForView * 2);
+          if (closedToAnchor) {
+            setPendingStart(null);
+            setWallChainAnchor(null);
+            addToast('Polygon geschlossen ✓', 'success', 1500);
+          } else {
+            setPendingStart(pt);
+          }
+        } else {
+          setPendingStart(null);
+        }
+        setSelectedIds(new Set([label.id]));
         return;
       }
 
@@ -932,6 +960,7 @@ export function AnnotatePage() {
         setLinkSource(null);
         setSelectedId(null);
         setSnap(null);
+        setWallChainAnchor(null);
         return;
       }
       if (e.key === 'Enter' && tool === 'component_line' && pendingPolyline.length >= 2) {
@@ -1143,6 +1172,15 @@ export function AnnotatePage() {
       }
       rightRailMode="overlay-pinnable"
       rightRail={
+        // Dim the rail to ~5% opacity + disable pointer events during drag
+        // so the user can see what they're moving even if the cursor passes
+        // under the overlay.
+        ((selectedIds.size > 1) || selectedLabel) ? (
+          <div style={{
+            opacity: isDragging ? 0.05 : 1,
+            pointerEvents: isDragging ? 'none' : 'auto',
+            transition: 'opacity 120ms',
+          }}>{(
         selectedIds.size > 1 ? (
           <MultiInspector
             labels={labels.filter((l) => selectedIds.has(l.id))}
@@ -1178,6 +1216,8 @@ export function AnnotatePage() {
             onSelectId={(id) => setSelectedIds(new Set([id]))}
           />
         ) : null
+        )}</div>
+        ) : null
       }
       rightRailLabel={
         selectedIds.size > 1 ? `${selectedIds.size} Labels` : selectedLabel ? 'Inspector' : undefined
@@ -1206,11 +1246,14 @@ export function AnnotatePage() {
             <LabelGlyph
               key={l.id}
               label={l}
-              selected={l.id === selectedId}
+              selected={selectedIds.has(l.id)}
               linkSource={linkSource}
               tool={tool}
               allLabels={labels}
+              imageSnapRadius={(SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               eventToSvgPoint={eventToSvgPoint}
+              onDragStateChange={setIsDragging}
+              onSnapChange={setSnap}
               onSelect={(modifiers) => {
                 if (tool === 'link') {
                   // Linking flow: first eligible click = source; second eligible click = target.
@@ -1275,6 +1318,38 @@ export function AnnotatePage() {
               onStartDrag={pushUndo}
             />
           ))}
+          {/* Close-polygon hint — when the wall chain anchor is set and the
+              hover cursor approaches it, surface a green ring so the user
+              knows clicking here will close + break the chain. */}
+          {wallChainAnchor && hoverPt && tool === 'wall' && (() => {
+            const d = Math.hypot(hoverPt[0] - wallChainAnchor[0], hoverPt[1] - wallChainAnchor[1]);
+            const radius = (SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1) * 2;
+            if (d > radius * 2) return null;
+            const near = d < radius;
+            return (
+              <g pointerEvents="none">
+                <circle
+                  cx={wallChainAnchor[0]} cy={wallChainAnchor[1]} r={radius}
+                  fill={near ? 'rgba(22, 163, 74, 0.20)' : 'none'}
+                  stroke={near ? '#16a34a' : '#94a3b8'}
+                  strokeWidth={(near ? 2.5 : 1.5) * (view.w / imageSize[0])}
+                  strokeDasharray={near ? '0' : '4,3'}
+                />
+                {near && (
+                  <text
+                    x={wallChainAnchor[0] + radius + 8}
+                    y={wallChainAnchor[1]}
+                    fill="#16a34a"
+                    fontSize={11 * (view.w / imageSize[0])}
+                    fontFamily="ui-monospace, monospace"
+                    style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 * (view.w / imageSize[0]) }}
+                  >
+                    Klick = Polygon schließen
+                  </text>
+                )}
+              </g>
+            );
+          })()}
           {/* M11 rubber-band rectangle */}
           {rubberBand && (
             <rect
@@ -1667,24 +1742,33 @@ function LabelGlyph({
   linkSource,
   tool,
   allLabels,
+  imageSnapRadius,
   eventToSvgPoint,
   onSelect,
   onMutateGeometry,
   onMutateAttributes,
   onStartDrag,
+  onDragStateChange,
+  onSnapChange,
 }: {
   label: Label;
   selected: boolean;
   linkSource: string | null;
   tool: Tool;
   /** All labels in the scene — needed for cross-label constraints (e.g.
-   *  attached floorplan_opening drag projected onto its parent wall axis). */
+   *  attached floorplan_opening drag projected onto its parent wall axis)
+   *  and snap-on-edit (handle drag snaps to other labels' endpoints). */
   allLabels: Label[];
+  /** Per-image-pixel snap radius. Caller computes it from the screen radius
+   *  divided by the current view-to-screen scale. */
+  imageSnapRadius: number;
   eventToSvgPoint: (e: ReactPointerEvent<SVGSVGElement> | PointerEvent) => Point | null;
   onSelect: (modifiers?: { shift?: boolean }) => void;
   onMutateGeometry: (newGeom: Label['geometry']) => void;
   onMutateAttributes: (newAttrs: Record<string, unknown>) => void;
   onStartDrag: () => void;
+  onDragStateChange: (dragging: boolean) => void;
+  onSnapChange: (s: SnapTarget | null) => void;
 }) {
   // Color per type — selected always takes precedence; in link mode the
   // source label gets a magenta outline so it's obvious which one is staged.
@@ -1734,6 +1818,7 @@ function LabelGlyph({
       let dy = pt[1] - start[1];
       if (!dragged && Math.hypot(dx, dy) > 4) {
         dragged = true;
+        onDragStateChange(true);
         if (!pushedUndo) {
           onStartDrag();
           pushedUndo = true;
@@ -1754,6 +1839,7 @@ function LabelGlyph({
     const onUp = (mv: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      onDragStateChange(false);
       if (!dragged) onSelect({ shift: mv.shiftKey });
     };
     window.addEventListener('pointermove', onMove);
@@ -1762,24 +1848,45 @@ function LabelGlyph({
 
   // Handle dragging a single endpoint / corner / vertex — same pattern but
   // updates one specific point on the geometry block via moveHandle().
+  // Snap fires during the drag so endpoints snap to other walls' endpoints
+  // (e.g. two walls meeting at a corner).
   const onHandlePointerDown = (handleId: string) => (e: React.PointerEvent<SVGElement>) => {
     e.stopPropagation();
     if (e.button !== 0) return;
     const start = eventToSvgPoint(e as unknown as ReactPointerEvent<SVGSVGElement>);
     if (!start) return;
     let pushedUndo = false;
+    let dragging = false;
     const onMove = (mv: PointerEvent) => {
-      const pt = eventToSvgPoint(mv);
-      if (!pt) return;
+      const raw = eventToSvgPoint(mv);
+      if (!raw) return;
+      if (!dragging) {
+        dragging = true;
+        onDragStateChange(true);
+      }
       if (!pushedUndo) {
         onStartDrag();
         pushedUndo = true;
       }
-      onMutateGeometry(moveHandle(label, handleId, pt));
+      // Snap-on-edit: enumerate snap candidates as if we were drawing a
+      // new wall/dim_distance — endpoints of OTHER labels (excluding self).
+      const snapped = findSnap({
+        cursor: raw,
+        pendingStart: null,
+        tool: 'select-drag',
+        labels: allLabels,
+        imageRadiusPx: imageSnapRadius,
+        modifiers: { shift: mv.shiftKey, alt: mv.altKey },
+        excludeLabelId: label.id,
+      });
+      onSnapChange(snapped);
+      onMutateGeometry(moveHandle(label, handleId, snapped?.pt ?? raw));
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      onDragStateChange(false);
+      onSnapChange(null);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -2066,6 +2173,11 @@ function Cheatsheet({ onClose }: { onClose: () => void }) {
     ['Szenen-Navigation', [
       [',', 'Vorige Szene des Hauses'],
       ['.', 'Nächste Szene des Hauses'],
+    ]],
+    ['Wand-Polygon', [
+      ['Klick … Klick …', 'Verkettete Wände — jeder Klick startet die nächste Wand'],
+      ['Klick nahe Start', 'Polygon schließen + Kette beenden'],
+      ['Esc', 'Kette manuell beenden'],
     ]],
     ['Speichern', [
       ['⌘/Ctrl + S', 'Speichern'],
