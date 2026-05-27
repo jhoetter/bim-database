@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
-import { fetchHouse, fetchLabels, fetchSynthetic, saveLabels, useResource } from '../api/client';
+import { fetchHouse, fetchLabels, fetchDataset, saveLabels, useResource } from '../api/client';
 import type {
   ComponentLineLabel,
   DimensionNumberLabel,
@@ -194,16 +194,31 @@ const TOOL_FAMILIES: ToolFamily[] = [
     attrName: 'line_kind',
     applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
     options: [
-      // Linien sind NUR für geometrische Form (Silhouette/Außenkanten).
-      // Höhenbezüge gehören in das Höhenkote-Werkzeug — eine Höhenkote
-      // mit Datum 'first' ist viel präziser als eine separate
-      // horizontale First-Linie.
-      { value: 'gebaeudekante', label: 'Gebäudekante',  hint: 'Außenkante des Gebäudes — Wand-Außenseiten in der Ansicht, Giebelkanten, vertikale Silhouetten-Kanten.' },
-      { value: 'dachschraege',  label: 'Dachschräge',   hint: 'Schräge Dachfläche / Dachkante (Linie von First nach Traufe). Aus den Endpunkten folgen First- und Traufhöhe rechnerisch.' },
-      { value: 'firstkante',    label: 'Firstkante',    hint: 'Horizontale Firstkante / Gratlinie (Strecke entlang des Firsts in der Ansicht).' },
-      { value: 'other',         label: 'Sonstige',      hint: 'Wenn keiner der drei Typen passt. Höhenbezüge (First, Traufe, Gelände …) bitte als Höhenkote, nicht als Linie.' },
+      // Nur 2 echte Typen — alles andere ist über Höhenkote (für Höhen) +
+      // diese 2 Linien (für Form) abgedeckt.
+      //   - "Firstkante" gibt es nicht mehr: wo der First ist + wie lang
+      //     er ist folgt direkt aus den Höhenkoten + den Endpunkten der
+      //     beiden Dachschrägen.
+      //   - "First / Traufe / Gelände / OK FFB / Sockel / Kniestock /
+      //     Geschoss" als Linientypen sind ebenfalls weg: alles
+      //     Höhenkote.datum.
+      {
+        value: 'gebaeudekante',
+        label: 'Wand',
+        hint: 'VERTIKALE Außenkante des Gebäudes — linke/rechte Giebelseite, seitliche Stufung, beim Flachdach die gesamte Außenwand. Eine pro vertikalem Abschnitt.',
+      },
+      {
+        value: 'dachschraege',
+        label: 'Dach',
+        hint: 'DIAGONALE Dachkante (Traufe ↗ First). Satteldach = 2 Dachschrägen, Walmdach = 4. Wenn das Dach flach ist: keine — die Oberkante ist eine Wand.',
+      },
+      {
+        value: 'other',
+        label: 'Sonstige',
+        hint: 'Selten — z. B. Schornsteinkante, Attika, Auskragung. Höhen NICHT als Linie labeln; dafür Höhenkote nutzen.',
+      },
     ],
-    helpText: 'Linien = Gebäudeform (Silhouette, Dach, Kanten). Höhenbezüge → Höhenkote.',
+    helpText: 'Linien = Gebäudeform: vertikal = Wand, schräg = Dach. Höhenbezugslinien (First, Traufe, Gelände …) brauchst du NICHT — Höhenkote mit Datum genügt.',
   },
 ];
 
@@ -357,14 +372,14 @@ function sceneShortLabel(file: string, title?: string): string {
 }
 
 // localStorage key for the last-visited scene of a house. Scoped by
-// (scope, key) so synthetic and real-house namespaces don't collide.
-function lastSceneKey(scope: 'house' | 'synthetic', houseKey: string): string {
+// (scope, key) so dataset and source-house namespaces don't collide.
+function lastSceneKey(scope: 'house' | 'dataset', houseKey: string): string {
   return `bim-db:annotate:last-scene:${scope}:${houseKey}`;
 }
-export function getLastVisitedScene(scope: 'house' | 'synthetic', houseKey: string): string | null {
+export function getLastVisitedScene(scope: 'house' | 'dataset', houseKey: string): string | null {
   try { return window.localStorage.getItem(lastSceneKey(scope, houseKey)); } catch { return null; }
 }
-function rememberLastVisitedScene(scope: 'house' | 'synthetic', houseKey: string, file: string): void {
+function rememberLastVisitedScene(scope: 'house' | 'dataset', houseKey: string, file: string): void {
   try { window.localStorage.setItem(lastSceneKey(scope, houseKey), file); } catch { /* no-op */ }
 }
 
@@ -374,11 +389,11 @@ export function AnnotatePage() {
   const { key = '', file = '' } = useParams();
   const decodedFile = decodeURIComponent(file);
 
-  // Scope: derived from URL prefix. /synthetic/... → synthetic; /house/... → house.
-  const scope: LabelScope = location.pathname.startsWith('/synthetic/') ? 'synthetic' : 'house';
+  // Scope: derived from URL prefix. /dataset/... → dataset; /house/... → house.
+  const scope: LabelScope = location.pathname.startsWith('/dataset/') ? 'dataset' : 'house';
   const imageUrl =
-    scope === 'synthetic'
-      ? `/static/synthetic/${key}/${decodedFile}`
+    scope === 'dataset'
+      ? `/static/dataset/${key}/${decodedFile}`
       : `/scene/${key}/${encodeURIComponent(decodedFile)}`;
 
   const { data, loading, error } = useResource(() => fetchLabels(scope, key, decodedFile), [scope, key, decodedFile]);
@@ -388,8 +403,8 @@ export function AnnotatePage() {
   // file. Re-fetches only when the house changes, not when the scene does.
   const { data: houseScenes } = useResource(
     async () => {
-      if (scope === 'synthetic') {
-        const h = await fetchSynthetic(key);
+      if (scope === 'dataset') {
+        const h = await fetchDataset(key);
         return h.drawings.map((d) => ({ file: d.file, title: d.title ?? d.file }));
       }
       const h = await fetchHouse(key);
@@ -538,7 +553,7 @@ export function AnnotatePage() {
   }, [data]);
 
   // Remember the last-visited scene for this house so opening the house
-  // again (from the synthetic overview card) resumes here instead of
+  // again (from the dataset overview card) resumes here instead of
   // jumping back to the hero scene.
   useEffect(() => {
     if (key && decodedFile) {
@@ -1227,8 +1242,8 @@ export function AnnotatePage() {
       );
       if (!ok) return;
     }
-    const path = scope === 'synthetic'
-      ? `/synthetic/${key}/scene/${encodeURIComponent(targetFile)}/annotate`
+    const path = scope === 'dataset'
+      ? `/dataset/${key}/scene/${encodeURIComponent(targetFile)}/annotate`
       : `/house/${key}/scene/${encodeURIComponent(targetFile)}/annotate`;
     navigate(path);
   }, [dirty, autosave, scope, key, navigate]);
@@ -1414,7 +1429,7 @@ export function AnnotatePage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: scope === 'synthetic' ? 'Synthetisch' : 'Alle Häuser', to: scope === 'synthetic' ? '/synthetic' : '/' },
+            { label: scope === 'dataset' ? 'Datensatz' : 'Alle Häuser', to: scope === 'dataset' ? '/dataset' : '/' },
             // House name is plain text — the overview page is now the
             // entry point and the click-through goes straight to
             // annotation, so an intermediate "house detail" link doesn't
@@ -2183,6 +2198,8 @@ function ToolPalette({
         )}
       </section>
 
+      <SceneChecklist sceneTag={sceneTag} labels={labels} />
+
       <section className="space-y-2">
         <label className="flex items-center gap-2 text-[0.75rem] cursor-pointer">
           <input
@@ -2431,11 +2448,14 @@ function labelSummary(l: Label): string {
     }
     case 'component_line': {
       const kindLabels: Record<string, string> = {
-        first: 'First', traufe: 'Traufe', gelaende: 'Gelände',
-        geschoss: 'Geschoss', ok_ffb: 'OK FFB', sockel: 'Sockel',
-        kniestock: 'Kniestock', firstkante: 'Firstkante',
-        dachschraege: 'Dachschräge', gebaeudekante: 'Gebäudekante',
+        gebaeudekante: 'Wand',
+        dachschraege: 'Dach',
         other: 'Sonstige',
+        // Legacy values still rendered as-is so old labels stay readable.
+        first: 'First (legacy)', traufe: 'Traufe (legacy)',
+        gelaende: 'Gelände (legacy)', geschoss: 'Geschoss (legacy)',
+        ok_ffb: 'OK FFB (legacy)', sockel: 'Sockel (legacy)',
+        kniestock: 'Kniestock (legacy)', firstkante: 'Firstkante (legacy)',
       };
       const k = l.attributes.line_kind ?? 'other';
       const pts = l.geometry.polyline.length;
@@ -2543,6 +2563,106 @@ function LabelsByType({
         );
       })}
     </div>
+  );
+}
+
+// "Was muss ich labeln?" — per scene-tag checklist with live ✓/○ status.
+// Tells the user, at a glance, what each scene actually NEEDS for the
+// downstream ML pipeline to work. Empty checks are not failures — they're
+// reminders. Two genuine required items per scene-tag (driven by the
+// homography needing 1H + 1V Bezug), the rest are recommended.
+function SceneChecklist({
+  sceneTag, labels,
+}: { sceneTag: SceneTag; labels: Label[] }) {
+  if (sceneTag === 'nicht_klassifiziert') return null;
+
+  // Count what's there.
+  let walls = 0;
+  let fpOpenings = 0;
+  let viewOpenings = 0;
+  let lineForm = 0;             // gebaeudekante | dachschraege (NEW form-only)
+  let heights = 0;
+  let bezugshoehe = false;
+  let refH = false;
+  let refV = false;
+  for (const l of labels) {
+    if (l.type === 'wall') walls++;
+    else if (l.type === 'floorplan_opening') fpOpenings++;
+    else if (l.type === 'view_opening') viewOpenings++;
+    else if (l.type === 'component_line') {
+      const k = l.attributes.line_kind;
+      if (k === 'gebaeudekante' || k === 'dachschraege') lineForm++;
+    }
+    else if (l.type === 'height_mark') {
+      heights++;
+      if (l.attributes.value_mm === 0) bezugshoehe = true;
+    }
+    else if (l.type === 'dimensioned_distance' && l.attributes.is_reference) {
+      const dx = l.geometry.end[0] - l.geometry.start[0];
+      const dy = l.geometry.end[1] - l.geometry.start[1];
+      const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+      if (a < 15 || a > 165) refH = true;
+      else if (a > 75 && a < 105) refV = true;
+    }
+  }
+
+  type Item = { ok: boolean; label: string; hint: string; required?: boolean };
+  const items: Item[] = [];
+
+  if (sceneTag === 'grundriss' || sceneTag === 'sonstiges') {
+    items.push(
+      { ok: walls >= 3, label: `Wände (${walls})`, hint: 'Außenwand-Polygon mit Stärke. Mindestens 3 Wände erwartet.', required: true },
+      { ok: fpOpenings >= 1, label: `Öffnungen (${fpOpenings})`, hint: 'Fenster + Türen. Schnappt an Wandachsen, Drehung folgt automatisch.' },
+    );
+  }
+  if (sceneTag === 'ansicht' || sceneTag === 'schnitt' || sceneTag === 'sonstiges') {
+    items.push(
+      { ok: lineForm >= 3, label: `Gebäudeform (${lineForm} Linien)`, hint: 'Wand + Dach: vertikale Außenkanten und Dachschrägen. Mindestens 3 Linien beschreiben eine Silhouette.', required: true },
+      { ok: viewOpenings >= 1, label: `Öffnungen (${viewOpenings})`, hint: 'Fenster, Türen, Dachfenster, Gauben.' },
+      { ok: bezugshoehe, label: 'Bezugshöhe ±0,00', hint: 'Eine Höhenkote mit Wert = 0 setzt den Nullpunkt. Alle anderen Höhen werden relativ dazu gelesen.', required: true },
+      { ok: heights >= 2, label: `Höhenkoten (${heights})`, hint: 'First, Traufe, Gelände — mit Datum gesetzt. Aus den Y-Positionen folgen alle Höhenbezugslinien automatisch (rosa gestrichelt).' },
+    );
+  }
+  // Homography references — only useful if some dim exists at all.
+  const totalDims = labels.filter((l) => l.type === 'dimensioned_distance').length;
+  items.push(
+    { ok: refH, label: 'Bezug horizontal (M1)', hint: 'Längste horizontale Bemaßung wird automatisch markiert. Ohne H-Bezug keine X-Entzerrung.', required: true },
+    { ok: refV, label: 'Bezug vertikal (M1)',   hint: 'Längste vertikale Bemaßung wird automatisch markiert. Ohne V-Bezug keine Y-Entzerrung.', required: true },
+  );
+  if (totalDims === 0) {
+    // Demote refs to recommended when there's nothing to base them on yet.
+    items[items.length - 2].required = false;
+    items[items.length - 1].required = false;
+  }
+
+  const requiredOk = items.filter((i) => i.required && i.ok).length;
+  const requiredTotal = items.filter((i) => i.required).length;
+
+  return (
+    <section>
+      <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+        Was muss ich labeln?{' '}
+        <span className={`font-normal ${
+          requiredOk === requiredTotal ? 'text-emerald-600' : 'text-amber-600'
+        }`}>
+          ({requiredOk}/{requiredTotal})
+        </span>
+      </h3>
+      <ul className="space-y-px">
+        {items.map((i, idx) => (
+          <li key={idx} title={i.hint}
+              className={`flex items-baseline gap-2 px-2 py-1 rounded text-[0.72rem] ${
+                i.ok ? 'text-emerald-700' : i.required ? 'text-amber-700' : 'text-zinc-500'
+              }`}>
+            <span className="w-3 text-center font-semibold">{i.ok ? '✓' : '○'}</span>
+            <span className="flex-1">{i.label}</span>
+            {!i.required && (
+              <span className="text-[0.6rem] text-zinc-400 shrink-0">opt.</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -4194,29 +4314,48 @@ function ViewOpeningFields({
 function ComponentLineFields({
   label, onChange,
 }: { label: ComponentLineLabel; onChange: (p: Partial<Label>) => void }) {
+  const current = label.attributes.line_kind ?? 'other';
+  // Legacy line_kinds (first/traufe/…) get a 'legacy' marker — they exist
+  // in the schema for backwards compat but the user shouldn't reach for
+  // them on new labels. Höhenkote.datum replaces them.
+  const LEGACY = new Set([
+    'first', 'traufe', 'gelaende', 'geschoss',
+    'ok_ffb', 'sockel', 'kniestock', 'firstkante',
+  ]);
   return (
     <section className="space-y-2">
-      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Bauteillinie</h4>
+      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Linie</h4>
       <label className="block">
         <span className="text-[0.7rem] text-muted">Art</span>
         <select
-          value={label.attributes.line_kind ?? 'other'}
+          value={current}
           onChange={(e) => onChange({ attributes: { line_kind: e.target.value as ComponentLineLabel['attributes']['line_kind'] } } as Partial<Label>)}
           className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
         >
-          <option value="first">First</option>
-          <option value="traufe">Traufe</option>
-          <option value="gelaende">Gelände</option>
-          <option value="geschoss">Geschoss</option>
-          <option value="ok_ffb">OK FFB</option>
-          <option value="sockel">Sockel</option>
-          <option value="kniestock">Kniestock</option>
-          <option value="dachschraege">Dachschräge</option>
-          <option value="firstkante">Firstkante</option>
-          <option value="gebaeudekante">Gebäudekante</option>
+          <option value="gebaeudekante">Wand</option>
+          <option value="dachschraege">Dach</option>
           <option value="other">Sonstige</option>
+          {LEGACY.has(current) && (
+            <option value={current}>
+              {current === 'firstkante' ? 'Firstkante' :
+               current === 'first' ? 'First' :
+               current === 'traufe' ? 'Traufe' :
+               current === 'gelaende' ? 'Gelände' :
+               current === 'geschoss' ? 'Geschoss' :
+               current === 'ok_ffb' ? 'OK FFB' :
+               current === 'sockel' ? 'Sockel' :
+               'Kniestock'} (legacy)
+            </option>
+          )}
         </select>
       </label>
+      {LEGACY.has(current) && (
+        <p className="text-[0.65rem] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 leading-snug">
+          Diese Linie hat einen Höhenbezug als Typ — neuere Modellierung
+          erfasst Höhen ausschließlich über Höhenkote.datum.
+          Empfehlung: löschen + Höhenkote setzen.
+        </p>
+      )}
       <p className="text-[0.65rem] text-muted">
         Polylinie mit {label.geometry.polyline.length} Punkten.
       </p>
