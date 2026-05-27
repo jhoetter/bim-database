@@ -47,8 +47,35 @@
       "relations": [],
       "created_at": "2026-05-27T18:17:49.253Z",
       "updated_at": "2026-05-27T18:17:49.253Z"
+    },
+    {
+      "id": "dc9a76d8-2f58-40fd-ae6f-994ffd2f7591",
+      "type": "component_line",
+      "geometry": {
+        "polyline": [
+          [
+            318.91309820491534,
+            433.98637288591425
+          ],
+          [
+            313.2455139160156,
+            360.79351806640625
+          ],
+          [
+            445.70001080845566,
+            260.38967117400443
+          ]
+        ]
+      },
+      "attributes": {
+        "line_kind": "dachschraege"
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T21:38:51.909Z",
+      "updated_at": "2026-05-27T21:38:51.909Z"
     }
   ],
   "annotated_by": "jhoetter",
-  "annotated_at": "2026-05-27T18:18:19.265Z"
+  "annotated_at": "2026-05-27T21:39:22.655Z"
 }

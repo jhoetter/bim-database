@@ -281,6 +281,23 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
         cands.push({ pt: l.geometry.start, kind: 'endpoint', hint: `${l.type} start` });
         cands.push({ pt: l.geometry.end, kind: 'endpoint', hint: `${l.type} end` });
       }
+      // N3.1 — wall→wall perpendicular projection. Drawing a NEW wall that
+      // starts (or ends) ON an existing wall's edge — e.g. an inner wall
+      // joining an outer wall mid-span — must just work. This is STRUCTURAL
+      // snap (same family as endpoint snap), so it's not gated by
+      // disableLineSnap. The Alt-held escape hatch (modifiers.alt) still
+      // applies via the early-return at the top of findSnap.
+      if (l.type === 'wall' && tool === 'wall') {
+        const proj = perpProjection(cursor, l.geometry.start, l.geometry.end);
+        if (proj.within) {
+          cands.push({
+            pt: proj.point,
+            kind: 'wall_line',
+            hint: 'an Wand',
+            source_label_id: l.id,
+          });
+        }
+      }
     }
 
     if (l.type === 'floorplan_opening') {
@@ -365,10 +382,12 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
   }
 
   // floorplan_opening: snap to a wall (perpendicular projection onto wall axis).
-  // This is the headline "windows in walls" snap (UX called out as core),
-  // but ALSO suppressed when the caller has set disableLineSnap — the user
-  // can hold Alt for a one-off bypass or turn Q on to get the helper back.
-  if (tool === 'floorplan_opening' && !args.disableLineSnap) {
+  // N1: the tool REQUIRES a wall — an opening can't exist without one — so
+  // this snap is structural (always on). Alt still suppresses every snap
+  // globally via the early-return at the top of findSnap, which has the
+  // side effect of making the first-click guard "Klick auf eine Wand" fire.
+  // The user can switch to view_opening if they want a free-floating shape.
+  if (tool === 'floorplan_opening') {
     for (const l of labels) {
       if (l.type !== 'wall') continue;
       const proj = perpProjection(cursor, l.geometry.start, l.geometry.end);

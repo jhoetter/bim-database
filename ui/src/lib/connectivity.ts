@@ -57,6 +57,13 @@ export interface ConnectivityGraph {
   componentOf: Map<string, number>;
 }
 
+/** All point coordinates that count as "snappable" for the given label.
+ *  Exposed so other modules (anchored-polyline auto-commit, N2) can ask
+ *  "is this cursor at an existing label's endpoint?" without re-implementing. */
+export function endpointPointsOfLabel(label: Label): Point[] {
+  return endpointsForLabel(label).map((e) => e.pt);
+}
+
 function endpointsForLabel(label: Label): EndpointRef[] {
   const out: EndpointRef[] = [];
   const id = label.id;

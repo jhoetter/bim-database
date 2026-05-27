@@ -40,9 +40,10 @@ import { tidyLineLabel } from '../lib/tidy';
 import { applyLengthMatch, findLengthMatch, type LengthMatch } from '../lib/length_match';
 import { labelColor, LEGEND } from '../lib/colors';
 import { detectClosedRegions } from '../lib/closed_regions';
-import { buildConnectivity, jointMembersAt } from '../lib/connectivity';
+import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib/connectivity';
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
 import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
+import { autoTSplit } from '../lib/auto_split';
 import { collectRefineIssues, type RefineIssue } from '../lib/refine';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
@@ -185,6 +186,26 @@ function findFamily(tool: Tool): ToolFamily | null {
 interface Snapshot {
   labels: Label[];
   scene_tag: SceneTag;
+}
+
+// N2 helper: find the nearest existing label endpoint to a point, within
+// snap radius. Used by the anchored-polyline auto-commit + the close-anchor
+// visual hint. Excludes nothing — labels are scene-local, no cross-scene.
+function nearestEndpointOfAny(
+  pt: Point,
+  labels: Label[],
+  snapPx: number,
+): { labelId: string; endpoint: Point; dist: number } | null {
+  let best: { labelId: string; endpoint: Point; dist: number } | null = null;
+  for (const l of labels) {
+    for (const ep of endpointPointsOfLabel(l)) {
+      const d = Math.hypot(ep[0] - pt[0], ep[1] - pt[1]);
+      if (d < snapPx && (!best || d < best.dist)) {
+        best = { labelId: l.id, endpoint: ep, dist: d };
+      }
+    }
+  }
+  return best;
 }
 
 function uuid(): string {
@@ -966,6 +987,23 @@ export function AnnotatePage() {
           if (tidyResult.endpointFused) bits.push('Endpunkt verbunden');
           addToast(`✨ ${bits.join(' + ')} (⌘Z zum Rückgängig machen)`, 'success', 1800);
         }
+        // N3.2 — T-intersection auto-split. When a NEW wall's endpoint
+        // landed mid-edge of an existing wall (within snap radius, not at
+        // its endpoints), split that wall in two at the projected point.
+        // The three involved labels then share a joint at the T and
+        // joint-aware drag inherits. Skipped on Alt (per K2).
+        let splitOverlay: { remove: Set<string>; add: WallLabel[] } = { remove: new Set(), add: [] };
+        if (!altHeld && tool === 'wall') {
+          const ts = autoTSplit(label, labels, imageSnapRadiusForView);
+          label = ts.newLabel;
+          for (const [oldId, [left, right]] of ts.splits) {
+            splitOverlay.remove.add(oldId);
+            splitOverlay.add.push(left, right);
+          }
+          if (ts.splits.size > 0) {
+            addToast(`✂ ${ts.splits.size}× T-Verbindung — Wand geteilt`, 'success', 1800);
+          }
+        }
         // After tidy, the effective end-point may differ from the raw click —
         // use it for the wall-chain anchor + the dim midpoint so downstream
         // geometry stays consistent with the saved label.
@@ -974,7 +1012,10 @@ export function AnnotatePage() {
         // For dim_distance, re-run the M1 pick over ALL dims in the scene
         // after adding the new one — the new dim might be the new longest
         // in its orientation. Toast if THIS dim ended up flagged.
-        let labelsAfterAdd = [...labels, label];
+        let labelsAfterAdd: Label[] =
+          splitOverlay.remove.size > 0
+            ? [...labels.filter((l) => !splitOverlay.remove.has(l.id)), ...splitOverlay.add, label]
+            : [...labels, label];
         if (tool === 'dimensioned_distance') {
           labelsAfterAdd = recomputeM1References(labelsAfterAdd);
         }
@@ -1114,15 +1155,22 @@ export function AnnotatePage() {
 
       // ── 2-click tools (rectangle / circle) ──────────────────────────────
       if (tool === 'floorplan_opening' || tool === 'view_opening') {
-        if (pendingStart == null) {
-          setPendingStart(pt);
-          // M10: if the first click landed on a wall (wall_line snap), the
-          // opening will attach to that wall — remember its id for commit.
-          if (tool === 'floorplan_opening' && snap?.kind === 'wall_line') {
-            setPendingAttachedWallId(snap.source_label_id ?? null);
-          } else {
-            setPendingAttachedWallId(null);
+        // N1: floorplan_opening MUST start on a wall. The wall is the
+        // structural carrier — an opening that floats free in the floorplan
+        // is meaningless. First click off any wall → reject with a hint.
+        if (tool === 'floorplan_opening' && pendingStart == null) {
+          if (snap?.kind !== 'wall_line' || !snap.source_label_id) {
+            addToast('Klick auf eine Wand — Öffnung muss in einer Wand sitzen', 'info', 2000);
+            return;
           }
+          setPendingStart(snap.pt);
+          setPendingAttachedWallId(snap.source_label_id);
+          return;
+        }
+        if (pendingStart == null) {
+          // view_opening: free-floating start, as before
+          setPendingStart(pt);
+          setPendingAttachedWallId(null);
           return;
         }
         pushUndo();
@@ -1309,9 +1357,6 @@ export function AnnotatePage() {
           if (Math.hypot(pt[0] - first[0], pt[1] - first[1]) <= imageSnapRadiusForView * 2) {
             pushUndo();
             const def = getDefaults(scope, key, sceneTag, 'component_line');
-            // Append the first vertex to actually close the geometry —
-            // otherwise the polyline ends with a gap and the closed-region
-            // fill (P9) wouldn't recognize it.
             const closed = [...pendingPolyline, first];
             const inferredLine = altHeld ? null : inferLineKind(closed, imageSize[1]);
             const label: ComponentLineLabel = {
@@ -1334,6 +1379,45 @@ export function AnnotatePage() {
             }
             setPendingPolyline([]);
             addToast('Polygon geschlossen ✓', 'success', 1200);
+            return;
+          }
+        }
+        // N2 anchored auto-commit: if THIS click lands on an existing label's
+        // endpoint AND pendingPolyline[0] was ALSO on an existing endpoint,
+        // the new polyline is "anchored at both ends" — commit immediately
+        // without requiring Enter. Skipped on Alt (per K2).
+        if (!altHeld && pendingPolyline.length >= 1) {
+          const endAnchor = nearestEndpointOfAny(pt, labels, imageSnapRadiusForView * 2);
+          const startAnchor = nearestEndpointOfAny(pendingPolyline[0], labels, imageSnapRadiusForView * 2);
+          if (endAnchor && startAnchor) {
+            pushUndo();
+            const def = getDefaults(scope, key, sceneTag, 'component_line');
+            const finalPoly = [...pendingPolyline, endAnchor.endpoint];
+            const inferredLine = inferLineKind(finalPoly, imageSize[1]);
+            const label: ComponentLineLabel = {
+              id: uuid(),
+              type: 'component_line',
+              geometry: { polyline: finalPoly },
+              attributes: { line_kind: ((inferredLine as ComponentLineLabel['attributes']['line_kind'] | null)
+                ?? (def.line_kind as ComponentLineLabel['attributes']['line_kind'])) ?? 'other' },
+              status: 'readable',
+              relations: [],
+              created_at: nowIso(),
+              updated_at: nowIso(),
+            };
+            setLabels((prev) => [...prev, label]);
+            setDirty(true);
+            setSelectedId(label.id);
+            const mid = finalPoly[Math.floor(finalPoly.length / 2)];
+            setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
+            setPendingPolyline([]);
+            addToast(
+              startAnchor.labelId === endAnchor.labelId
+                ? '↩ verankert an gemeinsamem Label — Polylinie geschlossen'
+                : '↩ verankert an zwei Labels',
+              'success',
+              1800,
+            );
             return;
           }
         }
@@ -2674,6 +2758,37 @@ export function AnnotatePage() {
               </g>
             );
           })()}
+          {/* N2 anchored polyline hint — when drawing a component_line with
+              ≥1 placed vertex AND the cursor hovers near an existing label's
+              endpoint AND pendingPolyline[0] is also on an existing endpoint,
+              show a green ring + "↩ verankern" so the user knows clicking
+              there auto-commits the polyline. */}
+          {tool === 'component_line' && pendingPolyline.length >= 1 && hoverPt && (() => {
+            const radiusImg = (SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1) * 2;
+            const endAnchor = nearestEndpointOfAny(hoverPt, labels, radiusImg);
+            const startAnchor = nearestEndpointOfAny(pendingPolyline[0], labels, radiusImg);
+            if (!endAnchor || !startAnchor) return null;
+            const scale = view.w / imageSize[0];
+            return (
+              <g pointerEvents="none">
+                <circle
+                  cx={endAnchor.endpoint[0]} cy={endAnchor.endpoint[1]} r={radiusImg}
+                  fill="rgba(22, 163, 74, 0.18)"
+                  stroke="#16a34a"
+                  strokeWidth={2.5 * scale}
+                />
+                <text
+                  x={endAnchor.endpoint[0] + radiusImg + 8} y={endAnchor.endpoint[1]}
+                  fill="#16a34a"
+                  fontSize={11 * scale}
+                  fontFamily="ui-monospace, monospace"
+                  style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 * scale }}
+                >
+                  Klick = verankern
+                </text>
+              </g>
+            );
+          })()}
           {/* P3 polyline close-to-first-vertex: when drawing component_line
               or polygon view_opening with ≥3 vertices, surface a green ring
               at the first vertex when the cursor is near it. */}
@@ -2829,9 +2944,49 @@ export function AnnotatePage() {
               strokeDasharray="6,4"
             />
           )}
-          {/* In-progress preview — 2-click rectangle tools */}
+          {/* N1: floorplan_opening preview — when attached to a wall, draw
+              the actual along-wall rectangle (projected onto the wall axis,
+              thickness from wall). Looks like a segment of the wall, not a
+              free diagonal — matches what the commit will produce. */}
+          {pendingStart && hoverPt && tool === 'floorplan_opening' && pendingAttachedWallId && (() => {
+            const parent = labels.find((l) => l.id === pendingAttachedWallId && l.type === 'wall');
+            if (!parent || parent.type !== 'wall') return null;
+            const ws = parent.geometry.start;
+            const we = parent.geometry.end;
+            const wdx = we[0] - ws[0];
+            const wdy = we[1] - ws[1];
+            const wlen = Math.hypot(wdx, wdy);
+            const ux = wlen ? wdx / wlen : 1;
+            const uy = wlen ? wdy / wlen : 0;
+            const endRaw = snap?.pt ?? hoverPt;
+            const projA = (pendingStart[0] - ws[0]) * ux + (pendingStart[1] - ws[1]) * uy;
+            const projB = (endRaw[0] - ws[0]) * ux + (endRaw[1] - ws[1]) * uy;
+            const t0 = Math.min(projA, projB);
+            const t1 = Math.max(projA, projB);
+            const thicknessMm = parent.attributes.thickness_mm ?? 365;
+            const depthHalfPx = (thicknessMm * WALL_PX_PER_MM) / 2;
+            const px = -uy;
+            const py = ux;
+            const along = (t: number): Point => [ws[0] + ux * t, ws[1] + uy * t];
+            const a = along(t0);
+            const b = along(t1);
+            const a1: Point = [a[0] + px * depthHalfPx, a[1] + py * depthHalfPx];
+            const a2: Point = [a[0] - px * depthHalfPx, a[1] - py * depthHalfPx];
+            const b1: Point = [b[0] + px * depthHalfPx, b[1] + py * depthHalfPx];
+            const b2: Point = [b[0] - px * depthHalfPx, b[1] - py * depthHalfPx];
+            const pts = [a1, b1, b2, a2].map((p) => p.join(',')).join(' ');
+            return (
+              <polygon
+                points={pts}
+                fill="rgba(245, 158, 11, 0.20)"
+                stroke="#f59e0b"
+                strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
+                strokeDasharray="6,4"
+              />
+            );
+          })()}
+          {/* In-progress preview — 2-click rectangle tools (view_opening) */}
           {pendingStart && hoverPt && (
-            tool === 'floorplan_opening' ||
             (tool === 'view_opening' && viewOpeningShape === 'rectangle')
           ) && (
             <rect
