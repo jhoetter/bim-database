@@ -485,7 +485,7 @@ Strategy:
 
 Each milestone is a stop-and-show point as before. Tracker (this doc) gets a ✅ + commit SHA when each ships.
 
-### M7 — Right-rail overlay + drag-handles on basic labels (the layout fix)
+### M7 — Right-rail overlay + drag-handles on basic labels (the layout fix) ✅ shipped 2026-05-27
 
 The headline experience win. Two intertwined deliverables:
 

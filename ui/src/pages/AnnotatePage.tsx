@@ -1,4 +1,5 @@
 import {
+  type JSX,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
   useCallback,
@@ -25,6 +26,12 @@ import type {
 } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import {
+  handlesFor,
+  moveHandle,
+  translateLabelGeometry,
+  type HandleSpec,
+} from '../lib/labelGeometry';
 
 // M2+M3 — Scene editor. All 7 label types implemented; tool palette is
 // gated by scene_tag (Grundriss vs Ansicht/Schnitt vs Sonstiges).
@@ -697,6 +704,7 @@ export function AnnotatePage() {
           onResetView={resetView}
         />
       }
+      rightRailMode="overlay-pinnable"
       rightRail={
         selectedLabel ? (
           <Inspector
@@ -745,6 +753,7 @@ export function AnnotatePage() {
               selected={l.id === selectedId}
               linkSource={linkSource}
               tool={tool}
+              eventToSvgPoint={eventToSvgPoint}
               onSelect={() => {
                 if (tool === 'link') {
                   // Linking flow: first eligible click = source; second eligible click = target.
@@ -776,6 +785,22 @@ export function AnnotatePage() {
                 setSelectedId(l.id);
                 setTool('select');
               }}
+              onMutateGeometry={(newGeom) => {
+                // Direct-manipulation drag: mutate this label's geometry. We
+                // push undo on the first drag-step of a session; subsequent
+                // pointermove updates within the same drag don't push more.
+                // (For now, push every commit — drag tracker handles the
+                // "first step" condition internally below.)
+                setLabels((prev) =>
+                  prev.map((x) =>
+                    x.id === l.id
+                      ? ({ ...x, geometry: newGeom, updated_at: nowIso() } as Label)
+                      : x,
+                  ),
+                );
+                setDirty(true);
+              }}
+              onStartDrag={pushUndo}
             />
           ))}
           {/* In-progress preview — 2-click line tools */}
@@ -1020,13 +1045,19 @@ function LabelGlyph({
   selected,
   linkSource,
   tool,
+  eventToSvgPoint,
   onSelect,
+  onMutateGeometry,
+  onStartDrag,
 }: {
   label: Label;
   selected: boolean;
   linkSource: string | null;
   tool: Tool;
+  eventToSvgPoint: (e: ReactPointerEvent<SVGSVGElement> | PointerEvent) => Point | null;
   onSelect: () => void;
+  onMutateGeometry: (newGeom: Label['geometry']) => void;
+  onStartDrag: () => void;
 }) {
   // Color per type — selected always takes precedence; in link mode the
   // source label gets a magenta outline so it's obvious which one is staged.
@@ -1036,10 +1067,89 @@ function LabelGlyph({
   const fill = selected ? '#dc262633' : isLinkSource ? '#a21caf33' : `${baseColor}1a`;
   const sw = selected || isLinkSource ? 3 : 2;
 
+  // Pointer-down on the glyph body: select on quick click, body-translate on
+  // drag-after-move-threshold. Drag uses raw SVG point math so it works at
+  // any zoom level.
+  const onPointerDownBody = (e: React.PointerEvent<SVGElement>) => {
+    e.stopPropagation();
+    if (e.button !== 0) return;          // only left click
+    if (tool !== 'select' && tool !== 'link') {
+      // For drawing tools, body click does nothing — let canvas handle it
+      return;
+    }
+    const start = eventToSvgPoint(e as unknown as ReactPointerEvent<SVGSVGElement>);
+    if (!start) return;
+    const origin = label.geometry;
+    let dragged = false;
+    let pushedUndo = false;
+    const target = (e.currentTarget as SVGElement).ownerSVGElement!;
+    target.setPointerCapture?.(e.pointerId);
+
+    const onMove = (mv: PointerEvent) => {
+      const pt = eventToSvgPoint(mv);
+      if (!pt) return;
+      const dx = pt[0] - start[0];
+      const dy = pt[1] - start[1];
+      if (!dragged && Math.hypot(dx, dy) > 4) {
+        dragged = true;
+        if (!pushedUndo) {
+          onStartDrag();
+          pushedUndo = true;
+        }
+        // Make sure the label is selected before we start moving it.
+        if (tool === 'select' && !selected) onSelect();
+      }
+      if (!dragged) return;
+      const newGeom = translateLabelGeometry({ ...label, geometry: origin } as Label, dx, dy);
+      onMutateGeometry(newGeom);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      if (!dragged) onSelect();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  // Handle dragging a single endpoint / corner / vertex — same pattern but
+  // updates one specific point on the geometry block via moveHandle().
+  const onHandlePointerDown = (handleId: string) => (e: React.PointerEvent<SVGElement>) => {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    const start = eventToSvgPoint(e as unknown as ReactPointerEvent<SVGSVGElement>);
+    if (!start) return;
+    let pushedUndo = false;
+    const onMove = (mv: PointerEvent) => {
+      const pt = eventToSvgPoint(mv);
+      if (!pt) return;
+      if (!pushedUndo) {
+        onStartDrag();
+        pushedUndo = true;
+      }
+      onMutateGeometry(moveHandle(label, handleId, pt));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   const onClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onSelect();
   };
+  const bodyProps = {
+    onClick,
+    onPointerDown: onPointerDownBody,
+    style: { cursor: selected ? 'move' : 'pointer' as const },
+  };
+
+  // Body geometry varies per type; selection handles are rendered uniformly
+  // by handlesFor() below.
+  let body: JSX.Element | null = null;
 
   switch (label.type) {
     case 'dimensioned_distance': {
@@ -1047,23 +1157,22 @@ function LabelGlyph({
       const isRef = label.attributes.is_reference;
       const refMark = isRef ? '#f59e0b' : stroke;
       const refWidth = isRef ? sw + 1 : sw;
-      return (
-        <g style={{ cursor: 'pointer' }} onClick={onClick}>
-          <line
-            x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]}
-            stroke={refMark} strokeWidth={refWidth}
-          />
+      body = (
+        <g {...bodyProps}>
+          <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]}
+                stroke={refMark} strokeWidth={refWidth} />
           <Tick x={start[0]} y={start[1]} stroke={refMark} sw={refWidth} large={isRef} />
           <Tick x={end[0]} y={end[1]} stroke={refMark} sw={refWidth} large={isRef} />
         </g>
       );
+      break;
     }
     case 'dimension_number': {
       const anchor = label.geometry.anchor;
-      if (!anchor) return null;
+      if (!anchor) break;
       const [x, y] = anchor;
-      return (
-        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+      body = (
+        <g {...bodyProps}>
           <circle cx={x} cy={y} r={6} fill={fill} stroke={stroke} strokeWidth={sw} />
           <text x={x + 10} y={y - 6} fill={stroke} fontFamily="ui-monospace, monospace"
                 fontSize={14} style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}>
@@ -1071,51 +1180,56 @@ function LabelGlyph({
           </text>
         </g>
       );
+      break;
     }
     case 'wall': {
       const { start, end } = label.geometry;
-      const th = (label.attributes.thickness_mm ?? 365) / 4; // rough viewport-scale visual
-      return (
-        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+      const th = (label.attributes.thickness_mm ?? 365) / 4;
+      body = (
+        <g {...bodyProps}>
           <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]}
                 stroke={stroke} strokeWidth={Math.max(4, th)} strokeOpacity={0.35} />
           <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={stroke} strokeWidth={sw} />
         </g>
       );
+      break;
     }
     case 'floorplan_opening': {
       const [a, b, c, d] = label.geometry.quad;
-      return (
-        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+      body = (
+        <g {...bodyProps}>
           <polygon points={`${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`}
                    fill={fill} stroke={stroke} strokeWidth={sw} />
         </g>
       );
+      break;
     }
     case 'view_opening': {
       const { top_edge, bottom_edge } = label.geometry;
       const path = `M ${top_edge.map(p => p.join(',')).join(' L ')}` +
                    ` L ${[...bottom_edge].reverse().map(p => p.join(',')).join(' L ')} Z`;
-      return (
-        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+      body = (
+        <g {...bodyProps}>
           <path d={path} fill={fill} stroke={stroke} strokeWidth={sw} />
         </g>
       );
+      break;
     }
     case 'component_line': {
       const pts = label.geometry.polyline;
-      return (
-        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+      body = (
+        <g {...bodyProps}>
           <polyline points={pts.map(p => p.join(',')).join(' ')}
                     fill="none" stroke={stroke} strokeWidth={sw + 1} />
           {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill={stroke} />)}
         </g>
       );
+      break;
     }
     case 'height_mark': {
       const [x, y] = label.geometry.anchor;
-      return (
-        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+      body = (
+        <g {...bodyProps}>
           <polygon points={`${x},${y} ${x - 10},${y - 16} ${x + 10},${y - 16}`}
                    fill={fill} stroke={stroke} strokeWidth={sw} />
           {label.attributes.value_mm != null && (
@@ -1126,9 +1240,32 @@ function LabelGlyph({
           )}
         </g>
       );
+      break;
     }
   }
-  return null;
+
+  // Selection handles — small circles at each draggable point. Only rendered
+  // when this label is selected, and tool is 'select' (otherwise drawing
+  // tools shouldn't show edit chrome).
+  const handles: HandleSpec[] = selected && tool === 'select' ? handlesFor(label) : [];
+
+  return (
+    <g>
+      {body}
+      {handles.map((h) => (
+        <g
+          key={h.id}
+          style={{ cursor: h.cursor ?? 'move' }}
+          onPointerDown={onHandlePointerDown(h.id)}
+        >
+          {/* outer ring (hit area) */}
+          <circle cx={h.pt[0]} cy={h.pt[1]} r={9} fill="white" stroke="#dc2626" strokeWidth={2.5} />
+          {/* inner dot */}
+          <circle cx={h.pt[0]} cy={h.pt[1]} r={3} fill="#dc2626" />
+        </g>
+      ))}
+    </g>
+  );
 }
 
 // Live in-canvas HUD shown while drawing a stroke or polyline. Reads out the

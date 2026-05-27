@@ -41,7 +41,17 @@ interface ShellProps {
   rightRailLabel?: string;
   /** Callback when the user closes the right rail (e.g., click X). */
   onCloseRightRail?: () => void;
+  /**
+   * 'reserved'         — right rail is a flex sibling; canvas shrinks when shown (default)
+   * 'overlay-pinnable' — right rail floats over the canvas; canvas never reflows.
+   *                      User can pin it back to reserved mode via header icon
+   *                      (persisted in localStorage). Used by AnnotatePage so
+   *                      selection never causes the drawing to reflow.
+   */
+  rightRailMode?: 'reserved' | 'overlay-pinnable';
 }
+
+const RAIL_PINNED_KEY = 'bim-db:annotate:rail-pinned';
 
 function readNumber(key: string, fallback: number, min: number, max: number): number {
   if (typeof window === 'undefined') return fallback;
@@ -66,6 +76,7 @@ export function Shell({
   rightRail,
   rightRailLabel = 'Detailpanel',
   onCloseRightRail,
+  rightRailMode = 'reserved',
 }: ShellProps) {
   const [leftOpen, setLeftOpen] = useState(() => readBool(LEFT_OPEN_KEY, true));
   const [leftWidth, setLeftWidth] = useState(() =>
@@ -74,8 +85,21 @@ export function Shell({
   const [rightWidth, setRightWidth] = useState(() =>
     readNumber(RIGHT_WIDTH_KEY, RIGHT_DEFAULT, RIGHT_MIN, RIGHT_MAX),
   );
+  // overlay-pinnable: starts unpinned (overlay) by default; user pins via the
+  // header icon. Persisted so the choice survives reloads.
+  const [pinned, setPinned] = useState(() => readBool(RAIL_PINNED_KEY, false));
   const leftResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const rightResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const hasRightRail = rightRail != null;
+  const isOverlay = rightRailMode === 'overlay-pinnable' && !pinned;
+  const railOccupiesLayout = hasRightRail && !isOverlay;
+
+  const togglePinned = () => {
+    const next = !pinned;
+    setPinned(next);
+    window.localStorage.setItem(RAIL_PINNED_KEY, String(next));
+  };
 
   useEffect(() => {
     window.localStorage.setItem(LEFT_OPEN_KEY, String(leftOpen));
@@ -165,7 +189,6 @@ export function Shell({
     [rightWidth],
   );
 
-  const hasRightRail = rightRail != null;
   const layoutStyle: CSSProperties = {
     // CSS variables let global.css consumers reference these widths if needed.
     ['--left-sidebar-w' as string]: `${leftWidth}px`,
@@ -207,8 +230,9 @@ export function Shell({
         />
       )}
 
-      {/* Main column */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      {/* Main column. Wrapped in `relative` so the overlay rail can position
+          against it; the main flex flow is unaffected by the overlay. */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
         <header className="h-11 flex-shrink-0 flex items-center gap-2 px-3 border-b border-border bg-white">
           <button
             type="button"
@@ -223,10 +247,39 @@ export function Shell({
           {topbarTrailing}
         </header>
         <main className="flex-1 overflow-y-auto bg-white min-w-0">{children}</main>
+
+        {/* Overlay variant of the right rail. Lives inside the main column so
+            its `position: absolute` snaps to the main area, not the whole
+            shell. */}
+        {hasRightRail && isOverlay && (
+          <aside
+            className="absolute top-11 right-0 bottom-0 bg-white border-l border-border shadow-xl flex flex-col z-20 pointer-events-auto"
+            style={{ width: rightWidth, minWidth: rightWidth }}
+            aria-label={rightRailLabel}
+          >
+            <RightRailHeader
+              label={rightRailLabel}
+              pinned={pinned}
+              onTogglePinned={togglePinned}
+              onClose={onCloseRightRail}
+              canPin
+            />
+            <div className="flex-1 overflow-y-auto">{rightRail}</div>
+            {/* Resize handle on the LEFT edge of the overlay */}
+            <div
+              role="separator"
+              aria-label="Detailpanel-Breite ändern"
+              aria-orientation="vertical"
+              onPointerDown={handleRightResizeStart}
+              className="absolute top-0 bottom-0 left-0 w-1.5 -ml-[3px] cursor-col-resize hover:bg-accent/20"
+            />
+          </aside>
+        )}
       </div>
 
-      {/* Right rail */}
-      {hasRightRail && (
+      {/* Reserved-space variant of the right rail (default + pinned overlay).
+          A flex sibling — its presence shrinks the main column. */}
+      {railOccupiesLayout && (
         <>
           <div
             role="separator"
@@ -240,26 +293,73 @@ export function Shell({
             style={{ width: rightWidth, minWidth: rightWidth }}
             aria-label={rightRailLabel}
           >
-            <div className="h-11 flex-shrink-0 flex items-center justify-between px-3 border-b border-border">
-              <span className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">
-                {rightRailLabel}
-              </span>
-              {onCloseRightRail && (
-                <button
-                  type="button"
-                  onClick={onCloseRightRail}
-                  aria-label="Detailpanel schließen"
-                  className="w-7 h-7 inline-flex items-center justify-center rounded-md text-muted hover:bg-zinc-100 hover:text-zinc-900"
-                >
-                  ×
-                </button>
-              )}
-            </div>
+            <RightRailHeader
+              label={rightRailLabel}
+              pinned={pinned}
+              onTogglePinned={rightRailMode === 'overlay-pinnable' ? togglePinned : undefined}
+              onClose={onCloseRightRail}
+              canPin={rightRailMode === 'overlay-pinnable'}
+            />
             <div className="flex-1 overflow-y-auto">{rightRail}</div>
           </aside>
         </>
       )}
     </div>
+  );
+}
+
+// Shared header for both rail variants: label + pin toggle (only present in
+// overlay-pinnable mode) + close button.
+function RightRailHeader({
+  label,
+  pinned,
+  onTogglePinned,
+  onClose,
+  canPin,
+}: {
+  label: string;
+  pinned: boolean;
+  onTogglePinned?: () => void;
+  onClose?: () => void;
+  canPin: boolean;
+}) {
+  return (
+    <div className="h-11 flex-shrink-0 flex items-center justify-between px-3 border-b border-border">
+      <span className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">{label}</span>
+      <div className="flex items-center gap-1">
+        {canPin && onTogglePinned && (
+          <button
+            type="button"
+            onClick={onTogglePinned}
+            aria-label={pinned ? 'Layout lösen' : 'Layout fest anheften'}
+            title={pinned ? 'Layout lösen (Overlay)' : 'Layout fest anheften'}
+            className={`w-7 h-7 inline-flex items-center justify-center rounded-md ${
+              pinned ? 'bg-zinc-200 text-zinc-900' : 'text-muted hover:bg-zinc-100 hover:text-zinc-900'
+            }`}
+          >
+            <PinIcon filled={pinned} />
+          </button>
+        )}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Detailpanel schließen"
+            className="w-7 h-7 inline-flex items-center justify-center rounded-md text-muted hover:bg-zinc-100 hover:text-zinc-900"
+          >
+            ×
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PinIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M8 1.5l1.8 4.5h3.7l-3.2 2.4 1.2 4.6L8 10.8 4.5 13l1.2-4.6L2.5 6h3.7L8 1.5z" />
+    </svg>
   );
 }
 
