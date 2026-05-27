@@ -447,7 +447,7 @@ Each milestone is a stop-and-show point. The deliverable is concrete and reviewa
 
 **Stop:** review.
 
-### M5 — dimension_number ↔ dimensioned_distance relation
+### M5 — dimension_number ↔ dimensioned_distance relation ✅ shipped 2026-05-27
 
 **Goal:** Linking UI works, exports correctly, consistency warnings surface.
 
@@ -582,7 +582,7 @@ and explicit, and the schema is forward-compatible without overengineering.
 - [x] M2 — annotation editor route (works for both `/synthetic/:key/scene/:file/annotate` AND `/house/:key/scene/:file/annotate` via the shared scope-aware label API) + canvas + tag chip + dimensioned_distance + dimension_number tools + dirty-indicator + explicit save + N=50 undo stack (shipped 2026-05-27)
 - [x] M3 — wall, floorplan_opening, view_opening, component_line, height_mark + tag-gated tool palette (shipped 2026-05-27)
 - [x] M4 — dimensioned_distance full attributes + live pixel-angle readout (display only) (shipped 2026-05-27)
-- [ ] M5 — link tool + consistency check + export shape
+- [x] M5 — link tool + consistency check + export shape (shipped 2026-05-27)
 - [ ] M6 — homography compute + side-by-side preview + zip export
 
 ---

@@ -53,27 +53,29 @@ type Tool =
   | 'floorplan_opening'
   | 'view_opening'
   | 'component_line'
-  | 'height_mark';
+  | 'height_mark'
+  | 'link';
 
 // Tag → which tools are available. Dimensioned_distance + dimension_number
-// + select are always available; the rest depend on the scene's tag.
+// + select + link are always available where labels can exist; the rest
+// depend on the scene's tag.
 const TOOLS_BY_TAG: Record<SceneTag, Tool[]> = {
   grundriss: [
     'select', 'wall', 'floorplan_opening',
-    'dimensioned_distance', 'dimension_number',
+    'dimensioned_distance', 'dimension_number', 'link',
   ],
   ansicht: [
     'select', 'view_opening', 'component_line', 'height_mark',
-    'dimensioned_distance', 'dimension_number',
+    'dimensioned_distance', 'dimension_number', 'link',
   ],
   schnitt: [
     'select', 'view_opening', 'component_line', 'height_mark',
-    'dimensioned_distance', 'dimension_number',
+    'dimensioned_distance', 'dimension_number', 'link',
   ],
   sonstiges: [
     'select', 'wall', 'floorplan_opening', 'view_opening',
     'component_line', 'height_mark',
-    'dimensioned_distance', 'dimension_number',
+    'dimensioned_distance', 'dimension_number', 'link',
   ],
   nicht_klassifiziert: ['select'],
 };
@@ -87,6 +89,7 @@ const TOOL_LABEL: Record<Tool, { label: string; hotkey: string }> = {
   height_mark: { label: 'Höhenkote', hotkey: 'H' },
   dimensioned_distance: { label: 'Bemaßte Strecke', hotkey: 'D' },
   dimension_number: { label: 'Maßzahl', hotkey: 'N' },
+  link: { label: 'Verknüpfen 🔗', hotkey: 'K' },
 };
 
 interface Snapshot {
@@ -149,9 +152,12 @@ export function AnnotatePage() {
   // - pendingPolyline: in-progress polyline being assembled click-by-click
   //   (component_line). Enter finishes; Esc cancels.
   // - hoverPt: cursor position in image-pixel coords, used for live preview.
+  // - linkSource: the first label id clicked in link mode; the second click
+  //   on the complementary type creates the labels-relation.
   const [pendingStart, setPendingStart] = useState<Point | null>(null);
   const [pendingPolyline, setPendingPolyline] = useState<Point[]>([]);
   const [hoverPt, setHoverPt] = useState<Point | null>(null);
+  const [linkSource, setLinkSource] = useState<string | null>(null);
 
   // Pan/zoom on the SVG viewBox.
   const [view, setView] = useState({ x: 0, y: 0, w: 1024, h: 1024 });
@@ -448,16 +454,77 @@ export function AnnotatePage() {
 
   const deleteLabel = useCallback((id: string) => {
     pushUndo();
-    setLabels((prev) => prev.filter((l) => l.id !== id));
+    setLabels((prev) =>
+      prev
+        .filter((l) => l.id !== id)
+        // Also strip any relations pointing at the deleted label.
+        .map((l) => ({
+          ...l,
+          relations: (l.relations ?? []).filter((r) => r.other_id !== id),
+        }) as Label),
+    );
     if (selectedId === id) setSelectedId(null);
     setDirty(true);
   }, [pushUndo, selectedId]);
+
+  // Establish a labels-relation between a dimension_number and a
+  // dimensioned_distance. The relation always lives on the number side, so
+  // the source ↔ target asymmetry doesn't matter — we figure out which is
+  // which and put the relation on the number.
+  const linkPair = useCallback(
+    (idA: string, idB: string) => {
+      if (idA === idB) return;
+      const a = labels.find((l) => l.id === idA);
+      const b = labels.find((l) => l.id === idB);
+      if (!a || !b) return;
+      const allowedTypes: Label['type'][] = ['dimension_number', 'dimensioned_distance'];
+      if (!allowedTypes.includes(a.type) || !allowedTypes.includes(b.type)) return;
+      if (a.type === b.type) return;
+      const numberId = a.type === 'dimension_number' ? a.id : b.id;
+      const distanceId = a.type === 'dimensioned_distance' ? a.id : b.id;
+      pushUndo();
+      setLabels((prev) =>
+        prev.map((l) => {
+          if (l.id !== numberId) return l;
+          const existing = l.relations ?? [];
+          // Idempotent: don't add a duplicate.
+          if (existing.some((r) => r.other_id === distanceId && r.kind === 'labels')) {
+            return l;
+          }
+          return { ...l, relations: [...existing, { other_id: distanceId, kind: 'labels' }] } as Label;
+        }),
+      );
+      setDirty(true);
+    },
+    [labels, pushUndo],
+  );
+
+  const unlinkPair = useCallback(
+    (numberId: string, distanceId: string) => {
+      pushUndo();
+      setLabels((prev) =>
+        prev.map((l) =>
+          l.id === numberId
+            ? ({
+                ...l,
+                relations: (l.relations ?? []).filter(
+                  (r) => !(r.other_id === distanceId && r.kind === 'labels'),
+                ),
+              } as Label)
+            : l,
+        ),
+      );
+      setDirty(true);
+    },
+    [pushUndo],
+  );
 
   // ── save ──────────────────────────────────────────────────────────────────
   const save = useCallback(async () => {
     if (!data) return;
     setSaving(true);
     try {
+      const anomalies = collectAnomalies(labels);
       const payload: SceneLabels = {
         ...data,
         schema_version: '1.0',
@@ -468,6 +535,7 @@ export function AnnotatePage() {
         annotated_by: data.annotated_by ?? 'jhoetter',
         annotated_at: nowIso(),
         labels,
+        anomalies: anomalies.length > 0 ? anomalies : undefined,
       };
       await saveLabels(scope, key, decodedFile, payload);
       setDirty(false);
@@ -477,6 +545,30 @@ export function AnnotatePage() {
       setSaving(false);
     }
   }, [data, key, decodedFile, sceneTag, labels, imageSize, scope]);
+
+  // Anomaly extractor — currently only the dim_number ↔ dim_distance
+  // value-mismatch check. Other rules can pile in here later.
+  function collectAnomalies(ls: Label[]): string[] {
+    const out: string[] = [];
+    for (const l of ls) {
+      if (l.type !== 'dimension_number') continue;
+      for (const r of l.relations ?? []) {
+        if (r.kind !== 'labels') continue;
+        const other = ls.find((x) => x.id === r.other_id);
+        if (!other || other.type !== 'dimensioned_distance') continue;
+        const numV = l.attributes.parsed_value_mm;
+        const distV = other.attributes.value_mm;
+        if (numV == null || distV == null) continue;
+        const rel = Math.abs(numV - distV) / Math.max(1, Math.abs(distV));
+        if (rel >= 0.05) {
+          out.push(
+            `dimension_number "${l.attributes.text}" (${numV} mm) ↔ dimensioned_distance ${distV} mm — Differenz ${Math.abs(numV - distV)} mm`,
+          );
+        }
+      }
+    }
+    return out;
+  }
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -496,6 +588,7 @@ export function AnnotatePage() {
       if (e.key === 'Escape') {
         setPendingStart(null);
         setPendingPolyline([]);
+        setLinkSource(null);
         setSelectedId(null);
         return;
       }
@@ -536,6 +629,7 @@ export function AnnotatePage() {
       if (e.key === 'o') trySetTool(sceneTag === 'grundriss' ? 'floorplan_opening' : 'view_opening');
       if (e.key === 'l') trySetTool('component_line');
       if (e.key === 'h' && !e.metaKey && !e.ctrlKey) trySetTool('height_mark');
+      if (e.key === 'k' && !e.metaKey && !e.ctrlKey) trySetTool('link');
       if (e.key === 's' && !e.metaKey && !e.ctrlKey) trySetTool('select');
       if (e.key === 'r') resetView();
     };
@@ -600,8 +694,19 @@ export function AnnotatePage() {
         selectedLabel ? (
           <Inspector
             label={selectedLabel}
+            allLabels={labels}
             onChange={(patch) => updateLabel(selectedLabel.id, patch)}
             onDelete={() => deleteLabel(selectedLabel.id)}
+            onUnlink={(otherId) => {
+              // unlink: figure out which side carries the relation
+              const sel = selectedLabel;
+              if (sel.type === 'dimension_number') {
+                unlinkPair(sel.id, otherId);
+              } else if (sel.type === 'dimensioned_distance') {
+                unlinkPair(otherId, sel.id);
+              }
+            }}
+            onSelectId={setSelectedId}
           />
         ) : null
       }
@@ -623,13 +728,44 @@ export function AnnotatePage() {
           style={{ cursor: tool === 'select' ? 'default' : 'crosshair' }}
         >
           <image href={imageUrl} x={0} y={0} width={imageSize[0]} height={imageSize[1]} />
+          {/* Linking visuals — dashed lines between number ↔ distance pairs */}
+          <LinkVisuals labels={labels} selectedId={selectedId} />
           {/* Existing labels */}
           {labels.map((l) => (
             <LabelGlyph
               key={l.id}
               label={l}
               selected={l.id === selectedId}
+              linkSource={linkSource}
+              tool={tool}
               onSelect={() => {
+                if (tool === 'link') {
+                  // Linking flow: first eligible click = source; second eligible click = target.
+                  const eligible = l.type === 'dimension_number' || l.type === 'dimensioned_distance';
+                  if (!eligible) return;
+                  if (linkSource == null) {
+                    setLinkSource(l.id);
+                    return;
+                  }
+                  if (linkSource === l.id) {
+                    setLinkSource(null);
+                    return;
+                  }
+                  // Must be the complementary type
+                  const a = labels.find((x) => x.id === linkSource);
+                  if (!a) {
+                    setLinkSource(null);
+                    return;
+                  }
+                  if (a.type === l.type) {
+                    // Same type — swap source rather than try to link
+                    setLinkSource(l.id);
+                    return;
+                  }
+                  linkPair(linkSource, l.id);
+                  setLinkSource(null);
+                  return;
+                }
                 setSelectedId(l.id);
                 setTool('select');
               }}
@@ -687,6 +823,19 @@ export function AnnotatePage() {
           Enter = Polylinie beenden · Esc = abbrechen · Shift/Right-Drag = Pan · Wheel = Zoom · R = Reset
         </div>
         <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} />
+        {tool === 'link' && (
+          <div className="absolute top-3 right-3 bg-black/75 text-white px-3 py-2 rounded text-[0.78rem] leading-snug pointer-events-none min-w-[240px]">
+            <div className="font-semibold mb-1">Verknüpfen 🔗</div>
+            <div className="text-[0.72rem] text-zinc-300">
+              {linkSource == null
+                ? 'Maßzahl oder Bemaßung anklicken…'
+                : 'Jetzt das Gegenstück anklicken'}
+            </div>
+            <div className="text-[0.65rem] text-zinc-400 mt-1">
+              Esc = abbrechen · S = zurück zu Select
+            </div>
+          </div>
+        )}
       </div>
     </Shell>
   );
@@ -862,17 +1011,23 @@ function labelGlyph(l: Label): string {
 function LabelGlyph({
   label,
   selected,
+  linkSource,
+  tool,
   onSelect,
 }: {
   label: Label;
   selected: boolean;
+  linkSource: string | null;
+  tool: Tool;
   onSelect: () => void;
 }) {
-  // Color per type — selected always takes precedence.
+  // Color per type — selected always takes precedence; in link mode the
+  // source label gets a magenta outline so it's obvious which one is staged.
   const baseColor = LABEL_COLORS[label.type] ?? '#16a34a';
-  const stroke = selected ? '#dc2626' : baseColor;
-  const fill = selected ? '#dc262633' : `${baseColor}1a`;  // hex + alpha
-  const sw = selected ? 3 : 2;
+  const isLinkSource = tool === 'link' && linkSource === label.id;
+  const stroke = selected ? '#dc2626' : isLinkSource ? '#a21caf' : baseColor;
+  const fill = selected ? '#dc262633' : isLinkSource ? '#a21caf33' : `${baseColor}1a`;
+  const sw = selected || isLinkSource ? 3 : 2;
 
   const onClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1038,6 +1193,76 @@ function DrawHUD({
   return null;
 }
 
+// Center-point of a label, for drawing link visuals between pairs.
+function labelCenter(l: Label): Point | null {
+  switch (l.type) {
+    case 'dimensioned_distance': {
+      const { start, end } = l.geometry;
+      return [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
+    }
+    case 'dimension_number':
+      return l.geometry.anchor ?? null;
+    case 'wall': {
+      const { start, end } = l.geometry;
+      return [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
+    }
+    case 'floorplan_opening': {
+      const [a, , c] = l.geometry.quad;
+      return [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2];
+    }
+    case 'view_opening': {
+      const t = l.geometry.top_edge;
+      const b = l.geometry.bottom_edge;
+      const cx = (t[0][0] + b[b.length - 1][0]) / 2;
+      const cy = (t[0][1] + b[b.length - 1][1]) / 2;
+      return [cx, cy];
+    }
+    case 'component_line': {
+      const pts = l.geometry.polyline;
+      const mid = pts[Math.floor(pts.length / 2)];
+      return mid;
+    }
+    case 'height_mark':
+      return l.geometry.anchor;
+  }
+  return null;
+}
+
+// Render every labels-relation as a dashed line between the related label
+// centers. Selected pairs get a thicker, more visible link.
+function LinkVisuals({ labels, selectedId }: { labels: Label[]; selectedId: string | null }) {
+  const links: Array<{ a: Point; b: Point; selected: boolean; id: string }> = [];
+  for (const l of labels) {
+    for (const r of l.relations ?? []) {
+      if (r.kind !== 'labels') continue;
+      const other = labels.find((x) => x.id === r.other_id);
+      if (!other) continue;
+      const a = labelCenter(l);
+      const b = labelCenter(other);
+      if (!a || !b) continue;
+      links.push({
+        a, b,
+        selected: l.id === selectedId || other.id === selectedId,
+        id: `${l.id}-${other.id}`,
+      });
+    }
+  }
+  return (
+    <g>
+      {links.map(({ a, b, selected, id }) => (
+        <line
+          key={id}
+          x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]}
+          stroke={selected ? '#0ea5e9' : '#94a3b8'}
+          strokeWidth={selected ? 2.5 : 1.5}
+          strokeDasharray={selected ? '8,4' : '4,4'}
+          opacity={selected ? 1 : 0.65}
+        />
+      ))}
+    </g>
+  );
+}
+
 const LABEL_COLORS: Record<Label['type'], string> = {
   dimensioned_distance: '#16a34a',
   dimension_number: '#0ea5e9',
@@ -1060,12 +1285,18 @@ function Tick({
 
 function Inspector({
   label,
+  allLabels,
   onChange,
   onDelete,
+  onUnlink,
+  onSelectId,
 }: {
   label: Label;
+  allLabels: Label[];
   onChange: (patch: Partial<Label>) => void;
   onDelete: () => void;
+  onUnlink: (otherId: string) => void;
+  onSelectId: (id: string) => void;
 }) {
   return (
     <div className="p-4 space-y-4">
@@ -1097,6 +1328,15 @@ function Inspector({
       {label.type === 'component_line' && <ComponentLineFields label={label} onChange={onChange} />}
       {label.type === 'height_mark' && <HeightMarkFields label={label} onChange={onChange} />}
 
+      {(label.type === 'dimension_number' || label.type === 'dimensioned_distance') && (
+        <LinksSection
+          label={label}
+          allLabels={allLabels}
+          onUnlink={onUnlink}
+          onSelectId={onSelectId}
+        />
+      )}
+
       <section>
         <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">Notizen</h4>
         <textarea
@@ -1117,6 +1357,113 @@ function Inspector({
       </button>
     </div>
   );
+}
+
+// Show all labels-relations attached to the selected label. For a
+// dimension_number these are stored directly on label.relations; for a
+// dimensioned_distance we scan all dimension_numbers in the scene for
+// relations pointing at us.
+function LinksSection({
+  label,
+  allLabels,
+  onUnlink,
+  onSelectId,
+}: {
+  label: DimensionNumberLabel | DimensionedDistanceLabel;
+  allLabels: Label[];
+  onUnlink: (otherId: string) => void;
+  onSelectId: (id: string) => void;
+}) {
+  const linkedIds =
+    label.type === 'dimension_number'
+      ? (label.relations ?? []).filter((r) => r.kind === 'labels').map((r) => r.other_id)
+      : allLabels
+          .filter((l) => l.type === 'dimension_number')
+          .filter((l) => (l.relations ?? []).some((r) => r.kind === 'labels' && r.other_id === label.id))
+          .map((l) => l.id);
+
+  const linked = linkedIds.map((id) => allLabels.find((l) => l.id === id)).filter((x): x is Label => !!x);
+
+  return (
+    <section>
+      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+        Verknüpfungen{' '}
+        <span className="text-zinc-400 font-normal">({linked.length})</span>
+      </h4>
+      {linked.length === 0 ? (
+        <p className="text-[0.72rem] text-muted italic">
+          {label.type === 'dimension_number'
+            ? 'Diese Maßzahl ist noch keiner Strecke zugeordnet.'
+            : 'Diese Strecke hat noch keine Maßzahl.'}
+          {' '}Verwende das Verknüpfen-Werkzeug (K).
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {linked.map((other) => {
+            const consistency = checkPairConsistency(label, other);
+            return (
+              <li
+                key={other.id}
+                className={`px-2 py-1.5 rounded border text-[0.72rem] ${
+                  consistency.kind === 'ok'
+                    ? 'bg-green-50 border-green-200'
+                    : consistency.kind === 'warn'
+                    ? 'bg-amber-50 border-amber-200'
+                    : 'bg-zinc-50 border-border'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelectId(other.id)}
+                  className="font-mono text-zinc-900 hover:underline truncate w-full text-left"
+                  title={other.id}
+                >
+                  {labelGlyph(other)} {other.type}
+                </button>
+                <div className="mt-0.5 text-[0.65rem] text-muted">{consistency.message}</div>
+                <button
+                  type="button"
+                  onClick={() => onUnlink(other.id)}
+                  className="mt-1 text-[0.65rem] text-red-700 hover:underline"
+                >
+                  Verknüpfung entfernen
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// Consistency check between a dim_number and a linked dim_distance.
+// Returns 'ok' when both have values and they agree within 5%, 'warn' when
+// they disagree, 'unknown' if values are missing.
+function checkPairConsistency(
+  a: DimensionNumberLabel | DimensionedDistanceLabel,
+  b: Label,
+): { kind: 'ok' | 'warn' | 'unknown'; message: string } {
+  let numberVal: number | null | undefined = null;
+  let distanceVal: number | null | undefined = null;
+  if (a.type === 'dimension_number') {
+    numberVal = a.attributes.parsed_value_mm;
+    if (b.type === 'dimensioned_distance') distanceVal = b.attributes.value_mm;
+  } else {
+    distanceVal = a.attributes.value_mm;
+    if (b.type === 'dimension_number') numberVal = b.attributes.parsed_value_mm;
+  }
+  if (numberVal == null || distanceVal == null) {
+    return { kind: 'unknown', message: 'Beide Werte erforderlich für den Konsistenz-Check.' };
+  }
+  const rel = Math.abs(numberVal - distanceVal) / Math.max(1, Math.abs(distanceVal));
+  if (rel < 0.05) {
+    return { kind: 'ok', message: `✓ ${numberVal} mm ≈ ${distanceVal} mm` };
+  }
+  return {
+    kind: 'warn',
+    message: `⚠ Maßzahl ${numberVal} mm ≠ Strecke ${distanceVal} mm (Differenz ${Math.abs(numberVal - distanceVal)} mm)`,
+  };
 }
 
 function DimensionedDistanceFields({
