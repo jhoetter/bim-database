@@ -86,3 +86,37 @@ export interface House {
 }
 
 export type Ontology = Record<string, Record<string, string>>;
+
+// Synthetic-drawings section — see scripts/generate_synthetic_drawings.py
+// and data/synthetic/<key>/manifest.json. Lives in a separate /synthetic
+// route since the data is loosely-tied to real houses (intentionally lossy:
+// the AI imagines occluded sides) and is staged for manual labeling.
+
+export interface SyntheticDrawing {
+  file: string;
+  url: string;
+  kind: 'elevation' | 'floorplan' | 'section' | string;
+  view?: string | null;        // 'north' | 'south' | 'east' | 'west' for elevations
+  floor?: string | null;       // 'EG' | 'OG' | 'DG' | ... for floorplans
+  title?: string | null;
+  model?: string | null;        // gpt-image-2 etc.
+  generated_at?: string | null;
+  style_refs?: string[];
+  content_refs?: string[];
+  label_status?: 'unlabeled' | 'labeled' | 'rejected' | string;
+}
+
+export interface SyntheticHouse {
+  key: string;
+  linked_house: string;
+  model?: string | null;
+  manufacturer?: string | null;
+  building_type?: string | null;
+  drawings: SyntheticDrawing[];
+  linked_house_meta?: {
+    key: string;
+    model: string | null;
+    manufacturer: string | null;
+    building_type: string | null;
+  };
+}

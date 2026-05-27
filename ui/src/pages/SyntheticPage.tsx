@@ -1,0 +1,385 @@
+import { useState, useMemo } from 'react';
+import { Link } from 'react-router';
+import { fetchSynthetics, useResource } from '../api/client';
+import type { SyntheticDrawing, SyntheticHouse } from '../api/types';
+import { Shell } from '../components/layout/Shell';
+import { Breadcrumb } from '../components/layout/Breadcrumb';
+
+// Two views: 'gallery' (flat Pinterest grid of all drawings across houses)
+// and 'by-house' (grouped, easier for spot-checking coverage). Filters in
+// the sidebar restrict by kind + label status.
+
+type KindFilter = 'all' | 'elevation' | 'floorplan';
+type LabelFilter = 'all' | 'unlabeled' | 'labeled' | 'rejected';
+type ViewMode = 'gallery' | 'by-house';
+
+export function SyntheticPage() {
+  const { data, error, loading } = useResource(fetchSynthetics, []);
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
+  const [labelFilter, setLabelFilter] = useState<LabelFilter>('all');
+  const [viewMode, setViewMode] = useState<ViewMode>('by-house');
+
+  const houses = useMemo(() => data ?? [], [data]);
+
+  const filtered = useMemo(() => {
+    return houses
+      .map((h) => ({
+        ...h,
+        drawings: (h.drawings || []).filter((d) => {
+          if (kindFilter !== 'all' && d.kind !== kindFilter) return false;
+          if (labelFilter !== 'all' && (d.label_status ?? 'unlabeled') !== labelFilter) return false;
+          return true;
+        }),
+      }))
+      .filter((h) => h.drawings.length > 0 || (kindFilter === 'all' && labelFilter === 'all'));
+  }, [houses, kindFilter, labelFilter]);
+
+  const totalDrawings = filtered.reduce((acc, h) => acc + h.drawings.length, 0);
+  const totalHouses = houses.length;
+  const housesWithDrawings = houses.filter((h) => (h.drawings || []).length > 0).length;
+
+  return (
+    <Shell
+      breadcrumb={<Breadcrumb items={[{ label: 'Synthetisch' }]} />}
+      leftSidebar={
+        <SyntheticFilters
+          totalHouses={totalHouses}
+          housesWithDrawings={housesWithDrawings}
+          totalDrawings={totalDrawings}
+          kindFilter={kindFilter}
+          labelFilter={labelFilter}
+          viewMode={viewMode}
+          counts={countByKind(houses)}
+          labelCounts={countByLabel(houses)}
+          onKind={setKindFilter}
+          onLabel={setLabelFilter}
+          onView={setViewMode}
+        />
+      }
+    >
+      <div className="px-6 py-5">
+        {loading && <p className="text-muted text-sm">Lade…</p>}
+        {error && <p className="text-red-700 text-sm">Fehler: {error.message}</p>}
+        {!loading && !error && filtered.length === 0 && <EmptyState />}
+        {!loading && !error && filtered.length > 0 && (
+          viewMode === 'gallery'
+            ? <FlatGallery houses={filtered} />
+            : <GroupedByHouse houses={filtered} />
+        )}
+      </div>
+    </Shell>
+  );
+}
+
+// ── sidebar filters ──────────────────────────────────────────────────────────
+
+function SyntheticFilters({
+  totalHouses,
+  housesWithDrawings,
+  totalDrawings,
+  kindFilter,
+  labelFilter,
+  viewMode,
+  counts,
+  labelCounts,
+  onKind,
+  onLabel,
+  onView,
+}: {
+  totalHouses: number;
+  housesWithDrawings: number;
+  totalDrawings: number;
+  kindFilter: KindFilter;
+  labelFilter: LabelFilter;
+  viewMode: ViewMode;
+  counts: { elevation: number; floorplan: number; section: number; total: number };
+  labelCounts: Record<string, number>;
+  onKind: (k: KindFilter) => void;
+  onLabel: (l: LabelFilter) => void;
+  onView: (v: ViewMode) => void;
+}) {
+  return (
+    <div className="px-3 py-3 space-y-5">
+      <div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-[1.5rem] font-semibold tabular-nums">{totalDrawings}</span>
+          <span className="text-sm text-muted">Zeichnungen</span>
+        </div>
+        <p className="text-[0.72rem] text-muted leading-snug mt-1">
+          {housesWithDrawings} / {totalHouses} Häuser haben generierte Zeichnungen.
+        </p>
+      </div>
+
+      <FilterGroup title="Ansicht">
+        <FilterRow active={viewMode === 'by-house'} onClick={() => onView('by-house')}>
+          nach Haus
+        </FilterRow>
+        <FilterRow active={viewMode === 'gallery'} onClick={() => onView('gallery')}>
+          flache Galerie
+        </FilterRow>
+      </FilterGroup>
+
+      <FilterGroup title="Typ">
+        <FilterRow active={kindFilter === 'all'} onClick={() => onKind('all')} count={counts.total}>
+          alle
+        </FilterRow>
+        <FilterRow
+          active={kindFilter === 'elevation'}
+          onClick={() => onKind('elevation')}
+          count={counts.elevation}
+          dotColor="#f59e0b"
+        >
+          Ansicht
+        </FilterRow>
+        <FilterRow
+          active={kindFilter === 'floorplan'}
+          onClick={() => onKind('floorplan')}
+          count={counts.floorplan}
+          dotColor="#2563eb"
+        >
+          Grundriss
+        </FilterRow>
+      </FilterGroup>
+
+      <FilterGroup title="Label-Status">
+        <FilterRow
+          active={labelFilter === 'all'}
+          onClick={() => onLabel('all')}
+          count={Object.values(labelCounts).reduce((a, b) => a + b, 0)}
+        >
+          alle
+        </FilterRow>
+        <FilterRow
+          active={labelFilter === 'unlabeled'}
+          onClick={() => onLabel('unlabeled')}
+          count={labelCounts.unlabeled ?? 0}
+          dotColor="#a1a1aa"
+        >
+          unlabeled
+        </FilterRow>
+        <FilterRow
+          active={labelFilter === 'labeled'}
+          onClick={() => onLabel('labeled')}
+          count={labelCounts.labeled ?? 0}
+          dotColor="#16a34a"
+        >
+          labeled
+        </FilterRow>
+        <FilterRow
+          active={labelFilter === 'rejected'}
+          onClick={() => onLabel('rejected')}
+          count={labelCounts.rejected ?? 0}
+          dotColor="#dc2626"
+        >
+          rejected
+        </FilterRow>
+      </FilterGroup>
+
+      <div className="text-[0.7rem] text-muted leading-snug border-t border-border pt-3">
+        <p>Generiert via <code className="font-mono">scripts/generate_synthetic_drawings.py</code>.</p>
+        <p className="mt-1">Style-Refs: h21/h22/h23 Pläne.</p>
+        <p className="mt-1">Content-Refs: Bilder des jeweiligen Hauses.</p>
+      </div>
+    </div>
+  );
+}
+
+function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+        {title}
+      </h3>
+      <ul className="space-y-px">{children}</ul>
+    </section>
+  );
+}
+
+function FilterRow({
+  children,
+  active,
+  count,
+  dotColor,
+  onClick,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  count?: number;
+  dotColor?: string;
+  onClick: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`w-full flex items-center gap-2 px-2 py-1 rounded text-[0.78rem] text-left transition ${
+          active ? 'bg-accent/10 text-accent font-semibold' : 'hover:bg-zinc-100'
+        }`}
+      >
+        {dotColor && (
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-[3px] shrink-0"
+            style={{ background: dotColor }}
+          />
+        )}
+        <span className="flex-1 truncate">{children}</span>
+        {count != null && (
+          <span className="text-muted tabular-nums text-[0.72rem] shrink-0">{count}</span>
+        )}
+      </button>
+    </li>
+  );
+}
+
+// ── content views ────────────────────────────────────────────────────────────
+
+function GroupedByHouse({ houses }: { houses: SyntheticHouse[] }) {
+  return (
+    <div className="space-y-6">
+      {houses.map((h) => (
+        <section key={h.key}>
+          <header className="flex items-baseline gap-2.5 mb-2.5">
+            <Link to={`/synthetic/${h.key}`} className="text-[0.95rem] font-semibold hover:underline">
+              {h.model ?? h.key}
+            </Link>
+            <span className="text-[0.72rem] text-muted">
+              {h.key} · {h.drawings.length} {h.drawings.length === 1 ? 'Zeichnung' : 'Zeichnungen'}
+            </span>
+            <Link
+              to={`/house/${h.linked_house}`}
+              className="text-[0.7rem] text-accent hover:underline ml-auto"
+            >
+              → echt
+            </Link>
+          </header>
+          <div className="columns-[240px] gap-3">
+            {h.drawings.map((d) => (
+              <DrawingTile key={d.file} houseKey={h.key} d={d} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function FlatGallery({ houses }: { houses: SyntheticHouse[] }) {
+  const all = houses.flatMap((h) => h.drawings.map((d) => ({ houseKey: h.key, d })));
+  return (
+    <div className="columns-[260px] gap-3">
+      {all.map(({ houseKey, d }) => (
+        <DrawingTile key={`${houseKey}-${d.file}`} houseKey={houseKey} d={d} showHouseKey />
+      ))}
+    </div>
+  );
+}
+
+function DrawingTile({
+  houseKey,
+  d,
+  showHouseKey = false,
+}: {
+  houseKey: string;
+  d: SyntheticDrawing;
+  showHouseKey?: boolean;
+}) {
+  const kindTone =
+    d.kind === 'floorplan'
+      ? 'bg-blue-600/85'
+      : d.kind === 'elevation'
+      ? 'bg-amber-600/90'
+      : 'bg-zinc-700/85';
+  const label =
+    d.kind === 'floorplan' && d.floor
+      ? d.floor
+      : d.kind === 'elevation' && d.view
+      ? d.view.charAt(0).toUpperCase() + d.view.slice(1)
+      : d.kind;
+
+  return (
+    <Link
+      to={`/synthetic/${houseKey}/scene/${encodeURIComponent(d.file)}`}
+      className="relative block mb-3 break-inside-avoid rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
+    >
+      <img
+        src={d.url}
+        alt={d.title ?? d.file}
+        loading="lazy"
+        className="w-full h-auto block bg-white"
+      />
+      <span
+        className={`absolute top-1.5 left-1.5 ${kindTone} text-white text-[0.65rem] font-semibold px-1.5 py-0.5 rounded shadow`}
+      >
+        {label}
+      </span>
+      {showHouseKey && (
+        <span className="absolute top-1.5 right-1.5 bg-zinc-800/80 text-white text-[0.625rem] font-medium px-1.5 py-0.5 rounded">
+          {houseKey}
+        </span>
+      )}
+      {d.label_status && d.label_status !== 'unlabeled' && (
+        <span
+          className={`absolute bottom-1.5 right-1.5 text-white text-[0.625rem] font-semibold px-1.5 py-0.5 rounded ${
+            d.label_status === 'labeled'
+              ? 'bg-green-700'
+              : d.label_status === 'rejected'
+              ? 'bg-red-700'
+              : 'bg-zinc-600'
+          }`}
+        >
+          {d.label_status}
+        </span>
+      )}
+      {d.title && (
+        <span className="absolute bottom-1.5 left-1.5 right-12 bg-black/65 text-white text-[0.7rem] px-2 py-0.5 rounded line-clamp-1">
+          {d.title}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="max-w-xl mx-auto py-12 text-center text-sm text-muted">
+      <p className="font-semibold text-zinc-900 mb-2">Noch keine synthetischen Zeichnungen</p>
+      <p>
+        Generiere welche mit{' '}
+        <code className="font-mono bg-zinc-100 px-1.5 py-0.5 rounded">
+          python scripts/generate_synthetic_drawings.py
+        </code>
+        . Erfordert <code className="font-mono">OPENAI_API_KEY</code> in <code className="font-mono">.env</code>.
+      </p>
+    </div>
+  );
+}
+
+// ── counting helpers ────────────────────────────────────────────────────────
+
+function countByKind(houses: SyntheticHouse[]) {
+  let elevation = 0,
+    floorplan = 0,
+    section = 0,
+    total = 0;
+  for (const h of houses) {
+    for (const d of h.drawings || []) {
+      total++;
+      if (d.kind === 'elevation') elevation++;
+      else if (d.kind === 'floorplan') floorplan++;
+      else if (d.kind === 'section') section++;
+    }
+  }
+  return { elevation, floorplan, section, total };
+}
+
+function countByLabel(houses: SyntheticHouse[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const h of houses) {
+    for (const d of h.drawings || []) {
+      const k = d.label_status ?? 'unlabeled';
+      out[k] = (out[k] ?? 0) + 1;
+    }
+  }
+  return out;
+}

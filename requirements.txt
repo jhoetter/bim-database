@@ -3,3 +3,8 @@ uvicorn[standard]
 pillow
 mcp[cli]
 jsonschema
+
+# scripts/generate_synthetic_drawings.py
+openai
+python-dotenv
+tqdm

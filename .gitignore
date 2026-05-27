@@ -10,6 +10,12 @@ __pycache__/
 # from data/houses/*/house-*.json + source PDFs; safe to delete any time.
 tmp/scene-cache/
 
+# Prepared input files for scripts/generate_synthetic_drawings.py.
+tmp/synthetic-prepared/
+
+# Secrets — OPENAI_API_KEY etc. live here.
+.env
+
 # PDF-sourced scene crops — reconstructed by api/scene_render.py from the
 # source PDF + JSON coords. Catalog originals (*.original.avif, *.original.jpg)
 # are NOT matched by this glob and stay tracked. Pattern: house-<id>-<category>-<label>.jpg

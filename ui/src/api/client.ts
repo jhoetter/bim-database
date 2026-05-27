@@ -1,7 +1,7 @@
 // Thin fetch wrappers + a couple of helper hooks. All endpoints come from
 // the FastAPI in api/main.py — dev proxies to :2500, prod is same-origin.
 import { useEffect, useState } from 'react';
-import type { House, Ontology } from './types';
+import type { House, Ontology, SyntheticHouse } from './types';
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -21,6 +21,14 @@ export function fetchHouse(key: string): Promise<House> {
 
 export function fetchOntology(): Promise<Ontology> {
   return get<Ontology>('/ontology');
+}
+
+export function fetchSynthetics(): Promise<SyntheticHouse[]> {
+  return get<SyntheticHouse[]>('/synthetics');
+}
+
+export function fetchSynthetic(key: string): Promise<SyntheticHouse> {
+  return get<SyntheticHouse>(`/synthetics/${key}`);
 }
 
 // Tiny hook helpers — no react-query dep for this scale. Re-fetches when
