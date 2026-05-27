@@ -240,6 +240,89 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+// Topbar widget — at-a-glance "does this scene have the M1 references
+// homography needs?" Reads the same is_reference flag the auto-picker
+// writes. Three states: green (1H + 1V), amber (one direction missing),
+// hidden (no dims yet — nothing to evaluate).
+function BezugStatus({ labels }: { labels: Label[] }) {
+  let hasH = false;
+  let hasV = false;
+  let dimCount = 0;
+  for (const l of labels) {
+    if (l.type !== 'dimensioned_distance') continue;
+    dimCount++;
+    if (!l.attributes.is_reference) continue;
+    const dx = l.geometry.end[0] - l.geometry.start[0];
+    const dy = l.geometry.end[1] - l.geometry.start[1];
+    const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+    if (a < 15 || a > 165) hasH = true;
+    else if (a > 75 && a < 105) hasV = true;
+  }
+  if (dimCount === 0) return null;
+  const complete = hasH && hasV;
+  return (
+    <span
+      className={`text-[0.7rem] px-2 py-0.5 rounded-full font-medium tabular-nums ${
+        complete
+          ? 'bg-emerald-100 text-emerald-800'
+          : 'bg-amber-100 text-amber-900'
+      }`}
+      title={
+        complete
+          ? 'Beide Bezugsrichtungen für Entzerrung gesetzt'
+          : 'Für die Entzerrung braucht es 1× horizontale + 1× vertikale Bemaßung'
+      }
+    >
+      Bezug: {hasH ? '✓ H' : '– H'} · {hasV ? '✓ V' : '– V'}
+    </span>
+  );
+}
+
+// Recompute is_reference for every dim_distance in `labels`: flag the
+// LONGEST horizontal and LONGEST vertical as M1 (Bezug for homography),
+// clear is_reference on the rest. Longest wins because a 1-pixel
+// annotation error on a 1000-pixel reference is 0.1%, on a 100-pixel
+// reference it's 1% — pick the more reliable scale. 'Horizontal' /
+// 'vertical' here means the line angle is within ±15° of an axis;
+// diagonal dims are never M1.
+//
+// Returns a new labels array if anything changed; the original array
+// (referentially) otherwise, so callers can cheaply early-out on no-op.
+function recomputeM1References(labels: Label[]): Label[] {
+  type Scored = { id: string; len: number; orient: 'h' | 'v' | 'other' };
+  const scored: Scored[] = [];
+  for (const l of labels) {
+    if (l.type !== 'dimensioned_distance') continue;
+    const dx = l.geometry.end[0] - l.geometry.start[0];
+    const dy = l.geometry.end[1] - l.geometry.start[1];
+    const len = Math.hypot(dx, dy);
+    const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+    let orient: Scored['orient'] = 'other';
+    if (Math.abs(ang) < 15 || Math.abs(ang - 180) < 15 || Math.abs(ang + 180) < 15) orient = 'h';
+    else if (Math.abs(ang - 90) < 15 || Math.abs(ang + 90) < 15) orient = 'v';
+    scored.push({ id: l.id, len, orient });
+  }
+  if (scored.length === 0) return labels;
+  const longestH = scored.filter((s) => s.orient === 'h').sort((a, b) => b.len - a.len)[0];
+  const longestV = scored.filter((s) => s.orient === 'v').sort((a, b) => b.len - a.len)[0];
+  const m1 = new Set<string>();
+  if (longestH) m1.add(longestH.id);
+  if (longestV) m1.add(longestV.id);
+  let changed = false;
+  const next = labels.map((l) => {
+    if (l.type !== 'dimensioned_distance') return l;
+    const want = m1.has(l.id);
+    if (l.attributes.is_reference === want) return l;
+    changed = true;
+    return {
+      ...l,
+      attributes: { ...l.attributes, is_reference: want },
+      updated_at: nowIso(),
+    } as Label;
+  });
+  return changed ? next : labels;
+}
+
 // Short label for a scene chip in the topbar. Picks the most informative
 // floor (EG/OG/DG) or compass direction it can find in the filename, or
 // falls back to the first few characters of the title.
@@ -545,42 +628,8 @@ export function AnnotatePage() {
         }
         pushUndo();
         let label: Label;
-        let dimAutoPromoted: 'h' | 'v' | null = null;
         if (tool === 'dimensioned_distance') {
           const def = getDefaults(scope, key, sceneTag, 'dimensioned_distance');
-          // Determine the orientation of THIS new dim.
-          const dx = pt[0] - pendingStart[0];
-          const dy = pt[1] - pendingStart[1];
-          const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
-          const isHoriz =
-            Math.abs(ang) < 15 || Math.abs(ang - 180) < 15 || Math.abs(ang + 180) < 15;
-          const isVert =
-            Math.abs(ang - 90) < 15 || Math.abs(ang + 90) < 15;
-          // Auto-promote to is_reference (M1) if this scene doesn't yet have
-          // a horizontal/vertical reference. Saves the user from having to
-          // pick Maß vs Bezug — the first H + first V become Bezug
-          // automatically, the rest stay as Maß.
-          const existingDims = labels.filter((l) => l.type === 'dimensioned_distance');
-          const orientOf = (l: DimensionedDistanceLabel): 'h' | 'v' | 'other' => {
-            const a = (Math.atan2(
-              l.geometry.end[1] - l.geometry.start[1],
-              l.geometry.end[0] - l.geometry.start[0],
-            ) * 180) / Math.PI;
-            if (Math.abs(a) < 15 || Math.abs(a - 180) < 15 || Math.abs(a + 180) < 15) return 'h';
-            if (Math.abs(a - 90) < 15 || Math.abs(a + 90) < 15) return 'v';
-            return 'other';
-          };
-          const hasRefH = existingDims.some(
-            (l) => l.attributes.is_reference && orientOf(l as DimensionedDistanceLabel) === 'h',
-          );
-          const hasRefV = existingDims.some(
-            (l) => l.attributes.is_reference && orientOf(l as DimensionedDistanceLabel) === 'v',
-          );
-          let isReference = (def.is_reference as boolean) ?? false;
-          if (!isReference) {
-            if (isHoriz && !hasRefH) { isReference = true; dimAutoPromoted = 'h'; }
-            else if (isVert && !hasRefV) { isReference = true; dimAutoPromoted = 'v'; }
-          }
           label = {
             id: uuid(),
             type: 'dimensioned_distance',
@@ -588,7 +637,10 @@ export function AnnotatePage() {
             attributes: {
               value_mm: null,
               target_orientation: (def.target_orientation as DimensionedDistanceLabel['attributes']['target_orientation']) ?? 'unknown',
-              is_reference: isReference,
+              // is_reference is recomputed AFTER add (see setLabels below).
+              // The longest H + longest V dims win — placement order is
+              // irrelevant.
+              is_reference: false,
             },
             status: 'readable',
             relations: [],
@@ -608,8 +660,30 @@ export function AnnotatePage() {
             updated_at: nowIso(),
           } as WallLabel;
         }
-        setLabels([...labels, label]);
+        // For dim_distance, re-run the M1 pick over ALL dims in the scene
+        // after adding the new one — the new dim might be the new longest
+        // in its orientation. Toast if THIS dim ended up flagged.
+        const labelsAfterAdd = [...labels, label];
+        const finalLabels = tool === 'dimensioned_distance'
+          ? recomputeM1References(labelsAfterAdd)
+          : labelsAfterAdd;
+        setLabels(finalLabels);
         setDirty(true);
+        if (tool === 'dimensioned_distance') {
+          const me = finalLabels.find((l) => l.id === label.id) as
+            | DimensionedDistanceLabel | undefined;
+          if (me?.attributes.is_reference) {
+            const dx2 = pt[0] - pendingStart[0];
+            const dy2 = pt[1] - pendingStart[1];
+            const a2 = Math.abs((Math.atan2(dy2, dx2) * 180) / Math.PI);
+            const horiz = a2 < 15 || a2 > 165;
+            addToast(
+              horiz ? '↔ längste horizontale → Bezug (M1)' : '↕ längste vertikale → Bezug (M1)',
+              'success',
+              2500,
+            );
+          }
+        }
         // Wall chaining: keep drawing — the next wall starts where this one
         // ended. The 'closing the polygon' case (user clicked back near the
         // chain anchor) breaks the chain so the user isn't auto-extended
@@ -629,11 +703,6 @@ export function AnnotatePage() {
           // clicks, no auto-chain. (We tried chaining and the leftover
           // phantom preview line from the previous endpoint confused users.)
           setPendingStart(null);
-          if (dimAutoPromoted === 'h') {
-            addToast('↔ erste horizontale Bemaßung → Bezug (M1)', 'success', 2500);
-          } else if (dimAutoPromoted === 'v') {
-            addToast('↕ erste vertikale Bemaßung → Bezug (M1)', 'success', 2500);
-          }
           // Open an inline edit at the LINE MIDPOINT (in screen coords) so
           // the input visually attaches to the dimension. On commit, also
           // create a paired dim_number with a labels-relation — so users
@@ -1005,8 +1074,9 @@ export function AnnotatePage() {
   // ── label mutation helpers ────────────────────────────────────────────────
   const updateLabel = useCallback((id: string, patch: Partial<Label>) => {
     pushUndo();
-    setLabels((prev) =>
-      prev.map((l) => {
+    setLabels((prev) => {
+      let touchedDim = false;
+      const mapped = prev.map((l) => {
         if (l.id !== id) return l;
         const merged = { ...l, ...patch, updated_at: nowIso() } as Label;
         // M13: any attribute change is a signal — remember it as the default
@@ -1014,9 +1084,15 @@ export function AnnotatePage() {
         if (patch.attributes) {
           rememberDefaults(scope, key, sceneTag, merged.type, merged.attributes as Record<string, unknown>);
         }
+        if (merged.type === 'dimensioned_distance' && patch.geometry) {
+          touchedDim = true;
+        }
         return merged;
-      }),
-    );
+      });
+      // If a dim_distance's geometry changed (resize/move), its length may
+      // have changed — re-pick the M1 references.
+      return touchedDim ? recomputeM1References(mapped) : mapped;
+    });
     setDirty(true);
   }, [pushUndo, scope, key, sceneTag]);
 
@@ -1044,15 +1120,21 @@ export function AnnotatePage() {
     }
     pushUndo();
     const idsToDelete = new Set([id, ...deleteAlsoIds]);
-    setLabels((prev) =>
-      prev
+    setLabels((prev) => {
+      const next = prev
         .filter((l) => !idsToDelete.has(l.id))
         // Also strip any relations pointing at the deleted label(s).
         .map((l) => ({
           ...l,
           relations: (l.relations ?? []).filter((r) => !idsToDelete.has(r.other_id)),
-        }) as Label),
-    );
+        }) as Label);
+      // If a dim_distance was deleted, re-pick the M1 references — the
+      // next-longest H/V might need to take over.
+      const deletedAnyDim = prev.some(
+        (l) => idsToDelete.has(l.id) && l.type === 'dimensioned_distance',
+      );
+      return deletedAnyDim ? recomputeM1References(next) : next;
+    });
     if (selectedId && idsToDelete.has(selectedId)) setSelectedId(null);
     setDirty(true);
   }, [labels, pushUndo, selectedId]);
@@ -1370,6 +1452,7 @@ export function AnnotatePage() {
               </button>
             </div>
           )}
+          <BezugStatus labels={labels} />
           {dirty && (
             <span className="text-[0.7rem] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
               ● ungespeichert
