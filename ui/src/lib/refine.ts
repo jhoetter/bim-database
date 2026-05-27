@@ -17,7 +17,8 @@
 //   • NOT_READABLE — status is 'blurry' or 'rejected'; surfaced so the
 //                    user can re-triage.
 
-import type { Label } from '../api/types';
+import type { Label, LabelScope, SceneLevel } from '../api/types';
+import { loadHouseFacts } from './house_facts';
 import { referenceAngle } from './snap';
 
 export type RefineKind =
@@ -25,7 +26,8 @@ export type RefineKind =
   | 'no_value'
   | 'no_datum'
   | 'off_axis'
-  | 'not_readable';
+  | 'not_readable'
+  | 'height_conflict';
 
 export interface RefineIssue {
   labelId: string;
@@ -45,7 +47,12 @@ function lineAngleDeg(start: [number, number], end: [number, number]): number {
   return (Math.atan2(-(end[1] - start[1]), end[0] - start[0]) * 180) / Math.PI;
 }
 
-export function collectRefineIssues(labels: Label[]): RefineIssue[] {
+export function collectRefineIssues(
+  labels: Label[],
+  /** Optional house context — when provided, enables cross-scene checks
+   *  like HEIGHT_CONFLICT (datum value disagrees with house facts). */
+  context?: { scope: LabelScope; houseKey: string; sceneLevel: SceneLevel | null },
+): RefineIssue[] {
   const out: RefineIssue[] = [];
   const refAngle = referenceAngle(labels);
 
@@ -154,5 +161,49 @@ export function collectRefineIssues(labels: Label[]): RefineIssue[] {
       });
     }
   }
+
+  // N8 — cross-scene height conflict detection. When the house knows
+  // First = +12.5 m (from another scene) but THIS scene labels First
+  // at +12.3 m, surface as a conflict the user should resolve. Threshold
+  // 1 % so within-rounding diffs don't generate noise.
+  if (context) {
+    const facts = loadHouseFacts(context.scope, context.houseKey);
+    const datumKeyFor = (d: string | null | undefined): keyof typeof facts.heights | null => {
+      if (!d || d === 'other') return null;
+      switch (d) {
+        case 'first': return 'first_mm';
+        case 'traufe': return 'traufe_mm';
+        case 'gelaende': return 'gelaende_mm';
+        case 'sockel': return 'sockel_mm';
+        case 'kniestock': return 'kniestock_mm';
+        case 'geschoss': return 'geschoss_mm';
+        case 'ok_ffb':
+          if (context.sceneLevel === 'og') return 'ok_ffb_og_mm';
+          if (context.sceneLevel === 'dg') return 'ok_ffb_dg_mm';
+          return 'ok_ffb_eg_mm';
+        default: return null;
+      }
+    };
+    for (const l of labels) {
+      if (l.type !== 'height_mark') continue;
+      const v = l.attributes.value_mm;
+      if (v == null) continue;
+      const k = datumKeyFor(l.attributes.datum);
+      if (!k) continue;
+      const houseVal = facts.heights[k] as number | undefined;
+      if (typeof houseVal !== 'number') continue;
+      const denom = Math.max(Math.abs(houseVal), 100);
+      if (Math.abs(houseVal - v) / denom < 0.01) continue;
+      const fmt = (mm: number) => mm === 0 ? '±0,00' : `${(mm / 1000).toFixed(2).replace('.', ',')} m`;
+      out.push({
+        labelId: l.id,
+        kind: 'height_conflict',
+        description: `Konflikt: ${l.attributes.datum} = ${fmt(v)} hier vs ${fmt(houseVal)} im Haus`,
+        fixHint: `→ ${fmt(houseVal)}`,
+        autoFix: undefined,    // resolution is a user decision — no auto-fix
+      });
+    }
+  }
+
   return out;
 }

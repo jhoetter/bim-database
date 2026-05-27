@@ -2498,8 +2498,10 @@ export function AnnotatePage() {
           onApplyHouseHeight={(datum, value_mm) => {
             pushUndo();
             // If a Höhenkote is selected, set its datum+value. Otherwise
-            // drop a new one at the existing Bezugsachse X (if any) +
-            // viewport-Y midpoint, so it appears where the user is looking.
+            // drop a new one at the Bezugsachse X. Y comes from N5
+            // calibration when known: bezug_y - value_mm × px_per_mm so
+            // First lands at the real First height. Falls back to
+            // viewport-Y center if no calibration yet.
             const sel = labels.find((l) => l.id === selectedId);
             if (sel?.type === 'height_mark') {
               updateLabel(sel.id, {
@@ -2509,17 +2511,21 @@ export function AnnotatePage() {
               addToast(`✓ ${datum} = ${value_mm === 0 ? '±0,00' : (value_mm / 1000).toFixed(2).replace('.', ',') + ' m'}`, 'success', 1500);
               return;
             }
-            // Drop a new Höhenkote. Use the X of the first existing
-            // Höhenkote (the Bezugsachse) if any; otherwise the canvas
-            // center.
-            const existingHKs = labels.filter((l) => l.type === 'height_mark');
+            const existingHKs = labels.filter((l) => l.type === 'height_mark') as HeightMarkLabel[];
             const bezugX = existingHKs.length > 0
               ? existingHKs[0].geometry.anchor[0]
               : view.x + view.w / 2;
+            const facts = loadHouseFacts(scope, key);
+            const calib = facts.calibration_per_scene[decodedFile];
+            const bezugHM = existingHKs.find((h) => h.attributes.value_mm === 0);
+            let y = view.y + view.h / 2;
+            if (calib && bezugHM) {
+              y = bezugHM.geometry.anchor[1] - value_mm * calib.px_per_mm;
+            }
             const newLabel: HeightMarkLabel = {
               id: uuid(),
               type: 'height_mark',
-              geometry: { anchor: [bezugX, view.y + view.h / 2] },
+              geometry: { anchor: [bezugX, y] },
               attributes: {
                 value_mm,
                 datum: datum as HeightMarkLabel['attributes']['datum'],
@@ -2533,7 +2539,16 @@ export function AnnotatePage() {
             setLabels((prev) => [...prev, newLabel]);
             setSelectedIds(new Set([newLabel.id]));
             setDirty(true);
-            addToast(`+ ${datum} aus Haus-Höhen übernommen`, 'success', 1800);
+            const yNote = calib && bezugHM ? ' (Y kalibriert)' : '';
+            addToast(`+ ${datum} aus Haus-Höhen übernommen${yNote}`, 'success', 1800);
+            // X5 provenance chip — this label's value came from cache
+            setCrossSceneProvenance((m) => {
+              const next = new Map(m);
+              next.set(newLabel.id, calib && bezugHM
+                ? `${datum} mit Y aus Bezug + Kalibrierung`
+                : `${datum} aus anderer Szene`);
+              return next;
+            });
           }}
         />
       }
@@ -3682,6 +3697,9 @@ function ToolPalette({
 
       <RefineQueue
         labels={labels}
+        scope={scope}
+        houseKey={houseKey}
+        sceneLevel={sceneLevel}
         onJump={(labelId) => onSelectLabel(labelId)}
         onAutoFix={onRefineAutoFix}
         onTidyAll={onRefineTidyAll}
@@ -3761,14 +3779,20 @@ function ToolPalette({
 // status. Click a row to jump to (and select) the label; click "Fix" for
 // the one-click autoFix. "Alle aufräumen" runs the M5.2 batch tidy.
 function RefineQueue({
-  labels, onJump, onAutoFix, onTidyAll,
+  labels, scope, houseKey, sceneLevel, onJump, onAutoFix, onTidyAll,
 }: {
   labels: Label[];
+  scope: LabelScope;
+  houseKey: string;
+  sceneLevel: SceneLevel | null;
   onJump: (labelId: string) => void;
   onAutoFix: (issue: RefineIssue) => void;
   onTidyAll: () => void;
 }) {
-  const issues = useMemo(() => collectRefineIssues(labels), [labels]);
+  const issues = useMemo(
+    () => collectRefineIssues(labels, { scope, houseKey, sceneLevel }),
+    [labels, scope, houseKey, sceneLevel],
+  );
   const [open, setOpen] = useState(issues.length > 0);
   if (issues.length === 0) return null;
   return (
@@ -3882,7 +3906,26 @@ function HouseHeightsPanel({
           Noch keine bekannt — sobald eine Höhenkote in einer Szene Wert + Datum hat, erscheint sie hier auf allen Szenen dieses Hauses.
         </p>
       ) : (
-        <ul className="space-y-px ml-3">
+        <div className="ml-3 space-y-1">
+          {/* N7 — "alle anwenden": batch-drop every still-missing datum
+              with its known value (and Y-position when calibration is
+              known). One click bootstraps a fresh scene from house facts. */}
+          {entries.some(([d]) => !heightsHere.has(d)) && (
+            <button
+              type="button"
+              onClick={() => {
+                for (const [datum, mm] of entries) {
+                  if (heightsHere.has(datum)) continue;
+                  onApply(datum, mm);
+                }
+              }}
+              className="w-full text-[0.65rem] px-1.5 py-1 rounded bg-emerald-50 border border-emerald-300 text-emerald-900 hover:bg-emerald-100 font-medium"
+              title="Alle noch fehlenden Datumshöhen in dieser Szene anlegen"
+            >
+              ↻ Alle bekannten Höhen einsetzen ({entries.filter(([d]) => !heightsHere.has(d)).length})
+            </button>
+          )}
+          <ul className="space-y-px">
           {entries.map(([datum, mm]) => {
             const have = heightsHere.has(datum);
             const sel = selectedId ? labels.find((l) => l.id === selectedId) : null;
@@ -3908,7 +3951,8 @@ function HouseHeightsPanel({
               </li>
             );
           })}
-        </ul>
+          </ul>
+        </div>
       ))}
     </section>
   );
