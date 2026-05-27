@@ -204,25 +204,6 @@ const TOOL_FAMILIES: ToolFamily[] = [
     ],
     helpText: 'Linien = Gebäudeform (Silhouette, Dach, Kanten). Höhenbezüge → Höhenkote.',
   },
-  {
-    parentTool: 'height_mark',
-    familyLabel: 'Höhenkote',
-    Icon: SpotElevationIcon,
-    hotkey: 'H',
-    attrName: 'datum',
-    applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
-    options: [
-      { value: 'first',     label: 'First',     hint: 'Firsthöhe — Höhe der Dachspitze.' },
-      { value: 'traufe',    label: 'Traufe',    hint: 'Traufhöhe — Höhe der Dach-/Wand-Schnittlinie.' },
-      { value: 'gelaende',  label: 'Gelände',   hint: 'Geländehöhe — meist ±0,00 als Bezug.' },
-      { value: 'ok_ffb',    label: 'OK FFB',    hint: 'Oberkante Fertigfußboden eines Geschosses.' },
-      { value: 'geschoss',  label: 'Geschoss',  hint: 'Geschossübergang (Decken-/Boden-Niveau).' },
-      { value: 'sockel',    label: 'Sockel',    hint: 'Sockelhöhe.' },
-      { value: 'kniestock', label: 'Kniestock', hint: 'Kniestock-/Drempel-Höhe.' },
-      { value: 'other',     label: 'Sonstige',  hint: 'Sonstige beschriftete Höhe.' },
-    ],
-    helpText: 'Erste Höhenkote setzt die Bezugsachse (dünne hellblaue Senkrechte). Weitere Höhenkoten rasten automatisch auf diese X-Position — du bestimmst nur noch die Höhe. Alt = freie Platzierung.',
-  },
 ];
 
 function findFamily(tool: Tool): ToolFamily | null {
