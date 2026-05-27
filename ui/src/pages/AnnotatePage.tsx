@@ -37,7 +37,7 @@ import { findSnap, SNAP_COLOR, type SnapTarget, type SnapTool } from '../lib/sna
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
   CentreLineIcon, DimensionIcon, DoorIcon, ElevationViewIcon, KeynoteIcon,
-  LayersIcon, LinkIcon, OpeningIcon, PlanViewIcon, QuestionIcon,
+  LayersIcon, OpeningIcon, PlanViewIcon, QuestionIcon,
   SectionViewIcon, SelectIcon, SpotElevationIcon, WallIcon,
 } from '../lib/icons';
 
@@ -65,8 +65,7 @@ type Tool =
   | 'floorplan_opening'
   | 'view_opening'
   | 'component_line'
-  | 'height_mark'
-  | 'link';
+  | 'height_mark';
 
 // Tag → which tools are available. The 'link' tool was removed once
 // linking became implicit: placing a dim_distance now auto-creates a
@@ -110,7 +109,6 @@ const TOOL_META: Record<Tool, ToolMeta> = {
   height_mark: { label: 'Höhenkote', hotkey: 'H', Icon: SpotElevationIcon },
   dimensioned_distance: { label: 'Bemaßte Strecke', hotkey: 'D', Icon: DimensionIcon },
   dimension_number: { label: 'Maßzahl', hotkey: 'N', Icon: KeynoteIcon },
-  link: { label: 'Verknüpfen', hotkey: 'K', Icon: LinkIcon },
 };
 
 const TAG_META: Record<SceneTag, { label: string; Icon: (props: { size?: number }) => React.JSX.Element }> = {
@@ -120,6 +118,107 @@ const TAG_META: Record<SceneTag, { label: string; Icon: (props: { size?: number 
   sonstiges: { label: 'Sonstiges', Icon: LayersIcon },
   nicht_klassifiziert: { label: '(nicht klassifiziert)', Icon: QuestionIcon },
 };
+
+// Tool families: tools whose primary attribute is a categorical choice get
+// their subtypes shown as inline children of the parent tool button. Picking
+// a subtype activates the parent tool AND writes the subtype as the
+// per-house default — so the next-drawn label is pre-classified.
+//
+// Why this matters: e.g. component_line MUST be typed (First/Traufe/…) to
+// be a useful training signal — an unclassified line is dead label weight.
+// The family UX makes "pick the type" the same gesture as "pick the tool",
+// instead of being a separate inspector edit after the fact.
+type ToolFamilyOption = {
+  value: string;          // stored as a string; for boolean attrs we map
+                          // 'true'/'false' to the boolean at commit time.
+  label: string;
+  hint?: string;          // shown in title= tooltip when hovered
+};
+type ToolFamily = {
+  parentTool: Tool;
+  familyLabel: string;
+  Icon: (props: { size?: number; strokeWidth?: number }) => React.JSX.Element;
+  hotkey: string;
+  attrName: string;       // the attribute name on the parent tool's label
+  attrIsBoolean?: boolean;
+  applicableTags: SceneTag[];
+  options: ToolFamilyOption[];
+  helpText?: string;      // 1-line guidance shown under expanded subtypes
+};
+
+const TOOL_FAMILIES: ToolFamily[] = [
+  {
+    parentTool: 'floorplan_opening',
+    familyLabel: 'Öffnung',
+    Icon: DoorIcon,
+    hotkey: 'O',
+    attrName: 'opening_kind',
+    applicableTags: ['grundriss', 'sonstiges'],
+    options: [
+      { value: 'window', label: 'Fenster', hint: 'Fenster im Grundriss — die Brüstung wird im Inspektor optional gepflegt.' },
+      { value: 'door', label: 'Tür', hint: 'Tür mit Schwingflügel. Swing-Side + Swing-Richtung steuern die Bogen-Darstellung.' },
+      { value: 'passage', label: 'Durchgang', hint: 'Offener Durchgang ohne Tür/Fenster.' },
+      { value: 'garage_door', label: 'Tor', hint: 'Garagen-/Hoftor.' },
+      { value: 'other', label: 'Sonstige', hint: 'Sonstige Wandöffnung — möglichst spezifischen Typ wählen.' },
+    ],
+    helpText: 'Klick 1: an die Wand (Snap), Klick 2: Öffnungsbreite festlegen. Drehung folgt automatisch der Wandachse.',
+  },
+  {
+    parentTool: 'view_opening',
+    familyLabel: 'Öffnung',
+    Icon: OpeningIcon,
+    hotkey: 'O',
+    attrName: 'opening_kind',
+    applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
+    options: [
+      { value: 'window', label: 'Fenster', hint: 'Fenster in der Fassadenansicht.' },
+      { value: 'door', label: 'Tür', hint: 'Eingangs-/Terrassentür.' },
+      { value: 'skylight', label: 'Dachfenster', hint: 'Dachflächenfenster (Velux o. ä.).' },
+      { value: 'dormer', label: 'Gaube', hint: 'Dachgaube als geometrische Box.' },
+      { value: 'garage_door', label: 'Tor', hint: 'Garagentor.' },
+      { value: 'other', label: 'Sonstige', hint: 'Sonstige Öffnung.' },
+    ],
+    helpText: 'Zwei Klicks für die Diagonale der Öffnungs-Box.',
+  },
+  {
+    parentTool: 'component_line',
+    familyLabel: 'Linie',
+    Icon: CentreLineIcon,
+    hotkey: 'L',
+    attrName: 'line_kind',
+    applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
+    options: [
+      { value: 'first',      label: 'First',       hint: 'Horizontale Bezugslinie am Dachfirst (z. B. mit "+12,5 m" beschriftet). Aus ihr folgt die Firsthöhe.' },
+      { value: 'traufe',     label: 'Traufe',      hint: 'Horizontale Bezugslinie an der Traufe.' },
+      { value: 'gelaende',   label: 'Gelände',     hint: 'Horizontale Bezugslinie am Geländeniveau (±0,00).' },
+      { value: 'geschoss',   label: 'Geschoss',    hint: 'Horizontaler Geschossübergang (Decke/Fußboden-Linie).' },
+      { value: 'ok_ffb',     label: 'OK FFB',      hint: 'Oberkante Fertigfußboden — horizontale Bezugslinie pro Geschoss.' },
+      { value: 'sockel',     label: 'Sockel',      hint: 'Horizontale Bezugslinie am Gebäudesockel.' },
+      { value: 'kniestock',  label: 'Kniestock',   hint: 'Horizontale Bezugslinie am Kniestock (Drempel).' },
+      { value: 'firstkante', label: 'Firstkante',  hint: 'Geometrische Dach-/Gratkante (diagonale Linie) — nicht die horizontale First-Bezugslinie.' },
+      { value: 'other',      label: 'Sonstige',    hint: 'Wenn keiner der Typen passt — vermeiden, möglichst spezifisch klassifizieren.' },
+    ],
+    helpText: 'Zeichne die Linie, die du in der Zeichnung siehst. Der Typ sagt, was diese Linie BEDEUTET (Höhenbezug vs. geometrische Kante).',
+  },
+  {
+    parentTool: 'dimensioned_distance',
+    familyLabel: 'Bemaßung',
+    Icon: DimensionIcon,
+    hotkey: 'D',
+    attrName: 'is_reference',
+    attrIsBoolean: true,
+    applicableTags: ['grundriss', 'ansicht', 'schnitt', 'sonstiges'],
+    options: [
+      { value: 'false', label: 'Maß',   hint: 'Bauteilmaß (M2) — wird als Längen-/Höhenangabe in das Trainingssignal aufgenommen.' },
+      { value: 'true',  label: 'Bezug', hint: 'Bezugsstrecke (M1) — wird zur Entzerrung der Zeichnung verwendet. Mindestens 1× horizontal + 1× vertikal pro Szene empfohlen.' },
+    ],
+    helpText: 'Nach 2 Klicks öffnet sich ein Eingabefeld am Mittelpunkt; auf Enter werden Strecke und passende Maßzahl gemeinsam erzeugt + verknüpft.',
+  },
+];
+
+function findFamily(tool: Tool): ToolFamily | null {
+  return TOOL_FAMILIES.find((f) => f.parentTool === tool) ?? null;
+}
 
 interface Snapshot {
   labels: Label[];
@@ -214,12 +313,9 @@ export function AnnotatePage() {
   // - pendingPolyline: in-progress polyline being assembled click-by-click
   //   (component_line). Enter finishes; Esc cancels.
   // - hoverPt: cursor position in image-pixel coords, used for live preview.
-  // - linkSource: the first label id clicked in link mode; the second click
-  //   on the complementary type creates the labels-relation.
   const [pendingStart, setPendingStart] = useState<Point | null>(null);
   const [pendingPolyline, setPendingPolyline] = useState<Point[]>([]);
   const [hoverPt, setHoverPt] = useState<Point | null>(null);
-  const [linkSource, setLinkSource] = useState<string | null>(null);
   // Wall chaining: when drawing walls, every committed wall's end becomes
   // the next wall's start so the user can outline a building footprint as
   // a sequence of connected walls without releasing Esc between them.
@@ -982,7 +1078,6 @@ export function AnnotatePage() {
       if (e.key === 'Escape') {
         setPendingStart(null);
         setPendingPolyline([]);
-        setLinkSource(null);
         setSelectedId(null);
         setSnap(null);
         setWallChainAnchor(null);
@@ -1192,6 +1287,10 @@ export function AnnotatePage() {
               return next;
             });
           }}
+          scope={scope}
+          houseKey={key}
+          defaultsRev={defaultsRev}
+          onDefaultsChange={() => setDefaultsRev((v) => v + 1)}
         />
       }
     >
@@ -1209,6 +1308,16 @@ export function AnnotatePage() {
           onWheel={onCanvasWheel}
           style={{ cursor: tool === 'select' ? 'default' : 'crosshair' }}
         >
+          <defs>
+            {/* Mauerwerk hatching for wall bands — diagonal lines at low
+                opacity, applied as an overlay fill on top of the solid wall
+                color. Sized in viewBox units so it scales with zoom. */}
+            <pattern id="bim-wall-hatch" patternUnits="userSpaceOnUse"
+                     width="9" height="9" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="9" stroke="#7c3aed"
+                    strokeWidth="0.7" opacity="0.35" />
+            </pattern>
+          </defs>
           <image href={imageUrl} x={0} y={0} width={imageSize[0]} height={imageSize[1]} />
           {/* Linking visuals — dashed lines between number ↔ distance pairs */}
           <LinkVisuals labels={labels} selectedId={selectedId} />
@@ -1218,7 +1327,6 @@ export function AnnotatePage() {
               key={l.id}
               label={l}
               selected={selectedIds.has(l.id)}
-              linkSource={linkSource}
               tool={tool}
               allLabels={labels}
               imageSnapRadius={(SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1)}
@@ -1226,32 +1334,6 @@ export function AnnotatePage() {
               onDragStateChange={setIsDragging}
               onSnapChange={setSnap}
               onSelect={(modifiers) => {
-                if (tool === 'link') {
-                  // Linking flow: first eligible click = source; second eligible click = target.
-                  const eligible = l.type === 'dimension_number' || l.type === 'dimensioned_distance';
-                  if (!eligible) return;
-                  if (linkSource == null) {
-                    setLinkSource(l.id);
-                    return;
-                  }
-                  if (linkSource === l.id) {
-                    setLinkSource(null);
-                    return;
-                  }
-                  // Must be the complementary type
-                  const a = labels.find((x) => x.id === linkSource);
-                  if (!a) {
-                    setLinkSource(null);
-                    return;
-                  }
-                  if (a.type === l.type) {
-                    setLinkSource(l.id);
-                    return;
-                  }
-                  linkPair(linkSource, l.id);
-                  setLinkSource(null);
-                  return;
-                }
                 // M11 multi-select: Shift+click toggles individual; plain
                 // click replaces selection.
                 if (modifiers?.shift) {
@@ -1414,17 +1496,8 @@ export function AnnotatePage() {
             </>
           )}
         </svg>
-        {/* Sub-kind chip bar — shown when a tool with multiple sub-types is
-            active. Picking a chip writes to the per-house defaults so the
-            next drawn label of this type is pre-classified. */}
-        <SubKindChips
-          tool={tool}
-          scope={scope}
-          houseKey={key}
-          sceneTag={sceneTag}
-          rev={defaultsRev}
-          onPick={() => setDefaultsRev((v) => v + 1)}
-        />
+        {/* Sub-classification is now in the sidebar via FamilyToolButton —
+            the previous top-of-canvas chip bar is gone (redundant). */}
         <div className="absolute bottom-3 left-3 text-[0.7rem] text-zinc-300 bg-black/50 px-2 py-1 rounded leading-snug pointer-events-none">
           [S] Select · [D] Bemaßte Strecke · [N] Maßzahl · [W] Wand · [O] Öffnung · [L] Linie · [H] Höhenkote
           <br />
@@ -1581,6 +1654,10 @@ function ToolPalette({
   onResetDefaults,
   allTools,
   onToggleAllTools,
+  scope,
+  houseKey,
+  defaultsRev,
+  onDefaultsChange,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -1597,7 +1674,12 @@ function ToolPalette({
   onResetDefaults: () => void;
   allTools: boolean;
   onToggleAllTools: () => void;
+  scope: LabelScope;
+  houseKey: string;
+  defaultsRev: number;
+  onDefaultsChange: () => void;
 }) {
+  void defaultsRev;
   return (
     <div className="px-3 py-3 space-y-4">
       <section>
@@ -1642,6 +1724,28 @@ function ToolPalette({
         </div>
         <div className="grid grid-cols-1 gap-px">
           {(allTools ? TOOLS_BY_TAG.sonstiges : TOOLS_BY_TAG[sceneTag]).map((t) => {
+            const family = findFamily(t);
+            // For Öffnung families that exist for both grundriss + ansicht
+            // tags, filter by applicableTags so the *wrong* opening tool
+            // doesn't show up in the toolbar (e.g. floorplan_opening in
+            // ansicht). 'allTools' bypasses this filter.
+            if (family && !allTools && !family.applicableTags.includes(sceneTag)) {
+              return null;
+            }
+            if (family) {
+              return (
+                <FamilyToolButton
+                  key={t}
+                  family={family}
+                  active={tool === family.parentTool}
+                  onActivate={() => setTool(family.parentTool)}
+                  scope={scope}
+                  houseKey={houseKey}
+                  sceneTag={sceneTag}
+                  onDefaultsChange={onDefaultsChange}
+                />
+              );
+            }
             const meta = TOOL_META[t];
             return (
               <ToolBtn
@@ -1735,6 +1839,92 @@ function ToolPalette({
   );
 }
 
+// A tool family in the sidebar — parent header + indented subtypes shown
+// inline whenever the parent tool is active. Picking a subtype writes the
+// per-house default so the next-drawn label is pre-classified.
+function FamilyToolButton({
+  family,
+  active,
+  onActivate,
+  scope,
+  houseKey,
+  sceneTag,
+  onDefaultsChange,
+}: {
+  family: ToolFamily;
+  active: boolean;
+  onActivate: () => void;
+  scope: LabelScope;
+  houseKey: string;
+  sceneTag: SceneTag;
+  onDefaultsChange: () => void;
+}) {
+  const def = getDefaults(scope, houseKey, sceneTag, family.parentTool as Label['type']);
+  const stored = def[family.attrName];
+  let currentValue: string;
+  if (family.attrIsBoolean) {
+    currentValue = stored === true ? 'true' : stored === false ? 'false' : family.options[0].value;
+  } else {
+    currentValue = (stored as string) ?? family.options[0].value;
+  }
+  const FamilyIcon = family.Icon;
+  return (
+    <div className={`rounded ${active ? 'bg-accent/5 ring-1 ring-accent/30' : ''}`}>
+      <button
+        type="button"
+        onClick={onActivate}
+        className={`w-full flex items-center gap-2 px-2 py-1 rounded text-[0.78rem] transition ${
+          active ? 'bg-accent text-white font-semibold' : 'hover:bg-zinc-100'
+        }`}
+      >
+        <FamilyIcon size={15} />
+        <span className="flex-1 text-left">{family.familyLabel}</span>
+        <kbd
+          className={`text-[0.6rem] font-mono rounded px-1 py-px ${
+            active ? 'bg-white/20 text-white' : 'bg-zinc-200 text-zinc-600'
+          }`}
+        >
+          {family.hotkey}
+        </kbd>
+      </button>
+      {active && (
+        <div className="pl-3 pr-1 py-1 space-y-px">
+          {family.options.map((opt) => {
+            const isCurrent = opt.value === currentValue;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                title={opt.hint ?? ''}
+                onClick={() => {
+                  const storedValue = family.attrIsBoolean ? (opt.value === 'true') : opt.value;
+                  rememberDefaults(scope, houseKey, sceneTag, family.parentTool as Label['type'], {
+                    [family.attrName]: storedValue,
+                  });
+                  onDefaultsChange();
+                }}
+                className={`w-full flex items-center gap-2 px-2 py-1 rounded text-[0.72rem] text-left transition ${
+                  isCurrent
+                    ? 'bg-accent/15 text-accent font-medium'
+                    : 'text-zinc-700 hover:bg-zinc-100'
+                }`}
+              >
+                <span className={`inline-block w-1.5 h-1.5 rounded-full ${isCurrent ? 'bg-accent' : 'bg-zinc-300'}`} />
+                <span className="flex-1">{opt.label}</span>
+              </button>
+            );
+          })}
+          {family.helpText && (
+            <p className="text-[0.62rem] text-muted leading-snug px-2 pt-1 pb-0.5 italic">
+              {family.helpText}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolBtn({
   current,
   onSet,
@@ -1790,7 +1980,6 @@ function labelGlyph(l: Label): string {
 function LabelGlyph({
   label,
   selected,
-  linkSource,
   tool,
   allLabels,
   imageSnapRadius,
@@ -1804,7 +1993,6 @@ function LabelGlyph({
 }: {
   label: Label;
   selected: boolean;
-  linkSource: string | null;
   tool: Tool;
   /** All labels in the scene — needed for cross-label constraints (e.g.
    *  attached floorplan_opening drag projected onto its parent wall axis)
@@ -1821,13 +2009,11 @@ function LabelGlyph({
   onDragStateChange: (dragging: boolean) => void;
   onSnapChange: (s: SnapTarget | null) => void;
 }) {
-  // Color per type — selected always takes precedence; in link mode the
-  // source label gets a magenta outline so it's obvious which one is staged.
+  // Color per type — selected always takes precedence.
   const baseColor = LABEL_COLORS[label.type] ?? '#16a34a';
-  const isLinkSource = tool === 'link' && linkSource === label.id;
-  const stroke = selected ? '#dc2626' : isLinkSource ? '#a21caf' : baseColor;
-  const fill = selected ? '#dc262633' : isLinkSource ? '#a21caf33' : `${baseColor}1a`;
-  const sw = selected || isLinkSource ? 3 : 2;
+  const stroke = selected ? '#dc2626' : baseColor;
+  const fill = selected ? '#dc262633' : `${baseColor}1a`;
+  const sw = selected ? 3 : 2;
 
   // Pointer-down on the glyph body: select on quick click, body-translate on
   // drag-after-move-threshold. Drag uses raw SVG point math so it works at
@@ -1835,7 +2021,7 @@ function LabelGlyph({
   const onPointerDownBody = (e: React.PointerEvent<SVGElement>) => {
     e.stopPropagation();
     if (e.button !== 0) return;          // only left click
-    if (tool !== 'select' && tool !== 'link') {
+    if (tool !== 'select') {
       // For drawing tools, body click does nothing — let canvas handle it
       return;
     }
@@ -1948,13 +2134,13 @@ function LabelGlyph({
     onSelect({ shift: e.shiftKey });
   };
 
-  // Drawing tools (everything except select/link) must let clicks pass
+  // Drawing tools (everything except select) must let clicks pass
   // straight through to the canvas — otherwise clicking ON an existing
   // wall while drawing a new wall would be intercepted by the wall's own
   // pointer handlers and the new wall never gets committed. The snap
   // engine still picks up the wall's endpoints because snap math runs in
   // the canvas-level pointermove handler, independent of pointer events.
-  const isDrawingTool = tool !== 'select' && tool !== 'link';
+  const isDrawingTool = tool !== 'select';
   const bodyProps = {
     onClick,
     onPointerDown: onPointerDownBody,
@@ -2011,7 +2197,12 @@ function LabelGlyph({
       body = (
         <g {...bodyProps}>
           {path && (
-            <path d={path} fill={stroke} fillOpacity={0.28} stroke="none" />
+            <>
+              {/* Solid color base, then Mauerwerk hatching overlay. Both at
+                  low opacity so the underlying drawing stays readable. */}
+              <path d={path} fill={stroke} fillOpacity={0.20} stroke="none" />
+              <path d={path} fill="url(#bim-wall-hatch)" stroke="none" />
+            </>
           )}
           <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={stroke} strokeWidth={sw} />
         </g>
@@ -3350,114 +3541,6 @@ function HeightMarkFields({
         />
       </label>
     </section>
-  );
-}
-
-// Sub-kind chip bar — surfaces the named subtypes for tools whose primary
-// attribute is a categorical choice (component_line: First/Traufe/…;
-// floorplan_opening: Fenster/Tür/…; view_opening: …). Each chip writes the
-// selection back to the per-house defaults system, so the next drawn label
-// of that type comes pre-classified. Bumps `rev` on pick so the bar
-// re-renders to highlight the new selection.
-function SubKindChips({
-  tool,
-  scope,
-  houseKey,
-  sceneTag,
-  rev: _rev,
-  onPick,
-}: {
-  tool: Tool;
-  scope: LabelScope;
-  houseKey: string;
-  sceneTag: SceneTag;
-  rev: number;
-  onPick: () => void;
-}) {
-  // _rev is a render dependency; we don't actually use it directly but its
-  // presence forces a re-render when chips are picked.
-  void _rev;
-
-  type Opt = { value: string; label: string };
-  const COMPONENT_LINE_OPTS: Opt[] = [
-    { value: 'first', label: 'First' },
-    { value: 'traufe', label: 'Traufe' },
-    { value: 'gelaende', label: 'Gelände' },
-    { value: 'geschoss', label: 'Geschoss' },
-    { value: 'ok_ffb', label: 'OK FFB' },
-    { value: 'sockel', label: 'Sockel' },
-    { value: 'firstkante', label: 'Firstkante' },
-    { value: 'kniestock', label: 'Kniestock' },
-    { value: 'other', label: 'Sonstige' },
-  ];
-  const FLOORPLAN_OPTS: Opt[] = [
-    { value: 'window', label: 'Fenster' },
-    { value: 'door', label: 'Tür' },
-    { value: 'passage', label: 'Durchgang' },
-    { value: 'garage_door', label: 'Tor' },
-    { value: 'other', label: 'Sonstige' },
-  ];
-  const VIEW_OPTS: Opt[] = [
-    { value: 'window', label: 'Fenster' },
-    { value: 'door', label: 'Tür' },
-    { value: 'skylight', label: 'Dachfenster' },
-    { value: 'dormer', label: 'Gaube' },
-    { value: 'garage_door', label: 'Tor' },
-    { value: 'other', label: 'Sonstige' },
-  ];
-
-  let spec: { type: Label['type']; attr: string; options: Opt[]; defaultValue: string; title: string } | null = null;
-  if (tool === 'component_line') {
-    spec = {
-      type: 'component_line',
-      attr: 'line_kind',
-      options: COMPONENT_LINE_OPTS,
-      defaultValue: 'other',
-      title: 'Linienart',
-    };
-  } else if (tool === 'floorplan_opening') {
-    spec = {
-      type: 'floorplan_opening',
-      attr: 'opening_kind',
-      options: FLOORPLAN_OPTS,
-      defaultValue: 'window',
-      title: 'Öffnungstyp',
-    };
-  } else if (tool === 'view_opening') {
-    spec = {
-      type: 'view_opening',
-      attr: 'opening_kind',
-      options: VIEW_OPTS,
-      defaultValue: 'window',
-      title: 'Öffnungstyp',
-    };
-  }
-  if (!spec) return null;
-
-  const def = getDefaults(scope, houseKey, sceneTag, spec.type);
-  const current = (def[spec.attr] as string) ?? spec.defaultValue;
-
-  return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-white/95 border border-zinc-300 rounded-full shadow-md px-2 py-1 flex items-center gap-1 backdrop-blur-sm">
-      <span className="text-[0.65rem] uppercase tracking-wider text-zinc-500 px-2">{spec.title}</span>
-      {spec.options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => {
-            rememberDefaults(scope, houseKey, sceneTag, spec!.type, { [spec!.attr]: o.value });
-            onPick();
-          }}
-          className={`px-2 py-0.5 rounded-full text-[0.72rem] transition-colors ${
-            o.value === current
-              ? 'bg-accent text-white font-medium'
-              : 'text-zinc-700 hover:bg-zinc-100'
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
