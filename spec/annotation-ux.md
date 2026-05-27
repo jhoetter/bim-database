@@ -1,6 +1,7 @@
 # Annotation tool — UX redesign
 
-**Status:** decision document — no implementation yet
+**Status:** ✅ ALL MILESTONES M7–M13 SHIPPED (2026-05-27).
+Tracker is now historical; the M0–M6 + M7–M13 build is complete.
 **Owner:** jhoetter
 **Date:** 2026-05-27
 **Predecessor:** [`spec/annotation-tool.md`](annotation-tool.md) — schema, data model, M0-M6 build (all shipped).
@@ -540,7 +541,7 @@ Implements §11:
 - Toast surface (§13) for all event types listed
 - Auto-save option in sidebar (§14), off by default
 
-### M13 — Defaults-learning + keyboard parity audit
+### M13 — Defaults-learning + keyboard parity audit ✅ shipped 2026-05-27
 
 - localStorage `bim-db:annotate:defaults` tree (§10)
 - Every existing keyboard shortcut from M2/M3 still works; new keys from §9 added

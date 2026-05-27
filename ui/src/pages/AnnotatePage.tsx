@@ -34,6 +34,7 @@ import {
   type HandleSpec,
 } from '../lib/labelGeometry';
 import { findSnap, SNAP_COLOR, type SnapTarget, type SnapTool } from '../lib/snap';
+import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 
 const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel — see spec/annotation-ux.md §4
 
@@ -201,6 +202,8 @@ export function AnnotatePage() {
     screenPos: [number, number];
     wasJustCreated: boolean;
   } | null>(null);
+  // M13: keyboard cheatsheet overlay.
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
   // M12 toasts.
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; tone: 'info' | 'success' | 'warn' | 'error' }>>([]);
   const addToast = useCallback((message: string, tone: 'info' | 'success' | 'warn' | 'error' = 'info', ttl: number = 2500) => {
@@ -339,22 +342,28 @@ export function AnnotatePage() {
         pushUndo();
         let label: Label;
         if (tool === 'dimensioned_distance') {
+          const def = getDefaults(scope, sceneTag, 'dimensioned_distance');
           label = {
             id: uuid(),
             type: 'dimensioned_distance',
             geometry: { start: pendingStart, end: pt },
-            attributes: { value_mm: null, target_orientation: 'unknown', is_reference: false },
+            attributes: {
+              value_mm: null,
+              target_orientation: (def.target_orientation as DimensionedDistanceLabel['attributes']['target_orientation']) ?? 'unknown',
+              is_reference: (def.is_reference as boolean) ?? false,
+            },
             status: 'readable',
             relations: [],
             created_at: nowIso(),
             updated_at: nowIso(),
           } as DimensionedDistanceLabel;
         } else {
+          const def = getDefaults(scope, sceneTag, 'wall');
           label = {
             id: uuid(),
             type: 'wall',
             geometry: { start: pendingStart, end: pt },
-            attributes: { thickness_mm: 365 },  // sensible residential default
+            attributes: { thickness_mm: (def.thickness_mm as number) ?? 365 },
             status: 'readable',
             relations: [],
             created_at: nowIso(),
@@ -392,23 +401,21 @@ export function AnnotatePage() {
         let label: Label;
         if (tool === 'floorplan_opening') {
           const quad: Quad = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-          // Attach via belongs_to if EITHER click landed on the same wall.
-          // (Common case: user drags a rectangle along the wall axis; both
-          // ends snap onto the same wall.)
           const secondClickAttached =
             snap?.kind === 'wall_line' && snap.source_label_id === pendingAttachedWallId;
           const attachWallId = pendingAttachedWallId && (secondClickAttached || !snap?.source_label_id || snap?.kind !== 'wall_line')
             ? pendingAttachedWallId
             : (snap?.kind === 'wall_line' ? snap.source_label_id : null);
+          const def = getDefaults(scope, sceneTag, 'floorplan_opening');
           label = {
             id: uuid(),
             type: 'floorplan_opening',
             geometry: { quad },
             attributes: {
-              opening_kind: 'window',
-              width_mm: null,
-              swing: 'none',
-              swing_side: 'none',
+              opening_kind: (def.opening_kind as FloorplanOpeningLabel['attributes']['opening_kind']) ?? 'window',
+              width_mm: (def.width_mm as number | null) ?? null,
+              swing: (def.swing as FloorplanOpeningLabel['attributes']['swing']) ?? 'none',
+              swing_side: (def.swing_side as FloorplanOpeningLabel['attributes']['swing_side']) ?? 'none',
             },
             status: 'readable',
             relations: attachWallId
@@ -418,7 +425,7 @@ export function AnnotatePage() {
             updated_at: nowIso(),
           } as FloorplanOpeningLabel;
         } else {
-          // View opening: degenerate-polyline pair (the rectangle's top + bottom edges).
+          const def = getDefaults(scope, sceneTag, 'view_opening');
           label = {
             id: uuid(),
             type: 'view_opening',
@@ -426,7 +433,10 @@ export function AnnotatePage() {
               top_edge: [[x0, y0], [x1, y0]],
               bottom_edge: [[x0, y1], [x1, y1]],
             },
-            attributes: { opening_kind: 'window', frame_visible: true },
+            attributes: {
+              opening_kind: (def.opening_kind as ViewOpeningLabel['attributes']['opening_kind']) ?? 'window',
+              frame_visible: (def.frame_visible as boolean) ?? true,
+            },
             status: 'readable',
             relations: [],
             created_at: nowIso(),
@@ -629,10 +639,19 @@ export function AnnotatePage() {
   const updateLabel = useCallback((id: string, patch: Partial<Label>) => {
     pushUndo();
     setLabels((prev) =>
-      prev.map((l) => (l.id === id ? ({ ...l, ...patch, updated_at: nowIso() } as Label) : l)),
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const merged = { ...l, ...patch, updated_at: nowIso() } as Label;
+        // M13: any attribute change is a signal — remember it as the default
+        // for the next label of this type in this (scope, scene_tag).
+        if (patch.attributes) {
+          rememberDefaults(scope, sceneTag, merged.type, merged.attributes as Record<string, unknown>);
+        }
+        return merged;
+      }),
     );
     setDirty(true);
-  }, [pushUndo]);
+  }, [pushUndo, scope, sceneTag]);
 
   const deleteLabel = useCallback((id: string) => {
     // M10: walls with attached openings prompt for cascade behaviour.
@@ -810,11 +829,12 @@ export function AnnotatePage() {
       if (e.key === 'Enter' && tool === 'component_line' && pendingPolyline.length >= 2) {
         e.preventDefault();
         pushUndo();
+        const def = getDefaults(scope, sceneTag, 'component_line');
         const label: ComponentLineLabel = {
           id: uuid(),
           type: 'component_line',
           geometry: { polyline: pendingPolyline },
-          attributes: { line_kind: 'other' },
+          attributes: { line_kind: (def.line_kind as ComponentLineLabel['attributes']['line_kind']) ?? 'other' },
           status: 'readable',
           relations: [],
           created_at: nowIso(),
@@ -841,6 +861,12 @@ export function AnnotatePage() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         setSelectedIds(new Set(labels.map((l) => l.id)));
+        return;
+      }
+      // M13: '?' opens the cheatsheet.
+      if (e.key === '?') {
+        e.preventDefault();
+        setCheatsheetOpen((v) => !v);
         return;
       }
       // Wall-only: ← / → adjusts thickness (10 mm step, 50 with Shift).
@@ -916,6 +942,15 @@ export function AnnotatePage() {
           >
             Vorschau & Export →
           </a>
+          <button
+            type="button"
+            onClick={() => setCheatsheetOpen(true)}
+            className="w-7 h-7 inline-flex items-center justify-center rounded-md text-muted hover:bg-zinc-100 hover:text-zinc-900"
+            title="Tastaturkürzel (?)"
+            aria-label="Tastaturkürzel anzeigen"
+          >
+            ?
+          </button>
         </div>
       }
       leftSidebar={
@@ -942,6 +977,10 @@ export function AnnotatePage() {
               addToast(next ? 'Auto-Save aktiviert (30 s)' : 'Auto-Save deaktiviert', 'info');
               return next;
             });
+          }}
+          onResetDefaults={() => {
+            clearDefaults(scope, sceneTag);
+            addToast(`Defaults für "${sceneTag}" zurückgesetzt`, 'info');
           }}
         />
       }
@@ -1219,6 +1258,10 @@ export function AnnotatePage() {
         )}
         {/* M12 toast stack — bottom-center over the canvas */}
         <ToastStack toasts={toasts} />
+        {/* M13 keyboard cheatsheet (toggle with '?') */}
+        {cheatsheetOpen && (
+          <Cheatsheet onClose={() => setCheatsheetOpen(false)} />
+        )}
         {tool === 'link' && (
           <div className="absolute top-3 right-3 bg-black/75 text-white px-3 py-2 rounded text-[0.78rem] leading-snug pointer-events-none min-w-[240px]">
             <div className="font-semibold mb-1">Verknüpfen 🔗</div>
@@ -1252,6 +1295,7 @@ function ToolPalette({
   onResetView,
   autosave,
   onToggleAutosave,
+  onResetDefaults,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -1265,6 +1309,7 @@ function ToolPalette({
   onResetView: () => void;
   autosave: boolean;
   onToggleAutosave: () => void;
+  onResetDefaults: () => void;
 }) {
   return (
     <div className="px-3 py-3 space-y-4">
@@ -1308,7 +1353,7 @@ function ToolPalette({
         )}
       </section>
 
-      <section>
+      <section className="space-y-2">
         <label className="flex items-center gap-2 text-[0.75rem] cursor-pointer">
           <input
             type="checkbox"
@@ -1318,6 +1363,14 @@ function ToolPalette({
           />
           <span>Auto-Save (30 s, wenn dirty)</span>
         </label>
+        <button
+          type="button"
+          onClick={onResetDefaults}
+          className="text-[0.7rem] text-muted hover:text-accent hover:underline"
+          title={`Defaults für scope+tag '${sceneTag}' zurücksetzen`}
+        >
+          Defaults für „{sceneTag}" zurücksetzen
+        </button>
       </section>
 
       <section>
@@ -1760,6 +1813,111 @@ function LabelGlyph({
         </g>
       )}
     </g>
+  );
+}
+
+// M13 keyboard cheatsheet — modal overlay, dismissed by Esc or click outside.
+function Cheatsheet({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === '?') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const sections: Array<[string, Array<[string, string]>]> = [
+    ['Werkzeuge', [
+      ['S', 'Auswählen'],
+      ['D', 'Bemaßte Strecke'],
+      ['N', 'Maßzahl'],
+      ['W', 'Wand'],
+      ['O', 'Öffnung (tag-abhängig)'],
+      ['L', 'Bauteillinie'],
+      ['H', 'Höhenkote'],
+      ['K', 'Verknüpfen'],
+    ]],
+    ['Zeichnen', [
+      ['Shift (halten)', 'Achsen-/Winkel-Lock (0/45/90/135°)'],
+      ['Alt (halten)', 'Snap deaktivieren'],
+      ['Enter', 'Polylinie beenden'],
+      ['Esc', 'Aktion abbrechen'],
+      ['Backspace (Polylinie)', 'letzten Punkt entfernen'],
+    ]],
+    ['Auswahl', [
+      ['Click', 'Auswahl ersetzen'],
+      ['Shift+Click', 'Auswahl umschalten'],
+      ['Drag auf leerer Fläche', 'Rubber-band Multi-Select'],
+      ['⌘/Ctrl + A', 'alles auswählen'],
+      ['Del / Backspace', 'Auswahl löschen'],
+    ]],
+    ['Wand (selected)', [
+      ['← / →', '±10 mm Wandstärke'],
+      ['Shift+← / →', '±50 mm Wandstärke'],
+      ['Lila Handle ziehen', 'Wandstärke direkt zeichnen'],
+    ]],
+    ['Ansicht', [
+      ['Mausrad', 'Zoom'],
+      ['Shift/Right-Drag', 'Pan'],
+      ['R', 'Ansicht zurücksetzen'],
+    ]],
+    ['Speichern', [
+      ['⌘/Ctrl + S', 'Speichern'],
+      ['⌘/Ctrl + Z', 'Rückgängig'],
+      ['⌘/Ctrl + Shift + Z', 'Wiederherstellen'],
+    ]],
+    ['Sonstiges', [
+      ['?', 'Diese Übersicht'],
+    ]],
+  ];
+
+  return (
+    <div
+      className="absolute inset-0 z-40 bg-black/40 flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center justify-between mb-4">
+          <h2 className="text-[1rem] font-semibold">Tastaturkürzel</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted hover:text-zinc-900 text-xl leading-none w-7 h-7 flex items-center justify-center"
+            aria-label="Schließen"
+          >
+            ×
+          </button>
+        </header>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+          {sections.map(([title, rows]) => (
+            <section key={title}>
+              <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-2">
+                {title}
+              </h3>
+              <dl className="space-y-1">
+                {rows.map(([keys, desc]) => (
+                  <div key={keys} className="flex justify-between gap-3 text-[0.8rem]">
+                    <dt className="text-zinc-700">{desc}</dt>
+                    <dd className="font-mono text-[0.75rem] text-zinc-900 bg-zinc-100 px-1.5 py-0.5 rounded">
+                      {keys}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+        </div>
+        <p className="mt-5 text-[0.7rem] text-muted text-center">
+          Esc oder ? schließt das Fenster.
+        </p>
+      </div>
+    </div>
   );
 }
 
