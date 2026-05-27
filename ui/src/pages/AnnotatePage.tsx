@@ -112,7 +112,7 @@ const TOOL_META: Record<Tool, ToolMeta> = {
   view_opening: { label: 'Öffnung (Ansicht)', hotkey: 'O', Icon: OpeningIcon },
   component_line: { label: 'Bauteillinie', hotkey: 'L', Icon: CentreLineIcon },
   height_mark: { label: 'Höhenkote', hotkey: 'H', Icon: SpotElevationIcon },
-  dimensioned_distance: { label: 'Bemaßte Strecke', hotkey: 'D', Icon: DimensionIcon },
+  dimensioned_distance: { label: 'Bemaßung', hotkey: 'D', Icon: DimensionIcon },
   dimension_number: { label: 'Maßzahl', hotkey: 'N', Icon: KeynoteIcon },
 };
 
@@ -222,20 +222,6 @@ const TOOL_FAMILIES: ToolFamily[] = [
       { value: 'other',     label: 'Sonstige',  hint: 'Sonstige beschriftete Höhe.' },
     ],
     helpText: 'Erste Höhenkote setzt die Bezugsachse (dünne hellblaue Senkrechte). Weitere Höhenkoten rasten automatisch auf diese X-Position — du bestimmst nur noch die Höhe. Alt = freie Platzierung.',
-  },
-  {
-    parentTool: 'dimensioned_distance',
-    familyLabel: 'Bemaßung',
-    Icon: DimensionIcon,
-    hotkey: 'D',
-    attrName: 'is_reference',
-    attrIsBoolean: true,
-    applicableTags: ['grundriss', 'ansicht', 'schnitt', 'sonstiges'],
-    options: [
-      { value: 'false', label: 'Maß (M2 Bauteilmaß)',     hint: 'Längen-/Höhenmaß am Bauteil. Liefert die reale Größe — das primäre Trainingssignal für Wand-/Geschoss-/Fensterabmessungen.' },
-      { value: 'true',  label: 'Bezug (M1 Entzerrung)',   hint: 'Bezugsstrecke für die Entzerrung der Zeichnung. Mindestens 1× horizontal + 1× vertikal pro Szene empfohlen. Wird visuell als amberfarbene gestrichelte Linie mit M1-Badge dargestellt.' },
-    ],
-    helpText: 'Nach 2 Klicks öffnet sich ein Eingabefeld am Mittelpunkt; auf Enter werden Strecke und passende Maßzahl gemeinsam erzeugt + verknüpft.',
   },
 ];
 
@@ -574,8 +560,42 @@ export function AnnotatePage() {
         }
         pushUndo();
         let label: Label;
+        let dimAutoPromoted: 'h' | 'v' | null = null;
         if (tool === 'dimensioned_distance') {
           const def = getDefaults(scope, key, sceneTag, 'dimensioned_distance');
+          // Determine the orientation of THIS new dim.
+          const dx = pt[0] - pendingStart[0];
+          const dy = pt[1] - pendingStart[1];
+          const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+          const isHoriz =
+            Math.abs(ang) < 15 || Math.abs(ang - 180) < 15 || Math.abs(ang + 180) < 15;
+          const isVert =
+            Math.abs(ang - 90) < 15 || Math.abs(ang + 90) < 15;
+          // Auto-promote to is_reference (M1) if this scene doesn't yet have
+          // a horizontal/vertical reference. Saves the user from having to
+          // pick Maß vs Bezug — the first H + first V become Bezug
+          // automatically, the rest stay as Maß.
+          const existingDims = labels.filter((l) => l.type === 'dimensioned_distance');
+          const orientOf = (l: DimensionedDistanceLabel): 'h' | 'v' | 'other' => {
+            const a = (Math.atan2(
+              l.geometry.end[1] - l.geometry.start[1],
+              l.geometry.end[0] - l.geometry.start[0],
+            ) * 180) / Math.PI;
+            if (Math.abs(a) < 15 || Math.abs(a - 180) < 15 || Math.abs(a + 180) < 15) return 'h';
+            if (Math.abs(a - 90) < 15 || Math.abs(a + 90) < 15) return 'v';
+            return 'other';
+          };
+          const hasRefH = existingDims.some(
+            (l) => l.attributes.is_reference && orientOf(l as DimensionedDistanceLabel) === 'h',
+          );
+          const hasRefV = existingDims.some(
+            (l) => l.attributes.is_reference && orientOf(l as DimensionedDistanceLabel) === 'v',
+          );
+          let isReference = (def.is_reference as boolean) ?? false;
+          if (!isReference) {
+            if (isHoriz && !hasRefH) { isReference = true; dimAutoPromoted = 'h'; }
+            else if (isVert && !hasRefV) { isReference = true; dimAutoPromoted = 'v'; }
+          }
           label = {
             id: uuid(),
             type: 'dimensioned_distance',
@@ -583,7 +603,7 @@ export function AnnotatePage() {
             attributes: {
               value_mm: null,
               target_orientation: (def.target_orientation as DimensionedDistanceLabel['attributes']['target_orientation']) ?? 'unknown',
-              is_reference: (def.is_reference as boolean) ?? false,
+              is_reference: isReference,
             },
             status: 'readable',
             relations: [],
@@ -624,6 +644,11 @@ export function AnnotatePage() {
           // clicks, no auto-chain. (We tried chaining and the leftover
           // phantom preview line from the previous endpoint confused users.)
           setPendingStart(null);
+          if (dimAutoPromoted === 'h') {
+            addToast('↔ erste horizontale Bemaßung → Bezug (M1)', 'success', 2500);
+          } else if (dimAutoPromoted === 'v') {
+            addToast('↕ erste vertikale Bemaßung → Bezug (M1)', 'success', 2500);
+          }
           // Open an inline edit at the LINE MIDPOINT (in screen coords) so
           // the input visually attaches to the dimension. On commit, also
           // create a paired dim_number with a labels-relation — so users
@@ -1721,10 +1746,11 @@ export function AnnotatePage() {
             onCommit={(value) => {
               const trimmed = value.trim();
               if (trimmed === '') {
-                if (pendingInlineEdit.wasJustCreated) {
-                  setLabels((prev) => prev.filter((l) => l.id !== pendingInlineEdit.labelId));
-                  setSelectedIds(new Set());
-                }
+                // Empty commit (e.g. user clicks elsewhere without typing) —
+                // JUST DISMISS the input. Don't delete the freshly-placed
+                // label: the user can still see it and fill in the value
+                // later via the inspector. Esc is the explicit "cancel"
+                // gesture that does delete (see onCancel).
                 setPendingInlineEdit(null);
                 return;
               }
