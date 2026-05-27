@@ -1636,8 +1636,10 @@ export function AnnotatePage() {
           try { window.localStorage.setItem('bim-db:annotate:adaptive-axis', String(next)); } catch { /* no-op */ }
           addToast(
             next
-              ? `Bau-Achse aktiv${detectedAxisDeg !== 0 ? ` (${detectedAxisDeg.toFixed(1)}°)` : ''}`
-              : 'Bau-Achse aus — Snap an Bild-Achse',
+              ? (Math.abs(detectedAxisDeg) >= 0.5
+                  ? `Snap folgt Plan-Achse (${detectedAxisDeg.toFixed(1)}°)`
+                  : 'Plan-Achse aktiv (keine Drehung erkannt)')
+              : 'Snap an Bild-Achse',
             'info',
             1800,
           );
@@ -2161,45 +2163,15 @@ export function AnnotatePage() {
           )}
           {/* In-progress preview — 2-click line tools. Use snap point if
               available so the preview tracks what the click will actually
-              commit. */}
+              commit. The length/length-match/snap info now all live in the
+              unified DrawHUD panel; no in-canvas badges here. */}
           {pendingStart && hoverPt && (tool === 'dimensioned_distance' || tool === 'wall') && (
-            <>
-              <line
-                x1={pendingStart[0]} y1={pendingStart[1]}
-                x2={snap?.pt[0] ?? hoverPt[0]} y2={snap?.pt[1] ?? hoverPt[1]}
-                stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
-                strokeDasharray="6,4"
-              />
-              {/* Length-quantize badge near cursor. Green when within snap
-                  tolerance (will lock on click), amber when just a hint. */}
-              {lengthMatch && (() => {
-                const lx = (snap?.pt[0] ?? hoverPt[0]) + 12 * (view.w / imageSize[0]);
-                const ly = (snap?.pt[1] ?? hoverPt[1]) - 8 * (view.w / imageSize[0]);
-                const fontPx = 11 * (view.w / imageSize[0]);
-                const bg = lengthMatch.withinSnapTolerance ? '#10b981' : '#f59e0b';
-                const label = lengthMatch.withinSnapTolerance
-                  ? `= ${(lengthMatch.matchedLength).toFixed(0)} px`
-                  : `≈ ${(lengthMatch.matchedLength).toFixed(0)} px`;
-                return (
-                  <g pointerEvents="none">
-                    <rect
-                      x={lx} y={ly - fontPx * 0.9}
-                      width={fontPx * label.length * 0.6}
-                      height={fontPx * 1.4}
-                      rx={fontPx * 0.3} fill={bg} opacity={0.9}
-                    />
-                    <text
-                      x={lx + fontPx * 0.3}
-                      y={ly + fontPx * 0.15}
-                      fontSize={fontPx} fontWeight={600}
-                      fill="white" fontFamily="ui-monospace, monospace"
-                    >
-                      {label}
-                    </text>
-                  </g>
-                );
-              })()}
-            </>
+            <line
+              x1={pendingStart[0]} y1={pendingStart[1]}
+              x2={snap?.pt[0] ?? hoverPt[0]} y2={snap?.pt[1] ?? hoverPt[1]}
+              stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
+              strokeDasharray="6,4"
+            />
           )}
           {/* In-progress preview — 2-click rectangle tools */}
           {pendingStart && hoverPt && (
@@ -2340,7 +2312,7 @@ export function AnnotatePage() {
             FIT
           </button>
         </div>
-        <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} snap={snap} />
+        <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} snap={snap} lengthMatch={lengthMatch} />
         {/* M12 inline edit. <input> floats at the cursor; Enter commits, Esc
             cancels (and deletes the freshly-created label so the user can
             click again). */}
@@ -2406,34 +2378,39 @@ export function AnnotatePage() {
             plan rotation so the user knows the snap is rotated to match
             the plan, not the image frame. Click to toggle adaptive snap
             (same as the Q hotkey). */}
-        <button
-          type="button"
-          onClick={() => {
+        {/* Render NOTHING when adaptive snap is on AND no rotation detected
+            (the common case). Render plain-language badge only when:
+            (a) a non-trivial rotation is detected, or
+            (b) the user disabled adaptive snap and we want to show that. */}
+        {(() => {
+          const hasRotation = adaptiveAxisEnabled && Math.abs(detectedAxisDeg) >= 0.5;
+          if (!hasRotation && adaptiveAxisEnabled) return null;
+          const click = () => {
             setAdaptiveAxisEnabled((v) => {
               const next = !v;
               try { window.localStorage.setItem('bim-db:annotate:adaptive-axis', String(next)); } catch { /* no-op */ }
               return next;
             });
-          }}
-          className={`absolute bottom-3 left-3 px-2 py-1 rounded-md text-[0.7rem] font-mono shadow-sm border transition ${
-            adaptiveAxisEnabled && detectedAxisDeg !== 0
-              ? 'bg-emerald-50 border-emerald-300 text-emerald-900 hover:bg-emerald-100'
-              : adaptiveAxisEnabled
-                ? 'bg-white/90 border-zinc-200 text-zinc-500 hover:bg-white'
-                : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
-          }`}
-          title={
-            adaptiveAxisEnabled
-              ? (detectedAxisDeg !== 0
-                  ? `Snap an Bau-Achse ${detectedAxisDeg.toFixed(1)}°. Klick oder Q zum Abschalten.`
-                  : 'Bau-Achse aktiv aber noch nicht erkannt — Snap an Bild-Achse. Klick oder Q zum Abschalten.')
-              : 'Adaptive Achse aus — Snap an Bild-Achse. Klick oder Q zum Einschalten.'
-          }
-        >
-          {adaptiveAxisEnabled
-            ? `📐 Bau-Achse ${detectedAxisDeg.toFixed(1)}°`
-            : '📐 Bild-Achse'}
-        </button>
+          };
+          return (
+            <button
+              type="button"
+              onClick={click}
+              className={`absolute bottom-3 left-3 px-2.5 py-1.5 rounded-md text-[0.72rem] shadow-sm border transition ${
+                hasRotation
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900 hover:bg-emerald-100'
+                  : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+              }`}
+              title="Q zum Umschalten"
+            >
+              {hasRotation
+                ? <>Plan ist <span className="font-mono font-semibold">{detectedAxisDeg.toFixed(1)}°</span> gedreht — Snap folgt der Plan-Achse <span className="ml-1 text-emerald-700">[Q: Aus]</span></>
+                : <>Snap an Bild-Achse <span className="ml-1 text-amber-700">[Q: An]</span></>}
+            </button>
+          );
+        })()}
+        {/* Color legend pip — bottom-right canvas corner */}
+        <ColorLegendWidget />
         {/* M12 toast stack — bottom-center over the canvas */}
         <ToastStack toasts={toasts} />
         {/* M13 keyboard cheatsheet (toggle with '?') */}
@@ -2462,6 +2439,21 @@ export function AnnotatePage() {
               }
               storageKey="inspector"
               onClose={() => setSelectedIds(new Set())}
+              anchorScreenPt={(() => {
+                // Use the centroid of the (first) selected label in IMAGE
+                // coords, then project to SCREEN coords via the SVG CTM, so
+                // the popover can place itself in the opposite quadrant.
+                const anchorLabel = selectedLabel ?? labels.find((l) => selectedIds.has(l.id));
+                if (!anchorLabel) return null;
+                const c = labelCentroid(anchorLabel);
+                const svg = svgRef.current;
+                const ctm = svg?.getScreenCTM();
+                if (!ctm) return null;
+                return [
+                  c[0] * ctm.a + c[1] * ctm.c + ctm.e,
+                  c[0] * ctm.b + c[1] * ctm.d + ctm.f,
+                ];
+              })()}
             >
               {selectedIds.size > 1 ? (
                 <MultiInspector
@@ -2590,20 +2582,9 @@ function ToolPalette({
       </section>
 
       <section>
-        <div className="flex items-baseline gap-2 mb-1.5">
-          <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">
-            Werkzeuge
-          </h3>
-          <label className="ml-auto text-[0.65rem] text-muted inline-flex items-center gap-1 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={allTools}
-              onChange={onToggleAllTools}
-              className="accent-accent"
-            />
-            alle anzeigen
-          </label>
-        </div>
+        <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+          Werkzeuge
+        </h3>
         <div className="grid grid-cols-1 gap-px">
           {(allTools ? TOOLS_BY_TAG.sonstiges : TOOLS_BY_TAG[sceneTag]).map((t) => {
             const family = findFamily(t);
@@ -2662,26 +2643,6 @@ function ToolPalette({
 
       <SceneChecklist sceneTag={sceneTag} labels={labels} />
 
-      <section className="space-y-2">
-        <label className="flex items-center gap-2 text-[0.75rem] cursor-pointer">
-          <input
-            type="checkbox"
-            checked={autosave}
-            onChange={onToggleAutosave}
-            className="accent-accent"
-          />
-          <span>Auto-Save (30 s, wenn dirty)</span>
-        </label>
-        <button
-          type="button"
-          onClick={onResetDefaults}
-          className="text-[0.7rem] text-muted hover:text-accent hover:underline"
-          title={`Defaults für scope+tag '${sceneTag}' zurücksetzen`}
-        >
-          Defaults für „{sceneTag}" zurücksetzen
-        </button>
-      </section>
-
       {/* Shape submenu lives inline under the view_opening ToolBtn above.
           Kind classification (Fenster/Tür/Gaube/…) happens post-draw in the
           inspector or via hotkeys — never as a pre-draw modal switch. */}
@@ -2722,39 +2683,115 @@ function ToolPalette({
           />
         )}
       </section>
-      <ColorLegend />
+      {/* Settings live in a gear popover at the very bottom — out of the
+          primary path. Auto-save, all-tools toggle, default-reset all here. */}
+      <SettingsMenu
+        autosave={autosave}
+        onToggleAutosave={onToggleAutosave}
+        allTools={allTools}
+        onToggleAllTools={onToggleAllTools}
+        onResetDefaults={onResetDefaults}
+        sceneTag={sceneTag}
+      />
+      {/* Legende moved to canvas corner widget; not in the sidebar primary path. */}
     </div>
   );
 }
 
-// Compact color legend so the user can map swatch → class without guessing.
-// Collapsible to save sidebar real estate when many labels are present.
-function ColorLegend() {
+// Settings popover anchored at the bottom of the sidebar. Out of the primary
+// path so the main column stays focused on Szenen-Tag → Werkzeuge → Labels →
+// Checklist. Auto-save, all-tools, reset-defaults all live here.
+function SettingsMenu({
+  autosave, onToggleAutosave,
+  allTools, onToggleAllTools,
+  onResetDefaults, sceneTag,
+}: {
+  autosave: boolean;
+  onToggleAutosave: () => void;
+  allTools: boolean;
+  onToggleAllTools: () => void;
+  onResetDefaults: () => void;
+  sceneTag: SceneTag;
+}) {
   const [open, setOpen] = useState(false);
   return (
-    <section className="border-t border-border pt-2">
+    <section className="border-t border-border pt-2 mt-1">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-1.5 text-[0.65rem] uppercase tracking-wider text-zinc-500 hover:text-zinc-800 font-semibold"
       >
         <span className="w-3 text-center">{open ? '▾' : '▸'}</span>
-        <span>Legende</span>
+        <span>Einstellungen</span>
       </button>
       {open && (
-        <ul className="space-y-px mt-1 ml-3">
-          {LEGEND.map((e) => (
-            <li key={e.kindKey} className="flex items-center gap-1.5 text-[0.7rem] text-zinc-700">
-              <span
-                className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
-                style={{ backgroundColor: e.swatch }}
-              />
-              <span>{e.label}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-1.5 space-y-2 pl-3 text-[0.72rem]">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={autosave} onChange={onToggleAutosave} className="accent-accent" />
+            <span>Auto-Save (30 s)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={allTools} onChange={onToggleAllTools} className="accent-accent" />
+            <span>Alle Werkzeuge zeigen</span>
+          </label>
+          <button
+            type="button"
+            onClick={onResetDefaults}
+            className="text-zinc-500 hover:text-accent hover:underline"
+            title={`Defaults für scope+tag '${sceneTag}' zurücksetzen`}
+          >
+            Defaults für „{sceneTag}" zurücksetzen
+          </button>
+        </div>
       )}
     </section>
+  );
+}
+
+// Compact color legend on the canvas (bottom-right corner). Just an "i" pip
+// by default; click to expand the full color → kind list. Moved here from
+// the sidebar (where it was always-visible noise) to keep the primary
+// sidebar path focused on Szenen-Tag → Werkzeuge → Labels → Checklist.
+function ColorLegendWidget() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="absolute bottom-3 right-3 z-10">
+      {open ? (
+        <div className="bg-white/95 border border-zinc-200 rounded-md shadow-sm p-2 text-[0.7rem]">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-semibold text-zinc-600 uppercase tracking-wider text-[0.62rem]">Legende</span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="text-zinc-400 hover:text-zinc-700 w-4 h-4 inline-flex items-center justify-center"
+              title="Schließen"
+            >
+              ×
+            </button>
+          </div>
+          <ul className="space-y-px">
+            {LEGEND.map((e) => (
+              <li key={e.kindKey} className="flex items-center gap-1.5 text-zinc-700">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+                  style={{ backgroundColor: e.swatch }}
+                />
+                <span>{e.label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-6 h-6 rounded-full bg-white/95 border border-zinc-300 shadow-sm text-[0.7rem] text-zinc-500 hover:text-zinc-800"
+          title="Legende anzeigen"
+        >
+          i
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -3955,51 +3992,46 @@ function ToastStack({ toasts }: { toasts: Array<{ id: string; message: string; t
   );
 }
 
-// Live in-canvas HUD shown while drawing a stroke or polyline. Reads out the
-// current pixel angle + length so the annotator can sanity-check that what
-// they're drawing matches the target_orientation they'll later assign.
+// Live in-canvas HUD shown while drawing a stroke or polyline. ONE compact
+// panel — length + (length-match) + (snap target). No competing badges/
+// circles/text scattered on the canvas. Quiet by default.
 function DrawHUD({
   tool,
   pendingStart,
   hoverPt,
   pendingPolyline,
   snap,
+  lengthMatch,
 }: {
   tool: Tool;
   pendingStart: Point | null;
   hoverPt: Point | null;
   pendingPolyline: Point[];
   snap: SnapTarget | null;
+  lengthMatch: LengthMatch | null;
 }) {
   // 2-click line tools: angle from pendingStart → hoverPt
   if ((tool === 'dimensioned_distance' || tool === 'wall') && pendingStart && hoverPt) {
-    const dx = hoverPt[0] - pendingStart[0];
-    const dy = hoverPt[1] - pendingStart[1];
-    const angle = (Math.atan2(-dy, dx) * 180) / Math.PI;
+    const dx = (snap?.pt[0] ?? hoverPt[0]) - pendingStart[0];
+    const dy = (snap?.pt[1] ?? hoverPt[1]) - pendingStart[1];
     const length = Math.hypot(dx, dy);
-    // Snap-to-axis hint within ±5°
-    const nearH = Math.abs(angle) < 5 || Math.abs(Math.abs(angle) - 180) < 5;
-    const nearV = Math.abs(Math.abs(angle) - 90) < 5;
     return (
-      <div className="absolute top-3 right-3 bg-black/75 text-white px-3 py-2 rounded font-mono text-[0.78rem] leading-snug pointer-events-none min-w-[180px]">
-        <div className="flex justify-between gap-3">
-          <span className="text-zinc-400">Pixel-Winkel</span>
-          <span className="text-amber-300">{angle.toFixed(1)}°</span>
+      <div className="absolute top-3 right-3 bg-black/80 text-white px-3 py-1.5 rounded font-mono text-[0.78rem] leading-snug pointer-events-none">
+        <div className="flex items-center gap-3">
+          <span className="text-amber-300 tabular-nums">L {length.toFixed(0)} px</span>
+          {snap && snap.kind !== 'angle_lock' && (
+            <span className="text-emerald-300">↦ {snap.hint}</span>
+          )}
+          {snap?.kind === 'angle_lock' && (
+            <span className="text-emerald-300">⊥ {snap.hint}</span>
+          )}
+          {lengthMatch && (
+            <span className={lengthMatch.withinSnapTolerance ? 'text-emerald-300' : 'text-amber-300'}>
+              {lengthMatch.withinSnapTolerance ? '= ' : '≈ '}
+              {lengthMatch.matchedLength.toFixed(0)} px
+            </span>
+          )}
         </div>
-        <div className="flex justify-between gap-3">
-          <span className="text-zinc-400">Länge</span>
-          <span className="text-amber-300">{length.toFixed(0)} px</span>
-        </div>
-        {(nearH || nearV) && (
-          <div className="mt-1 text-[0.65rem] text-green-300 leading-tight">
-            ≈ {nearH ? 'horizontal' : 'vertical'}
-          </div>
-        )}
-        {snap && (
-          <div className="mt-1 text-[0.65rem] text-green-300 leading-tight">
-            Snap → {snap.hint}
-          </div>
-        )}
       </div>
     );
   }
@@ -5150,40 +5182,67 @@ function FloatingPopover({
   onClose,
   storageKey,
   hidden,
+  anchorScreenPt,
   children,
 }: {
   title: string;
   onClose?: () => void;
   storageKey: string;
   hidden?: boolean;
+  /** Screen-coord centroid of the currently-selected label, so we can place
+   *  the popover in the quadrant FARTHEST from it. Recomputed on selection
+   *  change. Null → default top-right. */
+  anchorScreenPt?: [number, number] | null;
   children: React.ReactNode;
 }) {
   const STORAGE = `bim-db:annotate:popover:${storageKey}`;
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE);
-      if (raw) return JSON.parse(raw);
-    } catch { /* no-op */ }
-    return null;
-  });
+  // M2.3 smart placement: position is derived from the selection's quadrant,
+  // not from localStorage. Manual drag overrides for THIS selection only;
+  // a new selection re-picks the opposite quadrant. The user never has to
+  // re-position the popover after it lands on top of something.
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [userPinned, setUserPinned] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return window.localStorage.getItem(`${STORAGE}:collapsed`) === '1'; } catch { return false; }
   });
+  // Idle-collapse: when the pointer has been away from the popover for
+  // IDLE_MS, shrink to a chip. Hovering the chip / popover restores it.
+  // Click-through inside the popover counts as activity.
+  const IDLE_MS = 800;
+  const [idle, setIdle] = useState(false);
+  const idleTimer = useRef<number | null>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ dx: number; dy: number } | null>(null);
 
-  // Default position: top-right of parent on first paint. We need to wait
-  // until the popover is mounted so we know its width and the parent's size.
+  // Auto-position based on anchorScreenPt — opposite-quadrant placement.
+  // Re-runs every time the anchor changes (i.e. user selects a different
+  // label), wiping any manual drag from the previous selection.
   useEffect(() => {
-    if (pos != null || hidden) return;
+    if (hidden) return;
+    setUserPinned(false);
     const el = popRef.current;
     if (!el) return;
     const parent = el.offsetParent as HTMLElement | null;
     if (!parent) return;
     const pr = parent.getBoundingClientRect();
     const w = el.offsetWidth || 280;
-    setPos({ x: Math.max(8, pr.width - w - 16), y: 16 });
-  }, [pos, hidden]);
+    const h = el.offsetHeight || 200;
+    if (anchorScreenPt) {
+      const [ax, ay] = anchorScreenPt;
+      const localX = ax - pr.left;
+      const localY = ay - pr.top;
+      // Pick the corner of the canvas farthest from the anchor (in screen
+      // coords). Margin so the popover doesn't graze the edges.
+      const onLeft = localX > pr.width / 2;
+      const onTop = localY > pr.height / 2;
+      const x = onLeft ? 16 : Math.max(8, pr.width - w - 16);
+      const y = onTop ? 16 : Math.max(8, pr.height - h - 16);
+      setPos({ x, y });
+    } else {
+      setPos({ x: Math.max(8, pr.width - w - 16), y: 16 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorScreenPt?.[0], anchorScreenPt?.[1], hidden]);
 
   const onHeaderDown = useCallback((e: React.PointerEvent) => {
     if (!popRef.current || !pos) return;
@@ -5210,11 +5269,9 @@ function FloatingPopover({
   const onHeaderUp = useCallback((e: React.PointerEvent) => {
     if (!drag.current) return;
     drag.current = null;
+    setUserPinned(true);     // user took over for THIS selection
     try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* no-op */ }
-    if (pos) {
-      try { window.localStorage.setItem(STORAGE, JSON.stringify(pos)); } catch { /* no-op */ }
-    }
-  }, [pos, STORAGE]);
+  }, []);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((v) => {
@@ -5224,10 +5281,55 @@ function FloatingPopover({
     });
   }, [STORAGE]);
 
+  // Idle-collapse: pointer-leave → start timer; pointer-enter → cancel timer + restore.
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimer.current != null) window.clearTimeout(idleTimer.current);
+    idleTimer.current = window.setTimeout(() => setIdle(true), IDLE_MS);
+  }, []);
+  const cancelIdle = useCallback(() => {
+    if (idleTimer.current != null) {
+      window.clearTimeout(idleTimer.current);
+      idleTimer.current = null;
+    }
+    setIdle(false);
+  }, []);
+  useEffect(() => () => {
+    if (idleTimer.current != null) window.clearTimeout(idleTimer.current);
+  }, []);
+  // When the anchor changes (new selection), reset idle state so the user
+  // can see the new label's inspector.
+  useEffect(() => {
+    cancelIdle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorScreenPt?.[0], anchorScreenPt?.[1]]);
+  void userPinned;     // referenced indirectly through setUserPinned; kept for future "preserve on next selection" extension
+
   if (hidden) return null;
+  // Idle-chip: when the pointer has been away for IDLE_MS, render a small
+  // chip showing just the title. Click the chip to restore the full panel.
+  if (idle && !collapsed) {
+    return (
+      <button
+        ref={popRef as unknown as React.RefObject<HTMLButtonElement>}
+        type="button"
+        onClick={cancelIdle}
+        onPointerEnter={cancelIdle}
+        className="absolute z-30 bg-white/95 border border-zinc-300 rounded-md shadow text-[0.72rem] font-medium px-2.5 py-1 text-zinc-800 hover:bg-white"
+        style={{
+          left: pos?.x ?? 16,
+          top: pos?.y ?? 16,
+        }}
+        title="Klick zum Aufklappen"
+      >
+        {title}
+      </button>
+    );
+  }
   return (
     <div
       ref={popRef}
+      onPointerEnter={cancelIdle}
+      onPointerLeave={resetIdleTimer}
       className="absolute z-30 bg-white border border-zinc-300 rounded-lg shadow-xl flex flex-col"
       style={{
         left: pos?.x ?? 16,
