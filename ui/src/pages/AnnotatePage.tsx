@@ -670,6 +670,13 @@ export function AnnotatePage() {
           >
             {saving ? 'Speichern…' : 'Speichern (Cmd+S)'}
           </button>
+          <a
+            href={location.pathname.replace('/annotate', '/preview')}
+            className="px-3 py-1 rounded-md text-[0.78rem] font-medium bg-white text-zinc-900 border border-border hover:border-zinc-400"
+            title="Vorschau der beiden Ground Truths + ZIP-Export"
+          >
+            Vorschau & Export →
+          </a>
         </div>
       }
       leftSidebar={

@@ -5,6 +5,7 @@ import { HousePage } from './pages/HousePage';
 import { SyntheticPage } from './pages/SyntheticPage';
 import { SyntheticHousePage } from './pages/SyntheticHousePage';
 import { AnnotatePage } from './pages/AnnotatePage';
+import { PreviewPage } from './pages/PreviewPage';
 
 export const router = createBrowserRouter([
   {
@@ -25,6 +26,10 @@ export const router = createBrowserRouter([
       // labels live in.
       { path: 'synthetic/:key/scene/:file/annotate', Component: AnnotatePage },
       { path: 'house/:key/scene/:file/annotate', Component: AnnotatePage },
+      // Compilation preview — side-by-side raw vs rectified ground truths
+      // + zip download. M6 of spec/annotation-tool.md.
+      { path: 'synthetic/:key/scene/:file/preview', Component: PreviewPage },
+      { path: 'house/:key/scene/:file/preview', Component: PreviewPage },
     ],
   },
 ]);

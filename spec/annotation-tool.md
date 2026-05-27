@@ -1,6 +1,8 @@
 # Annotation tool for technical architectural drawings
 
-**Status:** decision document — implementation not yet started
+**Status:** ✅ ALL MILESTONES M0–M6 SHIPPED (2026-05-27).
+Tool live at `/synthetic/:key/scene/:file/annotate` and `/house/:key/scene/:file/annotate`,
+preview + ZIP export at `/synthetic/:key/scene/:file/preview` (and house equivalent).
 **Owner:** jhoetter
 **Date:** 2026-05-27
 **Location:** integrates into the existing bim-database stack (`ui/`, `api/`), surfaces under the existing `/synthetic/` section.
@@ -459,7 +461,7 @@ Each milestone is a stop-and-show point. The deliverable is concrete and reviewa
 
 **Stop:** review — this is the wackliest part.
 
-### M6 — Compilation preview + JSON export
+### M6 — Compilation preview + JSON export ✅ shipped 2026-05-27
 
 **Goal:** Side-by-side preview of both ground truths + downloadable export.
 
@@ -583,7 +585,9 @@ and explicit, and the schema is forward-compatible without overengineering.
 - [x] M3 — wall, floorplan_opening, view_opening, component_line, height_mark + tag-gated tool palette (shipped 2026-05-27)
 - [x] M4 — dimensioned_distance full attributes + live pixel-angle readout (display only) (shipped 2026-05-27)
 - [x] M5 — link tool + consistency check + export shape (shipped 2026-05-27)
-- [ ] M6 — homography compute + side-by-side preview + zip export
+- [x] M6 — homography compute + side-by-side preview + zip export (shipped 2026-05-27)
+
+🎉 All milestones M0–M6 shipped.
 
 ---
 
