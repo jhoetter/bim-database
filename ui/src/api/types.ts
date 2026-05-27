@@ -119,4 +119,22 @@ export interface SyntheticHouse {
     manufacturer: string | null;
     building_type: string | null;
   };
+  composite?: SyntheticComposite;
+}
+
+export interface SyntheticComposite {
+  url: string;
+  sheet_size_px: [number, number];
+  seed?: number;
+  generated_at?: string;
+  scenes: Array<{
+    file: string;
+    kind?: string | null;
+    view?: string | null;
+    floor?: string | null;
+    title?: string | null;
+    bbox_px: [number, number, number, number];   // x, y, w, h on the composite
+    rotation_deg?: number;
+  }>;
+  title_block_bbox_px?: [number, number, number, number];
 }

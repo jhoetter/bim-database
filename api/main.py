@@ -367,6 +367,16 @@ def _load_synthetic_manifest(key: str) -> Optional[dict]:
             "manufacturer": parent.get("manufacturer"),
             "building_type": parent.get("building_type"),
         }
+    # Composite sheet (M0): if scripts/compose_house_sheet.py has produced
+    # output for this house, include the bbox metadata + image URL so the UI
+    # can render the "fake whole document" view.
+    comp_json = SYNTHETIC_DIR / key / "composite.json"
+    comp_png = SYNTHETIC_DIR / key / f"{key}-composite.png"
+    if comp_json.exists() and comp_png.exists():
+        data["composite"] = {
+            **json.loads(comp_json.read_text()),
+            "url": f"/static/synthetic/{key}/{comp_png.name}",
+        }
     return data
 
 

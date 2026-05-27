@@ -1,6 +1,7 @@
 import { Link, useNavigate, useParams } from 'react-router';
+import { useState } from 'react';
 import { fetchSynthetic, useResource } from '../api/client';
-import type { SyntheticDrawing } from '../api/types';
+import type { SyntheticComposite, SyntheticDrawing } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 
@@ -64,6 +65,9 @@ export function SyntheticHousePage() {
       onCloseRightRail={() => navigate(`/synthetic/${key}`)}
     >
       <div className="px-6 py-5">
+        {data?.composite && (
+          <CompositeSection composite={data.composite} houseKey={key} />
+        )}
         {data && data.drawings.length === 0 && (
           <p className="text-muted text-sm">Noch keine Zeichnungen generiert.</p>
         )}
@@ -177,6 +181,106 @@ function DrawingsGallery({
           );
         })}
     </div>
+  );
+}
+
+// M0: composite "fake whole document" — the per-house sheet that arranges
+// all scene PNGs as a single architect's drawing. Bbox overlays per scene
+// make each scene click-targetable in the same way the gallery does.
+function CompositeSection({
+  composite,
+  houseKey,
+}: {
+  composite: SyntheticComposite;
+  houseKey: string;
+}) {
+  const [hoveredScene, setHoveredScene] = useState<string | null>(null);
+  const [showBoxes, setShowBoxes] = useState(true);
+  const [sheetW, sheetH] = composite.sheet_size_px;
+
+  return (
+    <section className="mb-8">
+      <header className="flex items-baseline justify-between gap-3 mb-3">
+        <h2 className="text-[0.95rem] font-semibold text-zinc-900">
+          Gesamtdokument{' '}
+          <span className="text-muted font-normal">
+            ({composite.scenes.length} Szenen auf einem Blatt)
+          </span>
+        </h2>
+        <label className="text-[0.75rem] text-muted inline-flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showBoxes}
+            onChange={(e) => setShowBoxes(e.target.checked)}
+            className="accent-accent"
+          />
+          Szenen-Boxen anzeigen
+        </label>
+      </header>
+
+      <div className="relative inline-block w-full bg-zinc-100 rounded-lg overflow-hidden border border-border shadow-sm">
+        {/* The wrapper carries the sheet's aspect ratio so the SVG overlay
+            scales with the image. Bbox percentages computed against sheet
+            size so the math is layout-independent. */}
+        <div
+          className="relative w-full"
+          style={{ paddingTop: `${(sheetH / sheetW) * 100}%` }}
+        >
+          <img
+            src={composite.url}
+            alt={`${houseKey} composite sheet`}
+            className="absolute inset-0 w-full h-full object-contain"
+            loading="lazy"
+          />
+          {showBoxes && (
+            <svg
+              className="absolute inset-0 w-full h-full"
+              viewBox={`0 0 ${sheetW} ${sheetH}`}
+              preserveAspectRatio="xMidYMid meet"
+            >
+              {composite.scenes.map((s) => {
+                const [x, y, w, h] = s.bbox_px;
+                const isHovered = hoveredScene === s.file;
+                return (
+                  <Link
+                    key={s.file}
+                    to={`/synthetic/${houseKey}/scene/${encodeURIComponent(s.file)}`}
+                  >
+                    <rect
+                      x={x}
+                      y={y}
+                      width={w}
+                      height={h}
+                      fill={isHovered ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0,0,0,0)'}
+                      stroke={isHovered ? '#d97706' : 'rgba(0,0,0,0.25)'}
+                      strokeWidth={isHovered ? 6 : 2}
+                      strokeDasharray={isHovered ? '0' : '8 8'}
+                      onMouseEnter={() => setHoveredScene(s.file)}
+                      onMouseLeave={() => setHoveredScene(null)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </Link>
+                );
+              })}
+            </svg>
+          )}
+        </div>
+      </div>
+
+      <p className="text-[0.7rem] text-muted mt-1.5 leading-snug">
+        Erzeugt aus den Einzelszenen via{' '}
+        <code className="font-mono">scripts/compose_house_sheet.py</code>.
+        Seed: <code className="font-mono">{composite.seed ?? '–'}</code>
+        {composite.generated_at && (
+          <>
+            {' '}
+            · generiert{' '}
+            <span className="font-mono">{composite.generated_at}</span>
+          </>
+        )}
+        . Die Boxen sind die Ground-Truth für die spätere Szenen-Detektion (S-1).
+      </p>
+    </section>
   );
 }
 
