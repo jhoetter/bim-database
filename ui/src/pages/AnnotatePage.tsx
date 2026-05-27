@@ -41,6 +41,7 @@ import { applyLengthMatch, findLengthMatch, type LengthMatch } from '../lib/leng
 import { labelColor, LEGEND } from '../lib/colors';
 import { detectClosedRegions } from '../lib/closed_regions';
 import { buildConnectivity, jointMembersAt } from '../lib/connectivity';
+import { inferLineKind, inferOpeningKind } from '../lib/auto_infer';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
   CentreLineIcon, DimensionIcon, DoorIcon, ElevationViewIcon, KeynoteIcon,
@@ -170,42 +171,10 @@ type ToolFamily = {
 //   • Post-draw reclassification: hotkeys F/T/G/D/Z while the label is
 //     selected, plus a prominent picker as the FIRST control in the
 //     inspector. Bulk reclassify works the same way on multi-selection.
-const TOOL_FAMILIES: ToolFamily[] = [
-  {
-    parentTool: 'component_line',
-    familyLabel: 'Linie',
-    Icon: CentreLineIcon,
-    hotkey: 'L',
-    attrName: 'line_kind',
-    applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
-    options: [
-      // Nur 2 echte Typen — alles andere ist über Höhenkote (für Höhen) +
-      // diese 2 Linien (für Form) abgedeckt.
-      //   - "Firstkante" gibt es nicht mehr: wo der First ist + wie lang
-      //     er ist folgt direkt aus den Höhenkoten + den Endpunkten der
-      //     beiden Dachschrägen.
-      //   - "First / Traufe / Gelände / OK FFB / Sockel / Kniestock /
-      //     Geschoss" als Linientypen sind ebenfalls weg: alles
-      //     Höhenkote.datum.
-      {
-        value: 'gebaeudekante',
-        label: 'Wand',
-        hint: 'VERTIKALE Außenkante des Gebäudes — linke/rechte Giebelseite, seitliche Stufung, beim Flachdach die gesamte Außenwand. Eine pro vertikalem Abschnitt.',
-      },
-      {
-        value: 'dachschraege',
-        label: 'Dach',
-        hint: 'DIAGONALE Dachkante (Traufe ↗ First). Satteldach = 2 Dachschrägen, Walmdach = 4. Wenn das Dach flach ist: keine — die Oberkante ist eine Wand.',
-      },
-      {
-        value: 'other',
-        label: 'Sonstige',
-        hint: 'Selten — z. B. Schornsteinkante, Attika, Auskragung. Höhen NICHT als Linie labeln; dafür Höhenkote nutzen.',
-      },
-    ],
-    helpText: 'Linien = Gebäudeform: vertikal = Wand, schräg = Dach. Höhenbezugslinien (First, Traufe, Gelände …) brauchst du NICHT — Höhenkote mit Datum genügt.',
-  },
-];
+// Empty per M3: no pre-draw kind submenus anywhere. Kept as an empty array
+// so the rendering code that consults findFamily() still works (returns null
+// for every tool, falling back to plain ToolBtns).
+const TOOL_FAMILIES: ToolFamily[] = [];
 
 function findFamily(tool: Tool): ToolFamily | null {
   return TOOL_FAMILIES.find((f) => f.parentTool === tool) ?? null;
@@ -598,6 +567,24 @@ export function AnnotatePage() {
     } catch { return true; }
   });
   const effectiveAxisDeg = adaptiveAxisEnabled ? detectedAxisDeg : 0;
+  // M3.2 inline post-draw classifier chip: floats at the just-drawn label's
+  // centroid for 3 s, offering one-click / one-tap kind options with their
+  // hotkey letters. Cleared by any next click, after the timer, or when
+  // the user actually picks a kind.
+  type PostDrawChipKind = 'floorplan_opening' | 'view_opening' | 'component_line';
+  const [postDrawChip, setPostDrawChip] = useState<{
+    labelId: string;
+    kindFamily: PostDrawChipKind;
+    /** Image-coord anchor; screen coord computed at render time so it
+     *  follows pan/zoom. */
+    anchor: Point;
+  } | null>(null);
+  // Auto-dismiss timer.
+  useEffect(() => {
+    if (!postDrawChip) return;
+    const t = window.setTimeout(() => setPostDrawChip(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [postDrawChip]);
   // "Alle Werkzeuge" override: ignore tag-gating and show every tool.
   // Useful when the user wants flexibility (e.g. tag=nicht_klassifiziert
   // but they still want to drop a dim_distance to bootstrap the homography).
@@ -895,12 +882,17 @@ export function AnnotatePage() {
         if (tool === 'view_opening' && viewOpeningShape === 'circle') {
           const radius_px = Math.hypot(pt[0] - pendingStart[0], pt[1] - pendingStart[1]);
           const def = getDefaults(scope, key, sceneTag, 'view_opening');
+          // Auto-infer kind from nearby openings (M3.3). Circles tend to be
+          // round windows, so the inference catches "I'm drawing another
+          // window like the 3 next to it" automatically.
+          const inferred = inferOpeningKind(pendingStart, labels, 'view_opening', imageSnapRadiusForView * 12);
           const label: ViewOpeningLabel = {
             id: uuid(),
             type: 'view_opening',
             geometry: { shape: 'circle', center: pendingStart, radius_px },
             attributes: {
-              opening_kind: (def.opening_kind as ViewOpeningLabel['attributes']['opening_kind']) ?? 'window',
+              opening_kind: ((inferred as ViewOpeningLabel['attributes']['opening_kind'] | null)
+                ?? (def.opening_kind as ViewOpeningLabel['attributes']['opening_kind'])) ?? 'window',
               frame_visible: (def.frame_visible as boolean) ?? true,
             },
             status: 'readable',
@@ -912,6 +904,7 @@ export function AnnotatePage() {
           setDirty(true);
           setPendingStart(null);
           setSelectedId(label.id);
+          setPostDrawChip({ labelId: label.id, kindFamily: 'view_opening', anchor: pendingStart });
           return;
         }
         // Build axis-aligned rectangle from the diagonal {pendingStart → pt}.
@@ -981,12 +974,17 @@ export function AnnotatePage() {
             derivedWidthMm = Math.round(al / WALL_PX_PER_MM);
           }
 
+          // Auto-infer (M3.3): if 3+ nearby floorplan_openings share a kind,
+          // default to that kind rather than blindly 'window'.
+          const centroidQuad: Point = [(quad[0][0] + quad[2][0]) / 2, (quad[0][1] + quad[2][1]) / 2];
+          const inferredFp = inferOpeningKind(centroidQuad, labels, 'floorplan_opening', imageSnapRadiusForView * 12);
           label = {
             id: uuid(),
             type: 'floorplan_opening',
             geometry: { quad },
             attributes: {
-              opening_kind: (def.opening_kind as FloorplanOpeningLabel['attributes']['opening_kind']) ?? 'window',
+              opening_kind: ((inferredFp as FloorplanOpeningLabel['attributes']['opening_kind'] | null)
+                ?? (def.opening_kind as FloorplanOpeningLabel['attributes']['opening_kind'])) ?? 'window',
               width_mm: (def.width_mm as number | null) ?? derivedWidthMm,
               swing: (def.swing as FloorplanOpeningLabel['attributes']['swing']) ?? 'none',
               swing_side: (def.swing_side as FloorplanOpeningLabel['attributes']['swing_side']) ?? 'none',
@@ -1000,6 +998,8 @@ export function AnnotatePage() {
           } as FloorplanOpeningLabel;
         } else {
           const def = getDefaults(scope, key, sceneTag, 'view_opening');
+          const centroidRect: Point = [(x0 + x1) / 2, (y0 + y1) / 2];
+          const inferredV = inferOpeningKind(centroidRect, labels, 'view_opening', imageSnapRadiusForView * 12);
           label = {
             id: uuid(),
             type: 'view_opening',
@@ -1008,7 +1008,8 @@ export function AnnotatePage() {
               bottom_edge: [[x0, y1], [x1, y1]],
             },
             attributes: {
-              opening_kind: (def.opening_kind as ViewOpeningLabel['attributes']['opening_kind']) ?? 'window',
+              opening_kind: ((inferredV as ViewOpeningLabel['attributes']['opening_kind'] | null)
+                ?? (def.opening_kind as ViewOpeningLabel['attributes']['opening_kind'])) ?? 'window',
               frame_visible: (def.frame_visible as boolean) ?? true,
             },
             status: 'readable',
@@ -1022,6 +1023,13 @@ export function AnnotatePage() {
         setPendingStart(null);
         setPendingAttachedWallId(null);
         setSelectedId(label.id);
+        // Fire the inline classifier chip at the rectangle's centroid so
+        // the user can pick Fenster / Tür / Gaube etc. with one keypress.
+        setPostDrawChip({
+          labelId: label.id,
+          kindFamily: tool === 'floorplan_opening' ? 'floorplan_opening' : 'view_opening',
+          anchor: [(pendingStart[0] + pt[0]) / 2, (pendingStart[1] + pt[1]) / 2],
+        });
         return;
       }
 
@@ -1484,11 +1492,16 @@ export function AnnotatePage() {
         e.preventDefault();
         pushUndo();
         const def = getDefaults(scope, key, sceneTag, 'component_line');
+        // Auto-infer: vertical → gebaeudekante, diagonal-in-upper-half →
+        // dachschraege (M3.3). The classifier chip still pops so the user
+        // can override instantly.
+        const inferredLine = inferLineKind(pendingPolyline, imageSize[1]);
         const label: ComponentLineLabel = {
           id: uuid(),
           type: 'component_line',
           geometry: { polyline: pendingPolyline },
-          attributes: { line_kind: (def.line_kind as ComponentLineLabel['attributes']['line_kind']) ?? 'other' },
+          attributes: { line_kind: ((inferredLine as ComponentLineLabel['attributes']['line_kind'] | null)
+            ?? (def.line_kind as ComponentLineLabel['attributes']['line_kind'])) ?? 'other' },
           status: 'readable',
           relations: [],
           created_at: nowIso(),
@@ -1497,6 +1510,9 @@ export function AnnotatePage() {
         setLabels((prev) => [...prev, label]);
         setDirty(true);
         setSelectedId(label.id);
+        // Polyline midpoint as anchor for the classifier chip.
+        const mid = pendingPolyline[Math.floor(pendingPolyline.length / 2)];
+        setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
         setPendingPolyline([]);
         return;
       }
@@ -1605,13 +1621,17 @@ export function AnnotatePage() {
         a: 'garage_door',
         z: 'other',
       };
+      const lineHotkeys: Record<string, string> = {
+        w: 'gebaeudekante',
+        d: 'dachschraege',
+        z: 'other',
+      };
       if (
         selectedIds.size === 1 &&
-        !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey &&
-        openingHotkeys[e.key]
+        !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
       ) {
         const sel = labels.find((l) => selectedIds.has(l.id));
-        if (sel && (sel.type === 'floorplan_opening' || sel.type === 'view_opening')) {
+        if (sel && (sel.type === 'floorplan_opening' || sel.type === 'view_opening') && openingHotkeys[e.key]) {
           let targetKind = openingHotkeys[e.key];
           // Floorplan openings don't have skylight/dormer — remap onto the
           // closest analog (D → passage, G → other).
@@ -1622,6 +1642,17 @@ export function AnnotatePage() {
           updateLabel(sel.id, {
             attributes: { ...sel.attributes, opening_kind: targetKind } as never,
           } as never);
+          setPostDrawChip(null);
+          e.preventDefault();
+          return;
+        }
+        // component_line hotkeys: W/D/Z. Conflict-free against the opening
+        // family (different label type, mutually exclusive selection).
+        if (sel && sel.type === 'component_line' && lineHotkeys[e.key]) {
+          updateLabel(sel.id, {
+            attributes: { ...sel.attributes, line_kind: lineHotkeys[e.key] } as never,
+          } as never);
+          setPostDrawChip(null);
           e.preventDefault();
           return;
         }
@@ -2409,6 +2440,36 @@ export function AnnotatePage() {
             </button>
           );
         })()}
+        {/* Inline post-draw classifier chip (M3.2). Anchored at the
+            just-drawn label's centroid; one-click or one-key sets the kind
+            without scrolling to the inspector. Auto-dismisses after 3 s. */}
+        {postDrawChip && (() => {
+          const svg = svgRef.current;
+          const ctm = svg?.getScreenCTM();
+          if (!ctm) return null;
+          const screenX = postDrawChip.anchor[0] * ctm.a + postDrawChip.anchor[1] * ctm.c + ctm.e;
+          const screenY = postDrawChip.anchor[0] * ctm.b + postDrawChip.anchor[1] * ctm.d + ctm.f;
+          const parentRect = svg?.parentElement?.getBoundingClientRect();
+          const left = screenX - (parentRect?.left ?? 0);
+          const top = screenY - (parentRect?.top ?? 0);
+          return (
+            <PostDrawChip
+              kindFamily={postDrawChip.kindFamily}
+              left={left}
+              top={top}
+              onPick={(kind) => {
+                const lbl = labels.find((l) => l.id === postDrawChip.labelId);
+                if (!lbl) { setPostDrawChip(null); return; }
+                const attrKey = lbl.type === 'component_line' ? 'line_kind' : 'opening_kind';
+                updateLabel(postDrawChip.labelId, {
+                  attributes: { ...lbl.attributes, [attrKey]: kind } as never,
+                } as never);
+                setPostDrawChip(null);
+              }}
+              onDismiss={() => setPostDrawChip(null)}
+            />
+          );
+        })()}
         {/* Color legend pip — bottom-right canvas corner */}
         <ColorLegendWidget />
         {/* M12 toast stack — bottom-center over the canvas */}
@@ -2745,6 +2806,73 @@ function SettingsMenu({
         </div>
       )}
     </section>
+  );
+}
+
+// Inline post-draw classifier chip (M3.2). Floats next to the just-drawn
+// label's centroid; one click sets the kind. Auto-dismisses by parent timer.
+function PostDrawChip({
+  kindFamily,
+  left, top,
+  onPick,
+  onDismiss,
+}: {
+  kindFamily: 'floorplan_opening' | 'view_opening' | 'component_line';
+  left: number;
+  top: number;
+  onPick: (kind: string) => void;
+  onDismiss: () => void;
+}) {
+  const opts: Array<{ id: string; label: string; key: string }> = (() => {
+    if (kindFamily === 'floorplan_opening') return [
+      { id: 'window',      label: 'Fenster',   key: 'f' },
+      { id: 'door',        label: 'Tür',       key: 't' },
+      { id: 'passage',     label: 'Durchgang', key: 'd' },
+      { id: 'garage_door', label: 'Tor',       key: 'a' },
+      { id: 'other',       label: 'Sonstige',  key: 'z' },
+    ];
+    if (kindFamily === 'view_opening') return [
+      { id: 'window',      label: 'Fenster',     key: 'f' },
+      { id: 'door',        label: 'Tür',         key: 't' },
+      { id: 'skylight',    label: 'Dachfenster', key: 'd' },
+      { id: 'dormer',      label: 'Gaube',       key: 'g' },
+      { id: 'garage_door', label: 'Tor',         key: 'a' },
+      { id: 'other',       label: 'Sonstige',    key: 'z' },
+    ];
+    // component_line
+    return [
+      { id: 'gebaeudekante', label: 'Wand',     key: 'w' },
+      { id: 'dachschraege',  label: 'Dach',     key: 'd' },
+      { id: 'other',         label: 'Sonstige', key: 'z' },
+    ];
+  })();
+  return (
+    <div
+      className="absolute z-30 bg-white border border-zinc-300 rounded-md shadow-lg px-1.5 py-1 flex gap-1 text-[0.7rem]"
+      style={{ left: left + 12, top: top - 16, pointerEvents: 'auto' }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {opts.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          onClick={() => onPick(opt.id)}
+          className="px-1.5 py-0.5 rounded hover:bg-accent hover:text-white text-zinc-700 inline-flex items-center gap-1"
+          title={`${opt.label} (${opt.key.toUpperCase()})`}
+        >
+          <span>{opt.label}</span>
+          <kbd className="text-[0.58rem] font-mono text-zinc-400">{opt.key.toUpperCase()}</kbd>
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="px-1 text-zinc-400 hover:text-zinc-700"
+        title="Schließen"
+      >
+        ×
+      </button>
+    </div>
   );
 }
 
