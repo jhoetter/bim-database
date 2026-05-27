@@ -140,7 +140,8 @@ export interface ComponentLineLabel extends LabelBase {
   attributes: {
     line_kind?:
       | 'first' | 'traufe' | 'gelaende' | 'geschoss'
-      | 'ok_ffb' | 'sockel' | 'firstkante' | 'kniestock' | 'other';
+      | 'ok_ffb' | 'sockel' | 'firstkante' | 'dachschraege'
+      | 'kniestock' | 'gebaeudekante' | 'other';
   };
 }
 export interface HeightMarkLabel extends LabelBase {

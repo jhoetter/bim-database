@@ -188,17 +188,21 @@ const TOOL_FAMILIES: ToolFamily[] = [
     attrName: 'line_kind',
     applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
     options: [
-      { value: 'first',      label: 'First',       hint: 'Horizontale Bezugslinie am Dachfirst (z. B. mit "+12,5 m" beschriftet). Aus ihr folgt die Firsthöhe.' },
-      { value: 'traufe',     label: 'Traufe',      hint: 'Horizontale Bezugslinie an der Traufe.' },
-      { value: 'gelaende',   label: 'Gelände',     hint: 'Horizontale Bezugslinie am Geländeniveau (±0,00).' },
-      { value: 'geschoss',   label: 'Geschoss',    hint: 'Horizontaler Geschossübergang (Decke/Fußboden-Linie).' },
-      { value: 'ok_ffb',     label: 'OK FFB',      hint: 'Oberkante Fertigfußboden — horizontale Bezugslinie pro Geschoss.' },
-      { value: 'sockel',     label: 'Sockel',      hint: 'Horizontale Bezugslinie am Gebäudesockel.' },
-      { value: 'kniestock',  label: 'Kniestock',   hint: 'Horizontale Bezugslinie am Kniestock (Drempel).' },
-      { value: 'firstkante', label: 'Firstkante',  hint: 'Geometrische Dach-/Gratkante (diagonale Linie) — nicht die horizontale First-Bezugslinie.' },
-      { value: 'other',      label: 'Sonstige',    hint: 'Wenn keiner der Typen passt — vermeiden, möglichst spezifisch klassifizieren.' },
+      // ── horizontale Höhenbezugslinien (M2 / Höhen-Anker) ───────────
+      { value: 'first',         label: 'First',         hint: 'Horizontale Bezugslinie am Dachfirst (oft mit "+12,5 m" beschriftet). Aus ihr folgt die Firsthöhe.' },
+      { value: 'traufe',        label: 'Traufe',        hint: 'Horizontale Bezugslinie an der Traufe.' },
+      { value: 'gelaende',      label: 'Gelände',       hint: 'Horizontale Bezugslinie am Geländeniveau (±0,00).' },
+      { value: 'geschoss',      label: 'Geschoss',      hint: 'Horizontaler Geschossübergang (Decke/Fußboden-Linie).' },
+      { value: 'ok_ffb',        label: 'OK FFB',        hint: 'Oberkante Fertigfußboden — horizontale Bezugslinie pro Geschoss.' },
+      { value: 'sockel',        label: 'Sockel',        hint: 'Horizontale Bezugslinie am Gebäudesockel.' },
+      { value: 'kniestock',     label: 'Kniestock',     hint: 'Horizontale Bezugslinie am Kniestock (Drempel).' },
+      // ── geometrische Kanten (M2 / Gebäude-Geometrie) ───────────────
+      { value: 'dachschraege',  label: 'Dachschräge',   hint: 'Schräge Dachfläche / Dachkante (Linie von First nach Traufe in der Ansicht). Aus den Endpunkten folgen First- und Traufhöhe rechnerisch.' },
+      { value: 'firstkante',    label: 'Firstkante',    hint: 'Geometrische Firstkante / Gratlinie (kurze Strecke entlang des Firsts in der Ansicht).' },
+      { value: 'gebaeudekante', label: 'Gebäudekante',  hint: 'Vertikale oder seitliche Gebäudekante (z. B. linke/rechte Außenseite eines Giebels).' },
+      { value: 'other',         label: 'Sonstige',      hint: 'Wenn keiner der Typen passt — vermeiden, möglichst spezifisch klassifizieren.' },
     ],
-    helpText: 'Zeichne die Linie, die du in der Zeichnung siehst. Der Typ sagt, was diese Linie BEDEUTET (Höhenbezug vs. geometrische Kante).',
+    helpText: 'Zeichne die Linie wie sie auf der Zeichnung ist. Der Typ sagt, was sie bedeutet — horizontale Höhenbezugslinie (First/Traufe…) oder geometrische Kante (Dachschräge, Firstkante, Gebäudekante).',
   },
   {
     parentTool: 'dimensioned_distance',
@@ -908,54 +912,31 @@ export function AnnotatePage() {
     [tool, pendingStart, pendingPolyline, eventToSvgPoint, labels, view.w, snap],
   );
 
-  // Wheel handling — Figma-style:
-  //   - Trackpad pinch (browser sets ctrlKey=true) OR ⌘/Ctrl + wheel → zoom
-  //   - Mouse-wheel notch (large |deltaY|, no deltaX, no modifiers) → zoom
-  //   - Anything else (trackpad 2-finger scroll, with deltaX or fine deltaY)
-  //     → pan in screen direction. This is what the user wants on a Mac.
+  // Wheel handling — zoom is EXPLICITLY only via the +/-/FIT buttons (or
+  // their keyboard equivalents). Wheel events only pan, and pinch / ⌘+wheel
+  // are swallowed (preventDefault) so the browser doesn't zoom the page
+  // and the canvas stays put. This is by user request — the implicit
+  // gestures kept zooming when they wanted to pan.
   const onCanvasWheel = useCallback(
     (e: ReactWheelEvent<SVGSVGElement>) => {
       e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        // Pinch (Mac trackpad sets ctrlKey=true) or ⌘/Ctrl+wheel — swallow.
+        return;
+      }
       const svg = svgRef.current;
       if (!svg) return;
-      const isPinch = e.ctrlKey || e.metaKey;
-      const looksLikeMouseWheel =
-        !isPinch && e.deltaX === 0 && Math.abs(e.deltaY) >= 40;
-      const shouldZoom = isPinch || looksLikeMouseWheel;
-
-      if (shouldZoom) {
-        const pt = svg.createSVGPoint();
-        pt.x = e.clientX;
-        pt.y = e.clientY;
-        const ctm = svg.getScreenCTM();
-        if (!ctm) return;
-        const local = pt.matrixTransform(ctm.inverse());
-        // Pinch deltas are tiny so we need a steeper factor than wheel notches.
-        const factor = isPinch ? 0.015 : 0.0035;
-        const scale = Math.exp(-e.deltaY * factor);
-        const newW = Math.max(50, Math.min(view.w * scale, imageSize[0] * 8));
-        const newH = newW * (view.h / view.w);
-        const ratioX = (local.x - view.x) / view.w;
-        const ratioY = (local.y - view.y) / view.h;
-        setView({
-          x: local.x - ratioX * newW,
-          y: local.y - ratioY * newH,
-          w: newW,
-          h: newH,
-        });
-      } else {
-        // Pan: convert screen-pixel delta to image-pixel delta using the
-        // current view-to-screen scale.
-        const factor = view.w / Math.max(1, svg.clientWidth);
-        setView((v) => ({
-          x: v.x + e.deltaX * factor,
-          y: v.y + e.deltaY * factor,
-          w: v.w,
-          h: v.h,
-        }));
-      }
+      // Pan only — convert screen-pixel delta to image-pixel delta using the
+      // current view-to-screen scale.
+      const factor = view.w / Math.max(1, svg.clientWidth);
+      setView((v) => ({
+        x: v.x + e.deltaX * factor,
+        y: v.y + e.deltaY * factor,
+        w: v.w,
+        h: v.h,
+      }));
     },
-    [view, imageSize],
+    [view],
   );
 
   const resetView = useCallback(() => {
@@ -1629,7 +1610,7 @@ export function AnnotatePage() {
         <div className="absolute bottom-3 left-3 text-[0.7rem] text-zinc-300 bg-black/50 px-2 py-1 rounded leading-snug pointer-events-none">
           [S] Select · [D] Bemaßung · [W] Wand · [O] Öffnung · [L] Linie · [H] Höhe
           <br />
-          Trackpad: 2-Finger = Pan, Pinch = Zoom · Maus-Wheel = Zoom · +/-/0 · Shift+Drag = Pan
+          Zoom: nur +/-/FIT (oder Tasten +/-/0) · Pan: 2-Finger-Scroll oder Shift+Drag
         </div>
         {/* Zoom controls — bottom-right corner. Visible alternative to the
             wheel/trackpad gestures and the +/-/0 hotkeys. */}
@@ -2314,16 +2295,39 @@ function LabelGlyph({
 
   switch (label.type) {
     case 'dimensioned_distance': {
+      // M1 reference strokes (is_reference=true) get a distinct visual
+      // language: amber color, dashed line, thicker ticks, and a small
+      // "M1" badge at the midpoint. M2 building dimensions stay green/
+      // solid. The dashed line reads as "this is a reference axis, not a
+      // measurement of a built thing".
       const { start, end } = label.geometry;
-      const isRef = label.attributes.is_reference;
-      const refMark = isRef ? '#f59e0b' : stroke;
+      const isRef = !!label.attributes.is_reference;
+      const refColor = isRef ? '#f59e0b' : stroke;
       const refWidth = isRef ? sw + 1 : sw;
+      const dash = isRef ? '6,4' : undefined;
+      const mid: Point = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
       body = (
         <g {...bodyProps}>
           <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]}
-                stroke={refMark} strokeWidth={refWidth} />
-          <Tick x={start[0]} y={start[1]} stroke={refMark} sw={refWidth} large={isRef} />
-          <Tick x={end[0]} y={end[1]} stroke={refMark} sw={refWidth} large={isRef} />
+                stroke={refColor} strokeWidth={refWidth}
+                strokeDasharray={dash} />
+          <Tick x={start[0]} y={start[1]} stroke={refColor} sw={refWidth} large={isRef} />
+          <Tick x={end[0]} y={end[1]} stroke={refColor} sw={refWidth} large={isRef} />
+          {isRef && (
+            <g pointerEvents="none">
+              <rect
+                x={mid[0] - 12} y={mid[1] - 7} width={24} height={14}
+                rx={3} fill="#f59e0b" stroke="white" strokeWidth={1}
+              />
+              <text
+                x={mid[0]} y={mid[1] + 4} textAnchor="middle"
+                fill="white" fontFamily="ui-monospace, monospace"
+                fontSize={9} fontWeight={700}
+              >
+                M1
+              </text>
+            </g>
+          )}
         </g>
       );
       break;
@@ -3695,9 +3699,11 @@ function ComponentLineFields({
           <option value="geschoss">Geschoss</option>
           <option value="ok_ffb">OK FFB</option>
           <option value="sockel">Sockel</option>
-          <option value="firstkante">Firstkante</option>
           <option value="kniestock">Kniestock</option>
-          <option value="other">other</option>
+          <option value="dachschraege">Dachschräge</option>
+          <option value="firstkante">Firstkante</option>
+          <option value="gebaeudekante">Gebäudekante</option>
+          <option value="other">Sonstige</option>
         </select>
       </label>
       <p className="text-[0.65rem] text-muted">

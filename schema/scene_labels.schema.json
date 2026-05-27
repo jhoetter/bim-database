@@ -210,7 +210,8 @@
             "properties": {
               "line_kind": {"type": "string", "enum": [
                 "first", "traufe", "gelaende", "geschoss", "ok_ffb",
-                "sockel", "firstkante", "kniestock", "other"
+                "sockel", "firstkante", "dachschraege", "kniestock",
+                "gebaeudekante", "other"
               ]}
             }
           }
