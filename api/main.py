@@ -35,19 +35,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Each house's assets (images + combined PDF) live under data/houses/house-N/.
-# Mount that root at /static so URLs stay as /static/house-N/<file>, and we
-# don't expose the rest of the repo (api/, scripts/, etc.).
-app.mount("/static", StaticFiles(directory=str(HOUSES_DIR)), name="static")
-
-# Synthetic drawings (gpt-image generated) live under data/synthetic/<key>/
-# and serve from /static/synthetic/<key>/<file>.
+# Order matters: FastAPI matches mounts top-down, so the *more specific*
+# /static/synthetic prefix must mount BEFORE the generic /static, otherwise
+# requests to /static/synthetic/* get routed into HOUSES_DIR and 404.
 if SYNTHETIC_DIR.exists():
     app.mount(
         "/static/synthetic",
         StaticFiles(directory=str(SYNTHETIC_DIR)),
         name="synthetic-static",
     )
+
+# Each house's assets (images + combined PDF) live under data/houses/house-N/.
+# Mount that root at /static so URLs stay as /static/house-N/<file>, and we
+# don't expose the rest of the repo (api/, scripts/, etc.).
+app.mount("/static", StaticFiles(directory=str(HOUSES_DIR)), name="static")
 
 # Built React bundle — hashed asset files live in ui/dist/assets/. The HTML
 # entry is served by `root()` below so we can fall back to a helpful message
