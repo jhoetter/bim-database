@@ -447,6 +447,47 @@ export function AnnotatePage() {
   const prevScene = sceneIndex > 0 ? sceneList[sceneIndex - 1] : null;
   const nextScene = sceneIndex >= 0 && sceneIndex < sceneList.length - 1 ? sceneList[sceneIndex + 1] : null;
 
+  // Per-scene label summary for the chip bar: count + whether the scene has
+  // the M1 references it needs for Skalierung/Entzerrung (≥1 horizontal +
+  // ≥1 vertical is_reference=true dim_distance). One paralle fetch per
+  // sibling scene of this house; cheap (typically ≤10 scenes) and avoids
+  // a server-side aggregate endpoint. Refreshed when houseScenes change OR
+  // when the current scene saves (sceneSummaryRev).
+  const [sceneSummaryRev, setSceneSummaryRev] = useState(0);
+  const { data: sceneSummaries } = useResource<Map<string, { count: number; hasH: boolean; hasV: boolean }>>(
+    async () => {
+      const out = new Map<string, { count: number; hasH: boolean; hasV: boolean }>();
+      const list = houseScenes ?? [];
+      const results = await Promise.all(
+        list.map(async (s) => {
+          try {
+            const lbl = await fetchLabels(scope, key, s.file);
+            return [s.file, lbl.labels ?? []] as const;
+          } catch {
+            return [s.file, []] as const;
+          }
+        }),
+      );
+      for (const [file, lbls] of results) {
+        let hasH = false;
+        let hasV = false;
+        for (const l of lbls) {
+          if (l.type !== 'dimensioned_distance') continue;
+          const dd = l as unknown as { attributes: { is_reference?: boolean }; geometry: { start: Point; end: Point } };
+          if (!dd.attributes.is_reference) continue;
+          const dx = dd.geometry.end[0] - dd.geometry.start[0];
+          const dy = dd.geometry.end[1] - dd.geometry.start[1];
+          const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+          if (a < 15 || a > 165) hasH = true;
+          else if (a > 75 && a < 105) hasV = true;
+        }
+        out.set(file, { count: lbls.length, hasH, hasV });
+      }
+      return out;
+    },
+    [scope, key, houseScenes, sceneSummaryRev],
+  );
+
   // Editable state — initialised from `data` once it loads.
   const [labels, setLabels] = useState<Label[]>([]);
   const [sceneTag, setSceneTag] = useState<SceneTag>('nicht_klassifiziert');
@@ -1577,6 +1618,9 @@ export function AnnotatePage() {
       };
       await saveLabels(scope, key, decodedFile, payload);
       setDirty(false);
+      // Refresh sibling-scene summary so the chip bar's label count +
+      // readiness badge updates for this scene.
+      setSceneSummaryRev((r) => r + 1);
       // Lift this scene's Höhenkote { datum: value_mm } into the
       // per-house cache so subsequent scenes can auto-fill values
       // when the user picks the same datum.
@@ -1915,19 +1959,60 @@ export function AnnotatePage() {
               <div className="flex items-center gap-0.5 px-0.5">
                 {sceneList.map((s) => {
                   const isCurrent = s.file === decodedFile;
+                  // For the active scene, prefer the live in-memory labels
+                  // over the (stale-until-save) sibling summary.
+                  const summary = isCurrent
+                    ? (() => {
+                        let hasH = false, hasV = false;
+                        for (const l of labels) {
+                          if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
+                          const dx = l.geometry.end[0] - l.geometry.start[0];
+                          const dy = l.geometry.end[1] - l.geometry.start[1];
+                          const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+                          if (a < 15 || a > 165) hasH = true;
+                          else if (a > 75 && a < 105) hasV = true;
+                        }
+                        return { count: labels.length, hasH, hasV };
+                      })()
+                    : sceneSummaries?.get(s.file);
+                  const readinessColor = summary
+                    ? (summary.hasH && summary.hasV
+                        ? '#10b981'                       // emerald — ready
+                        : (summary.hasH || summary.hasV ? '#f59e0b' : '#d4d4d8'))  // amber half / zinc none
+                    : null;
+                  const readinessTitle = !summary
+                    ? ''
+                    : summary.hasH && summary.hasV
+                      ? ' · Bezug H+V gesetzt → Skalierung+Entzerrung bereit'
+                      : summary.hasH
+                        ? ' · nur horizontaler Bezug — vertikalen fehlt noch'
+                        : summary.hasV
+                          ? ' · nur vertikaler Bezug — horizontalen fehlt noch'
+                          : ' · keine Bezugsmaße — Skalierung+Entzerrung noch nicht möglich';
                   return (
                     <button
                       key={s.file}
                       type="button"
                       onClick={() => goToScene(s.file)}
-                      title={s.title}
-                      className={`px-1.5 py-0.5 rounded text-[0.65rem] font-medium tabular-nums whitespace-nowrap shrink-0 transition ${
+                      title={`${s.title}${summary ? ` · ${summary.count} Labels` : ''}${readinessTitle}`}
+                      className={`px-1.5 py-0.5 rounded text-[0.65rem] font-medium tabular-nums whitespace-nowrap shrink-0 transition inline-flex items-center gap-1 ${
                         isCurrent
                           ? 'bg-accent text-white'
                           : 'text-zinc-600 hover:bg-zinc-100'
                       }`}
                     >
-                      {sceneShortLabel(s.file, s.title)}
+                      <span>{sceneShortLabel(s.file, s.title)}</span>
+                      {readinessColor && (
+                        <span
+                          className="inline-block w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: readinessColor }}
+                        />
+                      )}
+                      {summary && summary.count > 0 && (
+                        <span className={`text-[0.55rem] tabular-nums ${isCurrent ? 'text-white/80' : 'text-zinc-400'}`}>
+                          {summary.count}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
