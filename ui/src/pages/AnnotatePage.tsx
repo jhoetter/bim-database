@@ -175,6 +175,10 @@ export function AnnotatePage() {
   // §15's green circle if non-null, and use as the actual commit point on
   // the next click instead of the raw cursor.
   const [snap, setSnap] = useState<SnapTarget | null>(null);
+  // M10: when placing a floorplan_opening, the first click might land on a
+  // wall (wall_line snap). We remember that wall's id so the second click
+  // can attach the opening to it via a belongs_to relation.
+  const [pendingAttachedWallId, setPendingAttachedWallId] = useState<string | null>(null);
 
   // Pan/zoom on the SVG viewBox.
   const [view, setView] = useState({ x: 0, y: 0, w: 1024, h: 1024 });
@@ -328,6 +332,13 @@ export function AnnotatePage() {
       if (tool === 'floorplan_opening' || tool === 'view_opening') {
         if (pendingStart == null) {
           setPendingStart(pt);
+          // M10: if the first click landed on a wall (wall_line snap), the
+          // opening will attach to that wall — remember its id for commit.
+          if (tool === 'floorplan_opening' && snap?.kind === 'wall_line') {
+            setPendingAttachedWallId(snap.source_label_id ?? null);
+          } else {
+            setPendingAttachedWallId(null);
+          }
           return;
         }
         pushUndo();
@@ -341,6 +352,14 @@ export function AnnotatePage() {
         let label: Label;
         if (tool === 'floorplan_opening') {
           const quad: Quad = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+          // Attach via belongs_to if EITHER click landed on the same wall.
+          // (Common case: user drags a rectangle along the wall axis; both
+          // ends snap onto the same wall.)
+          const secondClickAttached =
+            snap?.kind === 'wall_line' && snap.source_label_id === pendingAttachedWallId;
+          const attachWallId = pendingAttachedWallId && (secondClickAttached || !snap?.source_label_id || snap?.kind !== 'wall_line')
+            ? pendingAttachedWallId
+            : (snap?.kind === 'wall_line' ? snap.source_label_id : null);
           label = {
             id: uuid(),
             type: 'floorplan_opening',
@@ -352,7 +371,9 @@ export function AnnotatePage() {
               swing_side: 'none',
             },
             status: 'readable',
-            relations: [],
+            relations: attachWallId
+              ? [{ other_id: attachWallId, kind: 'belongs_to' }]
+              : [],
             created_at: nowIso(),
             updated_at: nowIso(),
           } as FloorplanOpeningLabel;
@@ -375,6 +396,7 @@ export function AnnotatePage() {
         setLabels([...labels, label]);
         setDirty(true);
         setPendingStart(null);
+        setPendingAttachedWallId(null);
         setSelectedId(label.id);
         return;
       }
@@ -519,19 +541,41 @@ export function AnnotatePage() {
   }, [pushUndo]);
 
   const deleteLabel = useCallback((id: string) => {
+    // M10: walls with attached openings prompt for cascade behaviour.
+    const target = labels.find((l) => l.id === id);
+    let deleteAlsoIds: string[] = [];
+    if (target?.type === 'wall') {
+      const attached = labels.filter((l) =>
+        l.type === 'floorplan_opening' &&
+        (l.relations ?? []).some((r) => r.kind === 'belongs_to' && r.other_id === id),
+      );
+      if (attached.length > 0) {
+        const ans = window.prompt(
+          `${attached.length} angehängte Öffnung(en) gefunden.\n\n` +
+          'Tippe DELETE um die Öffnungen mitzulöschen,\n' +
+          'oder OK / leer / ESC um nur den belongs_to-Bezug zu lösen.',
+          '',
+        );
+        if (ans === null) return;  // explicit cancel
+        if (ans.trim().toUpperCase() === 'DELETE') {
+          deleteAlsoIds = attached.map((l) => l.id);
+        }
+      }
+    }
     pushUndo();
+    const idsToDelete = new Set([id, ...deleteAlsoIds]);
     setLabels((prev) =>
       prev
-        .filter((l) => l.id !== id)
-        // Also strip any relations pointing at the deleted label.
+        .filter((l) => !idsToDelete.has(l.id))
+        // Also strip any relations pointing at the deleted label(s).
         .map((l) => ({
           ...l,
-          relations: (l.relations ?? []).filter((r) => r.other_id !== id),
+          relations: (l.relations ?? []).filter((r) => !idsToDelete.has(r.other_id)),
         }) as Label),
     );
-    if (selectedId === id) setSelectedId(null);
+    if (selectedId && idsToDelete.has(selectedId)) setSelectedId(null);
     setDirty(true);
-  }, [pushUndo, selectedId]);
+  }, [labels, pushUndo, selectedId]);
 
   // Establish a labels-relation between a dimension_number and a
   // dimensioned_distance. The relation always lives on the number side, so
@@ -827,6 +871,7 @@ export function AnnotatePage() {
               selected={l.id === selectedId}
               linkSource={linkSource}
               tool={tool}
+              allLabels={labels}
               eventToSvgPoint={eventToSvgPoint}
               onSelect={() => {
                 if (tool === 'link') {
@@ -1157,6 +1202,7 @@ function LabelGlyph({
   selected,
   linkSource,
   tool,
+  allLabels,
   eventToSvgPoint,
   onSelect,
   onMutateGeometry,
@@ -1167,6 +1213,9 @@ function LabelGlyph({
   selected: boolean;
   linkSource: string | null;
   tool: Tool;
+  /** All labels in the scene — needed for cross-label constraints (e.g.
+   *  attached floorplan_opening drag projected onto its parent wall axis). */
+  allLabels: Label[];
   eventToSvgPoint: (e: ReactPointerEvent<SVGSVGElement> | PointerEvent) => Point | null;
   onSelect: () => void;
   onMutateGeometry: (newGeom: Label['geometry']) => void;
@@ -1199,21 +1248,42 @@ function LabelGlyph({
     const target = (e.currentTarget as SVGElement).ownerSVGElement!;
     target.setPointerCapture?.(e.pointerId);
 
+    // M10: attached opening → axis-constrained drag along the parent wall.
+    let constraintAxis: { ux: number; uy: number } | null = null;
+    if (label.type === 'floorplan_opening') {
+      const parentRel = (label.relations ?? []).find((r) => r.kind === 'belongs_to');
+      if (parentRel) {
+        const wall = allLabels.find((l) => l.id === parentRel.other_id);
+        if (wall?.type === 'wall') {
+          const dx = wall.geometry.end[0] - wall.geometry.start[0];
+          const dy = wall.geometry.end[1] - wall.geometry.start[1];
+          const len = Math.hypot(dx, dy);
+          if (len > 0) constraintAxis = { ux: dx / len, uy: dy / len };
+        }
+      }
+    }
+
     const onMove = (mv: PointerEvent) => {
       const pt = eventToSvgPoint(mv);
       if (!pt) return;
-      const dx = pt[0] - start[0];
-      const dy = pt[1] - start[1];
+      let dx = pt[0] - start[0];
+      let dy = pt[1] - start[1];
       if (!dragged && Math.hypot(dx, dy) > 4) {
         dragged = true;
         if (!pushedUndo) {
           onStartDrag();
           pushedUndo = true;
         }
-        // Make sure the label is selected before we start moving it.
         if (tool === 'select' && !selected) onSelect();
       }
       if (!dragged) return;
+      // Project (dx, dy) onto the parent wall axis so the opening slides
+      // ONLY along the wall direction — never away from it.
+      if (constraintAxis) {
+        const proj = dx * constraintAxis.ux + dy * constraintAxis.uy;
+        dx = proj * constraintAxis.ux;
+        dy = proj * constraintAxis.uy;
+      }
       const newGeom = translateLabelGeometry({ ...label, geometry: origin } as Label, dx, dy);
       onMutateGeometry(newGeom);
     };
@@ -1316,8 +1386,18 @@ function LabelGlyph({
     }
     case 'floorplan_opening': {
       const [a, b, c, d] = label.geometry.quad;
+      const attached = (label.relations ?? []).some((r) => r.kind === 'belongs_to');
+      // Attached openings get an opaque white underlay so the wall band beneath
+      // visually reads as "cut" by the opening (M10's cut-out hint).
+      // An extra magenta dashed outer ring marks attached state.
       body = (
         <g {...bodyProps}>
+          {attached && (
+            <polygon
+              points={`${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`}
+              fill="white" stroke="#a21caf" strokeWidth={sw + 1} strokeDasharray="4,3"
+            />
+          )}
           <polygon points={`${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`}
                    fill={fill} stroke={stroke} strokeWidth={sw} />
         </g>
@@ -2069,9 +2149,34 @@ function FloorplanOpeningFields({
   label, onChange,
 }: { label: FloorplanOpeningLabel; onChange: (p: Partial<Label>) => void }) {
   const a = label.attributes;
+  const parentRel = (label.relations ?? []).find((r) => r.kind === 'belongs_to');
+  const detach = () => {
+    onChange({
+      relations: (label.relations ?? []).filter(
+        (r) => !(r.kind === 'belongs_to' && r.other_id === parentRel?.other_id),
+      ),
+    } as Partial<Label>);
+  };
   return (
     <section className="space-y-2">
       <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Öffnung (Grundriss)</h4>
+      {parentRel && (
+        <div className="bg-fuchsia-50 border border-fuchsia-200 rounded px-2.5 py-1.5 text-[0.7rem] flex items-center justify-between gap-2">
+          <span className="text-fuchsia-900">
+            🔗 An Wand angeheftet
+            <span className="block text-[0.65rem] text-fuchsia-700 font-mono break-all mt-0.5">
+              {parentRel.other_id}
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={detach}
+            className="text-[0.65rem] px-1.5 py-0.5 rounded bg-white border border-fuchsia-300 text-fuchsia-800 hover:bg-fuchsia-100"
+          >
+            Lösen
+          </button>
+        </div>
+      )}
       <label className="block">
         <span className="text-[0.7rem] text-muted">Art</span>
         <select

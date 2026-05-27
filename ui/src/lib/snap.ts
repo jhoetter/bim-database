@@ -19,6 +19,10 @@ export interface SnapTarget {
   pt: Point;
   kind: SnapKind;
   hint: string;
+  /** Id of the underlying label that contributed this snap target, if any.
+   *  Used by the floorplan_opening tool to record `belongs_to` against the
+   *  wall the user snapped onto (M10). */
+  source_label_id?: string;
   /** Optional alignment guide to render across the canvas. */
   guide?: {
     type: 'horizontal' | 'vertical';
@@ -141,12 +145,19 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
 
   // floorplan_opening: snap to a wall (perpendicular projection onto wall axis).
   // This is the headline "windows in walls" snap (UX called out as core).
+  // source_label_id carries the wall id so the editor can write a belongs_to
+  // relation on commit (M10).
   if (tool === 'floorplan_opening') {
     for (const l of labels) {
       if (l.type !== 'wall') continue;
       const proj = perpProjection(cursor, l.geometry.start, l.geometry.end);
       if (proj.within) {
-        cands.push({ pt: proj.point, kind: 'wall_line', hint: 'on wall' });
+        cands.push({
+          pt: proj.point,
+          kind: 'wall_line',
+          hint: 'an Wand',
+          source_label_id: l.id,
+        });
       }
     }
   }

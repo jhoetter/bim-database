@@ -513,7 +513,7 @@ The wall-thickness UX (§7) in full + redo functionality.
 - Wall renders as a band (current line + perpendicular fill)
 - Redo with `Cmd+Shift+Z`; expand undo stack to N=200
 
-### M10 — Windows-in-walls semantics
+### M10 — Windows-in-walls semantics ✅ shipped 2026-05-27
 
 Implements §8 in full:
 - `floorplan_opening` snaps to nearest wall on placement
