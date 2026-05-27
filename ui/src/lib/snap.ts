@@ -58,18 +58,18 @@ export function findSnap(args: SnapArgs): SnapTarget | null {
 
   if (modifiers.alt) return null;
 
-  // Shift = axis-lock from pendingStart. Applies to linear tools.
-  if (
-    modifiers.shift &&
-    pendingStart &&
-    (tool === 'wall' || tool === 'dimensioned_distance' || tool === 'component_line')
-  ) {
+  const isLinearTool =
+    tool === 'wall' || tool === 'dimensioned_distance' || tool === 'component_line';
+
+  // Shift = HARD axis-lock from pendingStart. Forces 0/45/90/135° regardless
+  // of how far the cursor is.
+  if (modifiers.shift && pendingStart && isLinearTool) {
     return axisLock(cursor, pendingStart);
   }
 
+  // Endpoint / line / midpoint candidates have priority — an exact point
+  // beats an angle snap.
   const cands = collectCandidates(args);
-  if (cands.length === 0) return null;
-
   let best: SnapTarget | null = null;
   let bestDist = imageRadiusPx;
   for (const c of cands) {
@@ -79,7 +79,45 @@ export function findSnap(args: SnapArgs): SnapTarget | null {
       best = c;
     }
   }
-  return best;
+  if (best) return best;
+
+  // Soft angle snap — if no exact candidate but the cursor's direction from
+  // pendingStart is within ~3° of an axis, snap to the axis. Makes drawing
+  // perpendicular/orthogonal walls and dimensions feel "magnetic" without
+  // requiring Shift. Alt still defeats it.
+  if (pendingStart && isLinearTool) {
+    const soft = softAxisLock(cursor, pendingStart);
+    if (soft) return soft;
+  }
+
+  return null;
+}
+
+// Like axisLock, but only returns a target if the actual angle is already
+// within `toleranceDeg` of an axis. Used as a fallback after endpoint snaps.
+function softAxisLock(cursor: Point, anchor: Point, toleranceDeg = 3): SnapTarget | null {
+  const dx = cursor[0] - anchor[0];
+  const dy = cursor[1] - anchor[1];
+  const r = Math.hypot(dx, dy);
+  if (r < 8) return null;
+  const angle = (Math.atan2(-dy, dx) * 180) / Math.PI;
+  const targets = [-180, -135, -90, -45, 0, 45, 90, 135, 180];
+  let bestA = 0;
+  let bestDiff = Infinity;
+  for (const a of targets) {
+    const diff = Math.abs(((angle - a + 540) % 360) - 180);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestA = a;
+    }
+  }
+  if (bestDiff > toleranceDeg) return null;
+  const rad = (bestA * Math.PI) / 180;
+  return {
+    pt: [anchor[0] + r * Math.cos(rad), anchor[1] - r * Math.sin(rad)],
+    kind: 'angle_lock',
+    hint: `${((bestA % 360) + 360) % 360}°`,
+  };
 }
 
 // ── candidate enumeration ───────────────────────────────────────────────────

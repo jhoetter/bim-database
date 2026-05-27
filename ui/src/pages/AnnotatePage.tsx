@@ -544,19 +544,30 @@ export function AnnotatePage() {
             setPendingStart(pt);
           }
         } else if (tool === 'dimensioned_distance') {
-          // Dim-chain along the facade: next click extends from this endpoint.
-          // Open an inline edit at the midpoint asking for the value. On
-          // commit, also create a paired dim_number with a labels-relation —
-          // so users no longer have to think about "Maßzahl" as a separate
-          // tool. Esc just closes the edit (the dim_distance stays placed).
-          setPendingStart(pt);
-          const mid: Point = [(pendingStart[0] + pt[0]) / 2, (pendingStart[1] + pt[1]) / 2];
+          // Break the pending start — each dim_distance is its own pair of
+          // clicks, no auto-chain. (We tried chaining and the leftover
+          // phantom preview line from the previous endpoint confused users.)
+          setPendingStart(null);
+          // Open an inline edit at the LINE MIDPOINT (in screen coords) so
+          // the input visually attaches to the dimension. On commit, also
+          // create a paired dim_number with a labels-relation — so users
+          // never need to think about "Maßzahl" as a separate tool.
+          const midSvg: Point = [(pendingStart[0] + pt[0]) / 2, (pendingStart[1] + pt[1]) / 2];
+          let midScreen: [number, number] = [e.clientX, e.clientY];
+          const svg = svgRef.current;
+          const ctm = svg?.getScreenCTM();
+          if (ctm) {
+            midScreen = [
+              midSvg[0] * ctm.a + midSvg[1] * ctm.c + ctm.e,
+              midSvg[0] * ctm.b + midSvg[1] * ctm.d + ctm.f,
+            ];
+          }
           setPendingInlineEdit({
             labelId: label.id,
             field: 'value_mm',
-            screenPos: [e.clientX, e.clientY],
+            screenPos: midScreen,
             wasJustCreated: false,
-            autoLinkAsDimNumber: { at: mid },
+            autoLinkAsDimNumber: { at: midSvg },
           });
         } else {
           setPendingStart(null);
@@ -844,34 +855,71 @@ export function AnnotatePage() {
     [tool, pendingStart, pendingPolyline, eventToSvgPoint, labels, view.w, snap],
   );
 
+  // Wheel handling — Figma-style:
+  //   - Trackpad pinch (browser sets ctrlKey=true) OR ⌘/Ctrl + wheel → zoom
+  //   - Mouse-wheel notch (large |deltaY|, no deltaX, no modifiers) → zoom
+  //   - Anything else (trackpad 2-finger scroll, with deltaX or fine deltaY)
+  //     → pan in screen direction. This is what the user wants on a Mac.
   const onCanvasWheel = useCallback(
     (e: ReactWheelEvent<SVGSVGElement>) => {
       e.preventDefault();
       const svg = svgRef.current;
       if (!svg) return;
-      const pt = svg.createSVGPoint();
-      pt.x = e.clientX;
-      pt.y = e.clientY;
-      const ctm = svg.getScreenCTM();
-      if (!ctm) return;
-      const local = pt.matrixTransform(ctm.inverse());
-      const scale = Math.exp(-e.deltaY * 0.0015);
-      const newW = Math.max(50, Math.min(view.w * scale, imageSize[0] * 8));
-      const newH = newW * (view.h / view.w);
-      const ratioX = (local.x - view.x) / view.w;
-      const ratioY = (local.y - view.y) / view.h;
-      setView({
-        x: local.x - ratioX * newW,
-        y: local.y - ratioY * newH,
-        w: newW,
-        h: newH,
-      });
+      const isPinch = e.ctrlKey || e.metaKey;
+      const looksLikeMouseWheel =
+        !isPinch && e.deltaX === 0 && Math.abs(e.deltaY) >= 40;
+      const shouldZoom = isPinch || looksLikeMouseWheel;
+
+      if (shouldZoom) {
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const ctm = svg.getScreenCTM();
+        if (!ctm) return;
+        const local = pt.matrixTransform(ctm.inverse());
+        // Pinch deltas are tiny so we need a steeper factor than wheel notches.
+        const factor = isPinch ? 0.015 : 0.0035;
+        const scale = Math.exp(-e.deltaY * factor);
+        const newW = Math.max(50, Math.min(view.w * scale, imageSize[0] * 8));
+        const newH = newW * (view.h / view.w);
+        const ratioX = (local.x - view.x) / view.w;
+        const ratioY = (local.y - view.y) / view.h;
+        setView({
+          x: local.x - ratioX * newW,
+          y: local.y - ratioY * newH,
+          w: newW,
+          h: newH,
+        });
+      } else {
+        // Pan: convert screen-pixel delta to image-pixel delta using the
+        // current view-to-screen scale.
+        const factor = view.w / Math.max(1, svg.clientWidth);
+        setView((v) => ({
+          x: v.x + e.deltaX * factor,
+          y: v.y + e.deltaY * factor,
+          w: v.w,
+          h: v.h,
+        }));
+      }
     },
     [view, imageSize],
   );
 
   const resetView = useCallback(() => {
     setView({ x: 0, y: 0, w: imageSize[0], h: imageSize[1] });
+  }, [imageSize]);
+
+  // Zoom by a discrete factor centered on the SVG viewport center (used by
+  // the +/- keyboard shortcuts and the in-canvas zoom buttons). Factor < 1
+  // = zoom in; > 1 = zoom out.
+  const zoomBy = useCallback((factor: number) => {
+    setView((v) => {
+      const cx = v.x + v.w / 2;
+      const cy = v.y + v.h / 2;
+      const newW = Math.max(50, Math.min(v.w * factor, imageSize[0] * 8));
+      const newH = newW * (v.h / v.w);
+      return { x: cx - newW / 2, y: cy - newH / 2, w: newW, h: newH };
+    });
   }, [imageSize]);
 
   // ── label mutation helpers ────────────────────────────────────────────────
@@ -1164,10 +1212,13 @@ export function AnnotatePage() {
       if (e.key === 'h' && !e.metaKey && !e.ctrlKey) trySetTool('height_mark');
       if (e.key === 's' && !e.metaKey && !e.ctrlKey) trySetTool('select');
       if (e.key === 'r') resetView();
+      if (e.key === '+' || (e.key === '=' && !e.shiftKey)) { e.preventDefault(); zoomBy(0.7); }
+      if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(1.4); }
+      if (e.key === '0') { e.preventDefault(); resetView(); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel, prevScene, nextScene, goToScene, allTools]);
+  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, zoomBy, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel, prevScene, nextScene, goToScene, allTools]);
 
   const selectedLabel = labels.find((l) => l.id === selectedId) ?? null;
   const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`;
@@ -1178,7 +1229,11 @@ export function AnnotatePage() {
         <Breadcrumb
           items={[
             { label: scope === 'synthetic' ? 'Synthetisch' : 'Alle Häuser', to: scope === 'synthetic' ? '/synthetic' : '/' },
-            { label: key, to: scope === 'synthetic' ? `/synthetic/${key}` : `/house/${key}` },
+            // House name is plain text — the overview page is now the
+            // entry point and the click-through goes straight to
+            // annotation, so an intermediate "house detail" link doesn't
+            // belong here.
+            { label: key },
             { label: `Annotieren: ${decodedFile}` },
           ]}
         />
@@ -1499,9 +1554,37 @@ export function AnnotatePage() {
         {/* Sub-classification is now in the sidebar via FamilyToolButton —
             the previous top-of-canvas chip bar is gone (redundant). */}
         <div className="absolute bottom-3 left-3 text-[0.7rem] text-zinc-300 bg-black/50 px-2 py-1 rounded leading-snug pointer-events-none">
-          [S] Select · [D] Bemaßte Strecke · [N] Maßzahl · [W] Wand · [O] Öffnung · [L] Linie · [H] Höhenkote
+          [S] Select · [D] Bemaßung · [W] Wand · [O] Öffnung · [L] Linie · [H] Höhe
           <br />
-          Enter = Polylinie beenden · Esc = abbrechen · Shift/Right-Drag = Pan · Wheel = Zoom · R = Reset
+          Trackpad: 2-Finger = Pan, Pinch = Zoom · Maus-Wheel = Zoom · +/-/0 · Shift+Drag = Pan
+        </div>
+        {/* Zoom controls — bottom-right corner. Visible alternative to the
+            wheel/trackpad gestures and the +/-/0 hotkeys. */}
+        <div className="absolute bottom-3 right-3 flex flex-col gap-1 bg-white/95 border border-zinc-300 rounded shadow-md p-1">
+          <button
+            type="button"
+            onClick={() => zoomBy(0.7)}
+            className="w-7 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-800 text-lg leading-none"
+            title="Hereinzoomen (+)"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            onClick={() => zoomBy(1.4)}
+            className="w-7 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-800 text-lg leading-none"
+            title="Herauszoomen (−)"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={resetView}
+            className="w-7 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-700 text-[0.6rem] font-semibold leading-none"
+            title="Ansicht zurücksetzen (0/R)"
+          >
+            FIT
+          </button>
         </div>
         <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} snap={snap} />
         {/* M12 inline edit. <input> floats at the cursor; Enter commits, Esc
@@ -1573,7 +1656,9 @@ export function AnnotatePage() {
         {/* Floating inspector popover — replaces the old fixed right-rail.
             Dragable header, position persists in localStorage. Fades during
             label-drag so it doesn't visually obscure the moving geometry. */}
-        {(selectedIds.size > 1 || selectedLabel) && (
+        {/* Hide the popover while an inline edit is open — otherwise both
+            pop up after a dim_distance commit and visually compete. */}
+        {!pendingInlineEdit && (selectedIds.size > 1 || selectedLabel) && (
           <div style={{
             opacity: isDragging ? 0.05 : 1,
             pointerEvents: isDragging ? 'none' : 'auto',
@@ -2504,11 +2589,13 @@ function InlineEditInput({
       defaultValue=""
       style={{
         position: 'fixed',
-        left: screenPos[0] + 12,
-        top: screenPos[1] - 12,
-        zIndex: 100,
+        left: screenPos[0],
+        top: screenPos[1] + 18,
+        transform: 'translateX(-50%)',
+        zIndex: 9999,
+        boxShadow: '0 0 0 4px rgba(255,255,255,0.95), 0 6px 16px rgba(0,0,0,0.18)',
       }}
-      className="px-2 py-1 rounded-md border-2 border-accent bg-white text-[0.85rem] shadow-lg outline-none w-44"
+      className="px-2 py-1 rounded-md border-2 border-accent bg-white text-[0.85rem] outline-none w-44"
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -3419,8 +3506,40 @@ function FloorplanOpeningFields({
       </label>
       {a.opening_kind === 'door' && (
         <>
+          {/* Quick flip buttons — one click flips swing_side, another flips
+              swing direction. The cycle through all 4 orientations is two
+              clicks total. Drop-downs are still available below for the
+              full enum (sliding, none). */}
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => onChange({
+                attributes: {
+                  ...a,
+                  swing_side: a.swing_side === 'right' ? 'left' : 'right',
+                },
+              } as Partial<Label>)}
+              className="flex-1 px-2 py-1 rounded border border-border text-[0.72rem] bg-white hover:bg-zinc-50 inline-flex items-center justify-center gap-1"
+              title="Anschlag links ↔ rechts wechseln"
+            >
+              ⇋ Anschlag <span className="font-mono text-zinc-500">{a.swing_side ?? '–'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange({
+                attributes: {
+                  ...a,
+                  swing: a.swing === 'out' ? 'in' : 'out',
+                },
+              } as Partial<Label>)}
+              className="flex-1 px-2 py-1 rounded border border-border text-[0.72rem] bg-white hover:bg-zinc-50 inline-flex items-center justify-center gap-1"
+              title="Schwenken nach innen ↔ außen"
+            >
+              ⇅ Schwenk <span className="font-mono text-zinc-500">{a.swing ?? '–'}</span>
+            </button>
+          </div>
           <label className="block">
-            <span className="text-[0.7rem] text-muted">Schwenken</span>
+            <span className="text-[0.7rem] text-muted">Schwenken (erweitert)</span>
             <select
               value={a.swing ?? 'none'}
               onChange={(e) => onChange({ attributes: { ...a, swing: e.target.value as FloorplanOpeningLabel['attributes']['swing'] } } as Partial<Label>)}
@@ -3433,7 +3552,7 @@ function FloorplanOpeningFields({
             </select>
           </label>
           <label className="block">
-            <span className="text-[0.7rem] text-muted">Anschlag</span>
+            <span className="text-[0.7rem] text-muted">Anschlag (erweitert)</span>
             <select
               value={a.swing_side ?? 'none'}
               onChange={(e) => onChange({ attributes: { ...a, swing_side: e.target.value as FloorplanOpeningLabel['attributes']['swing_side'] } } as Partial<Label>)}

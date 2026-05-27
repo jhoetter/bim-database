@@ -236,48 +236,64 @@ function FilterRow({
 
 function GroupedByHouse({ houses }: { houses: SyntheticHouse[] }) {
   return (
-    <div className="space-y-6">
-      {houses.map((h) => {
-        const labeled = h.drawings.filter((d) => d.labeled).length;
-        const total = h.drawings.length;
-        const pct = total === 0 ? 0 : Math.round((labeled / total) * 100);
-        return (
-        <section key={h.key}>
-          <header className="flex items-baseline gap-2.5 mb-2.5">
-            <Link to={`/synthetic/${h.key}`} className="text-[0.95rem] font-semibold hover:underline">
-              {h.model ?? h.key}
-            </Link>
-            <span className="text-[0.72rem] text-muted">
-              {h.key} · {h.drawings.length} {h.drawings.length === 1 ? 'Zeichnung' : 'Zeichnungen'}
-            </span>
-            {labeled > 0 && (
-              <span
-                className={`text-[0.65rem] px-1.5 py-0.5 rounded-full font-semibold ${
-                  pct === 100 ? 'bg-emerald-600 text-white'
-                  : pct >= 50  ? 'bg-emerald-100 text-emerald-900'
-                              : 'bg-amber-100 text-amber-900'
-                }`}
-                title={`${labeled} / ${total} Szenen annotiert`}
-              >
-                ✓ {labeled}/{total}
-              </span>
-            )}
-            <Link
-              to={`/house/${h.linked_house}`}
-              className="text-[0.7rem] text-accent hover:underline ml-auto"
-            >
-              → echt
-            </Link>
-          </header>
-          <div className="columns-[240px] gap-3">
-            {h.drawings.map((d) => (
-              <DrawingTile key={d.file} houseKey={h.key} d={d} />
-            ))}
-          </div>
-        </section>
-        );
-      })}
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
+      {houses.map((h) => (
+        <HouseCard key={h.key} house={h} />
+      ))}
     </div>
+  );
+}
+
+// One card per house with a representative image + stats. Clicking the card
+// goes directly to the first scene's annotation view — the user explicitly
+// wants no intermediate per-house scene-list page.
+function HouseCard({ house }: { house: SyntheticHouse }) {
+  const labeled = house.drawings.filter((d) => d.labeled).length;
+  const total = house.drawings.length;
+  const pct = total === 0 ? 0 : Math.round((labeled / total) * 100);
+  // Prefer a floorplan-EG as the hero image (most representative); fall back
+  // to the first available drawing.
+  const hero =
+    house.drawings.find((d) => d.kind === 'floorplan' && d.floor === 'EG') ??
+    house.drawings.find((d) => d.kind === 'floorplan') ??
+    house.drawings[0];
+  if (!hero) return null;
+  return (
+    <Link
+      to={`/synthetic/${house.key}/scene/${encodeURIComponent(hero.file)}/annotate`}
+      className="block rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
+      title={`${house.drawings.length} Zeichnung(en) — Klick öffnet Annotation`}
+    >
+      <div className="aspect-square bg-zinc-50 flex items-center justify-center overflow-hidden">
+        <img
+          src={hero.url}
+          alt={house.model ?? house.key}
+          loading="lazy"
+          className="max-w-full max-h-full object-contain"
+        />
+      </div>
+      <div className="p-2.5 space-y-1">
+        <div className="flex items-baseline gap-1.5">
+          <h3 className="text-[0.85rem] font-semibold truncate">{house.model ?? house.key}</h3>
+          <span className="text-[0.65rem] text-muted font-mono">{house.key}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[0.7rem] text-muted">
+          <span>{total} {total === 1 ? 'Zeichnung' : 'Zeichnungen'}</span>
+          {labeled > 0 && (
+            <span
+              className={`text-[0.62rem] px-1.5 py-0.5 rounded-full font-semibold ${
+                pct === 100 ? 'bg-emerald-600 text-white'
+                : pct >= 50  ? 'bg-emerald-100 text-emerald-900'
+                            : 'bg-amber-100 text-amber-900'
+              }`}
+              title={`${labeled} / ${total} Szenen annotiert`}
+            >
+              ✓ {labeled}/{total} ({pct}%)
+            </span>
+          )}
+        </div>
+      </div>
+    </Link>
   );
 }
 
@@ -316,7 +332,7 @@ function DrawingTile({
 
   return (
     <Link
-      to={`/synthetic/${houseKey}/scene/${encodeURIComponent(d.file)}`}
+      to={`/synthetic/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`}
       className="relative block mb-3 break-inside-avoid rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
     >
       <img
