@@ -22,6 +22,8 @@ import type {
   Point,
   Quad,
   SceneLabels,
+  SceneLevel,
+  SceneOrientation,
   SceneTag,
   ViewOpeningLabel,
   WallLabel,
@@ -44,6 +46,7 @@ import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
 import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
 import { autoTSplit } from '../lib/auto_split';
+import { loadHouseFacts, promoteToFacts } from '../lib/house_facts';
 import { collectRefineIssues, type RefineIssue } from '../lib/refine';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
@@ -520,6 +523,12 @@ export function AnnotatePage() {
   // user can SEE that a value came from elsewhere and undo if they want.
   const [crossSceneProvenance, setCrossSceneProvenance] = useState<Map<string, string>>(() => new Map());
   const [sceneTag, setSceneTag] = useState<SceneTag>('nicht_klassifiziert');
+  // N6: scene_orientation (Ansicht/Schnitt) + scene_level (Grundriss). Both
+  // persist into SceneLabels on save. Drive cross-scene cache scoping —
+  // Nordansicht's M1 references only pre-fill future Nordansichten, EG
+  // grundriss' wall thickness only pre-fills EG, etc.
+  const [sceneOrientation, setSceneOrientation] = useState<SceneOrientation | null>(null);
+  const [sceneLevel, setSceneLevel] = useState<SceneLevel | null>(null);
   const [imageSize, setImageSize] = useState<[number, number]>([1024, 1024]);
   // Multi-select via Set (M11). Single-label code paths use the helper
   // `primarySelectedId` (the only id when size === 1, else null).
@@ -767,6 +776,8 @@ export function AnnotatePage() {
     setPendingPolyline([]);
     setWallChainAnchor(null);
     setCrossSceneProvenance(new Map());
+    setSceneOrientation(null);
+    setSceneLevel(null);
   }, [scope, key, decodedFile]);
   // X7: clear half-drawn state when the user switches tools. A pending
   // wall chain or polyline shouldn't leak into the next tool's behavior.
@@ -793,6 +804,8 @@ export function AnnotatePage() {
     if (data) {
       setLabels(data.labels ?? []);
       setSceneTag(data.scene_tag ?? 'nicht_klassifiziert');
+      setSceneOrientation(data.scene_orientation ?? null);
+      setSceneLevel(data.scene_level ?? null);
       setImageSize(data.image_size_px ?? [1024, 1024]);
       setView({ x: 0, y: 0, w: data.image_size_px?.[0] ?? 1024, h: data.image_size_px?.[1] ?? 1024 });
       undoStackRef.current = [];
@@ -1025,7 +1038,34 @@ export function AnnotatePage() {
         let crossSceneNote: string | null = null;
         if (tool === 'dimensioned_distance') {
           const me = labelsAfterAdd.find((l) => l.id === label.id) as DimensionedDistanceLabel | undefined;
-          if (me?.attributes.is_reference && me.attributes.value_mm == null) {
+          // N5.4 — height-mark endpoint inference. When BOTH endpoints of
+          // the new dim sit at (or near) existing Höhenkoten with known
+          // value_mm, the dim's value_mm is just |their diff|. Runs before
+          // the X4 building-dim cache fallback. Skipped on Alt (per K2).
+          if (!altHeld && me && me.attributes.value_mm == null) {
+            const hms = labels.filter(
+              (l) => l.type === 'height_mark' && l.attributes.value_mm != null,
+            ) as HeightMarkLabel[];
+            const yTol = imageSnapRadiusForView * 2;
+            const findNearY = (y: number) =>
+              hms.find((h) => Math.abs(h.geometry.anchor[1] - y) < yTol);
+            const startHm = findNearY(effStart[1]);
+            const endHm = findNearY(effEnd[1]);
+            if (startHm && endHm && startHm.id !== endHm.id) {
+              const v = Math.abs((startHm.attributes.value_mm as number) - (endHm.attributes.value_mm as number));
+              if (v > 0) {
+                labelsAfterAdd = labelsAfterAdd.map((l) =>
+                  l.id === label.id
+                    ? ({ ...l, attributes: { ...l.attributes, value_mm: v } } as Label)
+                    : l,
+                );
+                const da = startHm.attributes.datum ?? 'Bezug';
+                const db = endHm.attributes.datum ?? 'Bezug';
+                crossSceneNote = `${v} mm = ${da} ↔ ${db} (aus Höhenkoten)`;
+              }
+            }
+          }
+          if (me?.attributes.is_reference && me.attributes.value_mm == null && !crossSceneNote) {
             const orient = dimOrientation(effStart, effEnd);
             if (orient) {
               const cached = getBuildingDim(scope, key, sceneTag, orient);
@@ -1829,6 +1869,8 @@ export function AnnotatePage() {
         scene_key: key,
         scene_file: decodedFile,
         scene_tag: sceneTag,
+        scene_orientation: sceneOrientation,
+        scene_level: sceneLevel,
         image_size_px: imageSize,
         annotated_by: data.annotated_by ?? 'jhoetter',
         annotated_at: nowIso(),
@@ -1859,6 +1901,19 @@ export function AnnotatePage() {
         if (!o) continue;
         rememberBuildingDim(scope, key, sceneTag, o, l.attributes.value_mm, decodedFile);
       }
+      // N4 — promote this scene's labels to house-wide facts. Idempotent:
+      // saving the same scene twice produces the same facts. Drives N5
+      // (height inference) and N7 (suggestions) on subsequent scenes.
+      promoteToFacts({
+        scope,
+        houseKey: key,
+        sceneFile: decodedFile,
+        sceneTag,
+        sceneOrientation,
+        sceneLevel,
+        imageSize,
+        labels,
+      });
       // M4.3: also remember the Bezugsachse X (as a ratio of image width)
       // so the next scene of the same house picks the same vertical
       // reference column for its first Höhenkote.
@@ -2352,6 +2407,10 @@ export function AnnotatePage() {
             setSceneTag(t);
             setDirty(true);
           }}
+          sceneOrientation={sceneOrientation}
+          setSceneOrientation={(v) => { setSceneOrientation(v); setDirty(true); }}
+          sceneLevel={sceneLevel}
+          setSceneLevel={(v) => { setSceneLevel(v); setDirty(true); }}
           labels={labels}
           selectedId={selectedId}
           onSelectLabel={setSelectedId}
@@ -3348,6 +3407,7 @@ export function AnnotatePage() {
                 <Inspector
                   label={selectedLabel}
                   allLabels={labels}
+                  sceneFile={decodedFile}
                   provenance={crossSceneProvenance.get(selectedLabel.id) ?? null}
                   onChange={(patch) => updateLabel(selectedLabel.id, patch)}
                   onDelete={() => deleteLabel(selectedLabel.id)}
@@ -3389,11 +3449,86 @@ export function AnnotatePage() {
 
 // ── tool palette + scene tag + label list ───────────────────────────────────
 
+// N6 — small pickers for scene_orientation (Ansicht/Schnitt) and scene_level
+// (Grundriss). Rendered inline under the scene-tag block.
+function SceneOrientationPicker({
+  value, onChange,
+}: { value: SceneOrientation | null; onChange: (v: SceneOrientation | null) => void }) {
+  const opts: Array<{ id: SceneOrientation; label: string }> = [
+    { id: 'north', label: 'N' }, { id: 'east', label: 'O' },
+    { id: 'south', label: 'S' }, { id: 'west', label: 'W' },
+  ];
+  return (
+    <div className="mt-2">
+      <div className="text-[0.62rem] uppercase tracking-wider text-zinc-500 font-semibold mb-1">
+        Himmelsrichtung
+      </div>
+      <div className="flex gap-1">
+        {opts.map((o) => {
+          const active = value === o.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => onChange(active ? null : o.id)}
+              className={`flex-1 px-2 py-1 rounded text-[0.72rem] font-mono ${
+                active ? 'bg-accent text-white font-semibold' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+              }`}
+              title={`${o.label} — ${active ? 'abwählen' : 'als Himmelsrichtung setzen'}`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SceneLevelPicker({
+  value, onChange,
+}: { value: SceneLevel | null; onChange: (v: SceneLevel | null) => void }) {
+  const opts: Array<{ id: SceneLevel; label: string }> = [
+    { id: 'kg', label: 'KG' }, { id: 'ug', label: 'UG' },
+    { id: 'eg', label: 'EG' }, { id: 'og', label: 'OG' },
+    { id: 'dg', label: 'DG' }, { id: 'spitzboden', label: 'Sp' },
+  ];
+  return (
+    <div className="mt-2">
+      <div className="text-[0.62rem] uppercase tracking-wider text-zinc-500 font-semibold mb-1">
+        Geschoss
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        {opts.map((o) => {
+          const active = value === o.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => onChange(active ? null : o.id)}
+              className={`px-2 py-1 rounded text-[0.72rem] ${
+                active ? 'bg-accent text-white font-semibold' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+              }`}
+              title={`${o.label} — ${active ? 'abwählen' : 'als Geschoss setzen'}`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ToolPalette({
   tool,
   setTool,
   sceneTag,
   setSceneTag,
+  sceneOrientation,
+  setSceneOrientation,
+  sceneLevel,
+  setSceneLevel,
   labels,
   selectedId,
   onSelectLabel,
@@ -3419,6 +3554,10 @@ function ToolPalette({
   setTool: (t: Tool) => void;
   sceneTag: SceneTag;
   setSceneTag: (t: SceneTag) => void;
+  sceneOrientation: SceneOrientation | null;
+  setSceneOrientation: (v: SceneOrientation | null) => void;
+  sceneLevel: SceneLevel | null;
+  setSceneLevel: (v: SceneLevel | null) => void;
   labels: Label[];
   selectedId: string | null;
   onSelectLabel: (id: string | null) => void;
@@ -3466,6 +3605,17 @@ function ToolPalette({
             );
           })}
         </div>
+        {/* N6: scene-specific metadata. For Ansicht/Schnitt: which face
+            (N/S/E/W). For Grundriss: which floor (KG/UG/EG/OG/DG/Spitzboden).
+            Drives cross-scene cache scoping — Nordansicht's M1 references
+            only pre-fill future Nordansichten, EG's wall thicknesses only
+            pre-fill EG, etc. */}
+        {(sceneTag === 'ansicht' || sceneTag === 'schnitt') && (
+          <SceneOrientationPicker value={sceneOrientation} onChange={setSceneOrientation} />
+        )}
+        {sceneTag === 'grundriss' && (
+          <SceneLevelPicker value={sceneLevel} onChange={setSceneLevel} />
+        )}
       </section>
 
       <section>
@@ -5681,6 +5831,7 @@ function labelGlyphStr(t: string): string {
 function Inspector({
   label,
   allLabels,
+  sceneFile,
   provenance,
   onChange,
   onDelete,
@@ -5693,9 +5844,7 @@ function Inspector({
 }: {
   label: Label;
   allLabels: Label[];
-  /** X5: transient note shown at the top of the inspector when a value
-   *  on this label was auto-filled from another scene of the same house.
-   *  Cleared by the parent on the next user edit. */
+  sceneFile: string;
   provenance: string | null;
   onChange: (patch: Partial<Label>) => void;
   onDelete: () => void;
@@ -5746,6 +5895,8 @@ function Inspector({
       {label.type === 'height_mark' && (
         <HeightMarkFields
           label={label}
+          allLabels={allLabels}
+          sceneFile={sceneFile}
           onChange={onChange}
           scope={scope}
           houseKey={houseKey}
@@ -6406,9 +6557,11 @@ function ComponentLineFields({
 }
 
 function HeightMarkFields({
-  label, onChange, scope, houseKey, onAutoFillToast,
+  label, allLabels, sceneFile, onChange, scope, houseKey, onAutoFillToast,
 }: {
   label: HeightMarkLabel;
+  allLabels: Label[];
+  sceneFile: string;
   onChange: (p: Partial<Label>) => void;
   scope: LabelScope;
   houseKey: string;
@@ -6448,6 +6601,7 @@ function HeightMarkFields({
           onChange={(e) => {
             const newDatum = (e.target.value || null) as HeightMarkLabel['attributes']['datum'];
             const patch: HeightMarkLabel['attributes'] = { ...label.attributes, datum: newDatum };
+            let nextGeom: HeightMarkLabel['geometry'] | undefined;
             // Cross-scene propagation: if this datum has a known value
             // from another scene of the same house AND the current
             // value is unset, pre-fill it. Heights are house-wide —
@@ -6456,14 +6610,39 @@ function HeightMarkFields({
               const known = houseHeights[newDatum];
               if (typeof known === 'number') {
                 patch.value_mm = known;
-                onAutoFillToast(
-                  `↑ ${DATUM_NAMES[newDatum] ?? newDatum} = ${known === 0 ? '±0,00' : `${(known / 1000).toFixed(2).replace('.', ',')} m`} aus anderer Szene übernommen`,
-                  label.id,
-                  `${DATUM_NAMES[newDatum] ?? newDatum} aus anderer Szene`,
-                );
+                // N5: when the scene is calibrated (M1 references with
+                // value_mm exist) AND Bezugshöhe Y is known in this scene,
+                // also AUTO-POSITION the Y so the label snaps to where
+                // this datum actually sits. Caveat: only useful when the
+                // user just picked the datum without already placing the
+                // mark at a custom position.
+                const facts = loadHouseFacts(scope, houseKey);
+                const calib = facts.calibration_per_scene[sceneFile];
+                const bezugLabel = allLabels.find(
+                  (l) => l.type === 'height_mark' && l.attributes.value_mm === 0,
+                ) as HeightMarkLabel | undefined;
+                if (calib && bezugLabel && bezugLabel.id !== label.id) {
+                  // Image Y grows down; building height grows up. So a
+                  // datum that's +12500 mm above Bezug sits 12500 * px_per_mm
+                  // pixels HIGHER (smaller Y) than Bezug.
+                  const deltaPx = known * calib.px_per_mm;
+                  const newY = bezugLabel.geometry.anchor[1] - deltaPx;
+                  nextGeom = { anchor: [label.geometry.anchor[0], newY] };
+                  onAutoFillToast(
+                    `↑ ${DATUM_NAMES[newDatum] ?? newDatum} = ${known === 0 ? '±0,00' : `${(known / 1000).toFixed(2).replace('.', ',')} m`} — Wert + Y-Position übernommen`,
+                    label.id,
+                    `${DATUM_NAMES[newDatum] ?? newDatum} mit Y aus Bezug + Kalibrierung`,
+                  );
+                } else {
+                  onAutoFillToast(
+                    `↑ ${DATUM_NAMES[newDatum] ?? newDatum} = ${known === 0 ? '±0,00' : `${(known / 1000).toFixed(2).replace('.', ',')} m`} aus anderer Szene übernommen`,
+                    label.id,
+                    `${DATUM_NAMES[newDatum] ?? newDatum} aus anderer Szene`,
+                  );
+                }
               }
             }
-            onChange({ attributes: patch } as Partial<Label>);
+            onChange({ attributes: patch, ...(nextGeom ? { geometry: nextGeom } : {}) } as Partial<Label>);
           }}
           className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
         >

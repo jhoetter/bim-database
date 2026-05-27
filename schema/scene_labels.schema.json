@@ -30,6 +30,16 @@
       "enum": ["grundriss", "ansicht", "schnitt", "sonstiges", "nicht_klassifiziert"],
       "description": "Determines which label tools are available."
     },
+    "scene_orientation": {
+      "type": ["string", "null"],
+      "enum": ["north", "south", "east", "west", null],
+      "description": "N6: for ansicht/schnitt — which building face this scene shows. Scopes cross-scene caches: Nordansicht's values only pre-fill future Nordansichten."
+    },
+    "scene_level": {
+      "type": ["string", "null"],
+      "enum": ["kg", "ug", "eg", "og", "dg", "spitzboden", null],
+      "description": "N6: for grundriss — which floor this scene shows. Scopes cross-scene caches: EG's values only pre-fill future EG floorplans."
+    },
     "image_size_px": {
       "type": "array",
       "items": {"type": "integer", "minimum": 1},

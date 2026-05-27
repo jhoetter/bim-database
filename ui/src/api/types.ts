@@ -192,12 +192,21 @@ export type Label =
   | DimensionedDistanceLabel
   | DimensionNumberLabel;
 
+export type SceneOrientation = 'north' | 'south' | 'east' | 'west';
+export type SceneLevel = 'kg' | 'ug' | 'eg' | 'og' | 'dg' | 'spitzboden';
+
 export interface SceneLabels {
   schema_version: '1.0';
   scope?: LabelScope;
   scene_key: string;
   scene_file: string;
   scene_tag: SceneTag;
+  /** N6: for Ansicht/Schnitt, which building face this scene shows. Used to
+   *  scope cross-scene caches (Nordansicht only pre-fills future
+   *  Nordansichten). Null = unset (legacy behavior). */
+  scene_orientation?: SceneOrientation | null;
+  /** N6: for Grundriss, which floor of the building. Same scoping use. */
+  scene_level?: SceneLevel | null;
   image_size_px: [number, number];
   annotated_by?: string;
   annotated_at?: string;
