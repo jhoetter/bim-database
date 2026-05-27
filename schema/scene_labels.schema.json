@@ -14,8 +14,8 @@
     },
     "scope": {
       "type": "string",
-      "enum": ["synthetic", "house"],
-      "description": "Which side of the database this scene belongs to. Optional — defaults to synthetic if the key has no real-house counterpart."
+      "enum": ["dataset", "house"],
+      "description": "Which side of the database this scene belongs to. 'dataset' = the supervised-learning corpus under data/dataset/ (mix of AI-generated + real). 'house' = the source catalog under data/houses/. Optional — defaults to dataset if the key has no real-house counterpart."
     },
     "scene_key": {
       "type": "string",
@@ -175,13 +175,38 @@
         "properties": {
           "type": {"const": "view_opening"},
           "geometry": {
-            "type": "object",
-            "required": ["top_edge", "bottom_edge"],
-            "additionalProperties": false,
-            "properties": {
-              "top_edge": {"$ref": "#/$defs/Polyline"},
-              "bottom_edge": {"$ref": "#/$defs/Polyline"}
-            }
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["top_edge", "bottom_edge"],
+                "additionalProperties": false,
+                "properties": {
+                  "top_edge": {"$ref": "#/$defs/Polyline"},
+                  "bottom_edge": {"$ref": "#/$defs/Polyline"}
+                }
+              },
+              {
+                "type": "object",
+                "description": "Circle / round window. center + radius in image px.",
+                "required": ["shape", "center", "radius_px"],
+                "additionalProperties": false,
+                "properties": {
+                  "shape": {"const": "circle"},
+                  "center": {"$ref": "#/$defs/Point"},
+                  "radius_px": {"type": "number", "exclusiveMinimum": 0}
+                }
+              },
+              {
+                "type": "object",
+                "description": "Arbitrary polygon for arched / pointed / irregular openings.",
+                "required": ["shape", "polygon"],
+                "additionalProperties": false,
+                "properties": {
+                  "shape": {"const": "polygon"},
+                  "polygon": {"$ref": "#/$defs/Polyline"}
+                }
+              }
+            ]
           },
           "attributes": {
             "type": "object",

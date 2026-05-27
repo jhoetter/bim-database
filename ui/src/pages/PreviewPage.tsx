@@ -22,10 +22,10 @@ export function PreviewPage() {
   const location = useLocation();
   const { key = '', file = '' } = useParams();
   const decodedFile = decodeURIComponent(file);
-  const scope: LabelScope = location.pathname.startsWith('/synthetic/') ? 'synthetic' : 'house';
+  const scope: LabelScope = location.pathname.startsWith('/dataset/') ? 'dataset' : 'house';
   const imageUrl =
-    scope === 'synthetic'
-      ? `/static/synthetic/${key}/${decodedFile}`
+    scope === 'dataset'
+      ? `/static/dataset/${key}/${decodedFile}`
       : `/scene/${key}/${encodeURIComponent(decodedFile)}`;
 
   const { data, error, loading } = useResource(() => fetchLabels(scope, key, decodedFile), [scope, key, decodedFile]);
@@ -40,8 +40,8 @@ export function PreviewPage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: scope === 'synthetic' ? 'Synthetisch' : 'Alle Häuser', to: scope === 'synthetic' ? '/synthetic' : '/' },
-            { label: key, to: scope === 'synthetic' ? `/synthetic/${key}` : `/house/${key}` },
+            { label: scope === 'dataset' ? 'Datensatz' : 'Alle Häuser', to: scope === 'dataset' ? '/dataset' : '/' },
+            { label: key, to: scope === 'dataset' ? `/dataset/${key}` : `/house/${key}` },
             { label: `Vorschau & Export: ${decodedFile}` },
           ]}
         />
@@ -273,9 +273,21 @@ function RawLabelGlyph({ label }: { label: Label }) {
       return <polygon points={`${aa.join(',')} ${b.join(',')} ${c.join(',')} ${d.join(',')}`} fill={color + '22'} stroke={color} strokeWidth={sw} />;
     }
     case 'view_opening': {
-      const { top_edge, bottom_edge } = label.geometry;
-      const path = `M ${top_edge.map(p => p.join(',')).join(' L ')}` +
-                   ` L ${[...bottom_edge].reverse().map(p => p.join(',')).join(' L ')} Z`;
+      const g = label.geometry as Record<string, unknown>;
+      if (g.shape === 'circle') {
+        const center = g.center as [number, number];
+        const r = g.radius_px as number;
+        return <circle cx={center[0]} cy={center[1]} r={r} fill={color + '22'} stroke={color} strokeWidth={sw} />;
+      }
+      if (g.shape === 'polygon') {
+        const polygon = g.polygon as Array<[number, number]>;
+        const path = `M ${polygon.map((p) => p.join(',')).join(' L ')} Z`;
+        return <path d={path} fill={color + '22'} stroke={color} strokeWidth={sw} />;
+      }
+      const top_edge = g.top_edge as Array<[number, number]>;
+      const bottom_edge = g.bottom_edge as Array<[number, number]>;
+      const path = `M ${top_edge.map((p) => p.join(',')).join(' L ')}` +
+                   ` L ${[...bottom_edge].reverse().map((p) => p.join(',')).join(' L ')} Z`;
       return <path d={path} fill={color + '22'} stroke={color} strokeWidth={sw} />;
     }
     case 'component_line': {

@@ -56,5 +56,6 @@
     "roof_plan": "absent",
     "site_plan": "absent",
     "construction_specs": "summary"
-  }
+  },
+  "dataset_starred": false
 }

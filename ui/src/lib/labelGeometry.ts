@@ -22,11 +22,26 @@ export function translateLabelGeometry(label: Label, dx: number, dy: number): La
       };
     case 'floorplan_opening':
       return { quad: label.geometry.quad.map(t) as FloorplanOpeningLabel['geometry']['quad'] };
-    case 'view_opening':
+    case 'view_opening': {
+      const g = label.geometry as Record<string, unknown>;
+      if (g.shape === 'circle') {
+        return {
+          shape: 'circle',
+          center: t(g.center as Point),
+          radius_px: g.radius_px as number,
+        };
+      }
+      if (g.shape === 'polygon') {
+        return {
+          shape: 'polygon',
+          polygon: (g.polygon as Point[]).map(t),
+        };
+      }
       return {
-        top_edge: label.geometry.top_edge.map(t) as Point[],
-        bottom_edge: label.geometry.bottom_edge.map(t) as Point[],
+        top_edge: (g.top_edge as Point[]).map(t),
+        bottom_edge: (g.bottom_edge as Point[]).map(t),
       };
+    }
     case 'component_line':
       return { polyline: label.geometry.polyline.map(t) as Point[] };
     case 'height_mark':
@@ -62,11 +77,28 @@ export function handlesFor(label: Label): HandleSpec[] {
         pt,
         cursor: cornerCursor(i),
       }));
-    case 'view_opening':
+    case 'view_opening': {
+      const g = label.geometry as Record<string, unknown>;
+      if (g.shape === 'circle') {
+        // Single handle on the right cardinal point so the user can drag
+        // to resize the radius. Move handle separately on the center.
+        const c = g.center as Point;
+        const r = g.radius_px as number;
+        return [
+          { id: 'center', pt: c, cursor: 'move' },
+          { id: 'radius', pt: [c[0] + r, c[1]] as Point, cursor: 'ew-resize' },
+        ];
+      }
+      if (g.shape === 'polygon') {
+        return (g.polygon as Point[]).map((pt, i) => ({
+          id: `polygon.${i}`, pt, cursor: 'move',
+        }));
+      }
       return [
-        ...label.geometry.top_edge.map((pt, i) => ({ id: `top.${i}`, pt, cursor: 'crosshair' })),
-        ...label.geometry.bottom_edge.map((pt, i) => ({ id: `bottom.${i}`, pt, cursor: 'crosshair' })),
+        ...(g.top_edge as Point[]).map((pt, i) => ({ id: `top.${i}`, pt, cursor: 'crosshair' as string })),
+        ...(g.bottom_edge as Point[]).map((pt, i) => ({ id: `bottom.${i}`, pt, cursor: 'crosshair' as string })),
       ];
+    }
     case 'component_line':
       return label.geometry.polyline.map((pt, i) => ({
         id: `polyline.${i}`,
@@ -102,20 +134,40 @@ export function moveHandle(label: Label, handleId: string, newPt: Point): Label[
         return { quad };
       }
       break;
-    case 'view_opening':
+    case 'view_opening': {
+      const g = label.geometry as Record<string, unknown>;
+      if (g.shape === 'circle') {
+        if (handleId === 'center') return { ...(g as object), center: newPt } as Label['geometry'];
+        if (handleId === 'radius') {
+          const c = g.center as Point;
+          const r = Math.hypot(newPt[0] - c[0], newPt[1] - c[1]);
+          return { ...(g as object), radius_px: r } as Label['geometry'];
+        }
+        break;
+      }
+      if (g.shape === 'polygon') {
+        if (handleId.startsWith('polygon.')) {
+          const i = parseInt(handleId.slice(8), 10);
+          const polygon = (g.polygon as Point[]).slice();
+          polygon[i] = newPt;
+          return { ...(g as object), polygon } as Label['geometry'];
+        }
+        break;
+      }
       if (handleId.startsWith('top.')) {
         const i = parseInt(handleId.slice(4), 10);
-        const top_edge = label.geometry.top_edge.slice();
+        const top_edge = (g.top_edge as Point[]).slice();
         top_edge[i] = newPt;
-        return { ...label.geometry, top_edge };
+        return { ...(g as object), top_edge } as Label['geometry'];
       }
       if (handleId.startsWith('bottom.')) {
         const i = parseInt(handleId.slice(7), 10);
-        const bottom_edge = label.geometry.bottom_edge.slice();
+        const bottom_edge = (g.bottom_edge as Point[]).slice();
         bottom_edge[i] = newPt;
-        return { ...label.geometry, bottom_edge };
+        return { ...(g as object), bottom_edge } as Label['geometry'];
       }
       break;
+    }
     case 'component_line':
       if (handleId.startsWith('polyline.')) {
         const i = parseInt(handleId.slice(9), 10);
@@ -145,8 +197,16 @@ export function labelCentroid(l: Label): Point {
       return [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2];
     }
     case 'view_opening': {
-      const t = l.geometry.top_edge;
-      const b = l.geometry.bottom_edge;
+      const g = l.geometry as Record<string, unknown>;
+      if (g.shape === 'circle') return g.center as Point;
+      if (g.shape === 'polygon') {
+        const poly = g.polygon as Point[];
+        let sx = 0; let sy = 0;
+        for (const p of poly) { sx += p[0]; sy += p[1]; }
+        return [sx / poly.length, sy / poly.length];
+      }
+      const t = g.top_edge as Point[];
+      const b = g.bottom_edge as Point[];
       return [(t[0][0] + b[b.length - 1][0]) / 2, (t[0][1] + b[b.length - 1][1]) / 2];
     }
     case 'component_line':

@@ -1,7 +1,7 @@
 // Thin fetch wrappers + a couple of helper hooks. All endpoints come from
 // the FastAPI in api/main.py — dev proxies to :2500, prod is same-origin.
 import { useEffect, useState } from 'react';
-import type { House, LabelScope, Ontology, SceneLabels, SyntheticHouse } from './types';
+import type { House, LabelScope, Ontology, SceneLabels, DatasetHouse } from './types';
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -23,15 +23,31 @@ export function fetchOntology(): Promise<Ontology> {
   return get<Ontology>('/ontology');
 }
 
-export function fetchSynthetics(): Promise<SyntheticHouse[]> {
-  return get<SyntheticHouse[]>('/synthetics');
+export async function setDatasetStarred(
+  key: string,
+  starred: boolean,
+): Promise<{ key: string; dataset_starred: boolean; materialized: string | null }> {
+  const r = await fetch(`/houses/${key}/dataset_starred`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ starred }),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
 }
 
-export function fetchSynthetic(key: string): Promise<SyntheticHouse> {
-  return get<SyntheticHouse>(`/synthetics/${key}`);
+export function fetchDatasets(): Promise<DatasetHouse[]> {
+  return get<DatasetHouse[]>('/datasets');
 }
 
-// Annotation labels — works for both 'synthetic' and 'house' scopes. The
+export function fetchDataset(key: string): Promise<DatasetHouse> {
+  return get<DatasetHouse>(`/datasets/${key}`);
+}
+
+// Annotation labels — works for both 'dataset' and 'house' scopes. The
 // GET endpoint returns a freshly-constructed skeleton if no labels file
 // exists yet, so the editor never has to handle a separate "new" path.
 

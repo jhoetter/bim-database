@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-21",
+  "scene_file": "house-21-floorplan-dg-detail.jpg",
+  "scene_tag": "grundriss",
+  "image_size_px": [
+    3308,
+    2339
+  ],
+  "labels": [
+    {
+      "id": "5e65ede8-cc08-4056-801a-1865dda62ea4",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          941.6315307617188,
+          748.6885986328125
+        ],
+        "end": [
+          941.6315307617188,
+          1536.055622086527
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:11:52.526Z",
+      "updated_at": "2026-05-27T16:11:52.526Z"
+    },
+    {
+      "id": "5dfc0fc1-dc97-4e32-9669-f8bb1d1f552a",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1965.229248046875,
+          748.6885986328125
+        ],
+        "end": [
+          1966.25341796875,
+          1536.055622086527
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:12:04.674Z",
+      "updated_at": "2026-05-27T16:12:04.675Z"
+    },
+    {
+      "id": "cd135c83-a355-4640-8c50-4ee861afc381",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2982.4150390625,
+          748.6885986328125
+        ],
+        "end": [
+          2982.4150390625,
+          1496.4166529487156
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:12:07.726Z",
+      "updated_at": "2026-05-27T16:12:07.727Z"
+    },
+    {
+      "id": "fde0a4f1-eebf-469c-8d02-46b0f7c380ca",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          941.6315307617188,
+          765.484375
+        ],
+        "end": [
+          2985.202392578125,
+          748.6885986328125
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:12:11.783Z",
+      "updated_at": "2026-05-27T16:12:11.783Z"
+    },
+    {
+      "id": "df49e471-22eb-4e42-814e-e3dc526fc6c5",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          941.6315307617188,
+          1522.1575927734375
+        ],
+        "end": [
+          2985.202392578125,
+          1513.4925537109375
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:12:20.460Z",
+      "updated_at": "2026-05-27T16:12:20.460Z"
+    },
+    {
+      "id": "c29ddfc3-3429-4d28-a022-ccd19cc3cb39",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          941.6315307617188,
+          1809.226318359375
+        ],
+        "end": [
+          2985.202392578125,
+          1756.1495361328125
+        ]
+      },
+      "attributes": {
+        "value_mm": 1980,
+        "target_orientation": "unknown",
+        "is_reference": true
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:12:28.385Z",
+      "updated_at": "2026-05-27T16:12:37.694Z"
+    },
+    {
+      "id": "6515914c-a4dd-4bbd-8a72-067d2e581a5a",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          646.1917114257812,
+          674.6660766601562
+        ],
+        "end": [
+          646.1917114257814,
+          1619.9272343236898
+        ]
+      },
+      "attributes": {
+        "value_mm": 725,
+        "target_orientation": "unknown",
+        "is_reference": true
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:12:46.218Z",
+      "updated_at": "2026-05-27T16:12:53.424Z"
+    }
+  ],
+  "annotated_by": "jhoetter",
+  "annotated_at": "2026-05-27T16:13:22.325Z"
+}

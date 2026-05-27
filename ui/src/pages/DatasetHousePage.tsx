@@ -1,7 +1,7 @@
 import { Link, useNavigate, useParams } from 'react-router';
 import { useState } from 'react';
-import { fetchSynthetic, useResource } from '../api/client';
-import type { SyntheticComposite, SyntheticDrawing } from '../api/types';
+import { fetchDataset, useResource } from '../api/client';
+import type { DatasetComposite, DatasetDrawing } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 
@@ -9,10 +9,10 @@ import { Breadcrumb } from '../components/layout/Breadcrumb';
 // house record; main area shows all drawings as a Pinterest grid; clicking a
 // drawing opens the right rail with its scene-detail panel.
 
-export function SyntheticHousePage() {
+export function DatasetHousePage() {
   const { key = '', file } = useParams();
   const navigate = useNavigate();
-  const { data, error, loading } = useResource(() => fetchSynthetic(key), [key]);
+  const { data, error, loading } = useResource(() => fetchDataset(key), [key]);
 
   const decodedFile = file ? decodeURIComponent(file) : null;
   const activeDrawing = decodedFile
@@ -24,7 +24,7 @@ export function SyntheticHousePage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: 'Synthetisch', to: '/synthetic' },
+            { label: 'Datensatz', to: '/dataset' },
             { label: data?.model ?? key },
             ...(activeDrawing ? [{ label: activeDrawing.title ?? activeDrawing.file }] : []),
           ]}
@@ -34,7 +34,7 @@ export function SyntheticHousePage() {
         <div className="px-4 py-4 space-y-5 min-w-0">
           <header className="min-w-0">
             <div className="text-[0.65rem] uppercase tracking-wider text-muted font-medium">
-              Synthetisch · {key}
+              Datensatz · {key}
             </div>
             <h1 className="text-[1rem] font-semibold leading-snug mt-0.5 break-words">
               {data?.model ?? key}
@@ -62,7 +62,7 @@ export function SyntheticHousePage() {
       }
       rightRail={activeDrawing ? <DrawingDetail d={activeDrawing} /> : null}
       rightRailLabel={activeDrawing ? 'Zeichnung' : undefined}
-      onCloseRightRail={() => navigate(`/synthetic/${key}`)}
+      onCloseRightRail={() => navigate(`/dataset/${key}`)}
     >
       <div className="px-6 py-5">
         {data?.composite && (
@@ -82,7 +82,7 @@ export function SyntheticHousePage() {
   );
 }
 
-function CoverageSummary({ drawings }: { drawings: SyntheticDrawing[] }) {
+function CoverageSummary({ drawings }: { drawings: DatasetDrawing[] }) {
   const byKind: Record<string, number> = {};
   const byLabel: Record<string, number> = {};
   for (const d of drawings) {
@@ -116,7 +116,7 @@ function CoverageSummary({ drawings }: { drawings: SyntheticDrawing[] }) {
   );
 }
 
-function ManifestMeta({ drawings }: { drawings: SyntheticDrawing[] }) {
+function ManifestMeta({ drawings }: { drawings: DatasetDrawing[] }) {
   const newest = drawings
     .map((d) => d.generated_at)
     .filter((x): x is string => x != null)
@@ -146,11 +146,11 @@ function DrawingsGallery({
   drawings,
   houseKey,
 }: {
-  drawings: SyntheticDrawing[];
+  drawings: DatasetDrawing[];
   houseKey: string;
 }) {
   // Group by kind so the page reads as "Ansichten / Grundrisse / Schnitte".
-  const groups: Record<string, SyntheticDrawing[]> = {};
+  const groups: Record<string, DatasetDrawing[]> = {};
   for (const d of drawings) (groups[d.kind] ??= []).push(d);
   const labels: Record<string, string> = {
     elevation: 'Ansichten',
@@ -191,7 +191,7 @@ function CompositeSection({
   composite,
   houseKey,
 }: {
-  composite: SyntheticComposite;
+  composite: DatasetComposite;
   houseKey: string;
 }) {
   const [hoveredScene, setHoveredScene] = useState<string | null>(null);
@@ -244,7 +244,7 @@ function CompositeSection({
                 return (
                   <Link
                     key={s.file}
-                    to={`/synthetic/${houseKey}/scene/${encodeURIComponent(s.file)}`}
+                    to={`/dataset/${houseKey}/scene/${encodeURIComponent(s.file)}`}
                   >
                     <rect
                       x={x}
@@ -284,7 +284,7 @@ function CompositeSection({
   );
 }
 
-function DrawingTile({ houseKey, d }: { houseKey: string; d: SyntheticDrawing }) {
+function DrawingTile({ houseKey, d }: { houseKey: string; d: DatasetDrawing }) {
   const label =
     d.kind === 'floorplan' && d.floor
       ? d.floor
@@ -299,7 +299,7 @@ function DrawingTile({ houseKey, d }: { houseKey: string; d: SyntheticDrawing })
       : 'bg-zinc-700/85';
   return (
     <Link
-      to={`/synthetic/${houseKey}/scene/${encodeURIComponent(d.file)}`}
+      to={`/dataset/${houseKey}/scene/${encodeURIComponent(d.file)}`}
       className="relative block mb-3 break-inside-avoid rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
     >
       <img
@@ -343,7 +343,7 @@ function DrawingTile({ houseKey, d }: { houseKey: string; d: SyntheticDrawing })
   );
 }
 
-function DrawingDetail({ d }: { d: SyntheticDrawing }) {
+function DrawingDetail({ d }: { d: DatasetDrawing }) {
   const { key = '' } = useParams();
   return (
     <div className="flex flex-col">
@@ -415,7 +415,7 @@ function DrawingDetail({ d }: { d: SyntheticDrawing }) {
 
         <div className="flex gap-2 flex-wrap">
           <Link
-            to={`/synthetic/${key}/scene/${encodeURIComponent(d.file)}/annotate`}
+            to={`/dataset/${key}/scene/${encodeURIComponent(d.file)}/annotate`}
             className="inline-block px-3 py-1.5 rounded-md text-[0.78rem] font-medium bg-accent text-white hover:opacity-90"
           >
             Annotieren →

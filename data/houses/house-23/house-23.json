@@ -1048,5 +1048,6 @@
     "roof_plan": "absent",
     "site_plan": "absent",
     "construction_specs": "full_baubeschreibung"
-  }
+  },
+  "dataset_starred": true
 }

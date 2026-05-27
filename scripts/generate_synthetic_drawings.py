@@ -66,8 +66,18 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 from api.scene_render import HOUSES_DIR, render_scene  # noqa: E402
 
-SYNTHETIC_DIR = REPO / "data" / "synthetic"
+DATASET_DIR = REPO / "data" / "dataset"
+# Back-compat alias for any external code that imports the old name.
+SYNTHETIC_DIR = DATASET_DIR
 PREPARED_DIR = REPO / "tmp" / "synthetic-prepared"
+PROMPT_INDEX = DATASET_DIR / "prompt_index.jsonl"
+DIFFICULT_HOUSES_LOG = DATASET_DIR / "difficult_houses.jsonl"
+
+# A house is flagged "difficult" if at least this fraction of its drawings
+# fail the dimension-sum verification even after all retry attempts. Flagged
+# houses are NOT skipped — they're recorded for downstream filtering of the
+# training corpus.
+DIFFICULT_HOUSE_FAIL_RATIO = 0.5
 
 # Houses that DON'T get synthetic drawings — they're the style references.
 SKIP_KEYS = {"house-21", "house-22", "house-23"}
@@ -118,6 +128,172 @@ DETAIL_INSTRUCTIONS = {
     ),
 }
 
+# ── per-house "nuance traits" ────────────────────────────────────────────────
+# Each house draws ONE option from each pool with the per-house RNG, so the
+# six drawings of a house feel like one architect's work, while two
+# different houses look like two different architects working in two
+# different decades on two different desks.
+#
+# We deliberately spread the trait-space wide (lettering, paper, capture
+# method, line weight, persona) plus a per-drawing "twist" so the dataset
+# doesn't collapse into one visual mode. The chosen profile is logged into
+# data/synthetic/prompt_index.jsonl so we can scan for accidental repetition.
+
+LETTERING_STYLES = [
+    "neat upright architect's print, all uppercase, evenly spaced",
+    "slanted draftsman's cursive, slightly inconsistent x-height",
+    "blocky upright stencil-style lettering with thick uniform strokes",
+    "scrappy engineer's print, a little hurried, slightly uneven baseline",
+    "fine italic technical hand, light pressure, narrow letters",
+    "rounded hand-printed letters, slightly childlike but legible",
+    "tall narrow capitals, faded ink, occasional double-stroked letter",
+    "mixed case hand-printing, lowercase for notes and uppercase for titles",
+]
+LETTERING_WEIGHTS = [0.16, 0.16, 0.12, 0.16, 0.12, 0.10, 0.10, 0.08]
+
+PAPER_CONDITIONS = [
+    "clean archive paper, faintly yellowed by age",
+    "ivory-toned drafting paper with a soft uniform tone",
+    "cream tracing paper with visible weave and slight translucency",
+    "slightly water-stained at one edge, otherwise crisp",
+    "tea-toned where it sat in light, white in shadow",
+    "fresh white drafting vellum, almost no aging",
+    "heavily creased paper with two perpendicular fold lines visible",
+    "blueprint-tinged cyanotype-like paper, very faint blue cast",
+]
+PAPER_WEIGHTS = [0.18, 0.18, 0.14, 0.10, 0.10, 0.14, 0.10, 0.06]
+
+# Capture methods — about 50% give a noticeable photographed-paper feel
+# (slight / strong tilt / overhead-phone), so the dataset isn't all
+# perfectly-square scans. Compare to data/houses/house-23/*.jpg which were
+# all phone-photographed from a folded paper plan and show this look.
+CAPTURE_METHODS = [
+    ("flatbed_scan",
+     "flatbed-scanned at high resolution, perfectly square to the page, "
+     "even lighting, no perspective"),
+    ("photo_slight_tilt",
+     "photographed on a desk at a slight angle (about 1-2 degrees rotation), "
+     "warm desk-lamp lighting from upper-left, one faint horizontal "
+     "paper-fold shadow band crossing the image, white desk visible at the "
+     "page edges"),
+    ("photo_strong_tilt",
+     "photographed handheld, paper visibly tilted by 2-3 degrees clockwise, "
+     "one diagonal fold-crease shadow running across the sheet, slight "
+     "perspective so the far edge of the page is fractionally smaller than "
+     "the near edge, a corner of the page slightly curled up"),
+    ("photo_overhead_phone",
+     "photographed overhead with a phone camera, very slight tilt (about 1 "
+     "degree), one prominent horizontal fold shadow across the middle of "
+     "the page, faint diffuse shadow at one corner where the photographer's "
+     "hand or phone hovered, slight chromatic warmth"),
+    ("aged_scan",
+     "old institutional scan, slight skew under 1 degree, some dust speckle, "
+     "slightly washed-out contrast, faint scanner-bar streaks"),
+    ("photo_folded_plan",
+     "photograph of a plan that has been folded into eighths and unfolded "
+     "again — clear cross-shaped fold creases divide the page into a grid "
+     "of rectangles, with darker shadow bands along each crease line and "
+     "the sheet rotated 1-2 degrees off horizontal in the photo"),
+]
+CAPTURE_WEIGHTS = [0.30, 0.18, 0.12, 0.18, 0.10, 0.12]
+
+LINE_WEIGHT_OPTIONS = [
+    "delicate fine 0.3 mm linework throughout, almost spidery",
+    "medium-weight inked lines, occasionally a heavier outline at building edges",
+    "heavy-pressed pencil lines, occasionally slightly smudged",
+    "mixed weights — bold outlines for the building envelope, fine internal hatching",
+    "uniform 0.5 mm rapidograph ink, mechanically consistent",
+]
+LINE_WEIGHT_WEIGHTS = [0.18, 0.32, 0.18, 0.22, 0.10]
+
+ARCHITECT_PERSONAS = [
+    ("sparse-modernist",
+     "Sparse minimal annotations; only essential dimension chains and labels. "
+     "The drawing speaks for itself; lots of clean paper around the building."),
+    ("verbose-classicist",
+     "Densely annotated with multiple dimension chains, material callouts on "
+     "every wall surface, small explanatory side-notes around the building."),
+    ("nordic-clean",
+     "Restrained Nordic-school annotations; clean tightly-spaced numerals; "
+     "very little redundant chain; a thin north arrow if a plan view."),
+    ("postwar-german",
+     "Postwar-German Bauplan rigor — material hatchings labeled, OK-FFB lines "
+     "per storey, small German abbreviations everywhere (OK, UK, FFB, RFB)."),
+    ("hurried-engineer",
+     "Slightly hurried draftsmanship — one or two dimension values look "
+     "hand-corrected (small overstrike or arrow correction). Still fully legible."),
+    ("1970s-precision",
+     "1970s technical-school precision — exacting linework, sober lettering, "
+     "small project-number stamp in the lower corner."),
+]
+ARCHITECT_WEIGHTS = [0.18, 0.20, 0.16, 0.22, 0.12, 0.12]
+
+# Per-drawing "twists" — picked per drawing (not per house) so each sheet has
+# one small unique detail. Across many sheets these should mostly not repeat,
+# which is the whole point of the index file: we can grep for over-used twists.
+TWISTS = [
+    "a small red 'GEPRÜFT' stamp in one corner",
+    "a blue ballpoint margin note in the right margin in German cursive",
+    "two parallel hand-erased pencil marks faintly visible under the inked linework",
+    "a coffee-cup ring stain on one corner of the page",
+    "a paperclip indentation along the top edge",
+    "a thumbprint smudge near the title block",
+    "a tiny architect's stamp/seal in the title block",
+    "a numbered file-folder sticker on one corner",
+    "punched binder holes along the left edge",
+    "subtle bluish print-through from a sheet underneath",
+    "yellowed adhesive-tape repair across one fold",
+    "a folded-over dog-eared corner",
+    "a tiny pencil-corrected dimension figure in one segment, original lightly erased",
+    "a marginal pencil scale-bar drawn at the bottom of the sheet",
+    "a fine red revision-cloud around one window or door",
+    "a small archivist's catalog number stamped in the lower corner",
+    "a graphite smudge from the draftsman's wrist along the bottom edge",
+    "a small north-arrow with 'N' marked even if slightly out of place on an elevation",
+    "a wax-pencil revision tick mark in the margin",
+    "a tiny faded date '12.03.1968' written in pencil in the corner",
+    "a small drafting-tape residue square at one corner",
+    "a few scattered pencil-compass pin-holes",
+    "a faint typewritten correction strip taped over one note",
+    "a hand-drawn key/legend box in the lower-right corner",
+    "a tiny rubber-stamp page-number in the corner like 'Bl. 3/12'",
+    "a faint orange highlighter sweep across one room label",
+]
+
+def pick_nuance_profile(seed: int) -> dict:
+    """Deterministically choose one option from each trait pool for this house."""
+    rng = random.Random(seed + 13)
+    return {
+        "lettering": rng.choices(LETTERING_STYLES, weights=LETTERING_WEIGHTS, k=1)[0],
+        "paper": rng.choices(PAPER_CONDITIONS, weights=PAPER_WEIGHTS, k=1)[0],
+        "capture": rng.choices(CAPTURE_METHODS, weights=CAPTURE_WEIGHTS, k=1)[0],
+        "line_weight": rng.choices(LINE_WEIGHT_OPTIONS, weights=LINE_WEIGHT_WEIGHTS, k=1)[0],
+        "persona": rng.choices(ARCHITECT_PERSONAS, weights=ARCHITECT_WEIGHTS, k=1)[0],
+    }
+
+
+def pick_twist(seed: int, target_filename: str) -> str:
+    """One twist per drawing — deterministic from house seed + filename."""
+    rng = random.Random(f"{seed}-{target_filename}")
+    return rng.choice(TWISTS)
+
+
+def render_nuance_clause(profile: dict, twist: str) -> str:
+    """Inject the nuance profile + twist into a text block the prompt can include."""
+    capture_id, capture_desc = profile["capture"]
+    persona_id, persona_desc = profile["persona"]
+    return (
+        "Per-sheet handcraft and capture (this house's signature look — keep CONSISTENT across all this house's drawings):\n"
+        f"- Lettering: {profile['lettering']}. Do NOT default to a clean uniform CAD-style font — the lettering must look hand-made.\n"
+        f"- Linework: {profile['line_weight']}.\n"
+        f"- Paper: {profile['paper']}.\n"
+        f"- Capture: {capture_desc}.\n"
+        f"- Draftsman personality: {persona_desc}\n"
+        f"Per-sheet twist (unique to THIS sheet): {twist}.\n"
+        "Important: avoid the 'AI-generated technical drawing' aesthetic — no perfectly even letterforms, no synthetic paper texture. The image should look like a photograph or scan of a physical plan drawn by hand."
+    )
+
+
 VERIFY_MODEL = os.getenv("BIM_SYNTHETIC_VERIFY_MODEL", "gpt-4o")
 MODEL = os.getenv("BIM_SYNTHETIC_MODEL", "gpt-image-2")
 MAX_STYLE = 2
@@ -149,10 +325,9 @@ Use the technical-drawing reference images only as STYLE reference (not content)
 - monochrome pencil / graphite / ink linework on paper
 - hand-drawn but technically precise
 - old-school architectural elevation drawing
-- slightly wrinkled paper texture, subtle shadows + folds + paper grain
-- clean centered composition, simple ground line
-- light hatching / cross-hatching
-- realistic photographed-paper look
+- realistic photographed/scanned-paper look (NOT a digital "old paper" filter)
+
+{nuance_clause}
 
 {detail_instructions}
 
@@ -207,7 +382,9 @@ Use the technical-drawing reference images only as STYLE reference (not content)
 - room name + area annotations in German (Wohnzimmer, Schlafzimmer, Küche,
   Bad, Flur, Diele, Eltern, Kind, …) where layout warrants
 - light dimension chains along the outside
-- slightly wrinkled paper texture, realistic photographed-paper look
+- realistic photographed/scanned-paper look (NOT a digital "old paper" filter)
+
+{nuance_clause}
 
 {detail_instructions}
 
@@ -307,13 +484,52 @@ def list_content_refs(house_dir: Path) -> list[Path]:
     return sorted(refs)
 
 
-def determine_targets(house: dict, kind_filter: str | None = None) -> list[dict]:
-    """Order matters: elevations first (N, S, E, W), then floorplans (KG/EG/OG/DG/Spitzboden).
+def _floorplan_target(key: str, floor: str) -> dict:
+    slug = floor.lower().replace(" ", "").replace(".", "").replace("ö", "oe")
+    return {
+        "kind": "floorplan",
+        "floor": floor,
+        "title": f"GRUNDRISS {floor.upper()}",
+        "filename": f"{key}-syn-floorplan-{slug}.png",
+        "prompt_args": {"floor_label": floor, "title_text": f"GRUNDRISS {floor.upper()}"},
+    }
 
-    Elevations are generated before floorplans so a floorplan can use the
-    elevations as priors (window/door rhythm)."""
+
+def determine_targets(house: dict, kind_filter: str | None = None) -> list[dict]:
+    """Order:
+        1. Ground-floor plan (EG, or Hochparterre / first available as fallback)
+        2. North, South, East, West elevations
+        3. Remaining floorplans in build-up order (KG → UG → … → Spitzboden)
+
+    The EG comes FIRST because it's the single most useful anchor for everything
+    else — once we have a footprint with windows and doors, the elevations can
+    align their facade rhythm to it, and later floorplans can stack on it.
+    """
     key = f"house-{house['id']}"
+
+    order = ["KG", "UG", "Hochparterre", "EG", "1. OG", "2. OG", "3. OG", "DG", "Spitzboden"]
+    levels = house.get("levels") or ["EG"]
+    ordered_levels = sorted(levels, key=lambda f: order.index(f) if f in order else 999)
+
+    # Pick the "ground" floor: prefer EG, then Hochparterre, then the first
+    # non-basement level in build-up order.
+    ground = None
+    for candidate in ("EG", "Hochparterre"):
+        if candidate in ordered_levels:
+            ground = candidate
+            break
+    if ground is None:
+        for level in ordered_levels:
+            if level not in ("KG", "UG"):
+                ground = level
+                break
+    if ground is None and ordered_levels:
+        ground = ordered_levels[0]
+
     targets: list[dict] = []
+
+    if kind_filter in (None, "floorplan") and ground is not None:
+        targets.append(_floorplan_target(key, ground))
 
     if kind_filter in (None, "elevation"):
         for view, title in [
@@ -331,18 +547,10 @@ def determine_targets(house: dict, kind_filter: str | None = None) -> list[dict]
             })
 
     if kind_filter in (None, "floorplan"):
-        # Floorplan order: KG → EG → OG → DG → Spitzboden (build-up).
-        order = ["KG", "UG", "Hochparterre", "EG", "1. OG", "2. OG", "3. OG", "DG", "Spitzboden"]
-        levels = house.get("levels") or ["EG"]
-        for floor in sorted(levels, key=lambda f: order.index(f) if f in order else 999):
-            slug = floor.lower().replace(" ", "").replace(".", "").replace("ö", "oe")
-            targets.append({
-                "kind": "floorplan",
-                "floor": floor,
-                "title": f"GRUNDRISS {floor.upper()}",
-                "filename": f"{key}-syn-floorplan-{slug}.png",
-                "prompt_args": {"floor_label": floor, "title_text": f"GRUNDRISS {floor.upper()}"},
-            })
+        for floor in ordered_levels:
+            if floor == ground:
+                continue
+            targets.append(_floorplan_target(key, floor))
 
     return targets
 
@@ -509,6 +717,13 @@ def call_image_edit(client, prompt: str, image_paths: list[Path], *, size: str) 
             h.close()
 
 
+def append_prompt_index(entry: dict) -> None:
+    """Append a single line of JSON to data/synthetic/prompt_index.jsonl."""
+    PROMPT_INDEX.parent.mkdir(parents=True, exist_ok=True)
+    with open(PROMPT_INDEX, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 def generate_target(
     client,
     key: str,
@@ -518,10 +733,12 @@ def generate_target(
     content_paths: list[Path],
     prior_meta: list[dict],
     preset: str,
+    nuance_profile: dict,
+    twist: str,
     feedback_hint: str = "",
     dry_run: bool = False,
-) -> Path | None:
-    """Generate one drawing. Returns the output path on success."""
+) -> tuple[Path | None, str]:
+    """Generate one drawing. Returns (output_path_or_None, prompt_text)."""
     out_path = SYNTHETIC_DIR / key / target["filename"]
 
     prior_paths = [SYNTHETIC_DIR / key / p["filename"] for p in prior_meta
@@ -536,6 +753,7 @@ def generate_target(
 
     prior_clause = build_prior_context_clause(prior_meta)
     detail_clause = DETAIL_INSTRUCTIONS[preset]
+    nuance_clause = render_nuance_clause(nuance_profile, twist)
 
     feedback_block = (
         f"\nIMPORTANT — previous attempt feedback to fix:\n  {feedback_hint}\n"
@@ -544,6 +762,7 @@ def generate_target(
     if target["kind"] == "elevation":
         prompt = PROMPT_ELEVATION.format(
             prior_context=prior_clause,
+            nuance_clause=nuance_clause,
             detail_instructions=detail_clause,
             feedback_hint=feedback_block,
             **target["prompt_args"],
@@ -552,6 +771,7 @@ def generate_target(
     else:
         prompt = PROMPT_FLOORPLAN.format(
             prior_context=prior_clause,
+            nuance_clause=nuance_clause,
             detail_instructions=detail_clause,
             feedback_hint=feedback_block,
             **target["prompt_args"],
@@ -559,12 +779,12 @@ def generate_target(
         size = "1024x1024"
 
     if dry_run:
-        return None
+        return None, prompt
 
     png_bytes = call_image_edit(client, prompt, images, size=size)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(png_bytes)
-    return out_path
+    return out_path, prompt
 
 
 def process_house(
@@ -591,7 +811,17 @@ def process_house(
         style_elev_pool, style_fp_pool, style_elev_meta, style_fp_meta, seed,
     )
     preset = pick_preset(seed)
+    nuance_profile = pick_nuance_profile(seed)
     manifest["preset"] = preset
+    manifest["nuance_profile"] = {
+        "lettering": nuance_profile["lettering"],
+        "paper": nuance_profile["paper"],
+        "capture_id": nuance_profile["capture"][0],
+        "capture": nuance_profile["capture"][1],
+        "line_weight": nuance_profile["line_weight"],
+        "persona_id": nuance_profile["persona"][0],
+        "persona": nuance_profile["persona"][1],
+    }
     manifest["style_refs_house"] = {
         "elevation": elev_descs,
         "floorplan": fp_descs,
@@ -601,7 +831,8 @@ def process_house(
     house_keys_used = sorted({d.split("-")[0] + "-" + d.split("-")[1]
                               for d in elev_descs + fp_descs})
     print(f"\n{key}: {(house.get('model') or '?')[:60]}  "
-          f"preset={preset}  refs={'+'.join(house_keys_used)}  "
+          f"preset={preset}  capture={nuance_profile['capture'][0]}  "
+          f"persona={nuance_profile['persona'][0]}  refs={'+'.join(house_keys_used)}  "
           f"({len(targets)} targets)")
 
     house_dir = HOUSES_DIR / key
@@ -630,21 +861,43 @@ def process_house(
         attempts = 1 if args.no_verify else args.max_attempts
         feedback_hint = ""
         verify_report: dict = {}
+        twist = pick_twist(seed, target["filename"])
+        last_prompt = ""
 
         for attempt in range(1, attempts + 1):
             tag = f" [attempt {attempt}/{attempts}]" if attempts > 1 else ""
             print(f"  → {target['filename']}{tag}", end=" ", flush=True)
             t0 = time.time()
             try:
-                generate_target(
+                _, last_prompt = generate_target(
                     client, key, target,
                     style_paths=style_paths,
                     content_paths=content_paths,
                     prior_meta=prior_meta,
                     preset=preset,
+                    nuance_profile=nuance_profile,
+                    twist=twist,
                     feedback_hint=feedback_hint,
                     dry_run=args.dry_run,
                 )
+                if not args.dry_run:
+                    append_prompt_index({
+                        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "house": key,
+                        "file": target["filename"],
+                        "kind": target["kind"],
+                        "attempt": attempt,
+                        "preset": preset,
+                        "twist": twist,
+                        "nuance": {
+                            "lettering": nuance_profile["lettering"],
+                            "paper": nuance_profile["paper"],
+                            "capture": nuance_profile["capture"][0],
+                            "persona": nuance_profile["persona"][0],
+                            "line_weight": nuance_profile["line_weight"],
+                        },
+                        "prompt": last_prompt,
+                    })
                 if args.dry_run:
                     print("(dry-run)")
                     break
@@ -694,9 +947,13 @@ def process_house(
                 "view": target.get("view"),
                 "floor": target.get("floor"),
                 "title": target["title"],
+                "source": "generated",
                 "model": MODEL,
                 "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "preset": preset,
+                "twist": twist,
+                "capture": nuance_profile["capture"][0],
+                "persona": nuance_profile["persona"][0],
                 "style_refs": elev_descs if target["kind"] == "elevation" else fp_descs,
                 "content_refs": [Path(p).name for p in content_paths],
                 "prior_refs": [p["filename"] for p in prior_meta],
@@ -710,6 +967,56 @@ def process_house(
             prior_meta.append(target)
 
         time.sleep(args.sleep)
+
+    # House-level wrap-up: count verification failures across all drawings
+    # we actually produced and flag the house as "difficult" if ≥50% failed.
+    # Difficult houses are NOT skipped — flagging lets downstream training
+    # corpus filtering drop them (or sample less from them).
+    if not args.dry_run:
+        record_difficult_if_needed(manifest)
+
+
+def record_difficult_if_needed(manifest: dict) -> None:
+    """Inspect the just-saved manifest and append to difficult_houses.jsonl if
+    too many drawings failed verification. Always prints a one-line summary."""
+    drawings = manifest.get("drawings", [])
+    if not drawings:
+        return
+    # A drawing only has verify_passed if it ran through verification at all
+    # (skipped under --no-verify). Count only those.
+    verified = [d for d in drawings if "verify_passed" in d]
+    if not verified:
+        return
+    failed = [d for d in verified if not d.get("verify_passed")]
+    fail_ratio = len(failed) / len(verified)
+    key = manifest["key"]
+    print(f"  ↳ {key}: {len(failed)}/{len(verified)} drawings failed verification "
+          f"({fail_ratio:.0%})")
+    if fail_ratio < DIFFICULT_HOUSE_FAIL_RATIO:
+        return
+    issues: list[str] = []
+    for d in failed:
+        report = d.get("verify_report") or {}
+        for issue in (report.get("issues") or [])[:2]:
+            issues.append(f"{d['file']}: {issue}")
+    record = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "house": key,
+        "model": manifest.get("model"),
+        "manufacturer": manifest.get("manufacturer"),
+        "preset": manifest.get("preset"),
+        "nuance": manifest.get("nuance_profile", {}),
+        "drawings_verified": len(verified),
+        "drawings_failed": len(failed),
+        "fail_ratio": round(fail_ratio, 2),
+        "failed_files": [d["file"] for d in failed],
+        "issues": issues[:10],
+    }
+    DIFFICULT_HOUSES_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with open(DIFFICULT_HOUSES_LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    print(f"  ⚠ flagged {key} as difficult — logged to "
+          f"{DIFFICULT_HOUSES_LOG.relative_to(REPO)}")
 
 
 def main() -> int:

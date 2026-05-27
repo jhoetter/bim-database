@@ -51,20 +51,28 @@ export interface SnapArgs {
   /** When dragging an existing label's handle, exclude its own points
    *  from snap candidates (so a wall endpoint doesn't snap to itself). */
   excludeLabelId?: string;
+  /** Building's dominant axis angle in degrees, in [-45, 45]. Computed by
+   *  referenceAngle() from existing labels; passed in by the caller so it
+   *  stays memoized at the AnnotatePage level. Defaults to 0 (image axis).
+   *  When the user disables adaptive snap (Q key), the caller passes 0
+   *  even if a non-zero axis was detected. */
+  referenceAngleDeg?: number;
 }
 
 export function findSnap(args: SnapArgs): SnapTarget | null {
   const { cursor, pendingStart, tool, modifiers, imageRadiusPx } = args;
+  const refAngle = args.referenceAngleDeg ?? 0;
 
   if (modifiers.alt) return null;
 
   const isLinearTool =
     tool === 'wall' || tool === 'dimensioned_distance' || tool === 'component_line';
 
-  // Shift = HARD axis-lock from pendingStart. Forces 0/45/90/135° regardless
-  // of how far the cursor is.
+  // Shift = HARD axis-lock from pendingStart relative to the building axis.
+  // No tolerance — even a 30° cursor angle gets snapped to the nearest
+  // building-aligned 45° multiple.
   if (modifiers.shift && pendingStart && isLinearTool) {
-    return axisLock(cursor, pendingStart);
+    return hardAxisLock(cursor, pendingStart, refAngle);
   }
 
   // Endpoint / line / midpoint candidates have priority — an exact point
@@ -81,43 +89,139 @@ export function findSnap(args: SnapArgs): SnapTarget | null {
   }
   if (best) return best;
 
-  // Soft angle snap — if no exact candidate but the cursor's direction from
-  // pendingStart is within ~3° of an axis, snap to the axis. Makes drawing
-  // perpendicular/orthogonal walls and dimensions feel "magnetic" without
-  // requiring Shift. Alt still defeats it.
+  // Soft angle snap relative to the building axis (or image axis when none
+  // detected / user disabled adaptive snap).
   if (pendingStart && isLinearTool) {
-    const soft = softAxisLock(cursor, pendingStart);
+    const soft = softAxisLock(cursor, pendingStart, refAngle);
     if (soft) return soft;
   }
 
   return null;
 }
 
-// Like axisLock, but only returns a target if the actual angle is already
-// within `toleranceDeg` of an axis. Used as a fallback after endpoint snaps.
-function softAxisLock(cursor: Point, anchor: Point, toleranceDeg = 3): SnapTarget | null {
+// 8 multiples of 45° centred on the building axis, expressed in image-frame
+// degrees. With refAngle=0 these are the classical {-180, -135, …, 180}.
+// With refAngle=2.4 the building's "horizontal" is at 2.4° from the image
+// horizontal, so we snap to {-177.6, -132.6, …, 182.4}.
+function rotatedAxisTargets(refAngleDeg: number): number[] {
+  const out: number[] = [];
+  for (let k = -4; k < 5; k++) out.push(refAngleDeg + k * 45);
+  return out;
+}
+
+function nearestAxisTarget(angleDeg: number, refAngleDeg: number): { target: number; diff: number } {
+  let bestTarget = 0;
+  let bestDiff = Infinity;
+  for (const t of rotatedAxisTargets(refAngleDeg)) {
+    const diff = Math.abs(((angleDeg - t + 540) % 360) - 180);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestTarget = t;
+    }
+  }
+  return { target: bestTarget, diff: bestDiff };
+}
+
+// Soft axis-lock — only fires when the cursor's direction is already within
+// `toleranceDeg` of a building-axis target. 10° is intentionally wide:
+// most plans are ortho/45°, so a 7-8° human drift should silently land on
+// the axis. Alt escapes; Q (caller-side) disables the building-axis bias
+// and falls back to image axes.
+function softAxisLock(cursor: Point, anchor: Point, refAngleDeg: number, toleranceDeg = 10): SnapTarget | null {
   const dx = cursor[0] - anchor[0];
   const dy = cursor[1] - anchor[1];
   const r = Math.hypot(dx, dy);
   if (r < 8) return null;
   const angle = (Math.atan2(-dy, dx) * 180) / Math.PI;
-  const targets = [-180, -135, -90, -45, 0, 45, 90, 135, 180];
-  let bestA = 0;
-  let bestDiff = Infinity;
-  for (const a of targets) {
-    const diff = Math.abs(((angle - a + 540) % 360) - 180);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestA = a;
-    }
-  }
-  if (bestDiff > toleranceDeg) return null;
-  const rad = (bestA * Math.PI) / 180;
+  const { target, diff } = nearestAxisTarget(angle, refAngleDeg);
+  if (diff > toleranceDeg) return null;
+  const rad = (target * Math.PI) / 180;
+  // Hint shows the building-relative angle (0 = along the building's
+  // horizontal axis, 90 = perpendicular). Adds (Bau) suffix when the
+  // building axis is non-zero so the user knows the snap is rotated.
+  const relAngle = ((target - refAngleDeg) % 360 + 360) % 360;
+  const hint = refAngleDeg !== 0
+    ? `${relAngle.toFixed(0)}° · Bau ${refAngleDeg.toFixed(1)}°`
+    : `${relAngle.toFixed(0)}°`;
   return {
     pt: [anchor[0] + r * Math.cos(rad), anchor[1] - r * Math.sin(rad)],
     kind: 'angle_lock',
-    hint: `${((bestA % 360) + 360) % 360}°`,
+    hint,
   };
+}
+
+// Shift-held hard axis-lock — always returns a target regardless of how
+// far the cursor is from it. Snaps to the nearest 45° multiple of the
+// building axis.
+function hardAxisLock(cursor: Point, anchor: Point, refAngleDeg: number): SnapTarget {
+  const dx = cursor[0] - anchor[0];
+  const dy = cursor[1] - anchor[1];
+  const r = Math.hypot(dx, dy);
+  const angle = (Math.atan2(-dy, dx) * 180) / Math.PI;
+  const { target } = nearestAxisTarget(angle, refAngleDeg);
+  const rad = (target * Math.PI) / 180;
+  const relAngle = ((target - refAngleDeg) % 360 + 360) % 360;
+  return {
+    pt: [anchor[0] + r * Math.cos(rad), anchor[1] - r * Math.sin(rad)],
+    kind: 'angle_lock',
+    hint: refAngleDeg !== 0 ? `${relAngle.toFixed(0)}° · Bau` : `${relAngle.toFixed(0)}°`,
+  };
+}
+
+// Reduce a line's angle to the [-45, 45] "axis representative" — every
+// 90° rotation maps to the same value (since perpendicular walls share the
+// building axis), and folding around 45° means a wall at 89° clusters with
+// walls at -1°. Returns null for too-short lines.
+function lineAngleAxis(start: Point, end: Point): number | null {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const len = Math.hypot(dx, dy);
+  if (len < 12) return null;
+  let a = (Math.atan2(-dy, dx) * 180) / Math.PI;       // -180..180
+  a = ((a % 90) + 90) % 90;                            // 0..90
+  if (a > 45) a -= 90;                                 // -45..45
+  return a;
+}
+
+/**
+ * Derive the building's dominant axis angle from existing labels.
+ *
+ * Most architectural plans have a single building coordinate system shared
+ * by walls, dimensions, and component lines. When the photo / scan is
+ * rotated relative to the image frame (folded-paper photos, slightly-
+ * crooked scans), every line in the plan is rotated by the same angle.
+ * We recover that angle by clustering line angles mod 90 and taking the
+ * median of the dominant cluster.
+ *
+ * Returns 0 if no signal (no walls/dims yet) or if the labels are too
+ * scattered to confidently identify a single axis.
+ *
+ * Range: [-45, 45] degrees. A small non-zero value (e.g. 2.4°) is normal
+ * for a photographed paper plan.
+ */
+export function referenceAngle(labels: Label[]): number {
+  const angles: number[] = [];
+  for (const l of labels) {
+    if (l.type === 'wall' || l.type === 'dimensioned_distance') {
+      const a = lineAngleAxis(l.geometry.start, l.geometry.end);
+      if (a != null) angles.push(a);
+    } else if (l.type === 'component_line') {
+      const pts = l.geometry.polyline;
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const a = lineAngleAxis(pts[i], pts[i + 1]);
+        if (a != null) angles.push(a);
+      }
+    }
+  }
+  if (angles.length < 2) return 0;        // need ≥2 lines to trust the signal
+  angles.sort((a, b) => a - b);
+  // Median is robust against outliers (e.g. a diagonal stair edge in a
+  // mostly-ortho plan). For the dominant-cluster guarantee we'd want a
+  // mode/peak, but the median works well for typical bim-database plans.
+  const med = angles[Math.floor(angles.length / 2)];
+  // If the signal is essentially zero, return exact 0 so the hint suppresses
+  // the "(Bau X°)" suffix.
+  return Math.abs(med) < 0.25 ? 0 : med;
 }
 
 // ── candidate enumeration ───────────────────────────────────────────────────
@@ -153,8 +257,24 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
 
     if (l.type === 'view_opening') {
       if (tool === 'select-drag' || tool === 'dimensioned_distance' || tool === 'view_opening') {
-        for (const p of [...l.geometry.top_edge, ...l.geometry.bottom_edge]) {
-          cands.push({ pt: p, kind: 'endpoint', hint: 'opening corner' });
+        // ViewOpening geometry is a tagged union (rectangle / circle / polygon).
+        // For circle we offer 4 cardinal points; for polygon, every vertex;
+        // for the rectangle legacy form, top_edge + bottom_edge endpoints.
+        const g = l.geometry as Record<string, unknown>;
+        if (g.shape === 'circle') {
+          const c = g.center as Point;
+          const r = g.radius_px as number;
+          for (const p of [[c[0] + r, c[1]], [c[0] - r, c[1]], [c[0], c[1] + r], [c[0], c[1] - r]] as Point[]) {
+            cands.push({ pt: p, kind: 'endpoint', hint: 'opening edge' });
+          }
+        } else if (g.shape === 'polygon') {
+          for (const p of g.polygon as Point[]) {
+            cands.push({ pt: p, kind: 'endpoint', hint: 'opening vertex' });
+          }
+        } else {
+          for (const p of [...(g.top_edge as Point[]), ...(g.bottom_edge as Point[])]) {
+            cands.push({ pt: p, kind: 'endpoint', hint: 'opening corner' });
+          }
         }
       }
     }
@@ -268,31 +388,8 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
-
-function axisLock(cursor: Point, anchor: Point): SnapTarget {
-  const dx = cursor[0] - anchor[0];
-  const dy = cursor[1] - anchor[1];
-  // Mathematical angle (atan2 with -dy because SVG y grows down).
-  const angle = (Math.atan2(-dy, dx) * 180) / Math.PI;
-  // Snap to nearest of 0/45/90/.../-135°.
-  const targets = [-180, -135, -90, -45, 0, 45, 90, 135, 180];
-  let bestA = 0;
-  let bestDiff = Infinity;
-  for (const a of targets) {
-    const diff = Math.abs(((angle - a + 540) % 360) - 180);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestA = a;
-    }
-  }
-  const r = Math.hypot(dx, dy);
-  const rad = (bestA * Math.PI) / 180;
-  return {
-    pt: [anchor[0] + r * Math.cos(rad), anchor[1] - r * Math.sin(rad)],
-    kind: 'angle_lock',
-    hint: `${bestA}°`,
-  };
-}
+// (axisLock removed — superseded by hardAxisLock above, which takes a
+//  building-axis reference angle.)
 
 interface ProjResult { point: Point; within: boolean; dist: number; }
 

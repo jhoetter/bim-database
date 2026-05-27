@@ -1,4 +1,5 @@
 import {
+  Fragment,
   type JSX,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
@@ -34,7 +35,11 @@ import {
   translateLabelGeometry,
   type HandleSpec,
 } from '../lib/labelGeometry';
-import { findSnap, SNAP_COLOR, type SnapTarget, type SnapTool } from '../lib/snap';
+import { findSnap, referenceAngle, SNAP_COLOR, type SnapTarget, type SnapTool } from '../lib/snap';
+import { tidyLineLabel } from '../lib/tidy';
+import { applyLengthMatch, findLengthMatch, type LengthMatch } from '../lib/length_match';
+import { labelColor, LEGEND } from '../lib/colors';
+import { detectClosedRegions } from '../lib/closed_regions';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
   CentreLineIcon, DimensionIcon, DoorIcon, ElevationViewIcon, KeynoteIcon,
@@ -152,40 +157,19 @@ type ToolFamily = {
   helpText?: string;      // 1-line guidance shown under expanded subtypes
 };
 
+// Tool families intentionally do NOT carry opening kind (Fenster/Tür/Gaube/…).
+// Kind is a classification decision, not a gesture decision — picking a
+// kind before drawing forces a modal switch every time the user wants a
+// different opening, which kills flow. Instead:
+//
+//   • Pre-draw: only the gesture matters → shape picker for view_opening
+//     (rectangle / circle / polygon). floorplan_opening has no submenu — it
+//     always builds a wall-aligned quad from 2 clicks.
+//   • Default kind on commit: 'window' (the overwhelmingly common case).
+//   • Post-draw reclassification: hotkeys F/T/G/D/Z while the label is
+//     selected, plus a prominent picker as the FIRST control in the
+//     inspector. Bulk reclassify works the same way on multi-selection.
 const TOOL_FAMILIES: ToolFamily[] = [
-  {
-    parentTool: 'floorplan_opening',
-    familyLabel: 'Öffnung',
-    Icon: DoorIcon,
-    hotkey: 'O',
-    attrName: 'opening_kind',
-    applicableTags: ['grundriss', 'sonstiges'],
-    options: [
-      { value: 'window', label: 'Fenster', hint: 'Fenster im Grundriss — die Brüstung wird im Inspektor optional gepflegt.' },
-      { value: 'door', label: 'Tür', hint: 'Tür mit Schwingflügel. Swing-Side + Swing-Richtung steuern die Bogen-Darstellung.' },
-      { value: 'passage', label: 'Durchgang', hint: 'Offener Durchgang ohne Tür/Fenster.' },
-      { value: 'garage_door', label: 'Tor', hint: 'Garagen-/Hoftor.' },
-      { value: 'other', label: 'Sonstige', hint: 'Sonstige Wandöffnung — möglichst spezifischen Typ wählen.' },
-    ],
-    helpText: 'Klick 1: an die Wand (Snap), Klick 2: Öffnungsbreite festlegen. Drehung folgt automatisch der Wandachse.',
-  },
-  {
-    parentTool: 'view_opening',
-    familyLabel: 'Öffnung',
-    Icon: OpeningIcon,
-    hotkey: 'O',
-    attrName: 'opening_kind',
-    applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
-    options: [
-      { value: 'window', label: 'Fenster', hint: 'Fenster in der Fassadenansicht.' },
-      { value: 'door', label: 'Tür', hint: 'Eingangs-/Terrassentür.' },
-      { value: 'skylight', label: 'Dachfenster', hint: 'Dachflächenfenster (Velux o. ä.).' },
-      { value: 'dormer', label: 'Gaube', hint: 'Dachgaube als geometrische Box.' },
-      { value: 'garage_door', label: 'Tor', hint: 'Garagentor.' },
-      { value: 'other', label: 'Sonstige', hint: 'Sonstige Öffnung.' },
-    ],
-    helpText: 'Zwei Klicks für die Diagonale der Öffnungs-Box.',
-  },
   {
     parentTool: 'component_line',
     familyLabel: 'Linie',
@@ -383,6 +367,45 @@ function rememberLastVisitedScene(scope: 'house' | 'dataset', houseKey: string, 
   try { window.localStorage.setItem(lastSceneKey(scope, houseKey), file); } catch { /* no-op */ }
 }
 
+// House-wide Höhenkote knowledge — once you've labeled First=+12,5m in
+// scene 1, the same datum in any other scene of the same house should
+// pre-fill to the same value. Stored as { [datum]: value_mm } per house
+// in localStorage; populated on save, consumed on Höhenkote datum-pick.
+function houseHeightsKey(scope: 'house' | 'dataset', houseKey: string): string {
+  return `bim-db:annotate:house-heights:${scope}:${houseKey}`;
+}
+export function getHouseHeights(
+  scope: 'house' | 'dataset', houseKey: string,
+): Record<string, number> {
+  try {
+    const raw = window.localStorage.getItem(houseHeightsKey(scope, houseKey));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+function rememberHouseHeights(
+  scope: 'house' | 'dataset', houseKey: string, labels: Label[],
+): void {
+  const existing = getHouseHeights(scope, houseKey);
+  const next: Record<string, number> = { ...existing };
+  let changed = false;
+  for (const l of labels) {
+    if (l.type !== 'height_mark') continue;
+    const datum = l.attributes.datum;
+    const v = l.attributes.value_mm;
+    if (datum && datum !== 'other' && v != null) {
+      if (next[datum] !== v) {
+        next[datum] = v;
+        changed = true;
+      }
+    }
+  }
+  if (!changed) return;
+  try { window.localStorage.setItem(houseHeightsKey(scope, houseKey), JSON.stringify(next)); }
+  catch { /* no-op */ }
+}
+
 export function AnnotatePage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -463,6 +486,26 @@ export function AnnotatePage() {
   // §15's green circle if non-null, and use as the actual commit point on
   // the next click instead of the raw cursor.
   const [snap, setSnap] = useState<SnapTarget | null>(null);
+  // Length-quantize hint: populated during pointermove with the closest
+  // matching existing-label length, when within 5%. Shown as a badge so the
+  // user knows they're about to repeat an existing dimension.
+  const [lengthMatch, setLengthMatch] = useState<LengthMatch | null>(null);
+  // Shape mode for view_opening — rectangle (default, 2-click diagonal),
+  // circle (2-click: center + radius), polygon (polyline-stops, Enter
+  // commits). Persisted to localStorage so the choice is sticky between
+  // sessions for the same scope+house.
+  type OpeningShape = 'rectangle' | 'circle' | 'polygon';
+  const [viewOpeningShape, setViewOpeningShape] = useState<OpeningShape>(() => {
+    try {
+      const v = window.localStorage.getItem('bim-db:annotate:view-opening-shape');
+      if (v === 'circle' || v === 'polygon' || v === 'rectangle') return v;
+    } catch { /* no-op */ }
+    return 'rectangle';
+  });
+  const persistViewOpeningShape = (s: OpeningShape) => {
+    setViewOpeningShape(s);
+    try { window.localStorage.setItem('bim-db:annotate:view-opening-shape', s); } catch { /* no-op */ }
+  };
   // M10: when placing a floorplan_opening, the first click might land on a
   // wall (wall_line snap). We remember that wall's id so the second click
   // can attach the opening to it via a belongs_to relation.
@@ -526,6 +569,26 @@ export function AnnotatePage() {
   // rail dims to near-invisible while it's true so a wall being dragged
   // doesn't disappear visually behind the inspector overlay.
   const [isDragging, setIsDragging] = useState(false);
+  // Closed-wall regions, recomputed when labels change. Lightweight even
+  // for ~100 walls; if it becomes hot we'd debounce. Tolerance is
+  // generous: post-commit fuse should have aligned endpoints, but be
+  // defensive about slight drift.
+  const closedRegions = useMemo(
+    () => detectClosedRegions(labels, 6),
+    [labels],
+  );
+  // Adaptive building axis. Detected from existing walls/dim-distances —
+  // photographed-paper plans are commonly tilted 1-3°, and snapping to
+  // image axes then fights the user. The "Q" key toggles back to image
+  // axes if the inference is wrong (e.g. early in a session, or for a
+  // plan with no dominant rectilinear axis).
+  const detectedAxisDeg = useMemo(() => referenceAngle(labels), [labels]);
+  const [adaptiveAxisEnabled, setAdaptiveAxisEnabled] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('bim-db:annotate:adaptive-axis') !== 'false';
+    } catch { return true; }
+  });
+  const effectiveAxisDeg = adaptiveAxisEnabled ? detectedAxisDeg : 0;
   // "Alle Werkzeuge" override: ignore tag-gating and show every tool.
   // Useful when the user wants flexibility (e.g. tag=nicht_klassifiziert
   // but they still want to drop a dim_distance to bootstrap the homography).
@@ -666,13 +729,23 @@ export function AnnotatePage() {
           return;
         }
         pushUndo();
+        // Length-quantize: if the live preview matched an existing label's
+        // length within tight (1.5%) tolerance, lock to that exact length.
+        // The 5% hint-tolerance only shows the badge; we only adjust the
+        // committed endpoint when we're VERY close, so the user can still
+        // deliberately draw a similar-but-different length.
+        let commitPt = pt;
+        if (lengthMatch?.withinSnapTolerance) {
+          commitPt = applyLengthMatch(pendingStart, pt, lengthMatch.matchedLength);
+          addToast(`↹ Länge an existierendes Label angeglichen`, 'success', 1500);
+        }
         let label: Label;
         if (tool === 'dimensioned_distance') {
           const def = getDefaults(scope, key, sceneTag, 'dimensioned_distance');
           label = {
             id: uuid(),
             type: 'dimensioned_distance',
-            geometry: { start: pendingStart, end: pt },
+            geometry: { start: pendingStart, end: commitPt },
             attributes: {
               value_mm: null,
               target_orientation: (def.target_orientation as DimensionedDistanceLabel['attributes']['target_orientation']) ?? 'unknown',
@@ -691,7 +764,7 @@ export function AnnotatePage() {
           label = {
             id: uuid(),
             type: 'wall',
-            geometry: { start: pendingStart, end: pt },
+            geometry: { start: pendingStart, end: commitPt },
             attributes: { thickness_mm: (def.thickness_mm as number) ?? 365 },
             status: 'readable',
             relations: [],
@@ -699,6 +772,23 @@ export function AnnotatePage() {
             updated_at: nowIso(),
           } as WallLabel;
         }
+        // Post-commit tidy: align near-ortho lines to exact ortho + fuse
+        // endpoints within snap-radius of existing endpoints. Catches the
+        // cases the live snap missed (Alt held during draw, click just
+        // outside snap radius of a neighbor's endpoint).
+        const tidyResult = tidyLineLabel(label, labels, imageSnapRadiusForView, effectiveAxisDeg);
+        label = tidyResult.label;
+        if (tidyResult.orthoChanged || tidyResult.endpointFused) {
+          const bits: string[] = [];
+          if (tidyResult.orthoChanged) bits.push('begradigt');
+          if (tidyResult.endpointFused) bits.push('Endpunkt verbunden');
+          addToast(`✨ ${bits.join(' + ')} (⌘Z zum Rückgängig machen)`, 'success', 1800);
+        }
+        // After tidy, the effective end-point may differ from the raw click —
+        // use it for the wall-chain anchor + the dim midpoint so downstream
+        // geometry stays consistent with the saved label.
+        const effEnd = (label.geometry as { end: Point }).end;
+        const effStart = (label.geometry as { start: Point }).start;
         // For dim_distance, re-run the M1 pick over ALL dims in the scene
         // after adding the new one — the new dim might be the new longest
         // in its orientation. Toast if THIS dim ended up flagged.
@@ -712,8 +802,8 @@ export function AnnotatePage() {
           const me = finalLabels.find((l) => l.id === label.id) as
             | DimensionedDistanceLabel | undefined;
           if (me?.attributes.is_reference) {
-            const dx2 = pt[0] - pendingStart[0];
-            const dy2 = pt[1] - pendingStart[1];
+            const dx2 = effEnd[0] - effStart[0];
+            const dy2 = effEnd[1] - effStart[1];
             const a2 = Math.abs((Math.atan2(dy2, dx2) * 180) / Math.PI);
             const horiz = a2 < 15 || a2 > 165;
             addToast(
@@ -728,14 +818,14 @@ export function AnnotatePage() {
         // chain anchor) breaks the chain so the user isn't auto-extended
         // out of a closed shape.
         if (tool === 'wall') {
-          const closedToAnchor = wallChainAnchor && Math.hypot(pt[0] - wallChainAnchor[0], pt[1] - wallChainAnchor[1])
+          const closedToAnchor = wallChainAnchor && Math.hypot(effEnd[0] - wallChainAnchor[0], effEnd[1] - wallChainAnchor[1])
               < (imageSnapRadiusForView * 2);
           if (closedToAnchor) {
             setPendingStart(null);
             setWallChainAnchor(null);
             addToast('Polygon geschlossen ✓', 'success', 1500);
           } else {
-            setPendingStart(pt);
+            setPendingStart(effEnd);
           }
         } else if (tool === 'dimensioned_distance') {
           // Break the pending start — each dim_distance is its own pair of
@@ -746,7 +836,7 @@ export function AnnotatePage() {
           // the input visually attaches to the dimension. On commit, also
           // create a paired dim_number with a labels-relation — so users
           // never need to think about "Maßzahl" as a separate tool.
-          const midSvg: Point = [(pendingStart[0] + pt[0]) / 2, (pendingStart[1] + pt[1]) / 2];
+          const midSvg: Point = [(effStart[0] + effEnd[0]) / 2, (effStart[1] + effEnd[1]) / 2];
           let midScreen: [number, number] = [e.clientX, e.clientY];
           const svg = svgRef.current;
           const ctm = svg?.getScreenCTM();
@@ -770,7 +860,15 @@ export function AnnotatePage() {
         return;
       }
 
-      // ── 2-click tools (rectangle) ────────────────────────────────────────
+      // ── Polygon-shape view_opening (polyline-stops) ─────────────────────
+      // Reuses the pendingPolyline state, gated on tool+shape, so we don't
+      // collide with the regular component_line behavior.
+      if (tool === 'view_opening' && viewOpeningShape === 'polygon') {
+        setPendingPolyline((prev) => [...prev, pt]);
+        return;
+      }
+
+      // ── 2-click tools (rectangle / circle) ──────────────────────────────
       if (tool === 'floorplan_opening' || tool === 'view_opening') {
         if (pendingStart == null) {
           setPendingStart(pt);
@@ -784,6 +882,29 @@ export function AnnotatePage() {
           return;
         }
         pushUndo();
+        // Circle: center = pendingStart, radius = distance to pt.
+        if (tool === 'view_opening' && viewOpeningShape === 'circle') {
+          const radius_px = Math.hypot(pt[0] - pendingStart[0], pt[1] - pendingStart[1]);
+          const def = getDefaults(scope, key, sceneTag, 'view_opening');
+          const label: ViewOpeningLabel = {
+            id: uuid(),
+            type: 'view_opening',
+            geometry: { shape: 'circle', center: pendingStart, radius_px },
+            attributes: {
+              opening_kind: (def.opening_kind as ViewOpeningLabel['attributes']['opening_kind']) ?? 'window',
+              frame_visible: (def.frame_visible as boolean) ?? true,
+            },
+            status: 'readable',
+            relations: [],
+            created_at: nowIso(),
+            updated_at: nowIso(),
+          };
+          setLabels([...labels, label]);
+          setDirty(true);
+          setPendingStart(null);
+          setSelectedId(label.id);
+          return;
+        }
         // Build axis-aligned rectangle from the diagonal {pendingStart → pt}.
         // First-pass simplification: openings are usually rectangular; the
         // schema's polyline variants stay available for later cleanup.
@@ -1057,13 +1178,26 @@ export function AnnotatePage() {
           labels,
           imageRadiusPx,
           modifiers: { shift: e.shiftKey, alt: e.altKey },
+          referenceAngleDeg: effectiveAxisDeg,
         });
         setSnap(target);
+
+        // Length-quantize: only meaningful when we have a pendingStart (i.e.
+        // we're drawing the second click of a line). Compares the current
+        // line length to existing wall + dim_distance lengths.
+        if (pendingStart && (tool === 'wall' || tool === 'dimensioned_distance')) {
+          const effEnd = target?.pt ?? pt;
+          const len = Math.hypot(effEnd[0] - pendingStart[0], effEnd[1] - pendingStart[1]);
+          setLengthMatch(findLengthMatch(len, labels));
+        } else if (lengthMatch) {
+          setLengthMatch(null);
+        }
       } else if (snap) {
         setSnap(null);
+        if (lengthMatch) setLengthMatch(null);
       }
     },
-    [tool, pendingStart, pendingPolyline, eventToSvgPoint, labels, view.w, snap],
+    [tool, pendingStart, pendingPolyline, eventToSvgPoint, labels, view.w, snap, lengthMatch],
   );
 
   // Wheel handling — zoom is EXPLICITLY only via the +/-/FIT buttons (or
@@ -1268,6 +1402,10 @@ export function AnnotatePage() {
       };
       await saveLabels(scope, key, decodedFile, payload);
       setDirty(false);
+      // Lift this scene's Höhenkote { datum: value_mm } into the
+      // per-house cache so subsequent scenes can auto-fill values
+      // when the user picks the same datum.
+      rememberHouseHeights(scope, key, labels);
       addToast(`✓ Gespeichert (${labels.length} Labels)`, 'success');
     } catch (e) {
       addToast(`✗ Speichern fehlgeschlagen: ${(e as Error).message}`, 'error', 6000);
@@ -1330,6 +1468,7 @@ export function AnnotatePage() {
         setSelectedId(null);
         setSnap(null);
         setWallChainAnchor(null);
+        setLengthMatch(null);
         return;
       }
       if (e.key === 'Enter' && tool === 'component_line' && pendingPolyline.length >= 2) {
@@ -1349,6 +1488,36 @@ export function AnnotatePage() {
         setLabels((prev) => [...prev, label]);
         setDirty(true);
         setSelectedId(label.id);
+        setPendingPolyline([]);
+        return;
+      }
+      // Polygon view_opening: Enter commits the current polyline as a
+      // polygon-shape opening. Needs ≥3 vertices for a real shape.
+      if (
+        e.key === 'Enter' &&
+        tool === 'view_opening' &&
+        viewOpeningShape === 'polygon' &&
+        pendingPolyline.length >= 3
+      ) {
+        e.preventDefault();
+        pushUndo();
+        const def = getDefaults(scope, key, sceneTag, 'view_opening');
+        const polyLabel: ViewOpeningLabel = {
+          id: uuid(),
+          type: 'view_opening',
+          geometry: { shape: 'polygon', polygon: pendingPolyline },
+          attributes: {
+            opening_kind: (def.opening_kind as ViewOpeningLabel['attributes']['opening_kind']) ?? 'window',
+            frame_visible: (def.frame_visible as boolean) ?? true,
+          },
+          status: 'readable',
+          relations: [],
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        };
+        setLabels((prev) => [...prev, polyLabel]);
+        setDirty(true);
+        setSelectedId(polyLabel.id);
         setPendingPolyline([]);
         return;
       }
@@ -1416,6 +1585,56 @@ export function AnnotatePage() {
       if (e.key === '+' || (e.key === '=' && !e.shiftKey)) { e.preventDefault(); zoomBy(0.7); }
       if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(1.4); }
       if (e.key === '0') { e.preventDefault(); resetView(); }
+      // Quick re-classify the currently-selected opening label. Lowercase
+      // letters only, no modifiers — these collide with no other shortcut
+      // (W/H/L/O/S are the tool hotkeys; F/T/G/D/A/Z are free).
+      const openingHotkeys: Record<string, string> = {
+        f: 'window',
+        t: 'door',
+        g: 'dormer',     // floorplan has no dormer; falls back to other below
+        d: 'skylight',   // floorplan: passage
+        a: 'garage_door',
+        z: 'other',
+      };
+      if (
+        selectedIds.size === 1 &&
+        !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey &&
+        openingHotkeys[e.key]
+      ) {
+        const sel = labels.find((l) => selectedIds.has(l.id));
+        if (sel && (sel.type === 'floorplan_opening' || sel.type === 'view_opening')) {
+          let targetKind = openingHotkeys[e.key];
+          // Floorplan openings don't have skylight/dormer — remap onto the
+          // closest analog (D → passage, G → other).
+          if (sel.type === 'floorplan_opening') {
+            if (targetKind === 'skylight') targetKind = 'passage';
+            if (targetKind === 'dormer') targetKind = 'other';
+          }
+          updateLabel(sel.id, {
+            attributes: { ...sel.attributes, opening_kind: targetKind } as never,
+          } as never);
+          e.preventDefault();
+          return;
+        }
+      }
+
+      if (e.key === 'q' && !e.metaKey && !e.ctrlKey) {
+        // Toggle adaptive building-axis snap. When off, snap falls back
+        // to image-axis ortho — useful early in a session (no detected
+        // axis yet) or for plans with no rectilinear axis.
+        setAdaptiveAxisEnabled((v) => {
+          const next = !v;
+          try { window.localStorage.setItem('bim-db:annotate:adaptive-axis', String(next)); } catch { /* no-op */ }
+          addToast(
+            next
+              ? `Bau-Achse aktiv${detectedAxisDeg !== 0 ? ` (${detectedAxisDeg.toFixed(1)}°)` : ''}`
+              : 'Bau-Achse aus — Snap an Bild-Achse',
+            'info',
+            1800,
+          );
+          return next;
+        });
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -1568,6 +1787,8 @@ export function AnnotatePage() {
           houseKey={key}
           defaultsRev={defaultsRev}
           onDefaultsChange={() => setDefaultsRev((v) => v + 1)}
+          viewOpeningShape={viewOpeningShape}
+          onChangeViewOpeningShape={persistViewOpeningShape}
         />
       }
     >
@@ -1652,6 +1873,26 @@ export function AnnotatePage() {
           })}
           {/* Linking visuals — dashed lines between number ↔ distance pairs */}
           <LinkVisuals labels={labels} selectedId={selectedId} />
+          {/* Closed wall regions — translucent area fill behind the wall
+              outlines so the user can read enclosed spaces (rooms,
+              footprints) at a glance. */}
+          {closedRegions.length > 0 && (
+            <g pointerEvents="none">
+              {closedRegions.map((r, i) => {
+                const d = r.polygon.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ') + ' Z';
+                return (
+                  <path
+                    key={`region-${i}`}
+                    d={d}
+                    fill="rgba(14, 165, 233, 0.08)"
+                    stroke="rgba(14, 165, 233, 0.30)"
+                    strokeWidth={1 / Math.max(0.1, view.w / imageSize[0])}
+                    strokeDasharray={`${4 / Math.max(0.1, view.w / imageSize[0])},${3 / Math.max(0.1, view.w / imageSize[0])}`}
+                  />
+                );
+              })}
+            </g>
+          )}
           {/* Existing labels */}
           {labels.map((l) => (
             <LabelGlyph
@@ -1816,15 +2057,49 @@ export function AnnotatePage() {
               available so the preview tracks what the click will actually
               commit. */}
           {pendingStart && hoverPt && (tool === 'dimensioned_distance' || tool === 'wall') && (
-            <line
-              x1={pendingStart[0]} y1={pendingStart[1]}
-              x2={snap?.pt[0] ?? hoverPt[0]} y2={snap?.pt[1] ?? hoverPt[1]}
-              stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
-              strokeDasharray="6,4"
-            />
+            <>
+              <line
+                x1={pendingStart[0]} y1={pendingStart[1]}
+                x2={snap?.pt[0] ?? hoverPt[0]} y2={snap?.pt[1] ?? hoverPt[1]}
+                stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
+                strokeDasharray="6,4"
+              />
+              {/* Length-quantize badge near cursor. Green when within snap
+                  tolerance (will lock on click), amber when just a hint. */}
+              {lengthMatch && (() => {
+                const lx = (snap?.pt[0] ?? hoverPt[0]) + 12 * (view.w / imageSize[0]);
+                const ly = (snap?.pt[1] ?? hoverPt[1]) - 8 * (view.w / imageSize[0]);
+                const fontPx = 11 * (view.w / imageSize[0]);
+                const bg = lengthMatch.withinSnapTolerance ? '#10b981' : '#f59e0b';
+                const label = lengthMatch.withinSnapTolerance
+                  ? `= ${(lengthMatch.matchedLength).toFixed(0)} px`
+                  : `≈ ${(lengthMatch.matchedLength).toFixed(0)} px`;
+                return (
+                  <g pointerEvents="none">
+                    <rect
+                      x={lx} y={ly - fontPx * 0.9}
+                      width={fontPx * label.length * 0.6}
+                      height={fontPx * 1.4}
+                      rx={fontPx * 0.3} fill={bg} opacity={0.9}
+                    />
+                    <text
+                      x={lx + fontPx * 0.3}
+                      y={ly + fontPx * 0.15}
+                      fontSize={fontPx} fontWeight={600}
+                      fill="white" fontFamily="ui-monospace, monospace"
+                    >
+                      {label}
+                    </text>
+                  </g>
+                );
+              })()}
+            </>
           )}
           {/* In-progress preview — 2-click rectangle tools */}
-          {pendingStart && hoverPt && (tool === 'floorplan_opening' || tool === 'view_opening') && (
+          {pendingStart && hoverPt && (
+            tool === 'floorplan_opening' ||
+            (tool === 'view_opening' && viewOpeningShape === 'rectangle')
+          ) && (
             <rect
               x={Math.min(pendingStart[0], snap?.pt[0] ?? hoverPt[0])}
               y={Math.min(pendingStart[1], snap?.pt[1] ?? hoverPt[1])}
@@ -1834,6 +2109,39 @@ export function AnnotatePage() {
               stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
               strokeDasharray="6,4"
             />
+          )}
+          {/* In-progress preview — circle (view_opening shape=circle) */}
+          {pendingStart && hoverPt && tool === 'view_opening' && viewOpeningShape === 'circle' && (() => {
+            const cx = pendingStart[0];
+            const cy = pendingStart[1];
+            const ex = snap?.pt[0] ?? hoverPt[0];
+            const ey = snap?.pt[1] ?? hoverPt[1];
+            const r = Math.hypot(ex - cx, ey - cy);
+            return (
+              <circle
+                cx={cx} cy={cy} r={r}
+                fill="rgba(245, 158, 11, 0.15)"
+                stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
+                strokeDasharray="6,4"
+              />
+            );
+          })()}
+          {/* In-progress preview — polygon view_opening (polyline-stops) */}
+          {tool === 'view_opening' && viewOpeningShape === 'polygon' && pendingPolyline.length > 0 && (
+            <>
+              <polyline
+                points={[
+                  ...pendingPolyline.map((p) => p.join(',')),
+                  ...(hoverPt ? [hoverPt.join(',')] : []),
+                ].join(' ')}
+                fill="rgba(245, 158, 11, 0.10)"
+                stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
+                strokeDasharray="6,4"
+              />
+              {pendingPolyline.map((p, i) => (
+                <circle key={i} cx={p[0]} cy={p[1]} r={4 / Math.max(0.1, view.w / imageSize[0])} fill="#f59e0b" />
+              ))}
+            </>
           )}
           {/* In-progress preview — polyline */}
           {tool === 'component_line' && pendingPolyline.length > 0 && (
@@ -1988,6 +2296,38 @@ export function AnnotatePage() {
             }}
           />
         )}
+        {/* Building-axis badge — bottom-left corner. Shows the detected
+            plan rotation so the user knows the snap is rotated to match
+            the plan, not the image frame. Click to toggle adaptive snap
+            (same as the Q hotkey). */}
+        <button
+          type="button"
+          onClick={() => {
+            setAdaptiveAxisEnabled((v) => {
+              const next = !v;
+              try { window.localStorage.setItem('bim-db:annotate:adaptive-axis', String(next)); } catch { /* no-op */ }
+              return next;
+            });
+          }}
+          className={`absolute bottom-3 left-3 px-2 py-1 rounded-md text-[0.7rem] font-mono shadow-sm border transition ${
+            adaptiveAxisEnabled && detectedAxisDeg !== 0
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-900 hover:bg-emerald-100'
+              : adaptiveAxisEnabled
+                ? 'bg-white/90 border-zinc-200 text-zinc-500 hover:bg-white'
+                : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+          }`}
+          title={
+            adaptiveAxisEnabled
+              ? (detectedAxisDeg !== 0
+                  ? `Snap an Bau-Achse ${detectedAxisDeg.toFixed(1)}°. Klick oder Q zum Abschalten.`
+                  : 'Bau-Achse aktiv aber noch nicht erkannt — Snap an Bild-Achse. Klick oder Q zum Abschalten.')
+              : 'Adaptive Achse aus — Snap an Bild-Achse. Klick oder Q zum Einschalten.'
+          }
+        >
+          {adaptiveAxisEnabled
+            ? `📐 Bau-Achse ${detectedAxisDeg.toFixed(1)}°`
+            : '📐 Bild-Achse'}
+        </button>
         {/* M12 toast stack — bottom-center over the canvas */}
         <ToastStack toasts={toasts} />
         {/* M13 keyboard cheatsheet (toggle with '?') */}
@@ -2001,8 +2341,11 @@ export function AnnotatePage() {
             pop up after a dim_distance commit and visually compete. */}
         {!pendingInlineEdit && (selectedIds.size > 1 || selectedLabel) && (
           <div style={{
-            opacity: isDragging ? 0.05 : 1,
-            pointerEvents: isDragging ? 'none' : 'auto',
+            // Hide the popover while a draw is in flight (pendingStart set) OR
+            // while the user is dragging an existing label. Both states are
+            // gestures where the popover would visually obstruct the canvas.
+            opacity: (isDragging || pendingStart !== null) ? 0.05 : 1,
+            pointerEvents: (isDragging || pendingStart !== null) ? 'none' : 'auto',
             transition: 'opacity 120ms',
           }}>
             <FloatingPopover
@@ -2052,6 +2395,9 @@ export function AnnotatePage() {
                     if (selectedLabel.type === 'dimension_number') linkPair(selectedLabel.id, otherId);
                     else if (selectedLabel.type === 'dimensioned_distance') linkPair(otherId, selectedLabel.id);
                   }}
+                  scope={scope}
+                  houseKey={key}
+                  onAutoFillToast={(m) => addToast(m, 'success', 2500)}
                 />
               ) : null}
             </FloatingPopover>
@@ -2084,6 +2430,8 @@ function ToolPalette({
   houseKey,
   defaultsRev,
   onDefaultsChange,
+  viewOpeningShape,
+  onChangeViewOpeningShape,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -2104,6 +2452,8 @@ function ToolPalette({
   houseKey: string;
   defaultsRev: number;
   onDefaultsChange: () => void;
+  viewOpeningShape: 'rectangle' | 'circle' | 'polygon';
+  onChangeViewOpeningShape: (s: 'rectangle' | 'circle' | 'polygon') => void;
 }) {
   void defaultsRev;
   return (
@@ -2174,16 +2524,26 @@ function ToolPalette({
             }
             const meta = TOOL_META[t];
             return (
-              <ToolBtn
-                key={t}
-                current={tool}
-                onSet={setTool}
-                value={t}
-                hotkey={meta.hotkey}
-                Icon={meta.Icon}
-              >
-                {meta.label}
-              </ToolBtn>
+              <Fragment key={t}>
+                <ToolBtn
+                  current={tool}
+                  onSet={setTool}
+                  value={t}
+                  hotkey={meta.hotkey}
+                  Icon={meta.Icon}
+                >
+                  {meta.label}
+                </ToolBtn>
+                {/* Shape submenu — only meaningful when view_opening is the
+                    active tool. Sits where the old kind submenu used to be
+                    (visually anchored to its parent ToolBtn). */}
+                {t === 'view_opening' && tool === 'view_opening' && (
+                  <ShapeSubmenu
+                    value={viewOpeningShape}
+                    onChange={onChangeViewOpeningShape}
+                  />
+                )}
+              </Fragment>
             );
           })}
         </div>
@@ -2215,6 +2575,10 @@ function ToolPalette({
           Defaults für „{sceneTag}" zurücksetzen
         </button>
       </section>
+
+      {/* Shape submenu lives inline under the view_opening ToolBtn above.
+          Kind classification (Fenster/Tür/Gaube/…) happens post-draw in the
+          inspector or via hotkeys — never as a pre-draw modal switch. */}
 
       <section>
         <div className="flex items-center gap-2 mb-1.5">
@@ -2252,7 +2616,39 @@ function ToolPalette({
           />
         )}
       </section>
+      <ColorLegend />
     </div>
+  );
+}
+
+// Compact color legend so the user can map swatch → class without guessing.
+// Collapsible to save sidebar real estate when many labels are present.
+function ColorLegend() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="border-t border-border pt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-1.5 text-[0.65rem] uppercase tracking-wider text-zinc-500 hover:text-zinc-800 font-semibold"
+      >
+        <span className="w-3 text-center">{open ? '▾' : '▸'}</span>
+        <span>Legende</span>
+      </button>
+      {open && (
+        <ul className="space-y-px mt-1 ml-3">
+          {LEGEND.map((e) => (
+            <li key={e.kindKey} className="flex items-center gap-1.5 text-[0.7rem] text-zinc-700">
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+                style={{ backgroundColor: e.swatch }}
+              />
+              <span>{e.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -2337,6 +2733,51 @@ function FamilyToolButton({
             </p>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Shape submenu — sits inline under the view_opening tool button when
+// active, mirroring the visual treatment of FamilyToolButton's sub-options.
+// Pre-draw, the ONLY decision is gesture (rectangle / circle / polygon).
+// Kind (Fenster/Tür/Gaube) is set after the fact via the inspector.
+function ShapeSubmenu({
+  value,
+  onChange,
+}: {
+  value: 'rectangle' | 'circle' | 'polygon';
+  onChange: (s: 'rectangle' | 'circle' | 'polygon') => void;
+}) {
+  const opts: Array<{ id: 'rectangle' | 'circle' | 'polygon'; label: string; hint: string }> = [
+    { id: 'rectangle', label: 'Rechteck', hint: 'Zwei Klicks für die Diagonale.' },
+    { id: 'circle',    label: 'Kreis',    hint: 'Klick 1 = Mittelpunkt, Klick 2 = Radius.' },
+    { id: 'polygon',   label: 'Polygon',  hint: 'Klicke jede Ecke; Enter zum Abschließen.' },
+  ];
+  const current = opts.find((o) => o.id === value);
+  return (
+    <div className="ml-5 pl-2 border-l border-zinc-200 space-y-px py-0.5">
+      {opts.map((opt) => {
+        const isCurrent = opt.id === value;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            title={opt.hint}
+            onClick={() => onChange(opt.id)}
+            className={`w-full flex items-center gap-2 px-2 py-1 rounded text-[0.72rem] text-left transition ${
+              isCurrent
+                ? 'bg-accent/15 text-accent font-medium'
+                : 'text-zinc-700 hover:bg-zinc-100'
+            }`}
+          >
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${isCurrent ? 'bg-accent' : 'bg-zinc-300'}`} />
+            <span className="flex-1">{opt.label}</span>
+          </button>
+        );
+      })}
+      {current && (
+        <p className="text-[0.62rem] text-muted leading-snug px-2 pt-1 pb-0.5 italic">{current.hint}</p>
       )}
     </div>
   );
@@ -2541,15 +2982,19 @@ function LabelsByType({
                     <button
                       type="button"
                       onClick={() => onSelect(l.id)}
-                      className={`w-full text-left px-2 py-1 rounded text-[0.72rem] truncate ${
+                      className={`w-full text-left px-2 py-1 rounded text-[0.72rem] truncate flex items-center gap-1.5 ${
                         selectedId === l.id
                           ? 'bg-accent/10 text-accent font-semibold'
                           : 'hover:bg-zinc-100 text-zinc-800'
                       }`}
                       title={l.id}
                     >
+                      <span
+                        className="inline-block w-2 h-2 rounded-sm shrink-0"
+                        style={{ backgroundColor: labelColor(l) }}
+                      />
                       <span className="font-mono">{labelGlyph(l)}</span>{' '}
-                      <span>{labelSummary(l)}</span>
+                      <span className="truncate">{labelSummary(l)}</span>
                     </button>
                   </li>
                 ))}
@@ -2696,8 +3141,9 @@ function LabelGlyph({
   onDragStateChange: (dragging: boolean) => void;
   onSnapChange: (s: SnapTarget | null) => void;
 }) {
-  // Color per type — selected always takes precedence.
-  const baseColor = LABEL_COLORS[label.type] ?? '#16a34a';
+  // Color per (type, subtype) — see lib/colors.ts. Selected always takes
+  // precedence (bright red) so the active label is unambiguous.
+  const baseColor = labelColor(label);
   const stroke = selected ? '#dc2626' : baseColor;
   const fill = selected ? '#dc262633' : `${baseColor}1a`;
   const sw = selected ? 3 : 2;
@@ -2975,14 +3421,36 @@ function LabelGlyph({
       break;
     }
     case 'view_opening': {
-      const { top_edge, bottom_edge } = label.geometry;
-      const path = `M ${top_edge.map(p => p.join(',')).join(' L ')}` +
-                   ` L ${[...bottom_edge].reverse().map(p => p.join(',')).join(' L ')} Z`;
-      body = (
-        <g {...bodyProps}>
-          <path d={path} fill={fill} stroke={stroke} strokeWidth={sw} />
-        </g>
-      );
+      const g = label.geometry as Record<string, unknown>;
+      if (g.shape === 'circle') {
+        const center = g.center as Point;
+        const radius_px = g.radius_px as number;
+        body = (
+          <g {...bodyProps}>
+            <circle
+              cx={center[0]} cy={center[1]} r={radius_px}
+              fill={fill} stroke={stroke} strokeWidth={sw}
+            />
+          </g>
+        );
+      } else if (g.shape === 'polygon') {
+        const polygon = g.polygon as Point[];
+        const path = `M ${polygon.map(p => p.join(',')).join(' L ')} Z`;
+        body = (
+          <g {...bodyProps}>
+            <path d={path} fill={fill} stroke={stroke} strokeWidth={sw} />
+          </g>
+        );
+      } else {
+        const { top_edge, bottom_edge } = label.geometry as { top_edge: Point[]; bottom_edge: Point[] };
+        const path = `M ${top_edge.map(p => p.join(',')).join(' L ')}` +
+                     ` L ${[...bottom_edge].reverse().map(p => p.join(',')).join(' L ')} Z`;
+        body = (
+          <g {...bodyProps}>
+            <path d={path} fill={fill} stroke={stroke} strokeWidth={sw} />
+          </g>
+        );
+      }
       break;
     }
     case 'component_line': {
@@ -3415,8 +3883,16 @@ function labelCenter(l: Label): Point | null {
       return [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2];
     }
     case 'view_opening': {
-      const t = l.geometry.top_edge;
-      const b = l.geometry.bottom_edge;
+      const g = l.geometry as Record<string, unknown>;
+      if (g.shape === 'circle') return g.center as Point;
+      if (g.shape === 'polygon') {
+        const poly = g.polygon as Point[];
+        let sx = 0; let sy = 0;
+        for (const p of poly) { sx += p[0]; sy += p[1]; }
+        return [sx / poly.length, sy / poly.length];
+      }
+      const t = (l.geometry as { top_edge: Point[] }).top_edge;
+      const b = (l.geometry as { bottom_edge: Point[] }).bottom_edge;
       const cx = (t[0][0] + b[b.length - 1][0]) / 2;
       const cy = (t[0][1] + b[b.length - 1][1]) / 2;
       return [cx, cy];
@@ -3585,15 +4061,6 @@ function wallThicknessHandlePos(start: Point, end: Point, thicknessMm: number, p
   return [(start[0] + end[0]) / 2 + px * half, (start[1] + end[1]) / 2 + py * half];
 }
 
-const LABEL_COLORS: Record<Label['type'], string> = {
-  dimensioned_distance: '#16a34a',
-  dimension_number: '#0ea5e9',
-  wall: '#7c3aed',
-  floorplan_opening: '#ea580c',
-  view_opening: '#ea580c',
-  component_line: '#0891b2',
-  height_mark: '#be185d',
-};
 
 // Display labels for Höhenkote datums — used by the glyph and the implied
 // horizontal-line layer. A Höhenkote with datum='first' renders as
@@ -3717,6 +4184,9 @@ function Inspector({
   onUnlink,
   onSelectId,
   onLinkTo,
+  scope,
+  houseKey,
+  onAutoFillToast,
 }: {
   label: Label;
   allLabels: Label[];
@@ -3725,6 +4195,9 @@ function Inspector({
   onUnlink: (otherId: string) => void;
   onSelectId: (id: string) => void;
   onLinkTo: (otherId: string) => void;
+  scope: LabelScope;
+  houseKey: string;
+  onAutoFillToast: (message: string) => void;
 }) {
   return (
     <div className="p-4 space-y-4">
@@ -3754,7 +4227,15 @@ function Inspector({
       {label.type === 'floorplan_opening' && <FloorplanOpeningFields label={label} onChange={onChange} />}
       {label.type === 'view_opening' && <ViewOpeningFields label={label} onChange={onChange} />}
       {label.type === 'component_line' && <ComponentLineFields label={label} onChange={onChange} />}
-      {label.type === 'height_mark' && <HeightMarkFields label={label} onChange={onChange} />}
+      {label.type === 'height_mark' && (
+        <HeightMarkFields
+          label={label}
+          onChange={onChange}
+          scope={scope}
+          houseKey={houseKey}
+          onAutoFillToast={onAutoFillToast}
+        />
+      )}
 
       {(label.type === 'dimension_number' || label.type === 'dimensioned_distance') && (
         <LinksSection
@@ -4153,6 +4634,59 @@ function WallFields({ label, onChange }: { label: WallLabel; onChange: (p: Parti
   );
 }
 
+// Pill-row kind picker. Replaces the old <select> dropdown so the kind
+// classification is one tap, not a dropdown interaction. Colors come from
+// labelColor() so each kind reads as its visual identity even before drawing.
+// Hotkeys: pressing F/T/D/G/Z while a label is selected updates this same
+// attribute — see the keydown handler at the top of AnnotatePage.
+function KindPills({
+  current,
+  onSet,
+  kinds,
+  swatchFor,
+}: {
+  current: string;
+  onSet: (k: string) => void;
+  kinds: Array<{ id: string; label: string; key?: string }>;
+  swatchFor: (id: string) => string;
+}) {
+  return (
+    <div>
+      <span className="text-[0.7rem] text-muted">Art</span>
+      <div className="flex flex-wrap gap-1 mt-0.5">
+        {kinds.map((k) => {
+          const active = current === k.id;
+          return (
+            <button
+              key={k.id}
+              type="button"
+              onClick={() => onSet(k.id)}
+              className={`px-2 py-1 rounded text-[0.72rem] font-medium border transition flex items-center gap-1.5 ${
+                active
+                  ? 'border-transparent text-white shadow-sm'
+                  : 'bg-white border-border text-zinc-700 hover:border-zinc-400'
+              }`}
+              style={active ? { backgroundColor: swatchFor(k.id) } : undefined}
+              title={k.key ? `${k.label} (${k.key.toUpperCase()})` : k.label}
+            >
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-sm"
+                style={{ backgroundColor: active ? 'rgba(255,255,255,0.85)' : swatchFor(k.id) }}
+              />
+              {k.label}
+              {k.key && (
+                <kbd className={`text-[0.6rem] font-mono ${active ? 'opacity-70' : 'text-zinc-400'}`}>
+                  {k.key.toUpperCase()}
+                </kbd>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function FloorplanOpeningFields({
   label, onChange,
 }: { label: FloorplanOpeningLabel; onChange: (p: Partial<Label>) => void }) {
@@ -4185,20 +4719,18 @@ function FloorplanOpeningFields({
           </button>
         </div>
       )}
-      <label className="block">
-        <span className="text-[0.7rem] text-muted">Art</span>
-        <select
-          value={a.opening_kind ?? 'window'}
-          onChange={(e) => onChange({ attributes: { ...a, opening_kind: e.target.value as FloorplanOpeningLabel['attributes']['opening_kind'] } } as Partial<Label>)}
-          className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
-        >
-          <option value="window">window</option>
-          <option value="door">door</option>
-          <option value="passage">passage</option>
-          <option value="garage_door">garage_door</option>
-          <option value="other">other</option>
-        </select>
-      </label>
+      <KindPills
+        current={a.opening_kind ?? 'window'}
+        onSet={(k) => onChange({ attributes: { ...a, opening_kind: k as FloorplanOpeningLabel['attributes']['opening_kind'] } } as Partial<Label>)}
+        kinds={[
+          { id: 'window',      label: 'Fenster',    key: 'f' },
+          { id: 'door',        label: 'Tür',        key: 't' },
+          { id: 'passage',     label: 'Durchgang',  key: 'd' },
+          { id: 'garage_door', label: 'Tor',        key: 'g' },
+          { id: 'other',       label: 'Sonstige',   key: 'z' },
+        ]}
+        swatchFor={(id) => labelColor({ ...label, attributes: { ...a, opening_kind: id as FloorplanOpeningLabel['attributes']['opening_kind'] } })}
+      />
       <label className="block">
         <span className="text-[0.7rem] text-muted">Breite (mm)</span>
         <input
@@ -4280,21 +4812,19 @@ function ViewOpeningFields({
   return (
     <section className="space-y-2">
       <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Öffnung (Ansicht)</h4>
-      <label className="block">
-        <span className="text-[0.7rem] text-muted">Art</span>
-        <select
-          value={a.opening_kind ?? 'window'}
-          onChange={(e) => onChange({ attributes: { ...a, opening_kind: e.target.value as ViewOpeningLabel['attributes']['opening_kind'] } } as Partial<Label>)}
-          className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
-        >
-          <option value="window">window</option>
-          <option value="door">door</option>
-          <option value="skylight">skylight</option>
-          <option value="dormer">dormer</option>
-          <option value="garage_door">garage_door</option>
-          <option value="other">other</option>
-        </select>
-      </label>
+      <KindPills
+        current={a.opening_kind ?? 'window'}
+        onSet={(k) => onChange({ attributes: { ...a, opening_kind: k as ViewOpeningLabel['attributes']['opening_kind'] } } as Partial<Label>)}
+        kinds={[
+          { id: 'window',      label: 'Fenster',     key: 'f' },
+          { id: 'door',        label: 'Tür',         key: 't' },
+          { id: 'skylight',    label: 'Dachfenster', key: 'd' },
+          { id: 'dormer',      label: 'Gaube',       key: 'g' },
+          { id: 'garage_door', label: 'Tor',         key: 'a' },
+          { id: 'other',       label: 'Sonstige',    key: 'z' },
+        ]}
+        swatchFor={(id) => labelColor({ ...label, attributes: { ...a, opening_kind: id as ViewOpeningLabel['attributes']['opening_kind'] } })}
+      />
       <label className="flex items-center gap-2 text-[0.78rem]">
         <input
           type="checkbox"
@@ -4360,9 +4890,24 @@ function ComponentLineFields({
 }
 
 function HeightMarkFields({
-  label, onChange,
-}: { label: HeightMarkLabel; onChange: (p: Partial<Label>) => void }) {
+  label, onChange, scope, houseKey, onAutoFillToast,
+}: {
+  label: HeightMarkLabel;
+  onChange: (p: Partial<Label>) => void;
+  scope: LabelScope;
+  houseKey: string;
+  onAutoFillToast: (message: string) => void;
+}) {
   const isBezug = label.attributes.value_mm === 0;
+  // House-wide datum → value lookup: shows which datums are already known
+  // from other scenes of this house. Used to auto-fill when the user
+  // picks a known datum on a Höhenkote that has no value yet.
+  const houseHeights = getHouseHeights(scope, houseKey);
+  const DATUM_NAMES: Record<string, string> = {
+    first: 'First', traufe: 'Traufe', gelaende: 'Gelände',
+    ok_ffb: 'OK FFB', geschoss: 'Geschoss', sockel: 'Sockel',
+    kniestock: 'Kniestock', other: 'Sonstige',
+  };
   return (
     <section className="space-y-2">
       <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Höhenkote</h4>
@@ -4384,18 +4929,36 @@ function HeightMarkFields({
         <span className="text-[0.7rem] text-muted">Datum (welche Höhe?)</span>
         <select
           value={label.attributes.datum ?? ''}
-          onChange={(e) => onChange({ attributes: { ...label.attributes, datum: (e.target.value || null) as HeightMarkLabel['attributes']['datum'] } } as Partial<Label>)}
+          onChange={(e) => {
+            const newDatum = (e.target.value || null) as HeightMarkLabel['attributes']['datum'];
+            const patch: HeightMarkLabel['attributes'] = { ...label.attributes, datum: newDatum };
+            // Cross-scene propagation: if this datum has a known value
+            // from another scene of the same house AND the current
+            // value is unset, pre-fill it. Heights are house-wide —
+            // First in the south elevation = First in the EG-Grundriss.
+            if (newDatum && newDatum !== 'other' && label.attributes.value_mm == null) {
+              const known = houseHeights[newDatum];
+              if (typeof known === 'number') {
+                patch.value_mm = known;
+                onAutoFillToast(
+                  `↑ ${DATUM_NAMES[newDatum] ?? newDatum} = ${known === 0 ? '±0,00' : `${(known / 1000).toFixed(2).replace('.', ',')} m`} aus anderer Szene übernommen`,
+                );
+              }
+            }
+            onChange({ attributes: patch } as Partial<Label>);
+          }}
           className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
         >
           <option value="">(nicht gesetzt)</option>
-          <option value="first">First</option>
-          <option value="traufe">Traufe</option>
-          <option value="gelaende">Gelände</option>
-          <option value="ok_ffb">OK FFB</option>
-          <option value="geschoss">Geschoss</option>
-          <option value="sockel">Sockel</option>
-          <option value="kniestock">Kniestock</option>
-          <option value="other">Sonstige</option>
+          {(['first','traufe','gelaende','ok_ffb','geschoss','sockel','kniestock','other'] as const).map((d) => {
+            const knownMm = houseHeights[d];
+            const known = typeof knownMm === 'number'
+              ? ` · ${knownMm === 0 ? '±0,00' : (knownMm / 1000).toFixed(2).replace('.', ',') + ' m'}`
+              : '';
+            return (
+              <option key={d} value={d}>{DATUM_NAMES[d]}{known}</option>
+            );
+          })}
         </select>
       </label>
       <label className="block">

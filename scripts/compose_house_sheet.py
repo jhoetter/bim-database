@@ -33,7 +33,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 REPO = Path(__file__).resolve().parent.parent
-SYNTHETIC_DIR = REPO / "data" / "synthetic"
+DATASET_DIR = REPO / "data" / "dataset"
+SYNTHETIC_DIR = DATASET_DIR  # back-compat alias
 
 # A1-landscape proportions, scaled down so the file is manageable. Roughly
 # 1.41:1; final PNG ~4-6 MB depending on content.

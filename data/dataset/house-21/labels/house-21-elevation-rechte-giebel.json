@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-21",
+  "scene_file": "house-21-elevation-rechte-giebel.jpg",
+  "scene_tag": "ansicht",
+  "image_size_px": [
+    926,
+    936
+  ],
+  "labels": [
+    {
+      "id": "27a2008b-dd10-4766-abea-2360b7bd99db",
+      "type": "height_mark",
+      "geometry": {
+        "anchor": [
+          789.3167724609375,
+          642.2471313476562
+        ]
+      },
+      "attributes": {
+        "value_mm": null,
+        "datum": null,
+        "reference_line_id": null
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:46:34.922Z",
+      "updated_at": "2026-05-27T16:46:34.922Z"
+    },
+    {
+      "id": "dc95eb79-e760-4765-9a66-7ff8c4196995",
+      "type": "view_opening",
+      "geometry": {
+        "top_edge": [
+          [
+            439.60845947265625,
+            356.8337707519531
+          ],
+          [
+            503.35638427734375,
+            356.8337707519531
+          ]
+        ],
+        "bottom_edge": [
+          [
+            439.60845947265625,
+            421.9051208496094
+          ],
+          [
+            503.35638427734375,
+            421.9051208496094
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "window",
+        "frame_visible": true
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:46:46.745Z",
+      "updated_at": "2026-05-27T16:46:46.745Z"
+    }
+  ],
+  "annotated_by": "jhoetter",
+  "annotated_at": "2026-05-27T16:56:48.783Z"
+}

@@ -1,0 +1,118 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-21",
+  "scene_file": "house-21-elevation-tal.jpg",
+  "scene_tag": "ansicht",
+  "image_size_px": [
+    1323,
+    1006
+  ],
+  "labels": [
+    {
+      "id": "5e889716-3346-419e-b52d-3628513346e9",
+      "type": "height_mark",
+      "geometry": {
+        "anchor": [
+          127.54422760009766,
+          764.9842529296875
+        ]
+      },
+      "attributes": {
+        "value_mm": 0,
+        "datum": null,
+        "reference_line_id": null
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:15:10.893Z",
+      "updated_at": "2026-05-27T16:15:22.968Z"
+    },
+    {
+      "id": "8e8098db-d493-4ff0-83c3-ce749c83bd77",
+      "type": "height_mark",
+      "geometry": {
+        "anchor": [
+          127.54422760009766,
+          516.3252563476562
+        ]
+      },
+      "attributes": {
+        "value_mm": null,
+        "datum": null,
+        "reference_line_id": null
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:15:14.168Z",
+      "updated_at": "2026-05-27T16:15:14.168Z"
+    },
+    {
+      "id": "a81e2d90-e4b5-4766-973c-0dc6e0146d24",
+      "type": "height_mark",
+      "geometry": {
+        "anchor": [
+          127.54422760009766,
+          193.41952514648438
+        ]
+      },
+      "attributes": {
+        "value_mm": null,
+        "datum": null,
+        "reference_line_id": null
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:15:16.347Z",
+      "updated_at": "2026-05-27T16:15:16.347Z"
+    },
+    {
+      "id": "d96f0f39-9fc3-4305-83f4-0b6b3344f826",
+      "type": "component_line",
+      "geometry": {
+        "polyline": [
+          [
+            205.79660034179688,
+            524.7422485351562
+          ],
+          [
+            212.74940490722656,
+            761.115234375
+          ]
+        ]
+      },
+      "attributes": {
+        "line_kind": "other"
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:15:35.965Z",
+      "updated_at": "2026-05-27T16:15:35.965Z"
+    },
+    {
+      "id": "89a63ac8-d993-4e6c-acb6-d4f13095b99a",
+      "type": "component_line",
+      "geometry": {
+        "polyline": [
+          [
+            1224.632568359375,
+            510.9997253417969
+          ],
+          [
+            1225.26220703125,
+            765.1852416992188
+          ]
+        ]
+      },
+      "attributes": {
+        "line_kind": "other"
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T16:15:43.527Z",
+      "updated_at": "2026-05-27T16:15:43.527Z"
+    }
+  ],
+  "annotated_by": "jhoetter",
+  "annotated_at": "2026-05-27T16:16:13.746Z"
+}

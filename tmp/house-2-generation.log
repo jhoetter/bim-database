@@ -1,0 +1,26 @@
+Preparing style references…
+  8 elevation refs + 6 floorplan refs cached
+
+house-2: EFH Klassik 118  preset=detailed  capture=photo_folded_plan  persona=sparse-modernist  refs=house-21+house-22+house-23  (6 targets)
+  → house-2-syn-floorplan-eg.png [attempt 1/3] (248s, 1416 KB) → verifying ✓
+  → house-2-syn-elevation-north.png [attempt 1/3] (181s, 2211 KB) → verifying ✗ — horizontal axis: sum of segments does not match overall 13.66
+  → house-2-syn-elevation-north.png [attempt 2/3] (189s, 2445 KB) → verifying ✗ — horizontal axis: sum is 13.22, but segments total 12.22
+  → house-2-syn-elevation-north.png [attempt 3/3] (163s, 2120 KB) → verifying ✓
+  → house-2-syn-elevation-south.png [attempt 1/3] (162s, 2030 KB) → verifying ✗ — horizontal - segments sum to 14.24, not 14.49
+  → house-2-syn-elevation-south.png [attempt 2/3] (171s, 2102 KB) → verifying ✗ — vertical: 3.28 height label mismatch
+  → house-2-syn-elevation-south.png [attempt 3/3] (181s, 2141 KB) → verifying ✗ — horizontal axis: sum of segments does not equal 13.99
+  ⚠ kept last attempt despite verification failure
+  → house-2-syn-elevation-east.png [attempt 1/3] (217s, 2042 KB) → verifying ✗ — horizontal: 2.00 m segment lacks architectural feature
+  → house-2-syn-elevation-east.png [attempt 2/3] (763s, 2099 KB) → verifying ✗ — horizontal sum 2.49 is incorrect
+  → house-2-syn-elevation-east.png [attempt 3/3] (171s, 2063 KB) → verifying ✗ — Horizontal axis: 2.50 + 2.20 + 2.00 + 2.20 + 2.50 does not equal 11.40
+  ⚠ kept last attempt despite verification failure
+  → house-2-syn-elevation-west.png [attempt 1/3] (179s, 2112 KB) → verifying ✗ — x-axis 17.40 total mismatch
+  → house-2-syn-elevation-west.png [attempt 2/3] (154s, 2029 KB) → verifying ✗ — horizontal axis: segments sum to 13.50, but tick marks show 13.75
+  → house-2-syn-elevation-west.png [attempt 3/3] (165s, 2115 KB) → verifying ✗ — Vertical: 3.28 alignment issue
+  ⚠ kept last attempt despite verification failure
+  → house-2-syn-floorplan-dg.png [attempt 1/3] (248s, 1422 KB) → verifying ✗ — horizontal sum mismatch: 3.01 + 2.76 + 1.99 + 3.01 + 2.99 does not equal 13.99
+  → house-2-syn-floorplan-dg.png [attempt 2/3] (251s, 1491 KB) → verifying ✗ — Horizontal axis: segment sums to 13.73 but should be 13.99
+  → house-2-syn-floorplan-dg.png [attempt 3/3] (873s, 1448 KB) → verifying ✗ — horizontal sum: 13.99 vs 13.99
+  ⚠ kept last attempt despite verification failure
+
+done.

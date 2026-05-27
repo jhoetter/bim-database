@@ -1,0 +1,160 @@
+{
+  "key": "house-23",
+  "linked_house": "house-23",
+  "drawings": [
+    {
+      "file": "house-23-detail-dachgaube.jpg",
+      "kind": "detail",
+      "view": null,
+      "floor": null,
+      "title": "HOUSE 23 DETAIL DACHGAUBE",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-detail-dachgaube.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-detail-dachueberstand.jpg",
+      "kind": "detail",
+      "view": null,
+      "floor": null,
+      "title": "HOUSE 23 DETAIL DACHUEBERSTAND",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-detail-dachueberstand.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-detail-decke-absenkung-dg.jpg",
+      "kind": "detail",
+      "view": null,
+      "floor": null,
+      "title": "HOUSE 23 DETAIL DECKE ABSENKUNG DG",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-detail-decke-absenkung-dg.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-detail-flachdach.jpg",
+      "kind": "detail",
+      "view": null,
+      "floor": null,
+      "title": "HOUSE 23 DETAIL FLACHDACH",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-detail-flachdach.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-elevation-eingang.jpg",
+      "kind": "elevation",
+      "view": "eingang",
+      "floor": null,
+      "title": "HOUSE 23 ELEVATION EINGANG",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-elevation-eingang.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-elevation-garten.jpg",
+      "kind": "elevation",
+      "view": "garten",
+      "floor": null,
+      "title": "HOUSE 23 ELEVATION GARTEN",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-elevation-garten.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-elevation-strasse.jpg",
+      "kind": "elevation",
+      "view": "strasse",
+      "floor": null,
+      "title": "HOUSE 23 ELEVATION STRASSE",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-elevation-strasse.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-floorplan-dg.jpg",
+      "kind": "floorplan",
+      "view": null,
+      "floor": "dg",
+      "title": "HOUSE 23 FLOORPLAN DG",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-floorplan-dg.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-floorplan-eg.jpg",
+      "kind": "floorplan",
+      "view": null,
+      "floor": "eg",
+      "title": "HOUSE 23 FLOORPLAN EG",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-floorplan-eg.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-floorplan-kg.jpg",
+      "kind": "floorplan",
+      "view": null,
+      "floor": "kg",
+      "title": "HOUSE 23 FLOORPLAN KG",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-floorplan-kg.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-floorplan-og.jpg",
+      "kind": "floorplan",
+      "view": null,
+      "floor": "og",
+      "title": "HOUSE 23 FLOORPLAN OG",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-floorplan-og.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-floorplan-spitzboden.jpg",
+      "kind": "floorplan",
+      "view": null,
+      "floor": "spitzboden",
+      "title": "HOUSE 23 FLOORPLAN SPITZBODEN",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-floorplan-spitzboden.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-section-aa.jpg",
+      "kind": "section",
+      "view": null,
+      "floor": null,
+      "title": "HOUSE 23 SECTION AA",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-section-aa.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-23-section-bb.jpg",
+      "kind": "section",
+      "view": null,
+      "floor": null,
+      "title": "HOUSE 23 SECTION BB",
+      "source": "real",
+      "source_path": "data/houses/house-23/house-23-section-bb.jpg",
+      "imported_at": "2026-05-27T17:51:20",
+      "label_status": "unlabeled"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+Preparing style references…
+  8 elevation refs + 6 floorplan refs cached
+
+house-3: Paulik  preset=standard  capture=photo_overhead_phone  persona=postwar-german  refs=house-21+house-22+house-23  (6 targets)
+  → house-3-syn-floorplan-eg.png [attempt 1/3] (230s, 1572 KB) → verifying ✗ — horizontal axis: segment 1.74 m does not align with any feature
+  → house-3-syn-floorplan-eg.png [attempt 2/3] (232s, 1685 KB) → verifying ✗ — Horizontal total mismatch: 10.99 ≠ 3.61 + 1.76 + 5.62
+  → house-3-syn-floorplan-eg.png [attempt 3/3] (228s, 1699 KB) → verifying ✗ — vertical axis (left) 3.76 + 3.76 = 7.52 != 10.49
+  ⚠ kept last attempt despite verification failure
+  → house-3-syn-elevation-north.png [attempt 1/3] (173s, 2647 KB) → verifying ✗ — horizontal axis + 9,30 does not match segment totals
+  → house-3-syn-elevation-north.png [attempt 2/3] (166s, 2663 KB) → verifying ✗ — horizontal axis - sum of segments (12.99) does not match given total (12.99 disc
+  → house-3-syn-elevation-north.png [attempt 3/3] (168s, 2498 KB) → verifying ✗ — horizontal axis: segments sum to 11.55 but should be 11.05
+  ⚠ kept last attempt despite verification failure
+  → house-3-syn-elevation-south.png [attempt 1/3] (169s, 2453 KB) → verifying ✗ — horizontal axis - sum is 11.05, but segments total 11.12
+  → house-3-syn-elevation-south.png [attempt 2/3] (180s, 2508 KB) → verifying ✗ — horizontal axis sum 12.50 vs 12.49
+  → house-3-syn-elevation-south.png [attempt 3/3] (175s, 2449 KB) → verifying ✗ — horizontal axis misalignment: 0.85 + 2.26 + 1.50 + 1.01 + 1.36 + 1.36 + 1.01 + 1
+  ⚠ kept last attempt despite verification failure
+  → house-3-syn-elevation-east.png [attempt 1/3] (185s, 2422 KB) → verifying ✗ — horizontal axis - segments sum to 11.93, not 11.94
+  → house-3-syn-elevation-east.png [attempt 2/3] (170s, 2386 KB) → verifying ✗ — Horizontal axis: 0.85 + 1.76 + 1.50 + 1.01 + 1.36 + 1.10 + 1.36 + 2.26 + 0.85 do
+  → house-3-syn-elevation-east.png [attempt 3/3] (162s, 2574 KB) → verifying ✗ — Horizontal: Sum does not equal labeled total 12.25
+  ⚠ kept last attempt despite verification failure
+  → house-3-syn-elevation-west.png [attempt 1/3] (202s, 2561 KB) → verifying ✗ — Horizontal axis: 0.85 m segment placed mid-window
+  → house-3-syn-elevation-west.png [attempt 2/3] (175s, 2500 KB) → verifying ✗ — horizontal axis sum: 0.85 + 2.26 + 1.50 + 1.01 + 1.36 + 1.36 + 1.50 + 2.26 + 0.8
+  → house-3-syn-elevation-west.png [attempt 3/3] (179s, 2494 KB) → verifying ✗ — horizontal axis: sum of segments does not match overall total
+  ⚠ kept last attempt despite verification failure
+  → house-3-syn-floorplan-dg.png [attempt 1/3] (264s, 1710 KB) → verifying ✗ — horizontal axis: dimension chain sums to 10.99 m but detailed segments sum to 10
+  → house-3-syn-floorplan-dg.png [attempt 2/3] (244s, 1670 KB) → verifying ✗ — horizontal top: 3.88 + 2.01 + 4.25 + 0.85 ≠ 10.99
+  → house-3-syn-floorplan-dg.png [attempt 3/3] (247s, 1643 KB) → verifying ✗ — horizontal axis length mismatch: 10.99 m
+  ⚠ kept last attempt despite verification failure
+  ↳ house-3: 6/6 drawings failed verification (100%)
+  ⚠ flagged house-3 as difficult — logged to data/synthetic/difficult_houses.jsonl
+
+done.

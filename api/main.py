@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 BASE = Path(__file__).parent.parent
 HOUSES_DIR = BASE / "data" / "houses"
-SYNTHETIC_DIR = BASE / "data" / "synthetic"
+DATASET_DIR = BASE / "data" / "dataset"
 ONTOLOGY_FILE = BASE / "data" / "ontology.json"
 ISSUE_STATE_FILE = BASE / "data" / ".issue_state.json"
 UI_DIST = BASE / "ui" / "dist"          # produced by `cd ui && npm run build`
@@ -36,13 +36,13 @@ app.add_middleware(
 )
 
 # Order matters: FastAPI matches mounts top-down, so the *more specific*
-# /static/synthetic prefix must mount BEFORE the generic /static, otherwise
-# requests to /static/synthetic/* get routed into HOUSES_DIR and 404.
-if SYNTHETIC_DIR.exists():
+# /static/dataset prefix must mount BEFORE the generic /static, otherwise
+# requests to /static/dataset/* get routed into HOUSES_DIR and 404.
+if DATASET_DIR.exists():
     app.mount(
-        "/static/synthetic",
-        StaticFiles(directory=str(SYNTHETIC_DIR)),
-        name="synthetic-static",
+        "/static/dataset",
+        StaticFiles(directory=str(DATASET_DIR)),
+        name="dataset-static",
     )
 
 # Each house's assets (images + combined PDF) live under data/houses/house-N/.
@@ -217,7 +217,7 @@ def root():
 
 
 # Client-side router fallback: any non-API path (e.g. /house/house-21,
-# /synthetic, /synthetic/house-1) loads the SPA's index.html so
+# /dataset, /dataset/house-1) loads the SPA's index.html so
 # react-router can pick up the URL.
 @app.get("/house/{rest:path}", tags=["meta"], response_class=FileResponse)
 def _spa_house(rest: str):
@@ -225,15 +225,15 @@ def _spa_house(rest: str):
     return root()
 
 
-@app.get("/synthetic", tags=["meta"], response_class=FileResponse)
-def _spa_synthetic_root():
+@app.get("/dataset", tags=["meta"], response_class=FileResponse)
+def _spa_dataset_root():
     return root()
 
 
-@app.get("/synthetic/{rest:path}", tags=["meta"], response_class=FileResponse)
-def _spa_synthetic(rest: str):
-    # SPA fallback for browser navigation/reload to /synthetic, /synthetic/house-1,
-    # etc. JSON endpoints live under /synthetics (plural) — same singular/plural
+@app.get("/dataset/{rest:path}", tags=["meta"], response_class=FileResponse)
+def _spa_dataset(rest: str):
+    # SPA fallback for browser navigation/reload to /dataset, /dataset/house-1,
+    # etc. JSON endpoints live under /datasets (plural) — same singular/plural
     # split as /house/* (SPA) vs /houses/* (API).
     del rest
     return root()
@@ -323,6 +323,52 @@ def get_images(key: str):
     return rec["images"]
 
 
+@app.put("/houses/{key}/dataset_starred", tags=["houses"])
+def set_dataset_starred(key: str, payload: dict[str, Any] = Body(...)):
+    """Toggle the dataset_starred flag on a house. When set to true, also
+    materializes the house's real architectural drawings into data/dataset/
+    immediately so the user gets one-click "add to dataset" behavior.
+
+    Body: {"starred": bool}. Returns the updated record + materialize summary.
+    """
+    rec = _by_key(key)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"House {key!r} not found")
+    starred = bool(payload.get("starred"))
+
+    # Update the on-disk JSON. Round-trip preserves everything else.
+    meta_path = _house_dir(rec["id"]) / f"{rec['key']}.json"
+    meta = json.loads(meta_path.read_text())
+    meta["dataset_starred"] = starred
+    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+
+    # If starring, materialize immediately. If unstarring, leave the existing
+    # dataset entries in place — the user can prune by deleting them manually
+    # (we don't want to accidentally trash labels they've put on those plans).
+    materialized = None
+    if starred:
+        # Use sys.executable so we always invoke the same interpreter the API
+        # is running under (works for both `.venv/bin/python` and `python3`).
+        import subprocess, sys
+        result = subprocess.run(
+            [sys.executable, str(BASE / "scripts" / "include_real_plans.py"), rec["key"]],
+            cwd=str(BASE),
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"include_real_plans.py failed: {result.stderr or result.stdout}",
+            )
+        materialized = result.stdout.strip().splitlines()[-1] if result.stdout else None
+
+    return {
+        "key": rec["key"],
+        "dataset_starred": starred,
+        "materialized": materialized,
+    }
+
+
 # ── scene render cache ───────────────────────────────────────────────────────
 # PDF-sourced scenes are reconstructed on demand from (PDF, page, crop_box, dpi)
 # in the JSON record, written to tmp/scene-cache/<key>/<file>, and served from
@@ -343,14 +389,16 @@ def get_scene(key: str, file: str):
     return FileResponse(str(path), media_type="image/avif")
 
 
-# ── synthetic drawings ──────────────────────────────────────────────────────
-# Synthetic technical-paper drawings generated by gpt-image-* for vision-model
-# training. Lives under data/synthetic/<key>/ with one manifest.json per house.
-# Tracked separately from real records — the UI exposes them as a second
-# top-level section.
+# ── dataset (supervised-learning corpus) ────────────────────────────────────
+# Per-house drawings the vision model is trained on. Lives under
+# data/dataset/<key>/ with one manifest.json per house. Each manifest entry
+# carries a `source` field ("generated" for gpt-image-* generations,
+# "real" for scanned plans copied in via scripts/include_real_plans.py).
+# Tracked separately from the source-house catalog — the UI exposes the
+# dataset as its own top-level section.
 
-def _load_synthetic_manifest(key: str) -> Optional[dict]:
-    mp = SYNTHETIC_DIR / key / "manifest.json"
+def _load_dataset_manifest(key: str) -> Optional[dict]:
+    mp = DATASET_DIR / key / "manifest.json"
     if not mp.exists():
         return None
     data = json.loads(mp.read_text())
@@ -358,9 +406,9 @@ def _load_synthetic_manifest(key: str) -> Optional[dict]:
     # M11 coverage badge: for every drawing, attach `labeled` = does a label
     # file exist for this scene? And `label_count` = how many labels are in
     # it (for richer coverage visualization).
-    labels_dir = SYNTHETIC_DIR / key / "labels"
+    labels_dir = DATASET_DIR / key / "labels"
     for d in data.get("drawings") or []:
-        d["url"] = f"/static/synthetic/{key}/{d['file']}"
+        d["url"] = f"/static/dataset/{key}/{d['file']}"
         stem = Path(d["file"]).stem
         label_file = labels_dir / f"{stem}.json"
         if label_file.exists():
@@ -387,45 +435,45 @@ def _load_synthetic_manifest(key: str) -> Optional[dict]:
     # Composite sheet (M0): if scripts/compose_house_sheet.py has produced
     # output for this house, include the bbox metadata + image URL so the UI
     # can render the "fake whole document" view.
-    comp_json = SYNTHETIC_DIR / key / "composite.json"
-    comp_png = SYNTHETIC_DIR / key / f"{key}-composite.png"
+    comp_json = DATASET_DIR / key / "composite.json"
+    comp_png = DATASET_DIR / key / f"{key}-composite.png"
     if comp_json.exists() and comp_png.exists():
         data["composite"] = {
             **json.loads(comp_json.read_text()),
-            "url": f"/static/synthetic/{key}/{comp_png.name}",
+            "url": f"/static/dataset/{key}/{comp_png.name}",
         }
     return data
 
 
-@app.get("/synthetics", tags=["synthetic"])
-def list_synthetics():
-    """Every synthetic-drawing manifest, with image URLs + parent metadata.
+@app.get("/datasets", tags=["dataset"])
+def list_datasets():
+    """Every dataset manifest, with image URLs + parent metadata.
 
-    Includes houses that have no synthetic drawings yet — they're listed with
+    Includes houses that have no dataset entries yet — they're listed with
     `drawings: []` so the UI can show the full coverage matrix and mark
     "not generated yet" cells."""
-    if not SYNTHETIC_DIR.exists():
+    if not DATASET_DIR.exists():
         return []
     out = []
-    for d in sorted(SYNTHETIC_DIR.iterdir()):
+    for d in sorted(DATASET_DIR.iterdir()):
         if not d.is_dir():
             continue
-        manifest = _load_synthetic_manifest(d.name)
+        manifest = _load_dataset_manifest(d.name)
         if manifest:
             out.append(manifest)
     return out
 
 
-@app.get("/synthetics/{key}", tags=["synthetic"])
-def get_synthetic(key: str):
-    data = _load_synthetic_manifest(key)
+@app.get("/datasets/{key}", tags=["dataset"])
+def get_dataset(key: str):
+    data = _load_dataset_manifest(key)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"No synthetic manifest for {key!r}")
+        raise HTTPException(status_code=404, detail=f"No dataset manifest for {key!r}")
     return data
 
 
 # ── annotation labels ──────────────────────────────────────────────────────
-# Scope-aware label storage. Synthetic and real-house scenes share one schema
+# Scope-aware label storage. Dataset and source-house scenes share one schema
 # and one API surface; only the on-disk folder differs.
 
 LABELS_SCHEMA_PATH = BASE / "schema" / "scene_labels.schema.json"
@@ -441,11 +489,11 @@ except ImportError:
 
 
 def _scope_root(scope: str) -> Path:
-    if scope == "synthetic":
-        return SYNTHETIC_DIR
+    if scope == "dataset":
+        return DATASET_DIR
     if scope == "house":
         return HOUSES_DIR
-    raise HTTPException(status_code=400, detail=f"bad scope {scope!r} — expected 'synthetic' or 'house'")
+    raise HTTPException(status_code=400, detail=f"bad scope {scope!r} — expected 'dataset' or 'house'")
 
 
 def _safe_label_path(scope: str, key: str, file: str) -> Path:

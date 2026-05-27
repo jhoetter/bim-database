@@ -239,14 +239,33 @@ export function rectifyLabel(A: Affine, l: Label): Label {
           quad: l.geometry.quad.map((p) => applyAffine(A, p)) as [Point, Point, Point, Point],
         },
       } as Label;
-    case 'view_opening':
+    case 'view_opening': {
+      const g = l.geometry as Record<string, unknown>;
+      if (g.shape === 'circle') {
+        // Approximation: an affine map of a circle is generally an ellipse,
+        // but for the homography we use (near-rigid rectification of paper
+        // distortion) the radius scale is uniform within a few %. We use
+        // the average row-scale of A as a single radius scaler.
+        const center = applyAffine(A, g.center as Point);
+        // Approximate uniform scale of the affine — the average column
+        // length of the linear part. Accurate enough for the near-rigid
+        // paper-rectification transform we use here.
+        const scale = (Math.hypot(A.a, A.b) + Math.hypot(A.c, A.d)) / 2;
+        const radius_px = (g.radius_px as number) * scale;
+        return { ...l, geometry: { shape: 'circle', center, radius_px } } as Label;
+      }
+      if (g.shape === 'polygon') {
+        const polygon = (g.polygon as Point[]).map((p) => applyAffine(A, p));
+        return { ...l, geometry: { shape: 'polygon', polygon } } as Label;
+      }
       return {
         ...l,
         geometry: {
-          top_edge: l.geometry.top_edge.map((p) => applyAffine(A, p)) as Point[],
-          bottom_edge: l.geometry.bottom_edge.map((p) => applyAffine(A, p)) as Point[],
+          top_edge: (g.top_edge as Point[]).map((p) => applyAffine(A, p)),
+          bottom_edge: (g.bottom_edge as Point[]).map((p) => applyAffine(A, p)),
         },
       } as Label;
+    }
     case 'component_line':
       return {
         ...l,

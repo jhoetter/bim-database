@@ -83,6 +83,12 @@ export interface House {
 
   derived_facts: Record<string, DerivedFact> | null;
   anomaly_flags: string[] | null;
+
+  // True → this house's real architectural drawings (elevation/floorplan/
+  // section/detail JPGs) have been copied into data/dataset/<key>/ as part
+  // of the supervised-learning corpus. Toggled via the star button on the
+  // house detail page; the API materializes drawings on transition false→true.
+  dataset_starred?: boolean;
 }
 
 export type Ontology = Record<string, Record<string, string>>;
@@ -90,7 +96,7 @@ export type Ontology = Record<string, Record<string, string>>;
 // ── annotation labels ────────────────────────────────────────────────────
 // Mirrors schema/scene_labels.schema.json. The discriminator is `type`.
 
-export type LabelScope = 'synthetic' | 'house';
+export type LabelScope = 'dataset' | 'house';
 export type SceneTag = 'grundriss' | 'ansicht' | 'schnitt' | 'sonstiges' | 'nicht_klassifiziert';
 export type LabelStatus = 'readable' | 'not_readable' | 'missing' | 'uncertain';
 export type Point = [number, number];
@@ -126,9 +132,13 @@ export interface FloorplanOpeningLabel extends LabelBase {
     swing_side?: 'left' | 'right' | 'none';
   };
 }
+export type ViewOpeningGeometry =
+  | { top_edge: Point[]; bottom_edge: Point[] }                          // rectangle (legacy)
+  | { shape: 'circle'; center: Point; radius_px: number }                // round window
+  | { shape: 'polygon'; polygon: Point[] };                              // arched/irregular
 export interface ViewOpeningLabel extends LabelBase {
   type: 'view_opening';
-  geometry: { top_edge: Point[]; bottom_edge: Point[] };
+  geometry: ViewOpeningGeometry;
   attributes: {
     opening_kind?: 'door' | 'window' | 'skylight' | 'dormer' | 'garage_door' | 'other';
     frame_visible?: boolean;
@@ -202,20 +212,25 @@ export interface SceneLabels {
   anomalies?: string[];
 }
 
-// Synthetic-drawings section — see scripts/generate_synthetic_drawings.py
-// and data/synthetic/<key>/manifest.json. Lives in a separate /synthetic
-// route since the data is loosely-tied to real houses (intentionally lossy:
-// the AI imagines occluded sides) and is staged for manual labeling.
+// Dataset (supervised-learning corpus) — drawings come from two sources:
+// AI image-models (scripts/generate_drawings) and real scanned plans
+// (scripts/include_real_plans.py from houses flagged dataset_starred=true).
+// The `source` field on each entry says which. Lives at
+// data/dataset/<key>/manifest.json; UI route /dataset.
 
-export interface SyntheticDrawing {
+export interface DatasetDrawing {
   file: string;
   url: string;
-  kind: 'elevation' | 'floorplan' | 'section' | string;
+  kind: 'elevation' | 'floorplan' | 'section' | 'detail' | string;
+  /** 'generated' = AI-produced; 'real' = scanned from a real architect's plan. */
+  source?: 'generated' | 'real';
   view?: string | null;        // 'north' | 'south' | 'east' | 'west' for elevations
   floor?: string | null;       // 'EG' | 'OG' | 'DG' | ... for floorplans
   title?: string | null;
-  model?: string | null;        // gpt-image-2 etc.
+  model?: string | null;        // gpt-image-2 etc. (generated only)
   generated_at?: string | null;
+  imported_at?: string | null;  // real only
+  source_path?: string | null;  // real only — repo-relative source file
   style_refs?: string[];
   content_refs?: string[];
   label_status?: 'unlabeled' | 'labeled' | 'rejected' | string;
@@ -224,23 +239,23 @@ export interface SyntheticDrawing {
   label_count?: number;
 }
 
-export interface SyntheticHouse {
+export interface DatasetHouse {
   key: string;
   linked_house: string;
   model?: string | null;
   manufacturer?: string | null;
   building_type?: string | null;
-  drawings: SyntheticDrawing[];
+  drawings: DatasetDrawing[];
   linked_house_meta?: {
     key: string;
     model: string | null;
     manufacturer: string | null;
     building_type: string | null;
   };
-  composite?: SyntheticComposite;
+  composite?: DatasetComposite;
 }
 
-export interface SyntheticComposite {
+export interface DatasetComposite {
   url: string;
   sheet_size_px: [number, number];
   seed?: number;
