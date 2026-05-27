@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-21",
+  "scene_file": "house-21-floorplan-kg-overview.jpg",
+  "scene_tag": "grundriss",
+  "image_size_px": [
+    827,
+    608
+  ],
+  "labels": [],
+  "annotated_by": "jhoetter",
+  "annotated_at": "2026-05-27T18:46:43.710Z"
+}

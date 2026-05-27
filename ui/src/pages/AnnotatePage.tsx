@@ -639,6 +639,18 @@ export function AnnotatePage() {
   // axes if the inference is wrong (e.g. early in a session, or for a
   // plan with no dominant rectilinear axis).
   const detectedAxisDeg = useMemo(() => referenceAngle(labels), [labels]);
+  // Confidence: do we have enough lines on the page to TRUST the detected
+  // axis? Below this threshold we don't aggressively snap to image axes
+  // either — the building might be tilted, we just don't know yet.
+  const axisConfident = useMemo(() => {
+    let n = 0;
+    for (const l of labels) {
+      if (l.type === 'wall' || l.type === 'dimensioned_distance') n++;
+      else if (l.type === 'component_line') n += Math.max(0, l.geometry.polyline.length - 1);
+      if (n >= 2) return true;
+    }
+    return false;
+  }, [labels]);
   const [adaptiveAxisEnabled, setAdaptiveAxisEnabled] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('bim-db:annotate:adaptive-axis') !== 'false';
@@ -1395,6 +1407,12 @@ export function AnnotatePage() {
           modifiers: { shift: e.shiftKey, alt: e.altKey },
           referenceAngleDeg: effectiveAxisDeg,
           pendingPolylineFirst,
+          // Q-disabled → no soft axis snap at all. Otherwise: wide 10° when
+          // we have axis confidence (≥2 lines), tight 3° when we don't —
+          // protects users on tilted plans from being yanked to image axes
+          // before the system has seen enough geometry to detect the tilt.
+          disableSoftAxisSnap: !adaptiveAxisEnabled,
+          softAxisToleranceDeg: axisConfident ? 10 : 3,
         });
         setSnap(target);
 
@@ -1904,10 +1922,10 @@ export function AnnotatePage() {
           try { window.localStorage.setItem('bim-db:annotate:adaptive-axis', String(next)); } catch { /* no-op */ }
           addToast(
             next
-              ? (Math.abs(detectedAxisDeg) >= 0.5
-                  ? `Snap folgt Plan-Achse (${detectedAxisDeg.toFixed(1)}°)`
-                  : 'Plan-Achse aktiv (keine Drehung erkannt)')
-              : 'Snap an Bild-Achse',
+              ? (axisConfident && Math.abs(detectedAxisDeg) >= 0.5
+                  ? `Ortho-Snap an · folgt Plan-Achse (${detectedAxisDeg.toFixed(1)}°)`
+                  : 'Ortho-Snap an')
+              : 'Ortho-Snap aus — frei zeichnen',
             'info',
             1800,
           );
@@ -2842,8 +2860,15 @@ export function AnnotatePage() {
             (the common case). Render plain-language badge only when:
             (a) a non-trivial rotation is detected, or
             (b) the user disabled adaptive snap and we want to show that. */}
+        {/* Ortho-snap state badge. Renders ONLY when there's something
+            worth telling the user:
+              • adaptive snap ON + plan rotation detected → emerald badge
+                with the detected angle
+              • adaptive snap OFF → amber "Ortho-Snap aus" so the user
+                knows they're outside the default
+            Silent otherwise. */}
         {(() => {
-          const hasRotation = adaptiveAxisEnabled && Math.abs(detectedAxisDeg) >= 0.5;
+          const hasRotation = adaptiveAxisEnabled && axisConfident && Math.abs(detectedAxisDeg) >= 0.5;
           if (!hasRotation && adaptiveAxisEnabled) return null;
           const click = () => {
             setAdaptiveAxisEnabled((v) => {
@@ -2865,7 +2890,7 @@ export function AnnotatePage() {
             >
               {hasRotation
                 ? <>Plan ist <span className="font-mono font-semibold">{detectedAxisDeg.toFixed(1)}°</span> gedreht — Snap folgt der Plan-Achse <span className="ml-1 text-emerald-700">[Q: Aus]</span></>
-                : <>Snap an Bild-Achse <span className="ml-1 text-amber-700">[Q: An]</span></>}
+                : <>Ortho-Snap aus <span className="ml-1 text-amber-700">[Q: An]</span></>}
             </button>
           );
         })()}

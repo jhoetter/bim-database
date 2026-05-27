@@ -62,6 +62,16 @@ export interface SnapArgs {
    *  findSnap returns it as an endpoint target — clicking there closes the
    *  polygon (same as Enter). */
   pendingPolylineFirst?: Point;
+  /** When true, soft axis-lock is skipped entirely — no ortho-snap of any
+   *  kind, not even to image axes. Endpoint + wall_line + length-match
+   *  snaps still fire. Shift hard-lock also still works (explicit opt-in).
+   *  Used to model "user wants free-angle drawing right now." */
+  disableSoftAxisSnap?: boolean;
+  /** Override the default 10° softAxisLock tolerance. Caller lowers this
+   *  to ~3° when there's no confident axis signal yet (e.g. <2 walls on a
+   *  potentially-tilted plan), so the system doesn't yank near-ortho
+   *  drawings onto image axes before it knows the building's orientation. */
+  softAxisToleranceDeg?: number;
 }
 
 export function findSnap(args: SnapArgs): SnapTarget | null {
@@ -94,10 +104,14 @@ export function findSnap(args: SnapArgs): SnapTarget | null {
   }
   if (best) return best;
 
-  // Soft angle snap relative to the building axis (or image axis when none
-  // detected / user disabled adaptive snap).
-  if (pendingStart && isLinearTool) {
-    const soft = softAxisLock(cursor, pendingStart, refAngle);
+  // Soft angle snap relative to the building axis. Skipped entirely when
+  // the user explicitly disabled ortho-snap (Q hotkey), since the image-axis
+  // fallback was the part that fought the user on tilted plans without a
+  // detected axis. Tolerance is configurable so the caller can be gentle
+  // (3°) when axis confidence is low.
+  if (pendingStart && isLinearTool && !args.disableSoftAxisSnap) {
+    const tol = args.softAxisToleranceDeg ?? 10;
+    const soft = softAxisLock(cursor, pendingStart, refAngle, tol);
     if (soft) return soft;
   }
 
