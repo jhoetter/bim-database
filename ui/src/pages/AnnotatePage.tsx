@@ -41,7 +41,7 @@ import { applyLengthMatch, findLengthMatch, type LengthMatch } from '../lib/leng
 import { labelColor, LEGEND } from '../lib/colors';
 import { detectClosedRegions } from '../lib/closed_regions';
 import { buildConnectivity, jointMembersAt } from '../lib/connectivity';
-import { inferLineKind, inferOpeningKind } from '../lib/auto_infer';
+import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
   CentreLineIcon, DimensionIcon, DoorIcon, ElevationViewIcon, KeynoteIcon,
@@ -354,6 +354,34 @@ export function getHouseHeights(
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch { return {}; }
 }
+// M4.3 cross-scene Bezugsachse X: remember the X position (as ratio of
+// image width, so it survives differently-sized scene images) of the
+// Bezugsachse Höhenkote per house. New scenes of the same house default
+// their first Höhenkote to that X, so stacked elevations share a vertical
+// reference column without the user having to eyeball it.
+function bezugXRatioKey(scope: 'house' | 'dataset', houseKey: string): string {
+  return `bim-db:annotate:bezug-x-ratio:${scope}:${houseKey}`;
+}
+export function getHouseBezugXRatio(scope: 'house' | 'dataset', houseKey: string): number | null {
+  try {
+    const v = window.localStorage.getItem(bezugXRatioKey(scope, houseKey));
+    if (v == null) return null;
+    const n = parseFloat(v);
+    return Number.isFinite(n) && n > 0 && n < 1 ? n : null;
+  } catch { return null; }
+}
+function rememberHouseBezugXRatio(
+  scope: 'house' | 'dataset', houseKey: string, labels: Label[], imageWidth: number,
+): void {
+  if (imageWidth < 1) return;
+  const first = labels.find((l) => l.type === 'height_mark');
+  if (!first) return;
+  const ratio = first.geometry.anchor[0] / imageWidth;
+  if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) return;
+  try { window.localStorage.setItem(bezugXRatioKey(scope, houseKey), String(ratio)); }
+  catch { /* no-op */ }
+}
+
 function rememberHouseHeights(
   scope: 'house' | 'dataset', houseKey: string, labels: Label[],
 ): void {
@@ -757,11 +785,14 @@ export function AnnotatePage() {
           } as DimensionedDistanceLabel;
         } else {
           const def = getDefaults(scope, key, sceneTag, 'wall');
+          // M4.2 inherit from neighbors: median thickness of nearby walls.
+          const newMid: Point = [(pendingStart[0] + commitPt[0]) / 2, (pendingStart[1] + commitPt[1]) / 2];
+          const inheritedT = inferWallThicknessMm(newMid, labels, imageSnapRadiusForView * 8);
           label = {
             id: uuid(),
             type: 'wall',
             geometry: { start: pendingStart, end: commitPt },
-            attributes: { thickness_mm: (def.thickness_mm as number) ?? 365 },
+            attributes: { thickness_mm: inheritedT ?? (def.thickness_mm as number) ?? 365 },
             status: 'readable',
             relations: [],
             created_at: nowIso(),
@@ -978,14 +1009,21 @@ export function AnnotatePage() {
           // default to that kind rather than blindly 'window'.
           const centroidQuad: Point = [(quad[0][0] + quad[2][0]) / 2, (quad[0][1] + quad[2][1]) / 2];
           const inferredFp = inferOpeningKind(centroidQuad, labels, 'floorplan_opening', imageSnapRadiusForView * 12);
+          const finalKind: FloorplanOpeningLabel['attributes']['opening_kind'] =
+            ((inferredFp as FloorplanOpeningLabel['attributes']['opening_kind'] | null)
+              ?? (def.opening_kind as FloorplanOpeningLabel['attributes']['opening_kind'])) ?? 'window';
+          // M4.2 width inheritance: median width of same-kind openings on
+          // the same wall. Beats derivedWidthMm (from geometry projection)
+          // because two identical windows on the same wall should agree even
+          // if one was clicked slightly bigger.
+          const inheritedW = inferOpeningWidthMm(attachWallId ?? null, finalKind ?? 'window', labels);
           label = {
             id: uuid(),
             type: 'floorplan_opening',
             geometry: { quad },
             attributes: {
-              opening_kind: ((inferredFp as FloorplanOpeningLabel['attributes']['opening_kind'] | null)
-                ?? (def.opening_kind as FloorplanOpeningLabel['attributes']['opening_kind'])) ?? 'window',
-              width_mm: (def.width_mm as number | null) ?? derivedWidthMm,
+              opening_kind: finalKind,
+              width_mm: inheritedW ?? (def.width_mm as number | null) ?? derivedWidthMm,
               swing: (def.swing as FloorplanOpeningLabel['attributes']['swing']) ?? 'none',
               swing_side: (def.swing_side as FloorplanOpeningLabel['attributes']['swing_side']) ?? 'none',
             },
@@ -1050,9 +1088,14 @@ export function AnnotatePage() {
       if (tool === 'height_mark') {
         pushUndo();
         const existingHKs = labels.filter((l) => l.type === 'height_mark');
+        // M4.3 sibling-scene fallback: when this scene has no Höhenkote yet,
+        // use the X-position remembered from another scene of the same house
+        // (stored as ratio of image width). Falls back to the raw click X
+        // when no sibling info exists.
+        const siblingRatio = existingHKs.length === 0 ? getHouseBezugXRatio(scope, key) : null;
         const bezugX = existingHKs.length > 0
           ? existingHKs[0].geometry.anchor[0]
-          : null;
+          : (siblingRatio != null ? siblingRatio * imageSize[0] : null);
         const lockedX = bezugX != null && !e.altKey ? bezugX : pt[0];
         const anchor: Point = [lockedX, pt[1]];
         const def = getDefaults(scope, key, sceneTag, 'height_mark');
@@ -1423,6 +1466,10 @@ export function AnnotatePage() {
       // per-house cache so subsequent scenes can auto-fill values
       // when the user picks the same datum.
       rememberHouseHeights(scope, key, labels);
+      // M4.3: also remember the Bezugsachse X (as a ratio of image width)
+      // so the next scene of the same house picks the same vertical
+      // reference column for its first Höhenkote.
+      rememberHouseBezugXRatio(scope, key, labels, imageSize[0]);
       addToast(`✓ Gespeichert (${labels.length} Labels)`, 'success');
     } catch (e) {
       addToast(`✗ Speichern fehlgeschlagen: ${(e as Error).message}`, 'error', 6000);
@@ -1831,6 +1878,46 @@ export function AnnotatePage() {
           onDefaultsChange={() => setDefaultsRev((v) => v + 1)}
           viewOpeningShape={viewOpeningShape}
           onChangeViewOpeningShape={persistViewOpeningShape}
+          onApplyHouseHeight={(datum, value_mm) => {
+            pushUndo();
+            // If a Höhenkote is selected, set its datum+value. Otherwise
+            // drop a new one at the existing Bezugsachse X (if any) +
+            // viewport-Y midpoint, so it appears where the user is looking.
+            const sel = labels.find((l) => l.id === selectedId);
+            if (sel?.type === 'height_mark') {
+              updateLabel(sel.id, {
+                attributes: { ...sel.attributes, datum: datum as never, value_mm } as never,
+              } as never);
+              setDirty(true);
+              addToast(`✓ ${datum} = ${value_mm === 0 ? '±0,00' : (value_mm / 1000).toFixed(2).replace('.', ',') + ' m'}`, 'success', 1500);
+              return;
+            }
+            // Drop a new Höhenkote. Use the X of the first existing
+            // Höhenkote (the Bezugsachse) if any; otherwise the canvas
+            // center.
+            const existingHKs = labels.filter((l) => l.type === 'height_mark');
+            const bezugX = existingHKs.length > 0
+              ? existingHKs[0].geometry.anchor[0]
+              : view.x + view.w / 2;
+            const newLabel: HeightMarkLabel = {
+              id: uuid(),
+              type: 'height_mark',
+              geometry: { anchor: [bezugX, view.y + view.h / 2] },
+              attributes: {
+                value_mm,
+                datum: datum as HeightMarkLabel['attributes']['datum'],
+                reference_line_id: null,
+              },
+              status: 'readable',
+              relations: [],
+              created_at: nowIso(),
+              updated_at: nowIso(),
+            };
+            setLabels((prev) => [...prev, newLabel]);
+            setSelectedIds(new Set([newLabel.id]));
+            setDirty(true);
+            addToast(`+ ${datum} aus Haus-Höhen übernommen`, 'success', 1800);
+          }}
         />
       }
     >
@@ -2591,6 +2678,7 @@ function ToolPalette({
   onDefaultsChange,
   viewOpeningShape,
   onChangeViewOpeningShape,
+  onApplyHouseHeight,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -2613,6 +2701,7 @@ function ToolPalette({
   onDefaultsChange: () => void;
   viewOpeningShape: 'rectangle' | 'circle' | 'polygon';
   onChangeViewOpeningShape: (s: 'rectangle' | 'circle' | 'polygon') => void;
+  onApplyHouseHeight: (datum: string, value_mm: number) => void;
 }) {
   void defaultsRev;
   return (
@@ -2704,6 +2793,20 @@ function ToolPalette({
 
       <SceneChecklist sceneTag={sceneTag} labels={labels} />
 
+      {/* House heights panel — only relevant for scenes that contain
+          Höhenkote (ansicht / schnitt / sonstiges). Shows house-wide known
+          datums + one-click [Anwenden] to apply them to the current scene
+          (either the selected Höhenkote, or a new one). */}
+      {(sceneTag === 'ansicht' || sceneTag === 'schnitt' || sceneTag === 'sonstiges') && (
+        <HouseHeightsPanel
+          scope={scope}
+          houseKey={houseKey}
+          labels={labels}
+          selectedId={selectedId}
+          onApply={onApplyHouseHeight}
+        />
+      )}
+
       {/* Shape submenu lives inline under the view_opening ToolBtn above.
           Kind classification (Fenster/Tür/Gaube/…) happens post-draw in the
           inspector or via hotkeys — never as a pre-draw modal switch. */}
@@ -2756,6 +2859,88 @@ function ToolPalette({
       />
       {/* Legende moved to canvas corner widget; not in the sidebar primary path. */}
     </div>
+  );
+}
+
+// M4.1 House heights panel: surfaces every house-wide known datum (First /
+// Traufe / OK FFB / …) so the user can apply it to the current scene with
+// one click. Bidirectional: edits in this scene get written back into the
+// localStorage cache via rememberHouseHeights() in save(), so the next
+// scene of the same house already sees them.
+function HouseHeightsPanel({
+  scope, houseKey, labels, selectedId, onApply,
+}: {
+  scope: LabelScope;
+  houseKey: string;
+  labels: Label[];
+  selectedId: string | null;
+  onApply: (datum: string, value_mm: number) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const heights = getHouseHeights(scope, houseKey);
+  const entries = Object.entries(heights);
+  // Suppress entries that are ALREADY present in the current scene with a
+  // value set. No point in offering "Anwenden First" if First is already
+  // labeled here.
+  const heightsHere = new Set<string>();
+  for (const l of labels) {
+    if (l.type !== 'height_mark') continue;
+    const d = l.attributes.datum;
+    if (d && l.attributes.value_mm != null) heightsHere.add(d);
+  }
+  const DATUM_NAMES: Record<string, string> = {
+    first: 'First', traufe: 'Traufe', gelaende: 'Gelände',
+    ok_ffb: 'OK FFB', geschoss: 'Geschoss', sockel: 'Sockel',
+    kniestock: 'Kniestock',
+  };
+  const fmt = (mm: number) =>
+    mm === 0 ? '±0,00'
+    : `${mm > 0 ? '+' : ''}${(mm / 1000).toFixed(2).replace('.', ',')} m`;
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-1.5 text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1"
+      >
+        <span className="w-3 text-center">{open ? '▾' : '▸'}</span>
+        <span>Haus-Höhen</span>
+        <span className="ml-auto text-zinc-400 font-normal">({entries.length})</span>
+      </button>
+      {open && (entries.length === 0 ? (
+        <p className="text-[0.7rem] text-muted italic leading-snug ml-3">
+          Noch keine bekannt — sobald eine Höhenkote in einer Szene Wert + Datum hat, erscheint sie hier auf allen Szenen dieses Hauses.
+        </p>
+      ) : (
+        <ul className="space-y-px ml-3">
+          {entries.map(([datum, mm]) => {
+            const have = heightsHere.has(datum);
+            const sel = selectedId ? labels.find((l) => l.id === selectedId) : null;
+            const willTarget = sel?.type === 'height_mark' ? 'die markierte Kote' : 'eine neue Kote';
+            return (
+              <li key={datum} className="flex items-center gap-1.5 text-[0.72rem] py-0.5">
+                <span className={`flex-1 truncate ${have ? 'text-zinc-400' : 'text-zinc-700'}`}>
+                  <span className="font-medium">{DATUM_NAMES[datum] ?? datum}</span>
+                  <span className="ml-1.5 font-mono text-zinc-500">{fmt(mm)}</span>
+                </span>
+                {have ? (
+                  <span className="text-[0.62rem] text-emerald-600">✓ hier</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onApply(datum, mm)}
+                    className="text-[0.65rem] px-1.5 py-0.5 rounded bg-accent text-white hover:opacity-90"
+                    title={`In dieser Szene auf ${willTarget} anwenden`}
+                  >
+                    Anwenden
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ))}
+    </section>
   );
 }
 

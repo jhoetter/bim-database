@@ -1,4 +1,4 @@
-// Heuristic kind inference for newly-drawn labels (M3.3).
+// Heuristic kind inference + neighbor-inherit defaults (M3.3, M4.2).
 //
 // Principle: smart default beats blind default. Instead of always setting
 // new openings to 'window' or new lines to 'other', use the surrounding
@@ -8,7 +8,54 @@
 // Heuristics are conservative — when the signal is weak, we fall back to
 // the same blind default we had before (so we never make things worse).
 
-import type { FloorplanOpeningLabel, Label, Point, ViewOpeningLabel } from '../api/types';
+import type { FloorplanOpeningLabel, Label, Point, ViewOpeningLabel, WallLabel } from '../api/types';
+
+/** Median thickness of walls within `radiusPx` of the given anchor point.
+ *  Returns null when there's no neighbor signal — caller falls back to the
+ *  saved-defaults / 365 mm fallback. */
+export function inferWallThicknessMm(
+  anchor: Point,
+  others: Label[],
+  radiusPx: number,
+): number | null {
+  const ts: number[] = [];
+  for (const l of others) {
+    if (l.type !== 'wall') continue;
+    const w = l as WallLabel;
+    const mid: Point = [(w.geometry.start[0] + w.geometry.end[0]) / 2, (w.geometry.start[1] + w.geometry.end[1]) / 2];
+    const d = Math.hypot(mid[0] - anchor[0], mid[1] - anchor[1]);
+    if (d > radiusPx) continue;
+    const t = w.attributes.thickness_mm;
+    if (typeof t === 'number') ts.push(t);
+  }
+  if (ts.length === 0) return null;
+  ts.sort((a, b) => a - b);
+  return ts[Math.floor(ts.length / 2)];
+}
+
+/** Median width_mm of floorplan openings of the same kind attached to the
+ *  same parent wall as the new opening. Used to default the width on new
+ *  openings so a row of identical windows on one wall doesn't drift. */
+export function inferOpeningWidthMm(
+  parentWallId: string | null,
+  kind: string,
+  others: Label[],
+): number | null {
+  if (!parentWallId) return null;
+  const widths: number[] = [];
+  for (const l of others) {
+    if (l.type !== 'floorplan_opening') continue;
+    const fo = l as FloorplanOpeningLabel;
+    if ((fo.attributes.opening_kind ?? 'window') !== kind) continue;
+    const attached = (fo.relations ?? []).some((r) => r.kind === 'belongs_to' && r.other_id === parentWallId);
+    if (!attached) continue;
+    const w = fo.attributes.width_mm;
+    if (typeof w === 'number') widths.push(w);
+  }
+  if (widths.length === 0) return null;
+  widths.sort((a, b) => a - b);
+  return widths[Math.floor(widths.length / 2)];
+}
 
 /** Most common opening_kind among siblings within `radiusPx` of `anchor`,
  *  or null if no clear majority. */
