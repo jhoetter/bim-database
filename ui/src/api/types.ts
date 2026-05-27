@@ -209,6 +209,9 @@ export interface SyntheticDrawing {
   style_refs?: string[];
   content_refs?: string[];
   label_status?: 'unlabeled' | 'labeled' | 'rejected' | string;
+  /** M11 coverage badge: true when a labels JSON file exists for this scene. */
+  labeled?: boolean;
+  label_count?: number;
 }
 
 export interface SyntheticHouse {

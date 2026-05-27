@@ -28,6 +28,7 @@ import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 import {
   handlesFor,
+  labelCentroid,
   moveHandle,
   translateLabelGeometry,
   type HandleSpec,
@@ -152,8 +153,20 @@ export function AnnotatePage() {
   const [labels, setLabels] = useState<Label[]>([]);
   const [sceneTag, setSceneTag] = useState<SceneTag>('nicht_klassifiziert');
   const [imageSize, setImageSize] = useState<[number, number]>([1024, 1024]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Multi-select via Set (M11). Single-label code paths use the helper
+  // `primarySelectedId` (the only id when size === 1, else null).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [tool, setTool] = useState<Tool>('select');
+  // Rubber-band selection rectangle (M11). null when not dragging.
+  const [rubberBand, setRubberBand] = useState<{ start: Point; current: Point } | null>(null);
+
+  const primarySelectedId = selectedIds.size === 1 ? Array.from(selectedIds)[0] : null;
+  // Adapter for the rest of the code that still expects a single `selectedId`.
+  const setSelectedId = useCallback((id: string | null) => {
+    if (id == null) setSelectedIds(new Set());
+    else setSelectedIds(new Set([id]));
+  }, []);
+  const selectedId = primarySelectedId;
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const undoStackRef = useRef<Snapshot[]>([]);
@@ -192,6 +205,8 @@ export function AnnotatePage() {
       setImageSize(data.image_size_px ?? [1024, 1024]);
       setView({ x: 0, y: 0, w: data.image_size_px?.[0] ?? 1024, h: data.image_size_px?.[1] ?? 1024 });
       undoStackRef.current = [];
+      redoStackRef.current = [];
+      setSelectedIds(new Set());
       setDirty(false);
     }
   }, [data]);
@@ -451,10 +466,56 @@ export function AnnotatePage() {
         return;
       }
 
-      // tool === 'select' — clicking background deselects
-      setSelectedId(null);
+      // tool === 'select' — left-click + drag on empty canvas → rubber-band
+      // multi-select. Plain click (no drag) clears selection unless Shift
+      // is held (in which case we keep current selection — additive mode).
+      if (tool === 'select') {
+        const startPt = pt;
+        let dragged = false;
+        const onMove = (mv: PointerEvent) => {
+          const next = eventToSvgPoint(mv);
+          if (!next) return;
+          if (!dragged && Math.hypot(next[0] - startPt[0], next[1] - startPt[1]) > 4) {
+            dragged = true;
+          }
+          if (dragged) setRubberBand({ start: startPt, current: next });
+        };
+        const onUp = (mv: PointerEvent) => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+          if (dragged) {
+            // Compute the rubber-band rectangle in image-pixel coords and
+            // select every label whose centroid falls inside.
+            const endPt = eventToSvgPoint(mv) ?? startPt;
+            const x0 = Math.min(startPt[0], endPt[0]);
+            const y0 = Math.min(startPt[1], endPt[1]);
+            const x1 = Math.max(startPt[0], endPt[0]);
+            const y1 = Math.max(startPt[1], endPt[1]);
+            const inside = labels.filter((l) => {
+              const c = labelCentroid(l);
+              return c[0] >= x0 && c[0] <= x1 && c[1] >= y0 && c[1] <= y1;
+            });
+            if (mv.shiftKey) {
+              // Additive: union with current selection.
+              setSelectedIds((prev) => {
+                const next = new Set(prev);
+                for (const l of inside) next.add(l.id);
+                return next;
+              });
+            } else {
+              setSelectedIds(new Set(inside.map((l) => l.id)));
+            }
+          } else if (!mv.shiftKey) {
+            // Plain click on empty area → deselect everything.
+            setSelectedIds(new Set());
+          }
+          setRubberBand(null);
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+      }
     },
-    [tool, pendingStart, labels, pushUndo, eventToSvgPoint, view, snap],
+    [tool, pendingStart, labels, pushUndo, eventToSvgPoint, view, snap, pendingAttachedWallId],
   );
 
   const onCanvasPointerMove = useCallback(
@@ -724,10 +785,21 @@ export function AnnotatePage() {
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedId) {
+        if (selectedIds.size > 0) {
           e.preventDefault();
-          deleteLabel(selectedId);
+          // Delete all selected. For walls with attached openings, the
+          // cascade prompt fires on the first wall encountered (good enough
+          // for now; could batch later if needed).
+          for (const id of Array.from(selectedIds)) {
+            deleteLabel(id);
+          }
         }
+      }
+      // M11: Cmd/Ctrl+A selects all
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSelectedIds(new Set(labels.map((l) => l.id)));
+        return;
       }
       // Wall-only: ← / → adjusts thickness (10 mm step, 50 with Shift).
       // For other types these will fall through to drawing-tool hotkeys
@@ -760,7 +832,7 @@ export function AnnotatePage() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [save, undo, redo, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel]);
+  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel]);
 
   const selectedLabel = labels.find((l) => l.id === selectedId) ?? null;
   const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`;
@@ -824,14 +896,31 @@ export function AnnotatePage() {
       }
       rightRailMode="overlay-pinnable"
       rightRail={
-        selectedLabel ? (
+        selectedIds.size > 1 ? (
+          <MultiInspector
+            labels={labels.filter((l) => selectedIds.has(l.id))}
+            onBulkStatus={(status) => {
+              pushUndo();
+              setLabels((prev) =>
+                prev.map((l) =>
+                  selectedIds.has(l.id) ? ({ ...l, status, updated_at: nowIso() } as Label) : l,
+                ),
+              );
+              setDirty(true);
+            }}
+            onBulkDelete={() => {
+              const ids = Array.from(selectedIds);
+              for (const id of ids) deleteLabel(id);
+            }}
+            onClear={() => setSelectedIds(new Set())}
+          />
+        ) : selectedLabel ? (
           <Inspector
             label={selectedLabel}
             allLabels={labels}
             onChange={(patch) => updateLabel(selectedLabel.id, patch)}
             onDelete={() => deleteLabel(selectedLabel.id)}
             onUnlink={(otherId) => {
-              // unlink: figure out which side carries the relation
               const sel = selectedLabel;
               if (sel.type === 'dimension_number') {
                 unlinkPair(sel.id, otherId);
@@ -839,12 +928,14 @@ export function AnnotatePage() {
                 unlinkPair(otherId, sel.id);
               }
             }}
-            onSelectId={setSelectedId}
+            onSelectId={(id) => setSelectedIds(new Set([id]))}
           />
         ) : null
       }
-      rightRailLabel={selectedLabel ? 'Inspector' : undefined}
-      onCloseRightRail={() => setSelectedId(null)}
+      rightRailLabel={
+        selectedIds.size > 1 ? `${selectedIds.size} Labels` : selectedLabel ? 'Inspector' : undefined
+      }
+      onCloseRightRail={() => setSelectedIds(new Set())}
     >
       <div className="h-full bg-zinc-800 relative overflow-hidden">
         {loading && <p className="absolute top-4 left-4 text-white text-sm">Lade Labels…</p>}
@@ -873,7 +964,7 @@ export function AnnotatePage() {
               tool={tool}
               allLabels={labels}
               eventToSvgPoint={eventToSvgPoint}
-              onSelect={() => {
+              onSelect={(modifiers) => {
                 if (tool === 'link') {
                   // Linking flow: first eligible click = source; second eligible click = target.
                   const eligible = l.type === 'dimension_number' || l.type === 'dimensioned_distance';
@@ -893,7 +984,6 @@ export function AnnotatePage() {
                     return;
                   }
                   if (a.type === l.type) {
-                    // Same type — swap source rather than try to link
                     setLinkSource(l.id);
                     return;
                   }
@@ -901,7 +991,18 @@ export function AnnotatePage() {
                   setLinkSource(null);
                   return;
                 }
-                setSelectedId(l.id);
+                // M11 multi-select: Shift+click toggles individual; plain
+                // click replaces selection.
+                if (modifiers?.shift) {
+                  setSelectedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(l.id)) next.delete(l.id);
+                    else next.add(l.id);
+                    return next;
+                  });
+                } else {
+                  setSelectedIds(new Set([l.id]));
+                }
                 setTool('select');
               }}
               onMutateGeometry={(newGeom) => {
@@ -927,6 +1028,20 @@ export function AnnotatePage() {
               onStartDrag={pushUndo}
             />
           ))}
+          {/* M11 rubber-band rectangle */}
+          {rubberBand && (
+            <rect
+              x={Math.min(rubberBand.start[0], rubberBand.current[0])}
+              y={Math.min(rubberBand.start[1], rubberBand.current[1])}
+              width={Math.abs(rubberBand.current[0] - rubberBand.start[0])}
+              height={Math.abs(rubberBand.current[1] - rubberBand.start[1])}
+              fill="rgba(37, 99, 235, 0.10)"
+              stroke="#2563eb"
+              strokeWidth={1 / Math.max(0.1, view.w / imageSize[0])}
+              strokeDasharray="6,4"
+              pointerEvents="none"
+            />
+          )}
           {/* Snap target — green circle + optional alignment guide */}
           {snap && (
             <g pointerEvents="none">
@@ -1217,7 +1332,7 @@ function LabelGlyph({
    *  attached floorplan_opening drag projected onto its parent wall axis). */
   allLabels: Label[];
   eventToSvgPoint: (e: ReactPointerEvent<SVGSVGElement> | PointerEvent) => Point | null;
-  onSelect: () => void;
+  onSelect: (modifiers?: { shift?: boolean }) => void;
   onMutateGeometry: (newGeom: Label['geometry']) => void;
   onMutateAttributes: (newAttrs: Record<string, unknown>) => void;
   onStartDrag: () => void;
@@ -1287,10 +1402,10 @@ function LabelGlyph({
       const newGeom = translateLabelGeometry({ ...label, geometry: origin } as Label, dx, dy);
       onMutateGeometry(newGeom);
     };
-    const onUp = () => {
+    const onUp = (mv: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      if (!dragged) onSelect();
+      if (!dragged) onSelect({ shift: mv.shiftKey });
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -1323,7 +1438,7 @@ function LabelGlyph({
 
   const onClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onSelect();
+    onSelect({ shift: e.shiftKey });
   };
   const bodyProps = {
     onClick,
@@ -1741,6 +1856,94 @@ function Tick({
 }
 
 // ── right-rail inspector for selected label ────────────────────────────────
+
+// M11 multi-select inspector. Shown when ≥2 labels are selected; provides
+// per-type breakdown + bulk status + bulk delete. Per-type bulk-edit
+// (linearize, same-width, …) is on the M11 backlog from spec §11 but
+// deferred for the initial cut — the most-used bulk ops are status and
+// delete.
+function MultiInspector({
+  labels,
+  onBulkStatus,
+  onBulkDelete,
+  onClear,
+}: {
+  labels: Label[];
+  onBulkStatus: (s: Label['status']) => void;
+  onBulkDelete: () => void;
+  onClear: () => void;
+}) {
+  const byType: Record<string, number> = {};
+  for (const l of labels) byType[l.type] = (byType[l.type] ?? 0) + 1;
+  const types = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+  return (
+    <div className="p-4 space-y-4">
+      <header>
+        <div className="text-[0.65rem] uppercase tracking-wider text-muted font-medium">Auswahl</div>
+        <div className="text-[0.95rem] font-semibold">{labels.length} Labels</div>
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-[0.7rem] text-accent hover:underline"
+        >
+          Auswahl aufheben
+        </button>
+      </header>
+
+      <section>
+        <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+          Typen
+        </h4>
+        <ul className="space-y-px text-[0.78rem]">
+          {types.map(([t, n]) => (
+            <li key={t} className="flex justify-between">
+              <span className="font-mono text-zinc-700">{labelGlyphStr(t)} {t}</span>
+              <span className="text-muted tabular-nums">{n}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+          Bulk-Status
+        </h4>
+        <div className="grid grid-cols-2 gap-1">
+          {(['readable', 'not_readable', 'missing', 'uncertain'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onBulkStatus(s)}
+              className="px-2 py-1 rounded text-[0.7rem] bg-zinc-100 hover:bg-zinc-200 text-zinc-800"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <button
+        type="button"
+        onClick={onBulkDelete}
+        className="w-full px-3 py-1.5 rounded-md text-[0.78rem] font-medium bg-red-50 text-red-700 hover:bg-red-100 border border-red-200"
+      >
+        Alle {labels.length} löschen
+      </button>
+    </div>
+  );
+}
+
+function labelGlyphStr(t: string): string {
+  return ({
+    dimensioned_distance: '↔',
+    dimension_number: '#',
+    wall: '▭',
+    floorplan_opening: '▢',
+    view_opening: '⫷',
+    component_line: '─',
+    height_mark: '▲',
+  } as Record<string, string>)[t] ?? '·';
+}
 
 function Inspector({
   label,

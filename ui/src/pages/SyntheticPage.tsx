@@ -237,7 +237,11 @@ function FilterRow({
 function GroupedByHouse({ houses }: { houses: SyntheticHouse[] }) {
   return (
     <div className="space-y-6">
-      {houses.map((h) => (
+      {houses.map((h) => {
+        const labeled = h.drawings.filter((d) => d.labeled).length;
+        const total = h.drawings.length;
+        const pct = total === 0 ? 0 : Math.round((labeled / total) * 100);
+        return (
         <section key={h.key}>
           <header className="flex items-baseline gap-2.5 mb-2.5">
             <Link to={`/synthetic/${h.key}`} className="text-[0.95rem] font-semibold hover:underline">
@@ -246,6 +250,18 @@ function GroupedByHouse({ houses }: { houses: SyntheticHouse[] }) {
             <span className="text-[0.72rem] text-muted">
               {h.key} · {h.drawings.length} {h.drawings.length === 1 ? 'Zeichnung' : 'Zeichnungen'}
             </span>
+            {labeled > 0 && (
+              <span
+                className={`text-[0.65rem] px-1.5 py-0.5 rounded-full font-semibold ${
+                  pct === 100 ? 'bg-emerald-600 text-white'
+                  : pct >= 50  ? 'bg-emerald-100 text-emerald-900'
+                              : 'bg-amber-100 text-amber-900'
+                }`}
+                title={`${labeled} / ${total} Szenen annotiert`}
+              >
+                ✓ {labeled}/{total}
+              </span>
+            )}
             <Link
               to={`/house/${h.linked_house}`}
               className="text-[0.7rem] text-accent hover:underline ml-auto"
@@ -259,7 +275,8 @@ function GroupedByHouse({ houses }: { houses: SyntheticHouse[] }) {
             ))}
           </div>
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

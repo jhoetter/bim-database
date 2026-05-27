@@ -524,7 +524,7 @@ Implements §8 in full:
 - Wall-delete cascade prompt
 - Cut-out rendering (wall band minus opening)
 
-### M11 — Multi-select + bulk operations
+### M11 — Multi-select + bulk operations ✅ shipped 2026-05-27
 
 Implements §11:
 - Rubber-band selection

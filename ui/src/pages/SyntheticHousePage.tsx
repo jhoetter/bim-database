@@ -326,6 +326,14 @@ function DrawingTile({ houseKey, d }: { houseKey: string; d: SyntheticDrawing })
           {d.label_status}
         </span>
       )}
+      {d.labeled && (
+        <span
+          className="absolute top-1.5 right-1.5 bg-emerald-600 text-white text-[0.6rem] font-semibold px-1.5 py-0.5 rounded-full shadow"
+          title={`${d.label_count ?? 0} Labels`}
+        >
+          ✓ {d.label_count ?? 0}
+        </span>
+      )}
       {d.title && (
         <span className="absolute bottom-1.5 left-1.5 right-12 bg-black/65 text-white text-[0.7rem] px-2 py-0.5 rounded line-clamp-1">
           {d.title}

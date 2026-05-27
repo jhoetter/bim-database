@@ -355,8 +355,25 @@ def _load_synthetic_manifest(key: str) -> Optional[dict]:
         return None
     data = json.loads(mp.read_text())
     data["key"] = key
+    # M11 coverage badge: for every drawing, attach `labeled` = does a label
+    # file exist for this scene? And `label_count` = how many labels are in
+    # it (for richer coverage visualization).
+    labels_dir = SYNTHETIC_DIR / key / "labels"
     for d in data.get("drawings") or []:
         d["url"] = f"/static/synthetic/{key}/{d['file']}"
+        stem = Path(d["file"]).stem
+        label_file = labels_dir / f"{stem}.json"
+        if label_file.exists():
+            try:
+                lab = json.loads(label_file.read_text())
+                d["labeled"] = True
+                d["label_count"] = len(lab.get("labels") or [])
+            except Exception:  # noqa: BLE001
+                d["labeled"] = False
+                d["label_count"] = 0
+        else:
+            d["labeled"] = False
+            d["label_count"] = 0
     # Best-effort cross-link to the parent house record.
     linked_key = data.get("linked_house") or key
     parent = next((r for r in _load_all() if r["key"] == linked_key), None)
