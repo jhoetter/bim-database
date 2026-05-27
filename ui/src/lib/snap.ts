@@ -391,7 +391,13 @@ function collectCandidates(args: SnapArgs): SnapTarget[] {
 // (axisLock removed — superseded by hardAxisLock above, which takes a
 //  building-axis reference angle.)
 
-interface ProjResult { point: Point; within: boolean; dist: number; }
+export interface ProjResult { point: Point; within: boolean; dist: number; }
+
+/** Project p onto segment a→b. Clamped to the segment endpoints; `within`
+ *  reports whether the un-clamped projection fell inside the segment. */
+export function pointToSegment(p: Point, a: Point, b: Point): ProjResult {
+  return perpProjection(p, a, b);
+}
 
 function perpProjection(p: Point, a: Point, b: Point): ProjResult {
   const dx = b[0] - a[0];

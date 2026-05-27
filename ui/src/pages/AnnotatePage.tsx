@@ -35,11 +35,12 @@ import {
   translateLabelGeometry,
   type HandleSpec,
 } from '../lib/labelGeometry';
-import { findSnap, referenceAngle, SNAP_COLOR, type SnapTarget, type SnapTool } from '../lib/snap';
+import { findSnap, pointToSegment, referenceAngle, SNAP_COLOR, type SnapTarget, type SnapTool } from '../lib/snap';
 import { tidyLineLabel } from '../lib/tidy';
 import { applyLengthMatch, findLengthMatch, type LengthMatch } from '../lib/length_match';
 import { labelColor, LEGEND } from '../lib/colors';
 import { detectClosedRegions } from '../lib/closed_regions';
+import { buildConnectivity, jointMembersAt } from '../lib/connectivity';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
   CentreLineIcon, DimensionIcon, DoorIcon, ElevationViewIcon, KeynoteIcon,
@@ -575,6 +576,14 @@ export function AnnotatePage() {
   // defensive about slight drift.
   const closedRegions = useMemo(
     () => detectClosedRegions(labels, 6),
+    [labels],
+  );
+  // Connectivity graph — joints (clustered endpoints) + connected components.
+  // Used by joint-aware drag (M1.2), wall split (M1.3), select-connected
+  // (M1.4), and the refine queue (M5.1). Tolerance generous (6 px) so
+  // post-commit fuse alignments and minor drift still cluster.
+  const connectivity = useMemo(
+    () => buildConnectivity(labels, 6),
     [labels],
   );
   // Adaptive building axis. Detected from existing walls/dim-distances —
@@ -1875,9 +1884,10 @@ export function AnnotatePage() {
           <LinkVisuals labels={labels} selectedId={selectedId} />
           {/* Closed wall regions — translucent area fill behind the wall
               outlines so the user can read enclosed spaces (rooms,
-              footprints) at a glance. */}
+              footprints) at a glance. Double-click inside one (in select
+              mode) selects every wall that forms it. */}
           {closedRegions.length > 0 && (
-            <g pointerEvents="none">
+            <g>
               {closedRegions.map((r, i) => {
                 const d = r.polygon.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ') + ' Z';
                 return (
@@ -1888,6 +1898,14 @@ export function AnnotatePage() {
                     stroke="rgba(14, 165, 233, 0.30)"
                     strokeWidth={1 / Math.max(0.1, view.w / imageSize[0])}
                     strokeDasharray={`${4 / Math.max(0.1, view.w / imageSize[0])},${3 / Math.max(0.1, view.w / imageSize[0])}`}
+                    pointerEvents={tool === 'select' ? 'fill' : 'none'}
+                    style={{ cursor: tool === 'select' ? 'pointer' : 'default' }}
+                    onDoubleClick={(e) => {
+                      if (tool !== 'select') return;
+                      e.stopPropagation();
+                      setSelectedIds(new Set(r.wallIds));
+                      addToast(`${r.wallIds.length} Wände der Fläche ausgewählt`, 'info', 1500);
+                    }}
                   />
                 );
               })}
@@ -1908,7 +1926,17 @@ export function AnnotatePage() {
               onSelect={(modifiers) => {
                 // M11 multi-select: Shift+click toggles individual; plain
                 // click replaces selection.
-                if (modifiers?.shift) {
+                // M1.4 select-connected: Cmd/Ctrl+click selects every label
+                // in the same connectivity component (transitively joined
+                // via shared endpoints).
+                if (modifiers?.meta) {
+                  const compIdx = connectivity.componentOf.get(l.id);
+                  if (compIdx != null) {
+                    setSelectedIds(new Set(connectivity.components[compIdx]));
+                  } else {
+                    setSelectedIds(new Set([l.id]));
+                  }
+                } else if (modifiers?.shift) {
                   setSelectedIds((prev) => {
                     const next = new Set(prev);
                     if (next.has(l.id)) next.delete(l.id);
@@ -1939,6 +1967,84 @@ export function AnnotatePage() {
                   ),
                 );
                 setDirty(true);
+              }}
+              onJointMove={(labelId, handleId, newPt, altKey) => {
+                // Move this endpoint AND every other label endpoint sharing
+                // the same joint, unless the user is holding Alt (escape
+                // hatch — drag only this one even at a shared corner).
+                const members = altKey
+                  ? []
+                  : jointMembersAt(connectivity, labelId, handleId);
+                setLabels((prev) =>
+                  prev.map((x) => {
+                    if (x.id === labelId) {
+                      return { ...x, geometry: moveHandle(x, handleId, newPt), updated_at: nowIso() } as Label;
+                    }
+                    const memberOnX = members.find((m) => m.labelId === x.id);
+                    if (memberOnX) {
+                      return { ...x, geometry: moveHandle(x, memberOnX.endpointId, newPt), updated_at: nowIso() } as Label;
+                    }
+                    return x;
+                  }),
+                );
+                setDirty(true);
+              }}
+              jointSize={(handleId) => {
+                const j = connectivity.jointOf.get(`${l.id}:${handleId}`);
+                return j ? j.members.length : 1;
+              }}
+              onSplit={(labelId, pt) => {
+                const target = labels.find((x) => x.id === labelId);
+                if (!target) return;
+                pushUndo();
+                if (target.type === 'component_line') {
+                  // Insert a vertex into the polyline at the segment closest
+                  // to the click point.
+                  const poly = target.geometry.polyline;
+                  let bestI = 0;
+                  let bestD = Infinity;
+                  for (let i = 0; i + 1 < poly.length; i++) {
+                    const proj = pointToSegment(pt, poly[i], poly[i + 1]);
+                    if (proj.dist < bestD) { bestD = proj.dist; bestI = i + 1; }
+                  }
+                  const next = [...poly.slice(0, bestI), pt, ...poly.slice(bestI)];
+                  setLabels((prev) =>
+                    prev.map((x) =>
+                      x.id === labelId
+                        ? ({ ...x, geometry: { polyline: next }, updated_at: nowIso() } as Label)
+                        : x,
+                    ),
+                  );
+                  setDirty(true);
+                  return;
+                }
+                // wall + dim_distance: split into two adjacent labels sharing
+                // the new endpoint. Inherit all attributes; the split point
+                // is projected onto the line so it lies exactly on it.
+                const g = target.geometry as { start: Point; end: Point };
+                const proj = pointToSegment(pt, g.start, g.end);
+                const splitPt = proj.point;
+                const left = {
+                  ...target,
+                  id: uuid(),
+                  geometry: { start: g.start, end: splitPt },
+                  created_at: nowIso(),
+                  updated_at: nowIso(),
+                } as Label;
+                const right = {
+                  ...target,
+                  id: uuid(),
+                  geometry: { start: splitPt, end: g.end },
+                  created_at: nowIso(),
+                  updated_at: nowIso(),
+                } as Label;
+                setLabels((prev) => [
+                  ...prev.filter((x) => x.id !== labelId),
+                  left, right,
+                ]);
+                setSelectedIds(new Set([right.id]));
+                setDirty(true);
+                addToast('✂ Aufgeteilt', 'success', 1200);
               }}
               onStartDrag={pushUndo}
             />
@@ -3119,6 +3225,9 @@ function LabelGlyph({
   onSelect,
   onMutateGeometry,
   onMutateAttributes,
+  onJointMove,
+  jointSize,
+  onSplit,
   onStartDrag,
   onDragStateChange,
   onSnapChange,
@@ -3134,9 +3243,21 @@ function LabelGlyph({
    *  divided by the current view-to-screen scale. */
   imageSnapRadius: number;
   eventToSvgPoint: (e: ReactPointerEvent<SVGSVGElement> | PointerEvent) => Point | null;
-  onSelect: (modifiers?: { shift?: boolean }) => void;
+  onSelect: (modifiers?: { shift?: boolean; meta?: boolean }) => void;
   onMutateGeometry: (newGeom: Label['geometry']) => void;
   onMutateAttributes: (newAttrs: Record<string, unknown>) => void;
+  /** M1.2 joint-aware drag: parent applies the move to every label sharing
+   *  the joint that (label.id, handleId) lives in. If the joint is unique
+   *  (1 member) this collapses to a single-label moveHandle. Alt key on the
+   *  pointer event opts out of joint behavior (caller passes altKey state). */
+  onJointMove: (labelId: string, handleId: string, newPt: Point, altKey: boolean) => void;
+  /** How many labels participate in the joint at handle `handleId`. Used to
+   *  render the multi-joint ring + count chip. Map<handleId, memberCount>. */
+  jointSize: (handleId: string) => number;
+  /** M1.3 wall split: double-click on a wall/dim/line body inserts a vertex
+   *  at the click point. Parent splits walls + dims into two labels sharing
+   *  the new endpoint; for component_line inserts a polyline vertex. */
+  onSplit: (labelId: string, pt: Point) => void;
   onStartDrag: () => void;
   onDragStateChange: (dragging: boolean) => void;
   onSnapChange: (s: SnapTarget | null) => void;
@@ -3210,7 +3331,7 @@ function LabelGlyph({
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       onDragStateChange(false);
-      if (!dragged) onSelect({ shift: mv.shiftKey });
+      if (!dragged) onSelect({ shift: mv.shiftKey, meta: mv.metaKey || mv.ctrlKey });
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -3250,7 +3371,10 @@ function LabelGlyph({
         excludeLabelId: label.id,
       });
       onSnapChange(snapped);
-      onMutateGeometry(moveHandle(label, handleId, snapped?.pt ?? raw));
+      const finalPt: Point = snapped?.pt ?? raw;
+      // Joint-aware drag — parent applies the move to every label sharing
+      // the joint. Alt held → only this endpoint moves (escape hatch).
+      onJointMove(label.id, handleId, finalPt, mv.altKey);
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
@@ -3264,7 +3388,7 @@ function LabelGlyph({
 
   const onClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onSelect({ shift: e.shiftKey });
+    onSelect({ shift: e.shiftKey, meta: e.metaKey || e.ctrlKey });
   };
 
   // Drawing tools (everything except select) must let clicks pass
@@ -3274,8 +3398,25 @@ function LabelGlyph({
   // engine still picks up the wall's endpoints because snap math runs in
   // the canvas-level pointermove handler, independent of pointer events.
   const isDrawingTool = tool !== 'select';
+  // M1.3 wall split: double-clicking a wall/dim/line body inserts a vertex
+  // at the click point. Walls and dim_distances get split into two new
+  // labels sharing the new endpoint; component_lines get a new polyline
+  // vertex inserted mid-segment. Only relevant in select mode.
+  const onBodyDoubleClick = (e: React.MouseEvent) => {
+    if (tool !== 'select') return;
+    if (
+      label.type !== 'wall' &&
+      label.type !== 'dimensioned_distance' &&
+      label.type !== 'component_line'
+    ) return;
+    e.stopPropagation();
+    const pt = eventToSvgPoint(e as unknown as ReactPointerEvent<SVGSVGElement>);
+    if (!pt) return;
+    onSplit(label.id, pt);
+  };
   const bodyProps = {
     onClick,
+    onDoubleClick: onBodyDoubleClick,
     onPointerDown: onPointerDownBody,
     style: {
       cursor: selected ? 'move' : 'pointer' as const,
@@ -3574,18 +3715,43 @@ function LabelGlyph({
   return (
     <g>
       {body}
-      {handles.map((h) => (
-        <g
-          key={h.id}
-          style={{ cursor: h.cursor ?? 'move' }}
-          onPointerDown={onHandlePointerDown(h.id)}
-        >
-          {/* outer ring (hit area) */}
-          <circle cx={h.pt[0]} cy={h.pt[1]} r={9} fill="white" stroke="#dc2626" strokeWidth={2.5} />
-          {/* inner dot */}
-          <circle cx={h.pt[0]} cy={h.pt[1]} r={3} fill="#dc2626" />
-        </g>
-      ))}
+      {handles.map((h) => {
+        const sharedCount = jointSize(h.id);
+        // Multi-joint visualization: a thicker green ring around the
+        // handle when ≥2 labels share this endpoint, plus a tiny chip
+        // showing the count. Means the user knows that a drag here will
+        // move the whole joint, not just this one wall.
+        const isJoint = sharedCount >= 2;
+        const ringColor = isJoint ? '#10b981' : '#dc2626';
+        const dotColor = ringColor;
+        return (
+          <g
+            key={h.id}
+            style={{ cursor: h.cursor ?? 'move' }}
+            onPointerDown={onHandlePointerDown(h.id)}
+          >
+            {/* outer ring (hit area) */}
+            <circle cx={h.pt[0]} cy={h.pt[1]} r={9} fill="white" stroke={ringColor} strokeWidth={isJoint ? 3 : 2.5} />
+            {/* inner dot */}
+            <circle cx={h.pt[0]} cy={h.pt[1]} r={3} fill={dotColor} />
+            {isJoint && (
+              <g pointerEvents="none">
+                <circle
+                  cx={h.pt[0] + 11} cy={h.pt[1] - 11}
+                  r={7} fill={ringColor} stroke="white" strokeWidth={1.2}
+                />
+                <text
+                  x={h.pt[0] + 11} y={h.pt[1] - 8}
+                  textAnchor="middle" fill="white"
+                  fontSize={9} fontWeight={800} fontFamily="ui-monospace, monospace"
+                >
+                  {sharedCount}
+                </text>
+              </g>
+            )}
+          </g>
+        );
+      })}
       {thicknessHandlePos && (
         <g style={{ cursor: 'ns-resize' }} onPointerDown={onThicknessHandleDown}>
           {/* small square so it reads as "different from endpoint handles" */}
