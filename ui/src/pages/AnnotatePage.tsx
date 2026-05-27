@@ -4,6 +4,7 @@ import {
   type WheelEvent as ReactWheelEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -483,6 +484,29 @@ export function AnnotatePage() {
       return v === 'true';
     } catch { return true; }
   });
+
+  // Image display tweaks — opacity slider (helps verify wall placement
+  // against busy/colored drawings) and color/grayscale toggle. Both
+  // persist across images and houses.
+  const [imgOpacity, setImgOpacity] = useState<number>(() => {
+    try {
+      const v = window.localStorage.getItem('bim-db:annotate:img-opacity');
+      const n = v != null ? Number(v) : NaN;
+      return Number.isFinite(n) && n >= 0.05 && n <= 1 ? n : 1;
+    } catch { return 1; }
+  });
+  const [imgGrayscale, setImgGrayscale] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bim-db:annotate:img-grayscale') === 'true'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('bim-db:annotate:img-opacity', String(imgOpacity)); }
+    catch { /* no-op */ }
+  }, [imgOpacity]);
+  useEffect(() => {
+    try { window.localStorage.setItem('bim-db:annotate:img-grayscale', String(imgGrayscale)); }
+    catch { /* no-op */ }
+  }, [imgGrayscale]);
   // Global drag flag — set true during any handle / body drag. The right
   // rail dims to near-invisible while it's true so a wall being dragged
   // doesn't disappear visually behind the inspector overlay.
@@ -1556,7 +1580,13 @@ export function AnnotatePage() {
                     strokeWidth="0.7" opacity="0.35" />
             </pattern>
           </defs>
-          <image href={imageUrl} x={0} y={0} width={imageSize[0]} height={imageSize[1]} />
+          <image
+            href={imageUrl}
+            x={0} y={0}
+            width={imageSize[0]} height={imageSize[1]}
+            opacity={imgOpacity}
+            style={imgGrayscale ? { filter: 'grayscale(1)' } : undefined}
+          />
           {/* Implied height-bezugslinien — for every Höhenkote, draw a
               thin dashed horizontal line across the canvas at its
               y-coordinate. The line is IMPLIED by the Höhenkote —
@@ -1821,6 +1851,41 @@ export function AnnotatePage() {
           [S] Select · [D] Bemaßung · [W] Wand · [O] Öffnung · [L] Linie · [H] Höhe
           <br />
           Zoom: nur +/-/FIT (oder Tasten +/-/0) · Pan: 2-Finger-Scroll oder Shift+Drag
+        </div>
+        {/* Image-display controls — opacity + color/gray toggle. Sit just
+            above the zoom panel so all canvas-display knobs live together
+            in the bottom-right. Both settings persist across images and
+            houses (localStorage). */}
+        <div className="absolute bottom-32 right-3 w-44 bg-white/95 border border-zinc-300 rounded shadow-md p-2 space-y-1.5 text-[0.7rem]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-zinc-700 font-medium">Bildansicht</span>
+            <button
+              type="button"
+              onClick={() => setImgGrayscale((v) => !v)}
+              className={`px-1.5 py-0.5 rounded text-[0.65rem] font-medium border transition ${
+                imgGrayscale
+                  ? 'bg-zinc-800 text-white border-zinc-800'
+                  : 'bg-white text-zinc-700 border-border hover:bg-zinc-50'
+              }`}
+              title="Bild in Graustufen oder Farbe anzeigen"
+            >
+              {imgGrayscale ? 'Grau' : 'Farbe'}
+            </button>
+          </div>
+          <label className="flex items-center gap-2">
+            <span className="text-[0.6rem] text-zinc-500 w-8 shrink-0">Op</span>
+            <input
+              type="range"
+              min={0.1} max={1} step={0.05}
+              value={imgOpacity}
+              onChange={(e) => setImgOpacity(Number(e.target.value))}
+              className="flex-1 accent-accent"
+              title="Bilddeckkraft — dimmen, wenn das Bild die Labels überdeckt"
+            />
+            <span className="text-[0.6rem] tabular-nums text-zinc-500 w-8 text-right">
+              {Math.round(imgOpacity * 100)}%
+            </span>
+          </label>
         </div>
         {/* Zoom controls — bottom-right corner. Visible alternative to the
             wheel/trackpad gestures and the +/-/0 hotkeys. */}
@@ -2167,22 +2232,11 @@ function ToolPalette({
         {labels.length === 0 ? (
           <p className="text-[0.72rem] text-muted italic">Noch keine Labels.</p>
         ) : (
-          <ul className="space-y-px">
-            {labels.map((l) => (
-              <li key={l.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelectLabel(l.id)}
-                  className={`w-full text-left px-2 py-1 rounded text-[0.7rem] font-mono truncate ${
-                    selectedId === l.id ? 'bg-accent/10 text-accent font-semibold' : 'hover:bg-zinc-100'
-                  }`}
-                  title={l.id}
-                >
-                  {labelGlyph(l)} {l.type}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <LabelsByType
+            labels={labels}
+            selectedId={selectedId}
+            onSelect={onSelectLabel}
+          />
         )}
       </section>
     </div>
@@ -2323,6 +2377,173 @@ function labelGlyph(l: Label): string {
     case 'height_mark': return '▲';
     default: return '·';
   }
+}
+
+const LABEL_TYPE_LABEL: Record<Label['type'], string> = {
+  wall: 'Wände',
+  floorplan_opening: 'Öffnungen (GR)',
+  view_opening: 'Öffnungen (Ans.)',
+  component_line: 'Linien',
+  height_mark: 'Höhenkoten',
+  dimensioned_distance: 'Bemaßungen',
+  dimension_number: 'Maßzahlen',
+};
+
+const LABEL_TYPE_ORDER: Label['type'][] = [
+  'wall',
+  'floorplan_opening',
+  'view_opening',
+  'component_line',
+  'height_mark',
+  'dimensioned_distance',
+  'dimension_number',
+];
+
+// Short identifying line per label — used in the sidebar Labels list so a
+// scene with five height_marks doesn't render as five lines of identical
+// "▲ height_mark" text. Each type pulls its own most-recognizable
+// attribute(s).
+function labelSummary(l: Label): string {
+  switch (l.type) {
+    case 'wall': {
+      const t = l.attributes.thickness_mm;
+      return t != null ? `Wand · ${t} mm` : 'Wand';
+    }
+    case 'floorplan_opening': {
+      const a = l.attributes;
+      const kindLabels: Record<string, string> = {
+        window: 'Fenster', door: 'Tür', passage: 'Durchgang',
+        garage_door: 'Tor', other: 'Öffnung',
+      };
+      const k = kindLabels[a.opening_kind ?? 'other'] ?? 'Öffnung';
+      const w = a.width_mm != null ? ` · ${a.width_mm} mm` : '';
+      const swing = a.opening_kind === 'door' && a.swing_side && a.swing_side !== 'none'
+        ? ` (${a.swing_side === 'left' ? 'L' : 'R'})`
+        : '';
+      return `${k}${w}${swing}`;
+    }
+    case 'view_opening': {
+      const kindLabels: Record<string, string> = {
+        window: 'Fenster', door: 'Tür', skylight: 'Dachfenster',
+        dormer: 'Gaube', garage_door: 'Tor', other: 'Öffnung',
+      };
+      return kindLabels[l.attributes.opening_kind ?? 'other'] ?? 'Öffnung';
+    }
+    case 'component_line': {
+      const kindLabels: Record<string, string> = {
+        first: 'First', traufe: 'Traufe', gelaende: 'Gelände',
+        geschoss: 'Geschoss', ok_ffb: 'OK FFB', sockel: 'Sockel',
+        kniestock: 'Kniestock', firstkante: 'Firstkante',
+        dachschraege: 'Dachschräge', gebaeudekante: 'Gebäudekante',
+        other: 'Sonstige',
+      };
+      const k = l.attributes.line_kind ?? 'other';
+      const pts = l.geometry.polyline.length;
+      return `${kindLabels[k] ?? k} · ${pts} Pkt`;
+    }
+    case 'height_mark': {
+      const datum = l.attributes.datum;
+      const v = l.attributes.value_mm;
+      const datumLbl = datum && DATUM_LABELS[datum] ? DATUM_LABELS[datum] : '';
+      const valueLbl = v == null
+        ? '(noch ohne Wert)'
+        : v === 0
+        ? '±0,00'
+        : `${v > 0 ? '+' : ''}${(v / 1000).toFixed(2).replace('.', ',')} m`;
+      return datumLbl ? `${datumLbl} · ${valueLbl}` : valueLbl;
+    }
+    case 'dimensioned_distance': {
+      const a = l.attributes;
+      const dx = l.geometry.end[0] - l.geometry.start[0];
+      const dy = l.geometry.end[1] - l.geometry.start[1];
+      const ang = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+      const orient = ang < 15 || ang > 165 ? '↔' : ang > 75 && ang < 105 ? '↕' : '↗';
+      const val = a.value_mm != null
+        ? (a.value_mm >= 1000
+            ? `${(a.value_mm / 1000).toFixed(2).replace('.', ',')} m`
+            : `${a.value_mm} mm`)
+        : '(noch ohne Wert)';
+      const ref = a.is_reference ? ' M1' : '';
+      return `${orient} ${val}${ref}`;
+    }
+    case 'dimension_number':
+      return l.attributes.text || '(noch ohne Text)';
+  }
+}
+
+// Sidebar Labels list — grouped by type, each section collapsible, with
+// per-label summary text instead of just "type". Replaces a flat list
+// that was useless when several labels of the same type existed.
+function LabelsByType({
+  labels, selectedId, onSelect,
+}: {
+  labels: Label[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<Label['type']>>(() => new Set());
+  const groups = useMemo(() => {
+    const byType = new Map<Label['type'], Label[]>();
+    for (const l of labels) {
+      const list = byType.get(l.type) ?? [];
+      list.push(l);
+      byType.set(l.type, list);
+    }
+    return LABEL_TYPE_ORDER
+      .map((t) => [t, byType.get(t) ?? []] as const)
+      .filter(([, g]) => g.length > 0);
+  }, [labels]);
+
+  const toggle = (t: Label['type']) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      {groups.map(([type, group]) => {
+        const isCollapsed = collapsed.has(type);
+        return (
+          <div key={type}>
+            <button
+              type="button"
+              onClick={() => toggle(type)}
+              className="w-full flex items-center gap-1.5 text-[0.65rem] uppercase tracking-wider text-zinc-500 hover:text-zinc-800 font-semibold"
+            >
+              <span className="w-3 text-center">{isCollapsed ? '▸' : '▾'}</span>
+              <span>{LABEL_TYPE_LABEL[type]}</span>
+              <span className="text-zinc-400 font-normal">({group.length})</span>
+            </button>
+            {!isCollapsed && (
+              <ul className="space-y-px mt-1 ml-3">
+                {group.map((l) => (
+                  <li key={l.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSelect(l.id)}
+                      className={`w-full text-left px-2 py-1 rounded text-[0.72rem] truncate ${
+                        selectedId === l.id
+                          ? 'bg-accent/10 text-accent font-semibold'
+                          : 'hover:bg-zinc-100 text-zinc-800'
+                      }`}
+                      title={l.id}
+                    >
+                      <span className="font-mono">{labelGlyph(l)}</span>{' '}
+                      <span>{labelSummary(l)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── canvas glyph rendering ─────────────────────────────────────────────────
