@@ -32,6 +32,9 @@ export interface RefineIssue {
   kind: RefineKind;
   /** Short human-readable description in German. */
   description: string;
+  /** When set, a short suffix shown next to the [Fix] button explaining
+   *  what one click will actually do (e.g. "→ 0°", "→ readable"). */
+  fixHint?: string;
   /** If we can fix this with one click, suggest a payload here. */
   autoFix?:
     | { type: 'snap_to_axis'; targetAngleDeg: number }
@@ -123,10 +126,15 @@ export function collectRefineIssues(labels: Label[]): RefineIssue[] {
       }
       // 5°..30° off → flag. >30° → likely intentional non-ortho, leave alone.
       if (bestDiff > 5 && bestDiff < 30) {
+        // Relative angle from the building axis, normalized to [-90, 90].
+        let rel = bestTarget - refAngle;
+        rel = ((rel % 180) + 180) % 180;
+        if (rel > 90) rel -= 180;
         out.push({
           labelId: l.id,
           kind: 'off_axis',
-          description: `Wand ${bestDiff.toFixed(1)}° schief — begradigen`,
+          description: `Wand ${bestDiff.toFixed(1)}° schief`,
+          fixHint: `→ ${Math.round(rel)}°`,
           autoFix: { type: 'snap_to_axis', targetAngleDeg: bestTarget },
         });
       }
@@ -141,6 +149,7 @@ export function collectRefineIssues(labels: Label[]): RefineIssue[] {
         labelId: l.id,
         kind: 'not_readable',
         description: label,
+        fixHint: '→ readable',
         autoFix: { type: 'set_status', status: 'readable' },
       });
     }

@@ -608,12 +608,15 @@ export function AnnotatePage() {
      *  follows pan/zoom. */
     anchor: Point;
   } | null>(null);
-  // Auto-dismiss timer.
+  // Auto-dismiss timer. 6s gives the user time to reach for the keyboard or
+  // the pill row without losing the chip mid-reach. Hovering the chip
+  // pauses the timer (handled inside PostDrawChip).
+  const [postDrawChipPaused, setPostDrawChipPaused] = useState(false);
   useEffect(() => {
-    if (!postDrawChip) return;
-    const t = window.setTimeout(() => setPostDrawChip(null), 3000);
+    if (!postDrawChip || postDrawChipPaused) return;
+    const t = window.setTimeout(() => setPostDrawChip(null), 6000);
     return () => window.clearTimeout(t);
-  }, [postDrawChip]);
+  }, [postDrawChip, postDrawChipPaused]);
   // "Alle Werkzeuge" override: ignore tag-gating and show every tool.
   // Useful when the user wants flexibility (e.g. tag=nicht_klassifiziert
   // but they still want to drop a dim_distance to bootstrap the homography).
@@ -892,6 +895,35 @@ export function AnnotatePage() {
       // Reuses the pendingPolyline state, gated on tool+shape, so we don't
       // collide with the regular component_line behavior.
       if (tool === 'view_opening' && viewOpeningShape === 'polygon') {
+        // P3 close-to-first-vertex (same as component_line above).
+        if (pendingPolyline.length >= 3) {
+          const first = pendingPolyline[0];
+          if (Math.hypot(pt[0] - first[0], pt[1] - first[1]) <= imageSnapRadiusForView * 1.5) {
+            pushUndo();
+            const def = getDefaults(scope, key, sceneTag, 'view_opening');
+            const polyLabel: ViewOpeningLabel = {
+              id: uuid(),
+              type: 'view_opening',
+              geometry: { shape: 'polygon', polygon: pendingPolyline },
+              attributes: {
+                opening_kind: (def.opening_kind as ViewOpeningLabel['attributes']['opening_kind']) ?? 'window',
+                frame_visible: (def.frame_visible as boolean) ?? true,
+              },
+              status: 'readable',
+              relations: [],
+              created_at: nowIso(),
+              updated_at: nowIso(),
+            };
+            setLabels((prev) => [...prev, polyLabel]);
+            setDirty(true);
+            setSelectedId(polyLabel.id);
+            const mid = pendingPolyline[Math.floor(pendingPolyline.length / 2)];
+            setPostDrawChip({ labelId: polyLabel.id, kindFamily: 'view_opening', anchor: mid });
+            setPendingPolyline([]);
+            addToast('Polygon geschlossen ✓', 'success', 1200);
+            return;
+          }
+        }
         setPendingPolyline((prev) => [...prev, pt]);
         return;
       }
@@ -1074,7 +1106,36 @@ export function AnnotatePage() {
 
       // ── Polyline tool (component_line) ────────────────────────────────────
       if (tool === 'component_line') {
-        // Each click appends a vertex. Enter finishes; Esc cancels.
+        // P3 close-to-first-vertex: if the click lands near the first vertex
+        // AND we have ≥3 points already, commit the polygon instead of
+        // appending a 4th duplicate point.
+        if (pendingPolyline.length >= 3) {
+          const first = pendingPolyline[0];
+          if (Math.hypot(pt[0] - first[0], pt[1] - first[1]) <= imageSnapRadiusForView * 1.5) {
+            pushUndo();
+            const def = getDefaults(scope, key, sceneTag, 'component_line');
+            const inferredLine = inferLineKind(pendingPolyline, imageSize[1]);
+            const label: ComponentLineLabel = {
+              id: uuid(),
+              type: 'component_line',
+              geometry: { polyline: pendingPolyline },
+              attributes: { line_kind: ((inferredLine as ComponentLineLabel['attributes']['line_kind'] | null)
+                ?? (def.line_kind as ComponentLineLabel['attributes']['line_kind'])) ?? 'other' },
+              status: 'readable',
+              relations: [],
+              created_at: nowIso(),
+              updated_at: nowIso(),
+            };
+            setLabels((prev) => [...prev, label]);
+            setDirty(true);
+            setSelectedId(label.id);
+            const mid = pendingPolyline[Math.floor(pendingPolyline.length / 2)];
+            setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
+            setPendingPolyline([]);
+            addToast('Polygon geschlossen ✓', 'success', 1200);
+            return;
+          }
+        }
         setPendingPolyline((prev) => [...prev, pt]);
         return;
       }
@@ -2247,6 +2308,68 @@ export function AnnotatePage() {
               onStartDrag={pushUndo}
             />
           ))}
+          {/* Höhenkote placement guide (P2): horizontal line across the
+              canvas at the cursor Y, so the user can align with horizontal
+              features in the image. Vertical line at the locked Bezugsachse
+              X too, so the snapping is visible. */}
+          {tool === 'height_mark' && hoverPt && (() => {
+            const existingHKs = labels.filter((l) => l.type === 'height_mark');
+            const siblingRatio = existingHKs.length === 0 ? getHouseBezugXRatio(scope, key) : null;
+            const lockedX = existingHKs.length > 0
+              ? existingHKs[0].geometry.anchor[0]
+              : (siblingRatio != null ? siblingRatio * imageSize[0] : hoverPt[0]);
+            const scale = view.w / imageSize[0];
+            const sw = 1 / Math.max(0.1, scale);
+            return (
+              <g pointerEvents="none">
+                <line
+                  x1={0} y1={hoverPt[1]} x2={imageSize[0]} y2={hoverPt[1]}
+                  stroke="#15803d" strokeWidth={sw}
+                  strokeDasharray={`${5 / Math.max(0.1, scale)},${3 / Math.max(0.1, scale)}`}
+                  opacity={0.6}
+                />
+                <line
+                  x1={lockedX} y1={0} x2={lockedX} y2={imageSize[1]}
+                  stroke="#15803d" strokeWidth={sw}
+                  strokeDasharray={`${3 / Math.max(0.1, scale)},${4 / Math.max(0.1, scale)}`}
+                  opacity={0.35}
+                />
+              </g>
+            );
+          })()}
+          {/* P3 polyline close-to-first-vertex: when drawing component_line
+              or polygon view_opening with ≥3 vertices, surface a green ring
+              at the first vertex when the cursor is near it. */}
+          {pendingPolyline.length >= 3 && hoverPt && (tool === 'component_line' || (tool === 'view_opening' && viewOpeningShape === 'polygon')) && (() => {
+            const first = pendingPolyline[0];
+            const d = Math.hypot(hoverPt[0] - first[0], hoverPt[1] - first[1]);
+            const radius = (SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1) * 2;
+            if (d > radius * 2) return null;
+            const near = d < radius;
+            const scale = view.w / imageSize[0];
+            return (
+              <g pointerEvents="none">
+                <circle
+                  cx={first[0]} cy={first[1]} r={radius}
+                  fill={near ? 'rgba(22, 163, 74, 0.20)' : 'none'}
+                  stroke={near ? '#16a34a' : '#94a3b8'}
+                  strokeWidth={(near ? 2.5 : 1.5) * scale}
+                  strokeDasharray={near ? '0' : '4,3'}
+                />
+                {near && (
+                  <text
+                    x={first[0] + radius + 8} y={first[1]}
+                    fill="#16a34a"
+                    fontSize={11 * scale}
+                    fontFamily="ui-monospace, monospace"
+                    style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 * scale }}
+                  >
+                    Klick = Polygon schließen
+                  </text>
+                )}
+              </g>
+            );
+          })()}
           {/* Close-polygon hint — when the wall chain anchor is set and the
               hover cursor approaches it, surface a green ring so the user
               knows clicking here will close + break the chain. */}
@@ -2442,13 +2565,9 @@ export function AnnotatePage() {
             </>
           )}
         </svg>
-        {/* Sub-classification is now in the sidebar via FamilyToolButton —
-            the previous top-of-canvas chip bar is gone (redundant). */}
-        <div className="absolute bottom-3 left-3 text-[0.7rem] text-zinc-300 bg-black/50 px-2 py-1 rounded leading-snug pointer-events-none">
-          [S] Select · [D] Bemaßung · [W] Wand · [O] Öffnung · [L] Linie · [H] Höhe
-          <br />
-          Zoom: nur +/-/FIT (oder Tasten +/-/0) · Pan: 2-Finger-Scroll oder Shift+Drag
-        </div>
+        {/* Removed: bottom-left hotkey legend. Hotkeys are visible on the
+            sidebar tool buttons themselves; the full cheatsheet stays
+            accessible via "?". */}
         {/* Canvas-display controls — opacity slider + color/gray toggle +
             zoom buttons in ONE horizontal palette at the bottom-right.
             Both image settings persist across images and houses
@@ -2632,6 +2751,8 @@ export function AnnotatePage() {
                 setPostDrawChip(null);
               }}
               onDismiss={() => setPostDrawChip(null)}
+              onHoverEnter={() => setPostDrawChipPaused(true)}
+              onHoverLeave={() => setPostDrawChipPaused(false)}
             />
           );
         })()}
@@ -2666,9 +2787,6 @@ export function AnnotatePage() {
               storageKey="inspector"
               onClose={() => setSelectedIds(new Set())}
               anchorScreenPt={(() => {
-                // Use the centroid of the (first) selected label in IMAGE
-                // coords, then project to SCREEN coords via the SVG CTM, so
-                // the popover can place itself in the opposite quadrant.
                 const anchorLabel = selectedLabel ?? labels.find((l) => selectedIds.has(l.id));
                 if (!anchorLabel) return null;
                 const c = labelCentroid(anchorLabel);
@@ -2679,6 +2797,23 @@ export function AnnotatePage() {
                   c[0] * ctm.a + c[1] * ctm.c + ctm.e,
                   c[0] * ctm.b + c[1] * ctm.d + ctm.f,
                 ];
+              })()}
+              obstacleScreenPts={(() => {
+                // P4: pass every visible label's centroid so the popover
+                // picks the corner farthest from ALL of them, not just
+                // opposite-quadrant of the selection.
+                const svg = svgRef.current;
+                const ctm = svg?.getScreenCTM();
+                if (!ctm) return [];
+                const out: Array<[number, number]> = [];
+                for (const l of labels) {
+                  const c = labelCentroid(l);
+                  out.push([
+                    c[0] * ctm.a + c[1] * ctm.c + ctm.e,
+                    c[0] * ctm.b + c[1] * ctm.d + ctm.f,
+                  ]);
+                }
+                return out;
               })()}
             >
               {selectedIds.size > 1 ? (
@@ -3003,14 +3138,21 @@ function RefineQueue({
                 {iss.description}
               </button>
               {iss.autoFix && (
-                <button
-                  type="button"
-                  onClick={() => onAutoFix(iss)}
-                  className="text-[0.62rem] px-1.5 py-0.5 rounded bg-accent text-white hover:opacity-90"
-                  title="Vorschlag anwenden"
-                >
-                  Fix
-                </button>
+                <>
+                  {iss.fixHint && (
+                    <span className="text-[0.6rem] font-mono text-zinc-500" title="Was [Fix] anwenden würde">
+                      {iss.fixHint}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onAutoFix(iss)}
+                    className="text-[0.62rem] px-1.5 py-0.5 rounded bg-accent text-white hover:opacity-90"
+                    title="Vorschlag anwenden"
+                  >
+                    Fix
+                  </button>
+                </>
               )}
             </li>
           ))}
@@ -3159,12 +3301,16 @@ function PostDrawChip({
   left, top,
   onPick,
   onDismiss,
+  onHoverEnter,
+  onHoverLeave,
 }: {
   kindFamily: 'floorplan_opening' | 'view_opening' | 'component_line';
   left: number;
   top: number;
   onPick: (kind: string) => void;
   onDismiss: () => void;
+  onHoverEnter: () => void;
+  onHoverLeave: () => void;
 }) {
   const opts: Array<{ id: string; label: string; key: string }> = (() => {
     if (kindFamily === 'floorplan_opening') return [
@@ -3192,8 +3338,16 @@ function PostDrawChip({
   return (
     <div
       className="absolute z-30 bg-white border border-zinc-300 rounded-md shadow-lg px-1.5 py-1 flex gap-1 text-[0.7rem]"
-      style={{ left: left + 12, top: top - 16, pointerEvents: 'auto' }}
+      // Clamp so the chip never escapes the canvas. Best-effort — the parent
+      // is the canvas container, so left/top are already in its coords.
+      style={{
+        left: Math.max(8, left + 12),
+        top: Math.max(8, top - 16),
+        pointerEvents: 'auto',
+      }}
       onPointerDown={(e) => e.stopPropagation()}
+      onPointerEnter={onHoverEnter}
+      onPointerLeave={onHoverLeave}
     >
       {opts.map((opt) => (
         <button
@@ -5654,16 +5808,20 @@ function FloatingPopover({
   storageKey,
   hidden,
   anchorScreenPt,
+  obstacleScreenPts,
   children,
 }: {
   title: string;
   onClose?: () => void;
   storageKey: string;
   hidden?: boolean;
-  /** Screen-coord centroid of the currently-selected label, so we can place
-   *  the popover in the quadrant FARTHEST from it. Recomputed on selection
-   *  change. Null → default top-right. */
+  /** Screen-coord centroid of the currently-selected label, used as the
+   *  signal that selection changed and we should re-place. Null → default. */
   anchorScreenPt?: [number, number] | null;
+  /** Screen-coord centroids of EVERY visible label (including the selected
+   *  one). The popover picks the canvas corner farthest from all of them
+   *  so it doesn't land on top of any geometry. */
+  obstacleScreenPts?: Array<[number, number]>;
   children: React.ReactNode;
 }) {
   const STORAGE = `bim-db:annotate:popover:${storageKey}`;
@@ -5699,21 +5857,58 @@ function FloatingPopover({
     const w = el.offsetWidth || 280;
     const h = el.offsetHeight || 200;
     if (anchorScreenPt) {
-      const [ax, ay] = anchorScreenPt;
-      const localX = ax - pr.left;
-      const localY = ay - pr.top;
-      // Pick the corner of the canvas farthest from the anchor (in screen
-      // coords). Margin so the popover doesn't graze the edges.
-      const onLeft = localX > pr.width / 2;
-      const onTop = localY > pr.height / 2;
-      const x = onLeft ? 16 : Math.max(8, pr.width - w - 16);
-      const y = onTop ? 16 : Math.max(8, pr.height - h - 16);
-      setPos({ x, y });
+      // P4 smarter placement: score each of the 4 canvas corners by the
+      // MINIMUM distance from the corner's popover-bbox to any visible
+      // label's centroid (the obstacle set). Pick the corner with the
+      // largest min-distance — i.e. the corner with the most empty canvas
+      // around it. Falls back to opposite-quadrant when no obstacles given.
+      const corners: Array<{ x: number; y: number }> = [
+        { x: 16,                           y: 16 },
+        { x: Math.max(8, pr.width - w - 16), y: 16 },
+        { x: 16,                           y: Math.max(8, pr.height - h - 16) },
+        { x: Math.max(8, pr.width - w - 16), y: Math.max(8, pr.height - h - 16) },
+      ];
+      const obstaclesLocal = (obstacleScreenPts ?? []).map(([sx, sy]) => [sx - pr.left, sy - pr.top] as [number, number]);
+      const bboxToPoint = (cx: number, cy: number, px: number, py: number) => {
+        // Distance from the popover's bbox to obstacle point.
+        const dx = Math.max(cx - px, 0, px - (cx + w));
+        const dy = Math.max(cy - py, 0, py - (cy + h));
+        return Math.hypot(dx, dy);
+      };
+      const score = (c: { x: number; y: number }) => {
+        if (obstaclesLocal.length === 0) return -Infinity;
+        let minD = Infinity;
+        for (const [ox, oy] of obstaclesLocal) {
+          const d = bboxToPoint(c.x, c.y, ox, oy);
+          if (d < minD) minD = d;
+        }
+        return minD;
+      };
+      let best = corners[0];
+      let bestScore = -Infinity;
+      for (const c of corners) {
+        const s = score(c);
+        if (s > bestScore) { bestScore = s; best = c; }
+      }
+      // When obstaclesLocal is empty, fall back to the opposite-quadrant
+      // heuristic against anchorScreenPt.
+      if (obstaclesLocal.length === 0) {
+        const [ax, ay] = anchorScreenPt;
+        const localX = ax - pr.left;
+        const localY = ay - pr.top;
+        const onLeft = localX > pr.width / 2;
+        const onTop = localY > pr.height / 2;
+        best = {
+          x: onLeft ? 16 : Math.max(8, pr.width - w - 16),
+          y: onTop ? 16 : Math.max(8, pr.height - h - 16),
+        };
+      }
+      setPos(best);
     } else {
       setPos({ x: Math.max(8, pr.width - w - 16), y: 16 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorScreenPt?.[0], anchorScreenPt?.[1], hidden]);
+  }, [anchorScreenPt?.[0], anchorScreenPt?.[1], hidden, obstacleScreenPts?.length]);
 
   const onHeaderDown = useCallback((e: React.PointerEvent) => {
     if (!popRef.current || !pos) return;
