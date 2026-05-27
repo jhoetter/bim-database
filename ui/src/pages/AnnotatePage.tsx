@@ -686,6 +686,7 @@ export function AnnotatePage() {
           <br />
           Enter = Polylinie beenden · Esc = abbrechen · Shift/Right-Drag = Pan · Wheel = Zoom · R = Reset
         </div>
+        <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} />
       </div>
     </Shell>
   );
@@ -881,12 +882,17 @@ function LabelGlyph({
   switch (label.type) {
     case 'dimensioned_distance': {
       const { start, end } = label.geometry;
-      const refMark = label.attributes.is_reference ? '#f59e0b' : stroke;
+      const isRef = label.attributes.is_reference;
+      const refMark = isRef ? '#f59e0b' : stroke;
+      const refWidth = isRef ? sw + 1 : sw;
       return (
         <g style={{ cursor: 'pointer' }} onClick={onClick}>
-          <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={refMark} strokeWidth={sw} />
-          <Tick x={start[0]} y={start[1]} stroke={refMark} sw={sw} />
-          <Tick x={end[0]} y={end[1]} stroke={refMark} sw={sw} />
+          <line
+            x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]}
+            stroke={refMark} strokeWidth={refWidth}
+          />
+          <Tick x={start[0]} y={start[1]} stroke={refMark} sw={refWidth} large={isRef} />
+          <Tick x={end[0]} y={end[1]} stroke={refMark} sw={refWidth} large={isRef} />
         </g>
       );
     }
@@ -963,6 +969,75 @@ function LabelGlyph({
   return null;
 }
 
+// Live in-canvas HUD shown while drawing a stroke or polyline. Reads out the
+// current pixel angle + length so the annotator can sanity-check that what
+// they're drawing matches the target_orientation they'll later assign.
+function DrawHUD({
+  tool,
+  pendingStart,
+  hoverPt,
+  pendingPolyline,
+}: {
+  tool: Tool;
+  pendingStart: Point | null;
+  hoverPt: Point | null;
+  pendingPolyline: Point[];
+}) {
+  // 2-click line tools: angle from pendingStart → hoverPt
+  if ((tool === 'dimensioned_distance' || tool === 'wall') && pendingStart && hoverPt) {
+    const dx = hoverPt[0] - pendingStart[0];
+    const dy = hoverPt[1] - pendingStart[1];
+    const angle = (Math.atan2(-dy, dx) * 180) / Math.PI;
+    const length = Math.hypot(dx, dy);
+    // Snap-to-axis hint within ±5°
+    const nearH = Math.abs(angle) < 5 || Math.abs(Math.abs(angle) - 180) < 5;
+    const nearV = Math.abs(Math.abs(angle) - 90) < 5;
+    return (
+      <div className="absolute top-3 right-3 bg-black/75 text-white px-3 py-2 rounded font-mono text-[0.78rem] leading-snug pointer-events-none min-w-[180px]">
+        <div className="flex justify-between gap-3">
+          <span className="text-zinc-400">Pixel-Winkel</span>
+          <span className="text-amber-300">{angle.toFixed(1)}°</span>
+        </div>
+        <div className="flex justify-between gap-3">
+          <span className="text-zinc-400">Länge</span>
+          <span className="text-amber-300">{length.toFixed(0)} px</span>
+        </div>
+        {(nearH || nearV) && (
+          <div className="mt-1 text-[0.65rem] text-green-300 leading-tight">
+            ≈ {nearH ? 'horizontal' : 'vertical'}
+          </div>
+        )}
+      </div>
+    );
+  }
+  // Polyline: show segment-by-segment + last segment angle
+  if (tool === 'component_line' && pendingPolyline.length > 0 && hoverPt) {
+    const last = pendingPolyline[pendingPolyline.length - 1];
+    const dx = hoverPt[0] - last[0];
+    const dy = hoverPt[1] - last[1];
+    const angle = (Math.atan2(-dy, dx) * 180) / Math.PI;
+    const length = Math.hypot(dx, dy);
+    return (
+      <div className="absolute top-3 right-3 bg-black/75 text-white px-3 py-2 rounded font-mono text-[0.78rem] leading-snug pointer-events-none min-w-[200px]">
+        <div className="flex justify-between gap-3">
+          <span className="text-zinc-400">Punkte</span>
+          <span className="text-amber-300">{pendingPolyline.length}</span>
+        </div>
+        <div className="flex justify-between gap-3">
+          <span className="text-zinc-400">Letzter Winkel</span>
+          <span className="text-amber-300">{angle.toFixed(1)}°</span>
+        </div>
+        <div className="flex justify-between gap-3">
+          <span className="text-zinc-400">Letzte Länge</span>
+          <span className="text-amber-300">{length.toFixed(0)} px</span>
+        </div>
+        <div className="mt-1 text-[0.65rem] text-zinc-300">Enter = beenden</div>
+      </div>
+    );
+  }
+  return null;
+}
+
 const LABEL_COLORS: Record<Label['type'], string> = {
   dimensioned_distance: '#16a34a',
   dimension_number: '#0ea5e9',
@@ -973,8 +1048,12 @@ const LABEL_COLORS: Record<Label['type'], string> = {
   height_mark: '#be185d',
 };
 
-function Tick({ x, y, stroke, sw }: { x: number; y: number; stroke: string; sw: number }) {
-  return <circle cx={x} cy={y} r={4} fill={stroke} stroke={stroke} strokeWidth={sw} />;
+function Tick({
+  x, y, stroke, sw, large = false,
+}: { x: number; y: number; stroke: string; sw: number; large?: boolean }) {
+  // Larger tick for is_reference strokes so they read as "anchors" at a glance.
+  const r = large ? 6 : 4;
+  return <circle cx={x} cy={y} r={r} fill={stroke} stroke={stroke} strokeWidth={sw} />;
 }
 
 // ── right-rail inspector for selected label ────────────────────────────────
@@ -1047,6 +1126,25 @@ function DimensionedDistanceFields({
   label: DimensionedDistanceLabel;
   onChange: (patch: Partial<Label>) => void;
 }) {
+  const orient = label.attributes.target_orientation;
+  const isCustomAngle = typeof orient === 'string' && orient.startsWith('angle_deg:');
+  const orientKind: 'horizontal' | 'vertical' | 'unknown' | 'angle_deg' = isCustomAngle
+    ? 'angle_deg'
+    : (orient as 'horizontal' | 'vertical' | 'unknown');
+  const customAngle = isCustomAngle ? parseFloat(orient.slice('angle_deg:'.length)) || 0 : 0;
+
+  // Compute the actual pixel angle of the stroke (post-creation). Live angle
+  // during drawing is shown in the canvas HUD; this is the static post-draw
+  // value displayed in the inspector for sanity-checking.
+  const { start, end } = label.geometry;
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const actualAngleDeg = (Math.atan2(-dy, dx) * 180) / Math.PI;
+  const lengthPx = Math.hypot(dx, dy);
+
+  // Deviation from target.
+  const deviation = orientationDeviation(orient, actualAngleDeg);
+
   return (
     <section className="space-y-2">
       <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Bemaßung</h4>
@@ -1063,20 +1161,46 @@ function DimensionedDistanceFields({
           className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
         />
       </label>
+
       <label className="block">
         <span className="text-[0.7rem] text-muted">Soll-Orientierung</span>
         <select
-          value={label.attributes.target_orientation}
-          onChange={(e) =>
-            onChange({ attributes: { ...label.attributes, target_orientation: e.target.value as DimensionedDistanceLabel['attributes']['target_orientation'] } } as Partial<Label>)
-          }
+          value={orientKind}
+          onChange={(e) => {
+            const k = e.target.value;
+            const next: DimensionedDistanceLabel['attributes']['target_orientation'] =
+              k === 'angle_deg' ? `angle_deg:${customAngle.toFixed(1)}` : (k as 'horizontal' | 'vertical' | 'unknown');
+            onChange({ attributes: { ...label.attributes, target_orientation: next } } as Partial<Label>);
+          }}
           className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
         >
-          <option value="horizontal">horizontal</option>
-          <option value="vertical">vertical</option>
+          <option value="horizontal">horizontal (0°)</option>
+          <option value="vertical">vertical (±90°)</option>
+          <option value="angle_deg">benutzerdef. Winkel…</option>
           <option value="unknown">unknown</option>
         </select>
       </label>
+
+      {orientKind === 'angle_deg' && (
+        <label className="block">
+          <span className="text-[0.7rem] text-muted">Winkel (°)</span>
+          <input
+            type="number"
+            step="0.1"
+            value={customAngle}
+            onChange={(e) =>
+              onChange({
+                attributes: {
+                  ...label.attributes,
+                  target_orientation: `angle_deg:${(Number(e.target.value) || 0).toFixed(1)}`,
+                },
+              } as Partial<Label>)
+            }
+            className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
+          />
+        </label>
+      )}
+
       <label className="flex items-center gap-2 text-[0.78rem]">
         <input
           type="checkbox"
@@ -1085,10 +1209,52 @@ function DimensionedDistanceFields({
             onChange({ attributes: { ...label.attributes, is_reference: e.target.checked } } as Partial<Label>)
           }
         />
-        Referenz-Strecke (anchors Homographie)
+        <span>
+          Referenz-Strecke
+          <span className="block text-[0.65rem] text-muted">anchors die Homographie (M6)</span>
+        </span>
       </label>
+
+      <div className="text-[0.7rem] text-muted bg-zinc-50 rounded px-2 py-1.5 leading-snug">
+        Tatsächlicher Pixel-Winkel: <span className="font-mono text-zinc-900">{actualAngleDeg.toFixed(1)}°</span>
+        <br />
+        Pixel-Länge: <span className="font-mono text-zinc-900">{lengthPx.toFixed(0)}</span> px
+        {deviation != null && (
+          <>
+            <br />
+            Abweichung zum Soll: <span className={`font-mono ${
+              Math.abs(deviation) < 2 ? 'text-green-700' :
+              Math.abs(deviation) < 10 ? 'text-amber-700' :
+              'text-red-700'
+            }`}>{deviation > 0 ? '+' : ''}{deviation.toFixed(1)}°</span>
+          </>
+        )}
+      </div>
     </section>
   );
+}
+
+// Deviation between the actual stroke angle and its declared target
+// orientation. Returns null if no comparison is meaningful (e.g. target =
+// 'unknown'). Uses min absolute difference modulo 180° since a 'horizontal'
+// stroke is equally well-aimed at 0° or 180°.
+function orientationDeviation(
+  target: DimensionedDistanceLabel['attributes']['target_orientation'],
+  actualDeg: number,
+): number | null {
+  let targetDeg: number | null = null;
+  if (target === 'horizontal') targetDeg = 0;
+  else if (target === 'vertical') targetDeg = 90;
+  else if (typeof target === 'string' && target.startsWith('angle_deg:')) {
+    const n = parseFloat(target.slice('angle_deg:'.length));
+    if (!Number.isNaN(n)) targetDeg = n;
+  }
+  if (targetDeg == null) return null;
+  // Wrap to [-90, 90] difference — a stroke parallel to the target axis is
+  // equally good in either direction.
+  let d = ((actualDeg - targetDeg + 90) % 180) - 90;
+  if (d <= -90) d += 180;
+  return d;
 }
 
 function DimensionNumberFields({
