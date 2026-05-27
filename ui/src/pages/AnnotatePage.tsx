@@ -193,21 +193,35 @@ const TOOL_FAMILIES: ToolFamily[] = [
     attrName: 'line_kind',
     applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
     options: [
-      // ── horizontale Höhenbezugslinien (M2 / Höhen-Anker) ───────────
-      { value: 'first',         label: 'First',         hint: 'Horizontale Bezugslinie am Dachfirst (oft mit "+12,5 m" beschriftet). Aus ihr folgt die Firsthöhe.' },
-      { value: 'traufe',        label: 'Traufe',        hint: 'Horizontale Bezugslinie an der Traufe.' },
-      { value: 'gelaende',      label: 'Gelände',       hint: 'Horizontale Bezugslinie am Geländeniveau (±0,00).' },
-      { value: 'geschoss',      label: 'Geschoss',      hint: 'Horizontaler Geschossübergang (Decke/Fußboden-Linie).' },
-      { value: 'ok_ffb',        label: 'OK FFB',        hint: 'Oberkante Fertigfußboden — horizontale Bezugslinie pro Geschoss.' },
-      { value: 'sockel',        label: 'Sockel',        hint: 'Horizontale Bezugslinie am Gebäudesockel.' },
-      { value: 'kniestock',     label: 'Kniestock',     hint: 'Horizontale Bezugslinie am Kniestock (Drempel).' },
-      // ── geometrische Kanten (M2 / Gebäude-Geometrie) ───────────────
-      { value: 'dachschraege',  label: 'Dachschräge',   hint: 'Schräge Dachfläche / Dachkante (Linie von First nach Traufe in der Ansicht). Aus den Endpunkten folgen First- und Traufhöhe rechnerisch.' },
-      { value: 'firstkante',    label: 'Firstkante',    hint: 'Geometrische Firstkante / Gratlinie (kurze Strecke entlang des Firsts in der Ansicht).' },
-      { value: 'gebaeudekante', label: 'Gebäudekante',  hint: 'Vertikale oder seitliche Gebäudekante (z. B. linke/rechte Außenseite eines Giebels).' },
-      { value: 'other',         label: 'Sonstige',      hint: 'Wenn keiner der Typen passt — vermeiden, möglichst spezifisch klassifizieren.' },
+      // Linien sind NUR für geometrische Form (Silhouette/Außenkanten).
+      // Höhenbezüge gehören in das Höhenkote-Werkzeug — eine Höhenkote
+      // mit Datum 'first' ist viel präziser als eine separate
+      // horizontale First-Linie.
+      { value: 'gebaeudekante', label: 'Gebäudekante',  hint: 'Außenkante des Gebäudes — Wand-Außenseiten in der Ansicht, Giebelkanten, vertikale Silhouetten-Kanten.' },
+      { value: 'dachschraege',  label: 'Dachschräge',   hint: 'Schräge Dachfläche / Dachkante (Linie von First nach Traufe). Aus den Endpunkten folgen First- und Traufhöhe rechnerisch.' },
+      { value: 'firstkante',    label: 'Firstkante',    hint: 'Horizontale Firstkante / Gratlinie (Strecke entlang des Firsts in der Ansicht).' },
+      { value: 'other',         label: 'Sonstige',      hint: 'Wenn keiner der drei Typen passt. Höhenbezüge (First, Traufe, Gelände …) bitte als Höhenkote, nicht als Linie.' },
     ],
-    helpText: 'Zeichne die Linie wie sie auf der Zeichnung ist. Der Typ sagt, was sie bedeutet — horizontale Höhenbezugslinie (First/Traufe…) oder geometrische Kante (Dachschräge, Firstkante, Gebäudekante).',
+    helpText: 'Linien = Gebäudeform (Silhouette, Dach, Kanten). Höhenbezüge → Höhenkote.',
+  },
+  {
+    parentTool: 'height_mark',
+    familyLabel: 'Höhenkote',
+    Icon: SpotElevationIcon,
+    hotkey: 'H',
+    attrName: 'datum',
+    applicableTags: ['ansicht', 'schnitt', 'sonstiges'],
+    options: [
+      { value: 'first',     label: 'First',     hint: 'Firsthöhe — Höhe der Dachspitze.' },
+      { value: 'traufe',    label: 'Traufe',    hint: 'Traufhöhe — Höhe der Dach-/Wand-Schnittlinie.' },
+      { value: 'gelaende',  label: 'Gelände',   hint: 'Geländehöhe — meist ±0,00 als Bezug.' },
+      { value: 'ok_ffb',    label: 'OK FFB',    hint: 'Oberkante Fertigfußboden eines Geschosses.' },
+      { value: 'geschoss',  label: 'Geschoss',  hint: 'Geschossübergang (Decken-/Boden-Niveau).' },
+      { value: 'sockel',    label: 'Sockel',    hint: 'Sockelhöhe.' },
+      { value: 'kniestock', label: 'Kniestock', hint: 'Kniestock-/Drempel-Höhe.' },
+      { value: 'other',     label: 'Sonstige',  hint: 'Sonstige beschriftete Höhe.' },
+    ],
+    helpText: 'Erste Höhenkote setzt die Bezugsachse (dünne hellblaue Senkrechte). Weitere Höhenkoten rasten automatisch auf diese X-Position — du bestimmst nur noch die Höhe. Alt = freie Platzierung.',
   },
   {
     parentTool: 'dimensioned_distance',
@@ -771,15 +785,30 @@ export function AnnotatePage() {
       }
 
       // ── 1-click tools ─────────────────────────────────────────────────────
-      // M12: inline-edit replaces window.prompt. Place the label first, then
-      // open a floating <input> at the cursor's screen position.
+      // Höhenkote workflow: the FIRST Höhenkote in a scene establishes the
+      // Bezugsachse (vertical reference axis). Every subsequent Höhenkote
+      // is hard-locked to that X-coordinate — only the Y varies. Alt
+      // defeats the lock. This matches how Höhenkoten are drawn in real
+      // construction plans: a stack on one vertical line, each labeling
+      // a height at the same horizontal position.
       if (tool === 'height_mark') {
         pushUndo();
+        const existingHKs = labels.filter((l) => l.type === 'height_mark');
+        const bezugX = existingHKs.length > 0
+          ? existingHKs[0].geometry.anchor[0]
+          : null;
+        const lockedX = bezugX != null && !e.altKey ? bezugX : pt[0];
+        const anchor: Point = [lockedX, pt[1]];
+        const def = getDefaults(scope, key, sceneTag, 'height_mark');
         const label: HeightMarkLabel = {
           id: uuid(),
           type: 'height_mark',
-          geometry: { anchor: pt },
-          attributes: { value_mm: null, reference_line_id: null },
+          geometry: { anchor },
+          attributes: {
+            value_mm: null,
+            datum: (def.datum as HeightMarkLabel['attributes']['datum']) ?? null,
+            reference_line_id: null,
+          },
           status: 'readable',
           relations: [],
           created_at: nowIso(),
@@ -788,6 +817,8 @@ export function AnnotatePage() {
         setLabels([...labels, label]);
         setDirty(true);
         setSelectedIds(new Set([label.id]));
+        // Position inline edit at the cursor — usually the actual click
+        // (not the locked X) reads more naturally for the user.
         setPendingInlineEdit({
           labelId: label.id,
           field: 'value_mm',
@@ -1531,6 +1562,39 @@ export function AnnotatePage() {
               pointerEvents="none"
             />
           )}
+          {/* Höhenkote Bezugsachse — persistent vertical line at the X of
+              the first Höhenkote in the scene. Visible whenever the
+              Höhenkote tool is active and at least one Höhenkote exists.
+              All subsequent Höhenkoten lock to this X (Alt to defeat). */}
+          {tool === 'height_mark' && (() => {
+            const hks = labels.filter((l) => l.type === 'height_mark');
+            if (hks.length === 0) return null;
+            const bezugX = hks[0].geometry.anchor[0];
+            const sw = 1.5 / Math.max(0.1, view.w / imageSize[0]);
+            return (
+              <g pointerEvents="none">
+                <line
+                  x1={bezugX} y1={0}
+                  x2={bezugX} y2={imageSize[1]}
+                  stroke="#0ea5e9"
+                  strokeWidth={sw}
+                  strokeDasharray="8,5"
+                  opacity={0.7}
+                />
+                <text
+                  x={bezugX + 6}
+                  y={18 * (view.w / imageSize[0])}
+                  fill="#0ea5e9"
+                  fontFamily="ui-monospace, monospace"
+                  fontSize={11 * (view.w / imageSize[0])}
+                  fontWeight={600}
+                  style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}
+                >
+                  Bezugsachse · Alt = freie Platzierung
+                </text>
+              </g>
+            );
+          })()}
           {/* Snap target — green circle + optional alignment guide */}
           {snap && (
             <g pointerEvents="none">
@@ -3761,22 +3825,31 @@ function HeightMarkFields({
     <section className="space-y-2">
       <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Höhenkote</h4>
       <label className="block">
+        <span className="text-[0.7rem] text-muted">Datum (welche Höhe?)</span>
+        <select
+          value={label.attributes.datum ?? ''}
+          onChange={(e) => onChange({ attributes: { ...label.attributes, datum: (e.target.value || null) as HeightMarkLabel['attributes']['datum'] } } as Partial<Label>)}
+          className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
+        >
+          <option value="">(nicht gesetzt)</option>
+          <option value="first">First</option>
+          <option value="traufe">Traufe</option>
+          <option value="gelaende">Gelände</option>
+          <option value="ok_ffb">OK FFB</option>
+          <option value="geschoss">Geschoss</option>
+          <option value="sockel">Sockel</option>
+          <option value="kniestock">Kniestock</option>
+          <option value="other">Sonstige</option>
+        </select>
+      </label>
+      <label className="block">
         <span className="text-[0.7rem] text-muted">Wert (mm)</span>
         <input
           type="number"
           value={label.attributes.value_mm ?? ''}
           onChange={(e) => onChange({ attributes: { ...label.attributes, value_mm: e.target.value === '' ? null : Number(e.target.value) } } as Partial<Label>)}
           className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
-        />
-      </label>
-      <label className="block">
-        <span className="text-[0.7rem] text-muted">Bezugslinie (Bauteillinien-ID)</span>
-        <input
-          type="text"
-          value={label.attributes.reference_line_id ?? ''}
-          onChange={(e) => onChange({ attributes: { ...label.attributes, reference_line_id: e.target.value || null } } as Partial<Label>)}
-          className="w-full px-2 py-1 rounded border border-border text-[0.78rem] font-mono"
-          placeholder="(none)"
+          placeholder="z. B. 12500 (= 12,5 m)"
         />
       </label>
     </section>

@@ -45,6 +45,7 @@ const LEARNABLE: Record<string, string[]> = {
   view_opening: ['opening_kind', 'frame_visible'],
   component_line: ['line_kind'],
   dimensioned_distance: ['target_orientation', 'is_reference'],
+  height_mark: ['datum'],
 };
 
 export function getDefaults(

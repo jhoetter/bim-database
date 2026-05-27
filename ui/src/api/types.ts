@@ -147,7 +147,16 @@ export interface ComponentLineLabel extends LabelBase {
 export interface HeightMarkLabel extends LabelBase {
   type: 'height_mark';
   geometry: { anchor: Point };
-  attributes: { value_mm?: number | null; reference_line_id?: string | null };
+  attributes: {
+    value_mm?: number | null;
+    // Named datum this height represents. With this, a height_mark
+    // alone is enough — you don't need a separate `first` line.
+    datum?:
+      | 'first' | 'traufe' | 'gelaende' | 'geschoss' | 'ok_ffb'
+      | 'sockel' | 'kniestock' | 'other' | null;
+    // (legacy) link to a component_line that this height is measured from.
+    reference_line_id?: string | null;
+  };
 }
 export interface DimensionedDistanceLabel extends LabelBase {
   type: 'dimensioned_distance';

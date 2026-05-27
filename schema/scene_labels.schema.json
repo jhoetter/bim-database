@@ -233,7 +233,12 @@
             "additionalProperties": false,
             "properties": {
               "value_mm": {"type": ["number", "null"]},
-              "reference_line_id": {"type": ["string", "null"], "description": "id of a component_line this height is measured from"}
+              "datum": {
+                "type": ["string", "null"],
+                "enum": ["first", "traufe", "gelaende", "geschoss", "ok_ffb", "sockel", "kniestock", "other", null],
+                "description": "which named height-datum this Höhenkote represents (First, Traufe, Gelände, …). Drives the training signal — a Höhenkote with datum='first' tells the model 'this value IS the Firsthöhe'."
+              },
+              "reference_line_id": {"type": ["string", "null"], "description": "(legacy) id of a component_line this height is measured from"}
             }
           }
         }
