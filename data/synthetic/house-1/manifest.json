@@ -1,0 +1,123 @@
+{
+  "key": "house-1",
+  "linked_house": "house-1",
+  "drawings": [
+    {
+      "file": "house-1-syn-elevation-north.png",
+      "kind": "elevation",
+      "view": "north",
+      "floor": null,
+      "title": "NORDANSICHT",
+      "model": "gpt-image-2",
+      "generated_at": "2026-05-27T11:10:47",
+      "style_refs": [
+        "styleref-house-21-house-21-elevation-tal.jpg",
+        "styleref-house-22-house-22-elevation-sued.jpg"
+      ],
+      "content_refs": [
+        "content-house-1-hanse_variant35172_exterior10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan11.original.jpg"
+      ],
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-1-syn-elevation-south.png",
+      "kind": "elevation",
+      "view": "south",
+      "floor": null,
+      "title": "SÜDANSICHT",
+      "model": "gpt-image-2",
+      "generated_at": "2026-05-27T11:13:19",
+      "style_refs": [
+        "styleref-house-22-house-22-elevation-nord.jpg",
+        "styleref-house-21-house-21-elevation-tal.jpg"
+      ],
+      "content_refs": [
+        "content-house-1-hanse_variant35172_exterior10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan11.original.jpg"
+      ],
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-1-syn-elevation-east.png",
+      "kind": "elevation",
+      "view": "east",
+      "floor": null,
+      "title": "OSTANSICHT",
+      "model": "gpt-image-2",
+      "generated_at": "2026-05-27T11:15:48",
+      "style_refs": [
+        "styleref-house-22-house-22-elevation-sued.jpg",
+        "styleref-house-21-house-21-elevation-tal.jpg"
+      ],
+      "content_refs": [
+        "content-house-1-hanse_variant35172_exterior10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan11.original.jpg"
+      ],
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-1-syn-elevation-west.png",
+      "kind": "elevation",
+      "view": "west",
+      "floor": null,
+      "title": "WESTANSICHT",
+      "model": "gpt-image-2",
+      "generated_at": "2026-05-27T11:18:47",
+      "style_refs": [
+        "styleref-house-21-house-21-elevation-berg.jpg",
+        "styleref-house-22-house-22-elevation-nord.jpg"
+      ],
+      "content_refs": [
+        "content-house-1-hanse_variant35172_exterior10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan11.original.jpg"
+      ],
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-1-syn-floorplan-eg.png",
+      "kind": "floorplan",
+      "view": null,
+      "floor": "EG",
+      "title": "GRUNDRISS EG",
+      "model": "gpt-image-2",
+      "generated_at": "2026-05-27T11:22:54",
+      "style_refs": [
+        "styleref-house-23-house-23-floorplan-eg.jpg",
+        "styleref-house-21-house-21-floorplan-dg-detail.jpg"
+      ],
+      "content_refs": [
+        "content-house-1-hanse_variant35172_exterior10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan11.original.jpg"
+      ],
+      "label_status": "unlabeled"
+    },
+    {
+      "file": "house-1-syn-floorplan-dg.png",
+      "kind": "floorplan",
+      "view": null,
+      "floor": "DG",
+      "title": "GRUNDRISS DG",
+      "model": "gpt-image-2",
+      "generated_at": "2026-05-27T11:27:01",
+      "style_refs": [
+        "styleref-house-23-house-23-floorplan-eg.jpg",
+        "styleref-house-21-house-21-floorplan-eg-detail.jpg"
+      ],
+      "content_refs": [
+        "content-house-1-hanse_variant35172_exterior10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan10.original.jpg",
+        "content-house-1-hanse_variant35172_floorplan11.original.jpg"
+      ],
+      "label_status": "unlabeled"
+    }
+  ],
+  "model": "Variant 35-172",
+  "manufacturer": "Hanse Haus",
+  "building_type": "EFH"
+}
