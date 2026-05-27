@@ -9,17 +9,30 @@
       "floor": null,
       "title": "NORDANSICHT",
       "model": "gpt-image-2",
-      "generated_at": "2026-05-27T11:10:47",
+      "generated_at": "2026-05-27T12:18:54",
+      "preset": "very-detailed",
       "style_refs": [
-        "styleref-house-21-house-21-elevation-tal.jpg",
-        "styleref-house-22-house-22-elevation-sued.jpg"
+        "house-21-elevation-tal",
+        "house-22-elevation-nord"
       ],
       "content_refs": [
         "content-house-1-hanse_variant35172_exterior10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan11.original.jpg"
       ],
-      "label_status": "unlabeled"
+      "prior_refs": [],
+      "label_status": "unlabeled",
+      "verify_report": {
+        "consistent": false,
+        "sums_ok": false,
+        "features_match": true,
+        "issues": [
+          "Horizontal axis: Totals 11.750 but segment sum is 11.750 + 5.125",
+          "Horizontal axis: Feature alignment issue with 1.25 segment"
+        ],
+        "feedback": "Ensure dimension chains along each axis sum to the overall labeled total. Check that tick marks align precisely with architectural features."
+      },
+      "verify_passed": false
     },
     {
       "file": "house-1-syn-elevation-south.png",
@@ -28,17 +41,33 @@
       "floor": null,
       "title": "SÜDANSICHT",
       "model": "gpt-image-2",
-      "generated_at": "2026-05-27T11:13:19",
+      "generated_at": "2026-05-27T12:27:33",
+      "preset": "very-detailed",
       "style_refs": [
-        "styleref-house-22-house-22-elevation-nord.jpg",
-        "styleref-house-21-house-21-elevation-tal.jpg"
+        "house-21-elevation-tal",
+        "house-22-elevation-nord"
       ],
       "content_refs": [
         "content-house-1-hanse_variant35172_exterior10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan11.original.jpg"
       ],
-      "label_status": "unlabeled"
+      "prior_refs": [
+        "house-1-syn-elevation-north.png"
+      ],
+      "label_status": "unlabeled",
+      "verify_report": {
+        "consistent": false,
+        "sums_ok": false,
+        "features_match": false,
+        "issues": [
+          "horizontal: 6.375 + 4.375 != 13.125",
+          "horizontal: tick mark mid-window (1.50 segment)",
+          "vertical: 2.875 + 2.750 + 3.000 != 8.625"
+        ],
+        "feedback": "Ensure all dimension chains are internally consistent, and that all tick marks align with architectural features."
+      },
+      "verify_passed": false
     },
     {
       "file": "house-1-syn-elevation-east.png",
@@ -47,17 +76,30 @@
       "floor": null,
       "title": "OSTANSICHT",
       "model": "gpt-image-2",
-      "generated_at": "2026-05-27T11:15:48",
+      "generated_at": "2026-05-27T12:36:22",
+      "preset": "very-detailed",
       "style_refs": [
-        "styleref-house-22-house-22-elevation-sued.jpg",
-        "styleref-house-21-house-21-elevation-tal.jpg"
+        "house-21-elevation-tal",
+        "house-22-elevation-nord"
       ],
       "content_refs": [
         "content-house-1-hanse_variant35172_exterior10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan11.original.jpg"
       ],
-      "label_status": "unlabeled"
+      "prior_refs": [
+        "house-1-syn-elevation-north.png",
+        "house-1-syn-elevation-south.png"
+      ],
+      "label_status": "unlabeled",
+      "verify_report": {
+        "consistent": true,
+        "sums_ok": true,
+        "features_match": true,
+        "issues": [],
+        "feedback": "Good job! All dimensions align correctly with the architectural features and sum accurately to the overall labeled totals. Ensure the same precision in future projects."
+      },
+      "verify_passed": true
     },
     {
       "file": "house-1-syn-elevation-west.png",
@@ -66,17 +108,35 @@
       "floor": null,
       "title": "WESTANSICHT",
       "model": "gpt-image-2",
-      "generated_at": "2026-05-27T11:18:47",
+      "generated_at": "2026-05-27T12:44:53",
+      "preset": "very-detailed",
       "style_refs": [
-        "styleref-house-21-house-21-elevation-berg.jpg",
-        "styleref-house-22-house-22-elevation-nord.jpg"
+        "house-21-elevation-tal",
+        "house-22-elevation-nord"
       ],
       "content_refs": [
         "content-house-1-hanse_variant35172_exterior10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan11.original.jpg"
       ],
-      "label_status": "unlabeled"
+      "prior_refs": [
+        "house-1-syn-elevation-north.png",
+        "house-1-syn-elevation-south.png",
+        "house-1-syn-elevation-east.png"
+      ],
+      "label_status": "unlabeled",
+      "verify_report": {
+        "consistent": false,
+        "sums_ok": false,
+        "features_match": false,
+        "issues": [
+          "horizontal axis: sum of dimension segments does not match overall width (17.150 m)",
+          "horizontal axis: two windows labeled as 1.50 m appear visually different",
+          "vertical axis: storey total does not align with individual levels"
+        ],
+        "feedback": "Ensure dimension segments sum to the total width and height. Verify that window labels match their visual sizes, and ensure all tick marks align with actual architectural features."
+      },
+      "verify_passed": false
     },
     {
       "file": "house-1-syn-floorplan-eg.png",
@@ -85,17 +145,32 @@
       "floor": "EG",
       "title": "GRUNDRISS EG",
       "model": "gpt-image-2",
-      "generated_at": "2026-05-27T11:22:54",
+      "generated_at": "2026-05-27T12:54:00",
+      "preset": "very-detailed",
       "style_refs": [
-        "styleref-house-23-house-23-floorplan-eg.jpg",
-        "styleref-house-21-house-21-floorplan-dg-detail.jpg"
+        "house-21-floorplan-eg-detail",
+        "house-23-floorplan-eg"
       ],
       "content_refs": [
         "content-house-1-hanse_variant35172_exterior10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan11.original.jpg"
       ],
-      "label_status": "unlabeled"
+      "prior_refs": [
+        "house-1-syn-elevation-north.png",
+        "house-1-syn-elevation-south.png",
+        "house-1-syn-elevation-east.png",
+        "house-1-syn-elevation-west.png"
+      ],
+      "label_status": "unlabeled",
+      "verify_report": {
+        "consistent": true,
+        "sums_ok": true,
+        "features_match": true,
+        "issues": [],
+        "feedback": "The dimensions are consistent, and all features match architectural standards. The drawing is accurate and requires no changes."
+      },
+      "verify_passed": true
     },
     {
       "file": "house-1-syn-floorplan-dg.png",
@@ -104,20 +179,50 @@
       "floor": "DG",
       "title": "GRUNDRISS DG",
       "model": "gpt-image-2",
-      "generated_at": "2026-05-27T11:27:01",
+      "generated_at": "2026-05-27T13:02:36",
+      "preset": "very-detailed",
       "style_refs": [
-        "styleref-house-23-house-23-floorplan-eg.jpg",
-        "styleref-house-21-house-21-floorplan-eg-detail.jpg"
+        "house-21-floorplan-eg-detail",
+        "house-23-floorplan-eg"
       ],
       "content_refs": [
         "content-house-1-hanse_variant35172_exterior10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan10.original.jpg",
         "content-house-1-hanse_variant35172_floorplan11.original.jpg"
       ],
-      "label_status": "unlabeled"
+      "prior_refs": [
+        "house-1-syn-elevation-north.png",
+        "house-1-syn-elevation-south.png",
+        "house-1-syn-elevation-east.png",
+        "house-1-syn-elevation-west.png",
+        "house-1-syn-floorplan-eg.png"
+      ],
+      "label_status": "unlabeled",
+      "verify_report": {
+        "consistent": true,
+        "sums_ok": true,
+        "features_match": false,
+        "issues": [
+          "horizontal axis 2.25 segment mismatch",
+          "vertical axis 3.375 tick misaligned"
+        ],
+        "feedback": "Ensure all dimension segments align with physical features like walls or windows. Verify each identical feature has identical dimension labels."
+      },
+      "verify_passed": true
     }
   ],
   "model": "Variant 35-172",
   "manufacturer": "Hanse Haus",
-  "building_type": "EFH"
+  "building_type": "EFH",
+  "preset": "very-detailed",
+  "style_refs_house": {
+    "elevation": [
+      "house-21-elevation-tal",
+      "house-22-elevation-nord"
+    ],
+    "floorplan": [
+      "house-21-floorplan-eg-detail",
+      "house-23-floorplan-eg"
+    ]
+  }
 }
