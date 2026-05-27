@@ -250,6 +250,50 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+// Short label for a scene chip in the topbar. Picks the most informative
+// floor (EG/OG/DG) or compass direction it can find in the filename, or
+// falls back to the first few characters of the title.
+function sceneShortLabel(file: string, title?: string): string {
+  const f = file.toLowerCase();
+  const FLOORS = ['eg', 'og', 'dg', 'kg', 'ug', '1og', '2og'];
+  for (const fl of FLOORS) {
+    if (f.includes(`-${fl}.`) || f.includes(`-${fl}-`) || f.endsWith(`-${fl}`)) {
+      return fl.toUpperCase();
+    }
+  }
+  const DIRS: Array<[string, string]> = [
+    ['north', 'N'], ['nord', 'N'],
+    ['south', 'S'], ['sued', 'S'], ['süd', 'S'],
+    ['east', 'O'], ['ost', 'O'],
+    ['west', 'W'],
+    ['tal', 'Tal'], ['berg', 'Berg'],
+    ['strasse', 'Str'], ['garten', 'Gtn'],
+    ['linke-giebel', 'L-G'], ['rechte-giebel', 'R-G'],
+  ];
+  for (const [needle, short] of DIRS) {
+    if (f.includes(needle)) return short;
+  }
+  // Kind hint
+  if (f.includes('section') || f.includes('schnitt')) return 'Sch';
+  if (f.includes('floorplan') || f.includes('grundriss')) return 'GR';
+  if (f.includes('elevation') || f.includes('ansicht')) return 'An';
+  // Fallback to title prefix or filename stem
+  const t = (title ?? file).replace(/\.[^.]+$/, '');
+  return t.length > 6 ? t.slice(0, 6) : t;
+}
+
+// localStorage key for the last-visited scene of a house. Scoped by
+// (scope, key) so synthetic and real-house namespaces don't collide.
+function lastSceneKey(scope: 'house' | 'synthetic', houseKey: string): string {
+  return `bim-db:annotate:last-scene:${scope}:${houseKey}`;
+}
+export function getLastVisitedScene(scope: 'house' | 'synthetic', houseKey: string): string | null {
+  try { return window.localStorage.getItem(lastSceneKey(scope, houseKey)); } catch { return null; }
+}
+function rememberLastVisitedScene(scope: 'house' | 'synthetic', houseKey: string, file: string): void {
+  try { window.localStorage.setItem(lastSceneKey(scope, houseKey), file); } catch { /* no-op */ }
+}
+
 export function AnnotatePage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -391,6 +435,15 @@ export function AnnotatePage() {
       setDirty(false);
     }
   }, [data]);
+
+  // Remember the last-visited scene for this house so opening the house
+  // again (from the synthetic overview card) resumes here instead of
+  // jumping back to the hero scene.
+  useEffect(() => {
+    if (key && decodedFile) {
+      rememberLastVisitedScene(scope, key, decodedFile);
+    }
+  }, [scope, key, decodedFile]);
 
   // Warn on close if dirty
   useEffect(() => {
@@ -1241,28 +1294,48 @@ export function AnnotatePage() {
       topbarTrailing={
         <div className="flex items-center gap-2">
           {sceneList.length > 1 && (
-            <div className="flex items-center gap-1 border border-border rounded-md px-1 py-0.5 bg-white"
+            <div className="flex items-center gap-1 border border-border rounded-md p-0.5 bg-white max-w-[44vw] overflow-x-auto"
                  title="Szene wechseln — , = vorige, . = nächste">
               <button
                 type="button"
                 onClick={() => prevScene && goToScene(prevScene.file)}
                 disabled={!prevScene}
                 aria-label="Vorige Szene (,)"
-                className={`w-6 h-6 inline-flex items-center justify-center rounded ${
+                className={`w-6 h-6 inline-flex items-center justify-center rounded shrink-0 ${
                   prevScene ? 'hover:bg-zinc-100 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
                 }`}
               >
                 ‹
               </button>
-              <span className="text-[0.7rem] font-mono tabular-nums text-muted px-1">
-                {sceneIndex >= 0 ? sceneIndex + 1 : '?'} / {sceneList.length}
-              </span>
+              {/* All scenes as small chips — gives the user an at-a-glance
+                  overview of the house's scenes plus quick jump-to. The
+                  active scene is the accent-coloured chip. */}
+              <div className="flex items-center gap-0.5 px-0.5">
+                {sceneList.map((s) => {
+                  const isCurrent = s.file === decodedFile;
+                  return (
+                    <button
+                      key={s.file}
+                      type="button"
+                      onClick={() => goToScene(s.file)}
+                      title={s.title}
+                      className={`px-1.5 py-0.5 rounded text-[0.65rem] font-medium tabular-nums whitespace-nowrap shrink-0 transition ${
+                        isCurrent
+                          ? 'bg-accent text-white'
+                          : 'text-zinc-600 hover:bg-zinc-100'
+                      }`}
+                    >
+                      {sceneShortLabel(s.file, s.title)}
+                    </button>
+                  );
+                })}
+              </div>
               <button
                 type="button"
                 onClick={() => nextScene && goToScene(nextScene.file)}
                 disabled={!nextScene}
                 aria-label="Nächste Szene (.)"
-                className={`w-6 h-6 inline-flex items-center justify-center rounded ${
+                className={`w-6 h-6 inline-flex items-center justify-center rounded shrink-0 ${
                   nextScene ? 'hover:bg-zinc-100 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
                 }`}
               >

@@ -4,6 +4,7 @@ import { fetchSynthetics, useResource } from '../api/client';
 import type { SyntheticDrawing, SyntheticHouse } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import { getLastVisitedScene } from './AnnotatePage';
 
 // Two views: 'gallery' (flat Pinterest grid of all drawings across houses)
 // and 'by-house' (grouped, easier for spot-checking coverage). Filters in
@@ -245,24 +246,31 @@ function GroupedByHouse({ houses }: { houses: SyntheticHouse[] }) {
 }
 
 // One card per house with a representative image + stats. Clicking the card
-// goes directly to the first scene's annotation view — the user explicitly
-// wants no intermediate per-house scene-list page.
+// goes directly to annotation view — RESUMING on the last-visited scene if
+// the user has been here before (per-house localStorage), else the hero
+// scene (preferring floorplan-EG).
 function HouseCard({ house }: { house: SyntheticHouse }) {
   const labeled = house.drawings.filter((d) => d.labeled).length;
   const total = house.drawings.length;
   const pct = total === 0 ? 0 : Math.round((labeled / total) * 100);
-  // Prefer a floorplan-EG as the hero image (most representative); fall back
-  // to the first available drawing.
   const hero =
     house.drawings.find((d) => d.kind === 'floorplan' && d.floor === 'EG') ??
     house.drawings.find((d) => d.kind === 'floorplan') ??
     house.drawings[0];
   if (!hero) return null;
+  // Resume on last-visited if it still exists in this house's drawings.
+  const last = getLastVisitedScene('synthetic', house.key);
+  const targetFile =
+    last && house.drawings.some((d) => d.file === last) ? last : hero.file;
   return (
     <Link
-      to={`/synthetic/${house.key}/scene/${encodeURIComponent(hero.file)}/annotate`}
+      to={`/synthetic/${house.key}/scene/${encodeURIComponent(targetFile)}/annotate`}
       className="block rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
-      title={`${house.drawings.length} Zeichnung(en) — Klick öffnet Annotation`}
+      title={
+        targetFile === hero.file
+          ? `${total} Zeichnung(en) — Klick öffnet Annotation`
+          : `${total} Zeichnung(en) — fortsetzen bei zuletzt besuchter Szene`
+      }
     >
       <div className="aspect-square bg-zinc-50 flex items-center justify-center overflow-hidden">
         <img
