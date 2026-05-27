@@ -80,14 +80,20 @@ data/synthetic/house-1/
 - The composite PNG follows the same convention as scene PNGs (tracked in git).
 - The label format is documented + schema-validated (see §6).
 
-API additions:
+API additions (per §11: real + synthetic both labelable through one shared API):
 
 | route | method | returns |
 |---|---|---|
-| `GET /synthetics/{key}/labels/{file}` | get the label set for one scene |
-| `PUT /synthetics/{key}/labels/{file}` | save a label set (overwrites; backend writes JSON to disk) |
+| `GET /labels/{scope}/{key}/{file}` | get the label set for one scene; scope ∈ {synthetic, house} |
+| `PUT /labels/{scope}/{key}/{file}` | save a label set (overwrites; backend writes JSON to disk) |
 | `GET /synthetics/{key}/composite` | composite PNG + scene-bbox metadata |
-| `POST /synthetics/{key}/labels/{file}/export` | returns both compiled ground-truth sets (raw + rectified) as JSON |
+| `POST /labels/{scope}/{key}/{file}/export` | returns both compiled ground-truth sets (raw + rectified) as JSON |
+
+For real houses (`scope=house`), labels land under
+`data/houses/<key>/labels/<scene>.json`; for synthetic, under
+`data/synthetic/<key>/labels/<scene>.json`. The image URL family
+(`/static/synthetic/...` vs `/scene/...`) stays whatever the scope dictates;
+the labels layer is the same.
 
 ---
 
@@ -505,15 +511,56 @@ Each milestone is a stop-and-show point. The deliverable is concrete and reviewa
 
 ---
 
-## 11. Open questions (for jhoetter)
+## 11. Resolved decisions (jhoetter, 2026-05-27)
 
-- **Do real-house scenes also get labeled?** h21 / h22 / h23 have real scanned drawings under `data/houses/`. They're not currently exposed in `/synthetic/`. Question: does the annotation tool also operate on real scenes, via the existing `/scene/` API, or only on synthetic? My instinct says yes — the same UI should work for both, gated by a source filter.
-- **Multi-annotator semantics.** Single-user assumed for now. If multiple people will annotate, do we need login + per-annotator attribution per label? (`annotated_by` field exists; current scope assumes one user.)
-- **Export atomicity.** When the annotator clicks "Save", is it always-immediate-persist, or do we want an explicit save state + dirty indicator + undo stack? My recommendation: dirty indicator + explicit Save + N-step undo (no async background-saves).
-- **Composite layout policy.** Should the M0 composite be *deterministic* (same seed → same layout) or *randomized* per regeneration? Deterministic by default, with a `--seed` flag to vary it.
-- **How strict is "missing"?** If the annotator declares an opening "missing" but later a colleague spots one, do we keep the missing-marker as historical metadata or hard-delete on re-label? Recommendation: keep, with timestamped notes.
-- **Schema versioning.** As we iterate on label types post-M6, do we want to migrate old labels or reject them? Recommendation: schema includes `schema_version: "1.0"`; migrations live in `scripts/migrate_labels.py` per version bump.
-- **Composite labels for the S-1 model.** S-1 detects "where in the composite is each scene." That's a separate annotation pass (bbox per scene on the composite). Does M0's `composite.json` (which already records bboxes) suffice as ground truth, or do we want a manual annotation pass on the composite too (to mimic noise from real scans where the bboxes aren't perfectly known)? Recommendation: use `composite.json` as the clean ground truth; add a `composite_noise` toggle later that perturbs bboxes for robustness.
+All open questions resolved with the recommended values:
+
+- **Real-house scenes labelable: YES.** The same annotation tool reads both
+  PDF-sourced (h21/h22/h23) and synthetic scenes. Internally that means the
+  scene editor route accepts both `/synthetic/<key>/scene/<file>` and
+  `/house/<key>/scene/<file>` as labeling targets. Label JSON files live in
+  the corresponding folder (`data/synthetic/<key>/labels/` for synthetic,
+  `data/houses/<key>/labels/` for real). The API endpoints in §3 are
+  generalized: `GET/PUT /labels/<scope>/<key>/<file>` where scope is
+  `synthetic | house`. Tooling treats them uniformly.
+
+- **Single-user. No login + no per-label attribution.** The `annotated_by`
+  field stays in the schema as a static string (`"jhoetter"`) so future
+  multi-user is forward-compatible, but M2-M6 ship with no auth, no
+  concurrent-edit handling, no locking. One user, one machine.
+
+- **Save semantics: dirty indicator + explicit Save + N-step undo.** No
+  async background-saves. The editor maintains an in-memory label set, marks
+  dirty on every change, and only persists on Cmd/Ctrl+S or the Save button.
+  N-step undo (proposed N=50) covers accidental clicks. Closing the page
+  with unsaved changes prompts a browser warning.
+
+- **Composite layout: deterministic by default.** Seed = `house_id * 31337`.
+  The `--seed N` flag lets you resample if you want a different layout for
+  the same house. Same input + same seed → byte-identical composite. The
+  per-scene bboxes in `composite.json` are the canonical S-1 ground truth.
+
+- **"Missing" is permanent metadata.** If an annotator declares an opening
+  `missing` and later a colleague spots one, the original `missing` label
+  is kept (with `created_at` + `updated_at`) and a new label is added.
+  Hard-delete only on explicit user action; soft-conflict resolution lives
+  in the `notes` field of both labels.
+
+- **Schema versioning: `schema_version: "1.0"` with explicit migrations.**
+  Breaking changes bump the major version. A `scripts/migrate_labels.py`
+  script lives at the repo root; `make migrate-labels` applies pending
+  migrations and writes a backup of the prior version under
+  `<scene>.json.v<prev>.bak`. Schema-mismatch on load = hard error with a
+  pointer to the migration command.
+
+- **Composite ground truth: `composite.json` is the clean truth.** S-1 trains
+  on the deterministic bboxes from M0's composite generation. A future
+  `composite_noise` flag (post-M6) perturbs bboxes for robustness; not in
+  scope for the initial build.
+
+Final implication of these decisions: M2 reads both real + synthetic scenes
+via a shared scene-fetching layer in the UI, the save semantics are simple
+and explicit, and the schema is forward-compatible without overengineering.
 
 ---
 
@@ -531,13 +578,12 @@ Each milestone is a stop-and-show point. The deliverable is concrete and reviewa
 ## 13. Implementation checklist (for after sign-off)
 
 - [ ] M0 — `scripts/compose_house_sheet.py` + h-1 example composite + `/synthetic/:key` UI surface
-- [ ] M1 — `schema/scene_labels.schema.json` + hand-crafted h-1 example label file + `scripts/validate.py` integration
-- [ ] M2 — `/synthetic/:key/scene/:file/annotate` route + canvas + tag chip + dimensioned_distance + dimension_number tools + save
+- [ ] M1 — `schema/scene_labels.schema.json` (incl. `schema_version: "1.0"`) + hand-crafted h-1 example label file + `scripts/validate.py` integration
+- [ ] M2 — annotation editor route (works for both `/synthetic/:key/scene/:file/annotate` AND `/house/:key/scene/:file/annotate` via the shared scope-aware label API) + canvas + tag chip + dimensioned_distance + dimension_number tools + dirty-indicator + explicit save + N=50 undo stack
 - [ ] M3 — wall, floorplan_opening, view_opening, component_line, height_mark + tag-gated tool palette
-- [ ] M4 — dimensioned_distance full attributes + live angle
+- [ ] M4 — dimensioned_distance full attributes + live pixel-angle readout (display only)
 - [ ] M5 — link tool + consistency check + export shape
 - [ ] M6 — homography compute + side-by-side preview + zip export
-- [ ] (Optional, after M6) — real-house scenes labelable via the same UI
 
 ---
 
