@@ -659,6 +659,35 @@ export function AnnotatePage() {
     }
     return false;
   }, [labels]);
+  // K5 + K8: track held modifier state at the app level so the
+  // visible-indicator chip can render based on it AND so the snap engine
+  // can respect Alt/Shift consistently across pointer events. Reset on
+  // window blur / visibilitychange so a window-switch with Alt held
+  // doesn't leave the app stuck in "snap off" forever.
+  const [heldMods, setHeldMods] = useState({ alt: false, shift: false, meta: false });
+  useEffect(() => {
+    const sync = (e: KeyboardEvent | MouseEvent | PointerEvent) => {
+      setHeldMods({
+        alt: 'altKey' in e ? e.altKey : false,
+        shift: 'shiftKey' in e ? e.shiftKey : false,
+        meta: ('metaKey' in e && e.metaKey) || ('ctrlKey' in e && e.ctrlKey),
+      });
+    };
+    const reset = () => setHeldMods({ alt: false, shift: false, meta: false });
+    document.addEventListener('keydown', sync);
+    document.addEventListener('keyup', sync);
+    document.addEventListener('mousemove', sync);    // re-sync from mouse events as a defensive backstop
+    window.addEventListener('blur', reset);
+    document.addEventListener('visibilitychange', reset);
+    return () => {
+      document.removeEventListener('keydown', sync);
+      document.removeEventListener('keyup', sync);
+      document.removeEventListener('mousemove', sync);
+      window.removeEventListener('blur', reset);
+      document.removeEventListener('visibilitychange', reset);
+    };
+  }, []);
+
   const [adaptiveAxisEnabled, setAdaptiveAxisEnabled] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('bim-db:annotate:adaptive-axis') !== 'false';
@@ -852,7 +881,12 @@ export function AnnotatePage() {
       if (e.button !== 0) return;
       const rawPt = eventToSvgPoint(e);
       if (!rawPt) return;
-      const pt = snap?.pt ?? rawPt;
+      // K2 unified model: Alt held during a commit = "bypass every smart
+      // helper" for this gesture. Snap (already), length-quantize, neighbor-
+      // inherit thickness/width, auto-infer kind, post-commit tidy, the
+      // post-draw classifier chip all respect this single flag.
+      const altHeld = e.altKey;
+      const pt = altHeld ? rawPt : (snap?.pt ?? rawPt);
       const imageSnapRadiusForView =
         (SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1);
 
@@ -872,7 +906,7 @@ export function AnnotatePage() {
         // committed endpoint when we're VERY close, so the user can still
         // deliberately draw a similar-but-different length.
         let commitPt = pt;
-        if (lengthMatch?.withinSnapTolerance) {
+        if (!altHeld && lengthMatch?.withinSnapTolerance) {
           commitPt = applyLengthMatch(pendingStart, pt, lengthMatch.matchedLength);
           addToast(`↹ Länge an existierendes Label angeglichen`, 'success', 1500);
         }
@@ -899,8 +933,11 @@ export function AnnotatePage() {
         } else {
           const def = getDefaults(scope, key, sceneTag, 'wall');
           // M4.2 inherit from neighbors: median thickness of nearby walls.
+          // K2: Alt held → skip neighbor-inherit (user wants a fresh default).
           const newMid: Point = [(pendingStart[0] + commitPt[0]) / 2, (pendingStart[1] + commitPt[1]) / 2];
-          const inheritedT = inferWallThicknessMm(newMid, labels, imageSnapRadiusForView * 8);
+          const inheritedT = altHeld
+            ? null
+            : inferWallThicknessMm(newMid, labels, imageSnapRadiusForView * 8);
           label = {
             id: uuid(),
             type: 'wall',
@@ -913,10 +950,11 @@ export function AnnotatePage() {
           } as WallLabel;
         }
         // Post-commit tidy: align near-ortho lines to exact ortho + fuse
-        // endpoints within snap-radius of existing endpoints. Catches the
-        // cases the live snap missed (Alt held during draw, click just
-        // outside snap radius of a neighbor's endpoint).
-        const tidyResult = tidyLineLabel(label, labels, imageSnapRadiusForView, effectiveAxisDeg);
+        // endpoints within snap-radius of existing endpoints. K2: Alt held
+        // → skip tidy entirely (user explicitly opted out of helpers).
+        const tidyResult = altHeld
+          ? { label, orthoChanged: false, endpointFused: false }
+          : tidyLineLabel(label, labels, imageSnapRadiusForView, effectiveAxisDeg);
         label = tidyResult.label;
         if (tidyResult.orthoChanged || tidyResult.endpointFused) {
           const bits: string[] = [];
@@ -1088,10 +1126,10 @@ export function AnnotatePage() {
         if (tool === 'view_opening' && viewOpeningShape === 'circle') {
           const radius_px = Math.hypot(pt[0] - pendingStart[0], pt[1] - pendingStart[1]);
           const def = getDefaults(scope, key, sceneTag, 'view_opening');
-          // Auto-infer kind from nearby openings (M3.3). Circles tend to be
-          // round windows, so the inference catches "I'm drawing another
-          // window like the 3 next to it" automatically.
-          const inferred = inferOpeningKind(pendingStart, labels, 'view_opening', imageSnapRadiusForView * 12);
+          // K2: Alt → skip auto-infer (user explicitly opted out of helpers).
+          const inferred = altHeld
+            ? null
+            : inferOpeningKind(pendingStart, labels, 'view_opening', imageSnapRadiusForView * 12);
           const label: ViewOpeningLabel = {
             id: uuid(),
             type: 'view_opening',
@@ -1110,7 +1148,12 @@ export function AnnotatePage() {
           setDirty(true);
           setPendingStart(null);
           setSelectedId(label.id);
-          setPostDrawChip({ labelId: label.id, kindFamily: 'view_opening', anchor: pendingStart });
+          // K2: Alt → skip the post-draw classifier chip too. The chip is
+          // a helper that nudges the user to classify; if they've already
+          // signaled "no helpers," respect that.
+          if (!altHeld) {
+            setPostDrawChip({ labelId: label.id, kindFamily: 'view_opening', anchor: pendingStart });
+          }
           return;
         }
         // Build axis-aligned rectangle from the diagonal {pendingStart → pt}.
@@ -1182,16 +1225,19 @@ export function AnnotatePage() {
 
           // Auto-infer (M3.3): if 3+ nearby floorplan_openings share a kind,
           // default to that kind rather than blindly 'window'.
+          // K2: Alt → skip neighbor inference entirely.
           const centroidQuad: Point = [(quad[0][0] + quad[2][0]) / 2, (quad[0][1] + quad[2][1]) / 2];
-          const inferredFp = inferOpeningKind(centroidQuad, labels, 'floorplan_opening', imageSnapRadiusForView * 12);
+          const inferredFp = altHeld
+            ? null
+            : inferOpeningKind(centroidQuad, labels, 'floorplan_opening', imageSnapRadiusForView * 12);
           const finalKind: FloorplanOpeningLabel['attributes']['opening_kind'] =
             ((inferredFp as FloorplanOpeningLabel['attributes']['opening_kind'] | null)
               ?? (def.opening_kind as FloorplanOpeningLabel['attributes']['opening_kind'])) ?? 'window';
           // M4.2 width inheritance: median width of same-kind openings on
-          // the same wall. Beats derivedWidthMm (from geometry projection)
-          // because two identical windows on the same wall should agree even
-          // if one was clicked slightly bigger.
-          const inheritedW = inferOpeningWidthMm(attachWallId ?? null, finalKind ?? 'window', labels);
+          // the same wall. K2: Alt skips.
+          const inheritedW = altHeld
+            ? null
+            : inferOpeningWidthMm(attachWallId ?? null, finalKind ?? 'window', labels);
           label = {
             id: uuid(),
             type: 'floorplan_opening',
@@ -1212,7 +1258,9 @@ export function AnnotatePage() {
         } else {
           const def = getDefaults(scope, key, sceneTag, 'view_opening');
           const centroidRect: Point = [(x0 + x1) / 2, (y0 + y1) / 2];
-          const inferredV = inferOpeningKind(centroidRect, labels, 'view_opening', imageSnapRadiusForView * 12);
+          const inferredV = altHeld
+            ? null
+            : inferOpeningKind(centroidRect, labels, 'view_opening', imageSnapRadiusForView * 12);
           label = {
             id: uuid(),
             type: 'view_opening',
@@ -1236,13 +1284,14 @@ export function AnnotatePage() {
         setPendingStart(null);
         setPendingAttachedWallId(null);
         setSelectedId(label.id);
-        // Fire the inline classifier chip at the rectangle's centroid so
-        // the user can pick Fenster / Tür / Gaube etc. with one keypress.
-        setPostDrawChip({
-          labelId: label.id,
-          kindFamily: tool === 'floorplan_opening' ? 'floorplan_opening' : 'view_opening',
-          anchor: [(pendingStart[0] + pt[0]) / 2, (pendingStart[1] + pt[1]) / 2],
-        });
+        // K2: post-draw classifier chip is a helper too — Alt suppresses it.
+        if (!altHeld) {
+          setPostDrawChip({
+            labelId: label.id,
+            kindFamily: tool === 'floorplan_opening' ? 'floorplan_opening' : 'view_opening',
+            anchor: [(pendingStart[0] + pt[0]) / 2, (pendingStart[1] + pt[1]) / 2],
+          });
+        }
         return;
       }
 
@@ -1260,7 +1309,7 @@ export function AnnotatePage() {
             // otherwise the polyline ends with a gap and the closed-region
             // fill (P9) wouldn't recognize it.
             const closed = [...pendingPolyline, first];
-            const inferredLine = inferLineKind(closed, imageSize[1]);
+            const inferredLine = altHeld ? null : inferLineKind(closed, imageSize[1]);
             const label: ComponentLineLabel = {
               id: uuid(),
               type: 'component_line',
@@ -1276,7 +1325,9 @@ export function AnnotatePage() {
             setDirty(true);
             setSelectedId(label.id);
             const mid = closed[Math.floor(closed.length / 2)];
-            setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
+            if (!altHeld) {
+              setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
+            }
             setPendingPolyline([]);
             addToast('Polygon geschlossen ✓', 'success', 1200);
             return;
@@ -1468,10 +1519,9 @@ export function AnnotatePage() {
         });
         setSnap(target);
 
-        // Length-quantize: only meaningful when we have a pendingStart (i.e.
-        // we're drawing the second click of a line). Compares the current
-        // line length to existing wall + dim_distance lengths.
-        if (pendingStart && (tool === 'wall' || tool === 'dimensioned_distance')) {
+        // Length-quantize: only meaningful when we have a pendingStart and
+        // the user has NOT signaled "no helpers" via Alt.
+        if (!e.altKey && pendingStart && (tool === 'wall' || tool === 'dimensioned_distance')) {
           const effEnd = target?.pt ?? pt;
           const len = Math.hypot(effEnd[0] - pendingStart[0], effEnd[1] - pendingStart[1]);
           setLengthMatch(findLengthMatch(len, labels));
@@ -1804,11 +1854,10 @@ export function AnnotatePage() {
       if (e.key === 'Enter' && tool === 'component_line' && pendingPolyline.length >= 2) {
         e.preventDefault();
         pushUndo();
+        const altOnEnter = e.altKey;
         const def = getDefaults(scope, key, sceneTag, 'component_line');
-        // Auto-infer: vertical → gebaeudekante, diagonal-in-upper-half →
-        // dachschraege (M3.3). The classifier chip still pops so the user
-        // can override instantly.
-        const inferredLine = inferLineKind(pendingPolyline, imageSize[1]);
+        // K2: Alt+Enter → no auto-infer.
+        const inferredLine = altOnEnter ? null : inferLineKind(pendingPolyline, imageSize[1]);
         const label: ComponentLineLabel = {
           id: uuid(),
           type: 'component_line',
@@ -1823,9 +1872,11 @@ export function AnnotatePage() {
         setLabels((prev) => [...prev, label]);
         setDirty(true);
         setSelectedId(label.id);
-        // Polyline midpoint as anchor for the classifier chip.
-        const mid = pendingPolyline[Math.floor(pendingPolyline.length / 2)];
-        setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
+        // K2: Alt → no post-draw classifier chip either.
+        if (!altOnEnter) {
+          const mid = pendingPolyline[Math.floor(pendingPolyline.length / 2)];
+          setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
+        }
         setPendingPolyline([]);
         return;
       }
@@ -2139,6 +2190,25 @@ export function AnnotatePage() {
                 ›
               </button>
             </div>
+          )}
+          {/* K5 modifier-held indicator. Tiny chip in the topbar so the user
+              can see at a glance that Alt/Shift is active. Alt is the
+              "ignore all smart helpers for this gesture" key (K2); Shift is
+              the strict ortho-lock. Reset to blank on window blur (K8). */}
+          {(heldMods.alt || heldMods.shift) && (
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[0.7rem] font-medium tabular-nums whitespace-nowrap ${
+                heldMods.alt
+                  ? 'bg-amber-100 text-amber-900'
+                  : 'bg-emerald-100 text-emerald-800'
+              }`}
+              title={heldMods.alt
+                ? 'Alt gehalten — Helfer (Snap, Längen-Angleichung, Anschluss-Vererbung) für diese Geste aus.'
+                : 'Shift gehalten — Ortho-Lock (0/45/90/…) erzwungen.'}
+            >
+              <kbd className="font-mono text-[0.65rem]">{heldMods.alt ? 'Alt' : 'Shift'}</kbd>
+              <span>{heldMods.alt ? 'Helfer aus' : 'Ortho-Lock'}</span>
+            </span>
           )}
           <BezugStatus labels={labels} />
           {dirty && (
