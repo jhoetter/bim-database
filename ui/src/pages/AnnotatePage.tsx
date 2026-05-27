@@ -3095,6 +3095,17 @@ export function AnnotatePage() {
         })()}
         {/* Color legend pip — bottom-right canvas corner */}
         <ColorLegendWidget />
+        {/* K7 contextual actions bar — small text at bottom-center
+            showing the keys that matter RIGHT NOW for current tool +
+            selection + pending state. Always-visible, low-noise. */}
+        <ActionsBar
+          tool={tool}
+          selectedIds={selectedIds}
+          selectedLabel={selectedLabel}
+          pendingStart={pendingStart}
+          pendingPolyline={pendingPolyline}
+          adaptiveAxisEnabled={adaptiveAxisEnabled}
+        />
         {/* M12 toast stack — bottom-center over the canvas */}
         <ToastStack toasts={toasts} />
         {/* M13 keyboard cheatsheet (toggle with '?') */}
@@ -3724,6 +3735,127 @@ function PostDrawChip({
 // by default; click to expand the full color → kind list. Moved here from
 // the sidebar (where it was always-visible noise) to keep the primary
 // sidebar path focused on Szenen-Tag → Werkzeuge → Labels → Checklist.
+// K7 contextual actions bar. Renders a tiny bottom-center text line with the
+// 3-5 most relevant shortcuts for the current state — so the user always
+// sees "what can I do right now from the keyboard." Replaces the hidden
+// cheatsheet for in-flow guidance; the full cheatsheet still exists via "?".
+function ActionsBar({
+  tool, selectedIds, selectedLabel, pendingStart, pendingPolyline, adaptiveAxisEnabled,
+}: {
+  tool: Tool;
+  selectedIds: Set<string>;
+  selectedLabel: Label | null;
+  pendingStart: Point | null;
+  pendingPolyline: Point[];
+  adaptiveAxisEnabled: boolean;
+}) {
+  const hint = (k: string, label: string) => (
+    <span className="inline-flex items-center gap-1">
+      <kbd className="font-mono text-[0.6rem] bg-white/15 px-1 rounded">{k}</kbd>
+      <span className="text-white/80">{label}</span>
+    </span>
+  );
+  // Compose the action list per state. Highest-priority context wins.
+  let actions: React.ReactNode[] = [];
+  // 1) Pending polyline (component_line OR polygon view_opening)
+  if (pendingPolyline.length > 0) {
+    actions = [
+      hint('Klick', 'Punkt setzen'),
+      pendingPolyline.length >= 3 ? hint('Klick auf 1.', 'Polygon schließen') : null,
+      hint('Enter', 'Beenden'),
+      hint('Backspace', 'letzten Punkt zurück'),
+      hint('Esc', 'Abbruch'),
+      hint('Alt', 'Helfer aus'),
+    ].filter(Boolean);
+  }
+  // 2) Pending 2-click (wall/dim/opening rectangle/circle)
+  else if (pendingStart) {
+    actions = [
+      hint('Klick', tool === 'wall' ? 'Wand-Ende setzen' : tool === 'dimensioned_distance' ? 'Bemaßungs-Ende' : 'zweiter Punkt'),
+      hint('Alt', 'Helfer aus'),
+      hint('Shift', 'Achsen-Lock'),
+      hint('Esc', 'Abbruch'),
+    ];
+  }
+  // 3) A label is selected — show reclassify + status + edit hotkeys for its type
+  else if (selectedIds.size === 1 && selectedLabel) {
+    const t = selectedLabel.type;
+    if (t === 'floorplan_opening') {
+      actions = [
+        hint('F/T', 'Fenster/Tür'),
+        hint('D/A/Z', 'Durchgang/Tor/Sonst.'),
+        hint('1-4', 'Status'),
+        hint('Del', 'löschen'),
+      ];
+    } else if (t === 'view_opening') {
+      actions = [
+        hint('F/T/D/G', 'Fenster/Tür/Dachfst./Gaube'),
+        hint('A/Z', 'Tor/Sonst.'),
+        hint('1-4', 'Status'),
+        hint('Del', 'löschen'),
+      ];
+    } else if (t === 'component_line') {
+      actions = [
+        hint('W', 'Wand'),
+        hint('D', 'Dach'),
+        hint('Z', 'Sonst.'),
+        hint('1-4', 'Status'),
+        hint('Del', 'löschen'),
+      ];
+    } else if (t === 'wall') {
+      actions = [
+        hint('←/→', '±10mm Stärke'),
+        hint('Shift+←/→', '±50mm'),
+        hint('Doppelklick', 'Wand teilen'),
+        hint('1-4', 'Status'),
+        hint('Del', 'löschen'),
+      ];
+    } else if (t === 'height_mark') {
+      actions = [
+        hint('1-4', 'Status'),
+        hint('Del', 'löschen'),
+      ];
+    } else {
+      actions = [hint('1-4', 'Status'), hint('Del', 'löschen')];
+    }
+  }
+  // 4) Multi-selection
+  else if (selectedIds.size > 1) {
+    actions = [
+      <span key="n" className="text-white/70 mr-1">{selectedIds.size} Labels</span>,
+      hint('1-4', 'Status'),
+      hint('Del', 'löschen'),
+      hint('Esc', 'abwählen'),
+    ];
+  }
+  // 5) Drawing tool with nothing pending
+  else if (tool !== 'select') {
+    actions = [
+      hint('Klick', tool === 'height_mark' ? 'Höhenkote setzen' : 'Start'),
+      hint('Alt', 'Helfer aus'),
+      hint('Shift', 'Achsen-Lock'),
+      hint('S', 'Auswahl'),
+    ];
+  }
+  // 6) Idle in select mode, nothing selected
+  else {
+    actions = [
+      hint('W/D/O/L/H', 'Werkzeuge'),
+      hint('?', 'Tastenkürzel'),
+      hint('Q', adaptiveAxisEnabled ? 'Snap aus' : 'Snap an'),
+    ];
+  }
+  return (
+    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 bg-zinc-900/85 text-white text-[0.7rem] rounded-full px-3 py-1 shadow-md max-w-[90vw] overflow-hidden">
+      <div className="flex items-center gap-3 whitespace-nowrap">
+        {actions.map((a, i) => (
+          <Fragment key={i}>{a}</Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ColorLegendWidget() {
   const [open, setOpen] = useState(false);
   return (
@@ -4803,7 +4935,14 @@ function Cheatsheet({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Source of truth for this layout: spec/keyboard.md. Keep them in sync.
   const sections: Array<[string, Array<[string, string]>]> = [
+    ['Modifikatoren (global)', [
+      ['Alt (halten)', 'Alle Helfer für diese Geste aus (Snap, Längen-Angleichung, Wandstärke-Vererbung, Auto-Klassifizierung, …)'],
+      ['Shift (halten)', 'Ortho-Lock (0/45/90/135°) erzwingen · oder zur Mehrfachauswahl hinzufügen'],
+      ['Cmd/Ctrl (halten)', 'Verbundene Komponente auswählen · Cmd+A alles · Cmd+S speichern · Cmd+Z undo'],
+      ['Q', 'Ortho-Snap an/aus (persistent)'],
+    ]],
     ['Werkzeuge', [
       ['S', 'Auswählen'],
       ['D', 'Bemaßte Strecke'],
@@ -4813,46 +4952,67 @@ function Cheatsheet({ onClose }: { onClose: () => void }) {
       ['L', 'Bauteillinie'],
       ['H', 'Höhenkote'],
     ]],
-    ['Zeichnen', [
-      ['Shift (halten)', 'Achsen-/Winkel-Lock (0/45/90/135°)'],
-      ['Alt (halten)', 'Snap deaktivieren'],
-      ['Enter', 'Polylinie beenden'],
-      ['Esc', 'Aktion abbrechen'],
-      ['Backspace (Polylinie)', 'letzten Punkt entfernen'],
+    ['Beim Zeichnen', [
+      ['Klick', 'Punkt setzen'],
+      ['Enter', 'Polylinie beenden (≥2 Punkte für Linie, ≥3 für Polygon)'],
+      ['Klick nahe Start', 'Polygon schließen (≥3 Punkte) — gleich wie Enter'],
+      ['Backspace', 'Letzten Polylinien-Punkt zurücknehmen'],
+      ['Esc', 'Geste abbrechen (pending wegwerfen)'],
     ]],
     ['Auswahl', [
-      ['Click', 'Auswahl ersetzen'],
-      ['Shift+Click', 'Auswahl umschalten'],
+      ['Klick', 'Auswahl ersetzen'],
+      ['Shift+Klick', 'Auswahl umschalten'],
+      ['Cmd/Ctrl+Klick', 'Verbundene Komponente auswählen'],
       ['Drag auf leerer Fläche', 'Rubber-band Multi-Select'],
-      ['⌘/Ctrl + A', 'alles auswählen'],
-      ['Del / Backspace', 'Auswahl löschen'],
+      ['Doppelklick auf Wand/Linie', 'Teilen (Vertex einfügen)'],
+      ['Doppelklick in geschlossener Fläche', 'Alle Wände der Fläche'],
+      ['Cmd/Ctrl + A', 'Alles auswählen'],
+      ['Del', 'Auswahl löschen'],
+      ['Backspace', 'Auswahl löschen — außer wenn Polylinie läuft'],
     ]],
-    ['Wand (selected)', [
+    ['Öffnung reklassifizieren (1 ausgewählt)', [
+      ['F', 'Fenster'],
+      ['T', 'Tür'],
+      ['G', 'Gaube (Ansicht) / Sonstige (Grundriss)'],
+      ['D', 'Dachfenster (Ansicht) / Durchgang (Grundriss)'],
+      ['A', 'Tor'],
+      ['Z', 'Sonstige'],
+    ]],
+    ['Bauteillinie reklassifizieren (1 ausgewählt)', [
+      ['W', 'Wand (vertikale Gebäudekante)'],
+      ['D', 'Dach (Dachschräge)'],
+      ['Z', 'Sonstige'],
+    ]],
+    ['Wand-Attribute (1 ausgewählt)', [
       ['← / →', '±10 mm Wandstärke'],
       ['Shift+← / →', '±50 mm Wandstärke'],
       ['Lila Handle ziehen', 'Wandstärke direkt zeichnen'],
     ]],
+    ['Status (Auswahl)', [
+      ['1', 'readable'],
+      ['2', 'uncertain'],
+      ['3', 'not_readable'],
+      ['4', 'missing'],
+    ]],
     ['Ansicht', [
-      ['Mausrad', 'Zoom'],
-      ['Shift/Right-Drag', 'Pan'],
-      ['R', 'Ansicht zurücksetzen'],
+      ['R oder 0', 'Ansicht zurücksetzen'],
+      ['+ / =', 'Zoom in'],
+      ['- / _', 'Zoom out'],
+      ['Mausrad / Trackpad', 'Pan'],
+      ['Shift+Drag / Right-Drag', 'Pan'],
     ]],
     ['Szenen-Navigation', [
       [',', 'Vorige Szene des Hauses'],
       ['.', 'Nächste Szene des Hauses'],
     ]],
-    ['Wand-Polygon', [
-      ['Klick … Klick …', 'Verkettete Wände — jeder Klick startet die nächste Wand'],
-      ['Klick nahe Start', 'Polygon schließen + Kette beenden'],
-      ['Esc', 'Kette manuell beenden'],
+    ['Speichern + Verlauf', [
+      ['Cmd/Ctrl + S', 'Speichern'],
+      ['Cmd/Ctrl + Z', 'Rückgängig'],
+      ['Cmd/Ctrl + Shift + Z', 'Wiederherstellen'],
     ]],
-    ['Speichern', [
-      ['⌘/Ctrl + S', 'Speichern'],
-      ['⌘/Ctrl + Z', 'Rückgängig'],
-      ['⌘/Ctrl + Shift + Z', 'Wiederherstellen'],
-    ]],
-    ['Sonstiges', [
-      ['?', 'Diese Übersicht'],
+    ['Hilfe', [
+      ['?', 'Dieses Fenster ein/aus'],
+      ['Esc', 'Dieses Fenster schließen'],
     ]],
   ];
 
