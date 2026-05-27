@@ -35,6 +35,11 @@ import {
 } from '../lib/labelGeometry';
 import { findSnap, SNAP_COLOR, type SnapTarget, type SnapTool } from '../lib/snap';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
+import {
+  CentreLineIcon, DimensionIcon, DoorIcon, ElevationViewIcon, KeynoteIcon,
+  LayersIcon, LinkIcon, OpeningIcon, PlanViewIcon, QuestionIcon,
+  SectionViewIcon, SelectIcon, SpotElevationIcon, WallIcon,
+} from '../lib/icons';
 
 const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel — see spec/annotation-ux.md §4
 
@@ -51,13 +56,6 @@ const UNDO_LIMIT = 200;                    // raised from 50 per spec §17 M9
 const WALL_PX_PER_MM = 0.05;               // visual scale for wall band; pragmatic for h-1's ~10 m × 1024 px
 const STANDARD_THICKNESS_MM = [115, 175, 240, 300, 365] as const;
 const TAGS: SceneTag[] = ['grundriss', 'ansicht', 'schnitt', 'sonstiges', 'nicht_klassifiziert'];
-const TAG_LABEL: Record<SceneTag, string> = {
-  grundriss: 'Grundriss',
-  ansicht: 'Ansicht',
-  schnitt: 'Schnitt',
-  sonstiges: 'Sonstiges',
-  nicht_klassifiziert: '(nicht klassifiziert)',
-};
 
 type Tool =
   | 'select'
@@ -94,16 +92,30 @@ const TOOLS_BY_TAG: Record<SceneTag, Tool[]> = {
   nicht_klassifiziert: ['select'],
 };
 
-const TOOL_LABEL: Record<Tool, { label: string; hotkey: string }> = {
-  select: { label: 'Auswählen', hotkey: 'S' },
-  wall: { label: 'Wand', hotkey: 'W' },
-  floorplan_opening: { label: 'Öffnung (Grundriss)', hotkey: 'O' },
-  view_opening: { label: 'Öffnung (Ansicht)', hotkey: 'O' },
-  component_line: { label: 'Bauteillinie', hotkey: 'L' },
-  height_mark: { label: 'Höhenkote', hotkey: 'H' },
-  dimensioned_distance: { label: 'Bemaßte Strecke', hotkey: 'D' },
-  dimension_number: { label: 'Maßzahl', hotkey: 'N' },
-  link: { label: 'Verknüpfen 🔗', hotkey: 'K' },
+type ToolMeta = {
+  label: string;
+  hotkey: string;
+  Icon: (props: { size?: number; strokeWidth?: number }) => React.JSX.Element;
+};
+
+const TOOL_META: Record<Tool, ToolMeta> = {
+  select: { label: 'Auswählen', hotkey: 'S', Icon: SelectIcon },
+  wall: { label: 'Wand', hotkey: 'W', Icon: WallIcon },
+  floorplan_opening: { label: 'Öffnung (Grundriss)', hotkey: 'O', Icon: DoorIcon },
+  view_opening: { label: 'Öffnung (Ansicht)', hotkey: 'O', Icon: OpeningIcon },
+  component_line: { label: 'Bauteillinie', hotkey: 'L', Icon: CentreLineIcon },
+  height_mark: { label: 'Höhenkote', hotkey: 'H', Icon: SpotElevationIcon },
+  dimensioned_distance: { label: 'Bemaßte Strecke', hotkey: 'D', Icon: DimensionIcon },
+  dimension_number: { label: 'Maßzahl', hotkey: 'N', Icon: KeynoteIcon },
+  link: { label: 'Verknüpfen', hotkey: 'K', Icon: LinkIcon },
+};
+
+const TAG_META: Record<SceneTag, { label: string; Icon: (props: { size?: number }) => React.JSX.Element }> = {
+  grundriss: { label: 'Grundriss', Icon: PlanViewIcon },
+  ansicht: { label: 'Ansicht', Icon: ElevationViewIcon },
+  schnitt: { label: 'Schnitt', Icon: SectionViewIcon },
+  sonstiges: { label: 'Sonstiges', Icon: LayersIcon },
+  nicht_klassifiziert: { label: '(nicht klassifiziert)', Icon: QuestionIcon },
 };
 
 interface Snapshot {
@@ -238,6 +250,13 @@ export function AnnotatePage() {
     try { return window.localStorage.getItem('bim-db:annotate:autosave') === 'true'; }
     catch { return false; }
   });
+  // "Alle Werkzeuge" override: ignore tag-gating and show every tool.
+  // Useful when the user wants flexibility (e.g. tag=nicht_klassifiziert
+  // but they still want to drop a dim_distance to bootstrap the homography).
+  const [allTools, setAllTools] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bim-db:annotate:all-tools') === 'true'; }
+    catch { return false; }
+  });
 
   // Pan/zoom on the SVG viewBox.
   const [view, setView] = useState({ x: 0, y: 0, w: 1024, h: 1024 });
@@ -362,7 +381,7 @@ export function AnnotatePage() {
         pushUndo();
         let label: Label;
         if (tool === 'dimensioned_distance') {
-          const def = getDefaults(scope, sceneTag, 'dimensioned_distance');
+          const def = getDefaults(scope, key, sceneTag, 'dimensioned_distance');
           label = {
             id: uuid(),
             type: 'dimensioned_distance',
@@ -378,7 +397,7 @@ export function AnnotatePage() {
             updated_at: nowIso(),
           } as DimensionedDistanceLabel;
         } else {
-          const def = getDefaults(scope, sceneTag, 'wall');
+          const def = getDefaults(scope, key, sceneTag, 'wall');
           label = {
             id: uuid(),
             type: 'wall',
@@ -420,20 +439,71 @@ export function AnnotatePage() {
         const y1 = Math.max(pendingStart[1], pt[1]);
         let label: Label;
         if (tool === 'floorplan_opening') {
-          const quad: Quad = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
           const secondClickAttached =
             snap?.kind === 'wall_line' && snap.source_label_id === pendingAttachedWallId;
           const attachWallId = pendingAttachedWallId && (secondClickAttached || !snap?.source_label_id || snap?.kind !== 'wall_line')
             ? pendingAttachedWallId
             : (snap?.kind === 'wall_line' ? snap.source_label_id : null);
-          const def = getDefaults(scope, sceneTag, 'floorplan_opening');
+          const def = getDefaults(scope, key, sceneTag, 'floorplan_opening');
+
+          // M10/UX fix: when attaching to a wall, ROTATE the rectangle to
+          // align with the wall axis. Without this, the user has to manually
+          // diagonal an axis-aligned rect against an angled wall — annoying
+          // and ambiguous. We build the quad along/perpendicular to the
+          // wall's unit vector. The two clicks define the along-wall extent
+          // (= width); the perpendicular thickness comes from the wall's
+          // thickness_mm (or a sane default if missing).
+          let quad: Quad;
+          if (attachWallId) {
+            const parent = labels.find((l) => l.id === attachWallId && l.type === 'wall');
+            if (parent && parent.type === 'wall') {
+              const ws = parent.geometry.start;
+              const we = parent.geometry.end;
+              const wdx = we[0] - ws[0];
+              const wdy = we[1] - ws[1];
+              const wlen = Math.hypot(wdx, wdy);
+              const ux = wlen ? wdx / wlen : 1;
+              const uy = wlen ? wdy / wlen : 0;
+              // Project both clicked points onto the wall axis (relative to
+              // wall.start) to get along-wall positions. That gives the
+              // opening's along-wall extent.
+              const projA = (pendingStart[0] - ws[0]) * ux + (pendingStart[1] - ws[1]) * uy;
+              const projB = (pt[0] - ws[0]) * ux + (pt[1] - ws[1]) * uy;
+              const t0 = Math.min(projA, projB);
+              const t1 = Math.max(projA, projB);
+              // Center the opening on the wall axis; depth = wall thickness.
+              const thicknessMm = parent.attributes.thickness_mm ?? 365;
+              const depthHalfPx = (thicknessMm * WALL_PX_PER_MM) / 2;
+              const px = -uy;
+              const py = ux;
+              const along = (t: number): Point => [ws[0] + ux * t, ws[1] + uy * t];
+              const a: Point = [along(t0)[0] + px * depthHalfPx, along(t0)[1] + py * depthHalfPx];
+              const b: Point = [along(t1)[0] + px * depthHalfPx, along(t1)[1] + py * depthHalfPx];
+              const c: Point = [along(t1)[0] - px * depthHalfPx, along(t1)[1] - py * depthHalfPx];
+              const d: Point = [along(t0)[0] - px * depthHalfPx, along(t0)[1] - py * depthHalfPx];
+              quad = [a, b, c, d];
+            } else {
+              quad = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+            }
+          } else {
+            quad = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+          }
+
+          // Derive the actual along-wall width in mm if attached + the
+          // user didn't pre-set it via defaults. Helps cross-check later.
+          let derivedWidthMm: number | null = null;
+          if (attachWallId) {
+            const al = Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]);
+            derivedWidthMm = Math.round(al / WALL_PX_PER_MM);
+          }
+
           label = {
             id: uuid(),
             type: 'floorplan_opening',
             geometry: { quad },
             attributes: {
               opening_kind: (def.opening_kind as FloorplanOpeningLabel['attributes']['opening_kind']) ?? 'window',
-              width_mm: (def.width_mm as number | null) ?? null,
+              width_mm: (def.width_mm as number | null) ?? derivedWidthMm,
               swing: (def.swing as FloorplanOpeningLabel['attributes']['swing']) ?? 'none',
               swing_side: (def.swing_side as FloorplanOpeningLabel['attributes']['swing_side']) ?? 'none',
             },
@@ -445,7 +515,7 @@ export function AnnotatePage() {
             updated_at: nowIso(),
           } as FloorplanOpeningLabel;
         } else {
-          const def = getDefaults(scope, sceneTag, 'view_opening');
+          const def = getDefaults(scope, key, sceneTag, 'view_opening');
           label = {
             id: uuid(),
             type: 'view_opening',
@@ -665,13 +735,13 @@ export function AnnotatePage() {
         // M13: any attribute change is a signal — remember it as the default
         // for the next label of this type in this (scope, scene_tag).
         if (patch.attributes) {
-          rememberDefaults(scope, sceneTag, merged.type, merged.attributes as Record<string, unknown>);
+          rememberDefaults(scope, key, sceneTag, merged.type, merged.attributes as Record<string, unknown>);
         }
         return merged;
       }),
     );
     setDirty(true);
-  }, [pushUndo, scope, sceneTag]);
+  }, [pushUndo, scope, key, sceneTag]);
 
   const deleteLabel = useCallback((id: string) => {
     // M10: walls with attached openings prompt for cascade behaviour.
@@ -867,7 +937,7 @@ export function AnnotatePage() {
       if (e.key === 'Enter' && tool === 'component_line' && pendingPolyline.length >= 2) {
         e.preventDefault();
         pushUndo();
-        const def = getDefaults(scope, sceneTag, 'component_line');
+        const def = getDefaults(scope, key, sceneTag, 'component_line');
         const label: ComponentLineLabel = {
           id: uuid(),
           type: 'component_line',
@@ -932,8 +1002,8 @@ export function AnnotatePage() {
         }
       }
       // Tool hotkeys — only switch if the new tool is allowed under the
-      // current scene_tag.
-      const allowed = TOOLS_BY_TAG[sceneTag];
+      // current scene_tag (or 'allTools' override is on).
+      const allowed = allTools ? TOOLS_BY_TAG.sonstiges : TOOLS_BY_TAG[sceneTag];
       const trySetTool = (t: Tool) => {
         if (allowed.includes(t)) setTool(t);
       };
@@ -949,7 +1019,7 @@ export function AnnotatePage() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel, prevScene, nextScene, goToScene]);
+  }, [save, undo, redo, selectedIds, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel, prevScene, nextScene, goToScene, allTools]);
 
   const selectedLabel = labels.find((l) => l.id === selectedId) ?? null;
   const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`;
@@ -1058,8 +1128,16 @@ export function AnnotatePage() {
             });
           }}
           onResetDefaults={() => {
-            clearDefaults(scope, sceneTag);
+            clearDefaults(scope, key, sceneTag);
             addToast(`Defaults für "${sceneTag}" zurückgesetzt`, 'info');
+          }}
+          allTools={allTools}
+          onToggleAllTools={() => {
+            setAllTools((v) => {
+              const next = !v;
+              try { window.localStorage.setItem('bim-db:annotate:all-tools', String(next)); } catch { /* no-op */ }
+              return next;
+            });
           }}
         />
       }
@@ -1375,6 +1453,8 @@ function ToolPalette({
   autosave,
   onToggleAutosave,
   onResetDefaults,
+  allTools,
+  onToggleAllTools,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -1389,6 +1469,8 @@ function ToolPalette({
   autosave: boolean;
   onToggleAutosave: () => void;
   onResetDefaults: () => void;
+  allTools: boolean;
+  onToggleAllTools: () => void;
 }) {
   return (
     <div className="px-3 py-3 space-y-4">
@@ -1397,37 +1479,61 @@ function ToolPalette({
           Szenen-Tag
         </h3>
         <div className="grid grid-cols-1 gap-px">
-          {TAGS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setSceneTag(t)}
-              className={`px-2 py-1 rounded text-[0.78rem] text-left transition ${
-                sceneTag === t
-                  ? 'bg-accent text-white font-semibold'
-                  : 'hover:bg-zinc-100'
-              }`}
-            >
-              {TAG_LABEL[t]}
-            </button>
-          ))}
+          {TAGS.map((t) => {
+            const meta = TAG_META[t];
+            const active = sceneTag === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setSceneTag(t)}
+                className={`flex items-center gap-2 px-2 py-1 rounded text-[0.78rem] text-left transition ${
+                  active ? 'bg-accent text-white font-semibold' : 'hover:bg-zinc-100'
+                }`}
+              >
+                <meta.Icon size={15} />
+                <span>{meta.label}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
       <section>
-        <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
-          Werkzeuge
-        </h3>
-        <div className="grid grid-cols-1 gap-px">
-          {TOOLS_BY_TAG[sceneTag].map((t) => (
-            <ToolBtn key={t} current={tool} onSet={setTool} value={t} hotkey={TOOL_LABEL[t].hotkey}>
-              {TOOL_LABEL[t].label}
-            </ToolBtn>
-          ))}
+        <div className="flex items-baseline gap-2 mb-1.5">
+          <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">
+            Werkzeuge
+          </h3>
+          <label className="ml-auto text-[0.65rem] text-muted inline-flex items-center gap-1 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={allTools}
+              onChange={onToggleAllTools}
+              className="accent-accent"
+            />
+            alle anzeigen
+          </label>
         </div>
-        {sceneTag === 'nicht_klassifiziert' && (
+        <div className="grid grid-cols-1 gap-px">
+          {(allTools ? TOOLS_BY_TAG.sonstiges : TOOLS_BY_TAG[sceneTag]).map((t) => {
+            const meta = TOOL_META[t];
+            return (
+              <ToolBtn
+                key={t}
+                current={tool}
+                onSet={setTool}
+                value={t}
+                hotkey={meta.hotkey}
+                Icon={meta.Icon}
+              >
+                {meta.label}
+              </ToolBtn>
+            );
+          })}
+        </div>
+        {sceneTag === 'nicht_klassifiziert' && !allTools && (
           <p className="text-[0.7rem] text-muted mt-2 leading-snug">
-            Setze einen Szenen-Tag oben, damit Werkzeuge verfügbar werden.
+            Setze einen Szenen-Tag oben oder aktiviere „alle anzeigen", damit Werkzeuge verfügbar werden.
           </p>
         )}
       </section>
@@ -1508,12 +1614,14 @@ function ToolBtn({
   onSet,
   value,
   hotkey,
+  Icon,
   children,
 }: {
   current: Tool;
   onSet: (t: Tool) => void;
   value: Tool;
   hotkey: string;
+  Icon?: (props: { size?: number }) => React.JSX.Element;
   children: React.ReactNode;
 }) {
   const active = current === value;
@@ -1521,11 +1629,12 @@ function ToolBtn({
     <button
       type="button"
       onClick={() => onSet(value)}
-      className={`flex items-center justify-between px-2 py-1 rounded text-[0.78rem] transition ${
+      className={`flex items-center gap-2 px-2 py-1 rounded text-[0.78rem] transition ${
         active ? 'bg-accent text-white font-semibold' : 'hover:bg-zinc-100'
       }`}
     >
-      <span>{children}</span>
+      {Icon && <Icon size={15} />}
+      <span className="flex-1 text-left">{children}</span>
       <kbd
         className={`text-[0.6rem] font-mono rounded px-1 py-px ${
           active ? 'bg-white/20 text-white' : 'bg-zinc-200 text-zinc-600'
