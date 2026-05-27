@@ -423,7 +423,7 @@ Each milestone is a stop-and-show point. The deliverable is concrete and reviewa
 
 **Stop:** play with it. Then proceed.
 
-### M3 — Scene-tag-specific label sets + remaining label types
+### M3 — Scene-tag-specific label sets + remaining label types ✅ shipped 2026-05-27
 
 **Goal:** All label types from §5.2 implemented. Tag determines which tools appear.
 
@@ -580,7 +580,7 @@ and explicit, and the schema is forward-compatible without overengineering.
 - [x] M0 — `scripts/compose_house_sheet.py` + h-1 example composite + `/synthetic/:key` UI surface (shipped 2026-05-27)
 - [x] M1 — `schema/scene_labels.schema.json` (incl. `schema_version: "1.0"`) + hand-crafted h-1 example label file + `scripts/validate.py` integration (shipped 2026-05-27)
 - [x] M2 — annotation editor route (works for both `/synthetic/:key/scene/:file/annotate` AND `/house/:key/scene/:file/annotate` via the shared scope-aware label API) + canvas + tag chip + dimensioned_distance + dimension_number tools + dirty-indicator + explicit save + N=50 undo stack (shipped 2026-05-27)
-- [ ] M3 — wall, floorplan_opening, view_opening, component_line, height_mark + tag-gated tool palette
+- [x] M3 — wall, floorplan_opening, view_opening, component_line, height_mark + tag-gated tool palette (shipped 2026-05-27)
 - [ ] M4 — dimensioned_distance full attributes + live pixel-angle readout (display only)
 - [ ] M5 — link tool + consistency check + export shape
 - [ ] M6 — homography compute + side-by-side preview + zip export

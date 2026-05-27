@@ -9,26 +9,31 @@ import {
 import { useLocation, useParams } from 'react-router';
 import { fetchLabels, saveLabels, useResource } from '../api/client';
 import type {
+  ComponentLineLabel,
   DimensionNumberLabel,
   DimensionedDistanceLabel,
+  FloorplanOpeningLabel,
+  HeightMarkLabel,
   Label,
   LabelScope,
   Point,
+  Quad,
   SceneLabels,
   SceneTag,
+  ViewOpeningLabel,
+  WallLabel,
 } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 
-// M2 — Scene editor v0.
+// M2+M3 — Scene editor. All 7 label types implemented; tool palette is
+// gated by scene_tag (Grundriss vs Ansicht/Schnitt vs Sonstiges).
 //
-// Two label tools active here: dimensioned_distance (2-click line) and
-// dimension_number (1-click anchor + text input). Pan with right-mouse-drag
-// or shift+drag; zoom with mouse wheel. Tag chip in the left sidebar locks
-// the scene's scene_tag. Right rail = inspector for the selected label.
-// Save persists to disk via PUT /labels/{scope}/{key}/{file}; dirty
-// indicator + Cmd/Ctrl+S + N=50 undo stack as specified in
-// spec/annotation-tool.md §11.
+// Pan with right-mouse-drag or shift+drag; zoom with mouse wheel. Tag chip
+// in the left sidebar locks the scene's scene_tag. Right rail = inspector
+// for the selected label. Save persists to disk via PUT /labels/{scope}/...
+// Dirty indicator + Cmd/Ctrl+S + N=50 undo stack (see
+// spec/annotation-tool.md §11).
 
 const UNDO_LIMIT = 50;
 const TAGS: SceneTag[] = ['grundriss', 'ansicht', 'schnitt', 'sonstiges', 'nicht_klassifiziert'];
@@ -40,7 +45,49 @@ const TAG_LABEL: Record<SceneTag, string> = {
   nicht_klassifiziert: '(nicht klassifiziert)',
 };
 
-type Tool = 'select' | 'dimensioned_distance' | 'dimension_number';
+type Tool =
+  | 'select'
+  | 'dimensioned_distance'
+  | 'dimension_number'
+  | 'wall'
+  | 'floorplan_opening'
+  | 'view_opening'
+  | 'component_line'
+  | 'height_mark';
+
+// Tag → which tools are available. Dimensioned_distance + dimension_number
+// + select are always available; the rest depend on the scene's tag.
+const TOOLS_BY_TAG: Record<SceneTag, Tool[]> = {
+  grundriss: [
+    'select', 'wall', 'floorplan_opening',
+    'dimensioned_distance', 'dimension_number',
+  ],
+  ansicht: [
+    'select', 'view_opening', 'component_line', 'height_mark',
+    'dimensioned_distance', 'dimension_number',
+  ],
+  schnitt: [
+    'select', 'view_opening', 'component_line', 'height_mark',
+    'dimensioned_distance', 'dimension_number',
+  ],
+  sonstiges: [
+    'select', 'wall', 'floorplan_opening', 'view_opening',
+    'component_line', 'height_mark',
+    'dimensioned_distance', 'dimension_number',
+  ],
+  nicht_klassifiziert: ['select'],
+};
+
+const TOOL_LABEL: Record<Tool, { label: string; hotkey: string }> = {
+  select: { label: 'Auswählen', hotkey: 'S' },
+  wall: { label: 'Wand', hotkey: 'W' },
+  floorplan_opening: { label: 'Öffnung (Grundriss)', hotkey: 'O' },
+  view_opening: { label: 'Öffnung (Ansicht)', hotkey: 'O' },
+  component_line: { label: 'Bauteillinie', hotkey: 'L' },
+  height_mark: { label: 'Höhenkote', hotkey: 'H' },
+  dimensioned_distance: { label: 'Bemaßte Strecke', hotkey: 'D' },
+  dimension_number: { label: 'Maßzahl', hotkey: 'N' },
+};
 
 interface Snapshot {
   labels: Label[];
@@ -96,8 +143,14 @@ export function AnnotatePage() {
   const [saving, setSaving] = useState(false);
   const undoStackRef = useRef<Snapshot[]>([]);
 
-  // Drawing state — first click point for dimensioned_distance.
+  // Drawing state.
+  // - pendingStart: first click of a 2-click tool (wall, dim-distance,
+  //   floorplan_opening, view_opening).
+  // - pendingPolyline: in-progress polyline being assembled click-by-click
+  //   (component_line). Enter finishes; Esc cancels.
+  // - hoverPt: cursor position in image-pixel coords, used for live preview.
   const [pendingStart, setPendingStart] = useState<Point | null>(null);
+  const [pendingPolyline, setPendingPolyline] = useState<Point[]>([]);
   const [hoverPt, setHoverPt] = useState<Point | null>(null);
 
   // Pan/zoom on the SVG viewBox.
@@ -191,12 +244,16 @@ export function AnnotatePage() {
       const pt = eventToSvgPoint(e);
       if (!pt) return;
 
-      if (tool === 'dimensioned_distance') {
+      // ── 2-click tools (line) ─────────────────────────────────────────────
+      if (tool === 'dimensioned_distance' || tool === 'wall') {
         if (pendingStart == null) {
           setPendingStart(pt);
-        } else {
-          pushUndo();
-          const label: DimensionedDistanceLabel = {
+          return;
+        }
+        pushUndo();
+        let label: Label;
+        if (tool === 'dimensioned_distance') {
+          label = {
             id: uuid(),
             type: 'dimensioned_distance',
             geometry: { start: pendingStart, end: pt },
@@ -205,12 +262,108 @@ export function AnnotatePage() {
             relations: [],
             created_at: nowIso(),
             updated_at: nowIso(),
-          };
-          setLabels([...labels, label]);
-          setDirty(true);
-          setPendingStart(null);
-          setSelectedId(label.id);
+          } as DimensionedDistanceLabel;
+        } else {
+          label = {
+            id: uuid(),
+            type: 'wall',
+            geometry: { start: pendingStart, end: pt },
+            attributes: { thickness_mm: 365 },  // sensible residential default
+            status: 'readable',
+            relations: [],
+            created_at: nowIso(),
+            updated_at: nowIso(),
+          } as WallLabel;
         }
+        setLabels([...labels, label]);
+        setDirty(true);
+        setPendingStart(null);
+        setSelectedId(label.id);
+        return;
+      }
+
+      // ── 2-click tools (rectangle) ────────────────────────────────────────
+      if (tool === 'floorplan_opening' || tool === 'view_opening') {
+        if (pendingStart == null) {
+          setPendingStart(pt);
+          return;
+        }
+        pushUndo();
+        // Build axis-aligned rectangle from the diagonal {pendingStart → pt}.
+        // First-pass simplification: openings are usually rectangular; the
+        // schema's polyline variants stay available for later cleanup.
+        const x0 = Math.min(pendingStart[0], pt[0]);
+        const y0 = Math.min(pendingStart[1], pt[1]);
+        const x1 = Math.max(pendingStart[0], pt[0]);
+        const y1 = Math.max(pendingStart[1], pt[1]);
+        let label: Label;
+        if (tool === 'floorplan_opening') {
+          const quad: Quad = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+          label = {
+            id: uuid(),
+            type: 'floorplan_opening',
+            geometry: { quad },
+            attributes: {
+              opening_kind: 'window',
+              width_mm: null,
+              swing: 'none',
+              swing_side: 'none',
+            },
+            status: 'readable',
+            relations: [],
+            created_at: nowIso(),
+            updated_at: nowIso(),
+          } as FloorplanOpeningLabel;
+        } else {
+          // View opening: degenerate-polyline pair (the rectangle's top + bottom edges).
+          label = {
+            id: uuid(),
+            type: 'view_opening',
+            geometry: {
+              top_edge: [[x0, y0], [x1, y0]],
+              bottom_edge: [[x0, y1], [x1, y1]],
+            },
+            attributes: { opening_kind: 'window', frame_visible: true },
+            status: 'readable',
+            relations: [],
+            created_at: nowIso(),
+            updated_at: nowIso(),
+          } as ViewOpeningLabel;
+        }
+        setLabels([...labels, label]);
+        setDirty(true);
+        setPendingStart(null);
+        setSelectedId(label.id);
+        return;
+      }
+
+      // ── Polyline tool (component_line) ────────────────────────────────────
+      if (tool === 'component_line') {
+        // Each click appends a vertex. Enter finishes; Esc cancels.
+        setPendingPolyline((prev) => [...prev, pt]);
+        return;
+      }
+
+      // ── 1-click tools ─────────────────────────────────────────────────────
+      if (tool === 'height_mark') {
+        const text = window.prompt('Höhenkote-Wert (m oder mm, z. B. "+ 2,75"):');
+        if (text == null) return;
+        const parsed = parseGermanNumber(text);
+        pushUndo();
+        const label: HeightMarkLabel = {
+          id: uuid(),
+          type: 'height_mark',
+          geometry: { anchor: pt },
+          attributes: { value_mm: parsed, reference_line_id: null },
+          status: 'readable',
+          relations: [],
+          notes: text.trim() || undefined,
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        };
+        setLabels([...labels, label]);
+        setDirty(true);
+        setSelectedId(label.id);
         return;
       }
 
@@ -242,12 +395,16 @@ export function AnnotatePage() {
 
   const onCanvasPointerMove = useCallback(
     (e: ReactPointerEvent<SVGSVGElement>) => {
-      if (tool === 'dimensioned_distance' && pendingStart) {
+      const previewableWithStart =
+        (tool === 'dimensioned_distance' || tool === 'wall' ||
+         tool === 'floorplan_opening' || tool === 'view_opening') && pendingStart != null;
+      const previewablePoly = tool === 'component_line' && pendingPolyline.length > 0;
+      if (previewableWithStart || previewablePoly) {
         const pt = eventToSvgPoint(e);
         if (pt) setHoverPt(pt);
       }
     },
-    [tool, pendingStart, eventToSvgPoint],
+    [tool, pendingStart, pendingPolyline, eventToSvgPoint],
   );
 
   const onCanvasWheel = useCallback(
@@ -338,7 +495,27 @@ export function AnnotatePage() {
       }
       if (e.key === 'Escape') {
         setPendingStart(null);
+        setPendingPolyline([]);
         setSelectedId(null);
+        return;
+      }
+      if (e.key === 'Enter' && tool === 'component_line' && pendingPolyline.length >= 2) {
+        e.preventDefault();
+        pushUndo();
+        const label: ComponentLineLabel = {
+          id: uuid(),
+          type: 'component_line',
+          geometry: { polyline: pendingPolyline },
+          attributes: { line_kind: 'other' },
+          status: 'readable',
+          relations: [],
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        };
+        setLabels((prev) => [...prev, label]);
+        setDirty(true);
+        setSelectedId(label.id);
+        setPendingPolyline([]);
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -347,14 +524,24 @@ export function AnnotatePage() {
           deleteLabel(selectedId);
         }
       }
-      if (e.key === 'd') setTool('dimensioned_distance');
-      if (e.key === 'n') setTool('dimension_number');
-      if (e.key === 's' && !e.metaKey && !e.ctrlKey) setTool('select');
+      // Tool hotkeys — only switch if the new tool is allowed under the
+      // current scene_tag.
+      const allowed = TOOLS_BY_TAG[sceneTag];
+      const trySetTool = (t: Tool) => {
+        if (allowed.includes(t)) setTool(t);
+      };
+      if (e.key === 'd') trySetTool('dimensioned_distance');
+      if (e.key === 'n') trySetTool('dimension_number');
+      if (e.key === 'w') trySetTool('wall');
+      if (e.key === 'o') trySetTool(sceneTag === 'grundriss' ? 'floorplan_opening' : 'view_opening');
+      if (e.key === 'l') trySetTool('component_line');
+      if (e.key === 'h' && !e.metaKey && !e.ctrlKey) trySetTool('height_mark');
+      if (e.key === 's' && !e.metaKey && !e.ctrlKey) trySetTool('select');
       if (e.key === 'r') resetView();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [save, undo, selectedId, deleteLabel, resetView]);
+  }, [save, undo, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag]);
 
   const selectedLabel = labels.find((l) => l.id === selectedId) ?? null;
   const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`;
@@ -448,21 +635,56 @@ export function AnnotatePage() {
               }}
             />
           ))}
-          {/* In-progress preview line */}
-          {pendingStart && hoverPt && (
+          {/* In-progress preview — 2-click line tools */}
+          {pendingStart && hoverPt && (tool === 'dimensioned_distance' || tool === 'wall') && (
             <line
-              x1={pendingStart[0]}
-              y1={pendingStart[1]}
-              x2={hoverPt[0]}
-              y2={hoverPt[1]}
-              stroke="#f59e0b"
-              strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
+              x1={pendingStart[0]} y1={pendingStart[1]}
+              x2={hoverPt[0]} y2={hoverPt[1]}
+              stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
               strokeDasharray="6,4"
             />
           )}
+          {/* In-progress preview — 2-click rectangle tools */}
+          {pendingStart && hoverPt && (tool === 'floorplan_opening' || tool === 'view_opening') && (
+            <rect
+              x={Math.min(pendingStart[0], hoverPt[0])}
+              y={Math.min(pendingStart[1], hoverPt[1])}
+              width={Math.abs(hoverPt[0] - pendingStart[0])}
+              height={Math.abs(hoverPt[1] - pendingStart[1])}
+              fill="rgba(245, 158, 11, 0.15)"
+              stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
+              strokeDasharray="6,4"
+            />
+          )}
+          {/* In-progress preview — polyline */}
+          {tool === 'component_line' && pendingPolyline.length > 0 && (
+            <>
+              <polyline
+                points={[
+                  ...pendingPolyline.map((p) => p.join(',')),
+                  ...(hoverPt ? [hoverPt.join(',')] : []),
+                ].join(' ')}
+                fill="none" stroke="#f59e0b" strokeWidth={2 / Math.max(0.1, view.w / imageSize[0])}
+                strokeDasharray="6,4"
+              />
+              {pendingPolyline.map((p, i) => (
+                <circle key={i} cx={p[0]} cy={p[1]} r={5} fill="#f59e0b" />
+              ))}
+              <text
+                x={pendingPolyline[0][0] + 10}
+                y={pendingPolyline[0][1] - 10}
+                fill="#f59e0b" fontFamily="ui-monospace, monospace" fontSize={14}
+                style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}
+              >
+                {pendingPolyline.length} pts — Enter to finish
+              </text>
+            </>
+          )}
         </svg>
         <div className="absolute bottom-3 left-3 text-[0.7rem] text-zinc-300 bg-black/50 px-2 py-1 rounded leading-snug pointer-events-none">
-          [D] Bemaßte Strecke · [N] Maßzahl · [S] Auswählen · [R] Reset View · Shift/Right-Drag = Pan · Wheel = Zoom
+          [S] Select · [D] Bemaßte Strecke · [N] Maßzahl · [W] Wand · [O] Öffnung · [L] Linie · [H] Höhenkote
+          <br />
+          Enter = Polylinie beenden · Esc = abbrechen · Shift/Right-Drag = Pan · Wheel = Zoom · R = Reset
         </div>
       </div>
     </Shell>
@@ -523,16 +745,17 @@ function ToolPalette({
           Werkzeuge
         </h3>
         <div className="grid grid-cols-1 gap-px">
-          <ToolBtn current={tool} onSet={setTool} value="select" hotkey="S">
-            Auswählen
-          </ToolBtn>
-          <ToolBtn current={tool} onSet={setTool} value="dimensioned_distance" hotkey="D">
-            Bemaßte Strecke
-          </ToolBtn>
-          <ToolBtn current={tool} onSet={setTool} value="dimension_number" hotkey="N">
-            Maßzahl
-          </ToolBtn>
+          {TOOLS_BY_TAG[sceneTag].map((t) => (
+            <ToolBtn key={t} current={tool} onSet={setTool} value={t} hotkey={TOOL_LABEL[t].hotkey}>
+              {TOOL_LABEL[t].label}
+            </ToolBtn>
+          ))}
         </div>
+        {sceneTag === 'nicht_klassifiziert' && (
+          <p className="text-[0.7rem] text-muted mt-2 leading-snug">
+            Setze einen Szenen-Tag oben, damit Werkzeuge verfügbar werden.
+          </p>
+        )}
       </section>
 
       <section>
@@ -644,8 +867,10 @@ function LabelGlyph({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const stroke = selected ? '#dc2626' : '#16a34a';
-  const fill = selected ? '#dc262633' : 'transparent';
+  // Color per type — selected always takes precedence.
+  const baseColor = LABEL_COLORS[label.type] ?? '#16a34a';
+  const stroke = selected ? '#dc2626' : baseColor;
+  const fill = selected ? '#dc262633' : `${baseColor}1a`;  // hex + alpha
   const sw = selected ? 3 : 2;
 
   const onClick = (e: React.MouseEvent) => {
@@ -653,37 +878,100 @@ function LabelGlyph({
     onSelect();
   };
 
-  if (label.type === 'dimensioned_distance') {
-    const { start, end } = label.geometry;
-    const refMark = label.attributes.is_reference ? '#f59e0b' : stroke;
-    return (
-      <g style={{ cursor: 'pointer' }} onClick={onClick}>
-        <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={refMark} strokeWidth={sw} />
-        <Tick x={start[0]} y={start[1]} stroke={refMark} sw={sw} />
-        <Tick x={end[0]} y={end[1]} stroke={refMark} sw={sw} />
-      </g>
-    );
-  }
-  if (label.type === 'dimension_number' && label.geometry.anchor) {
-    const [x, y] = label.geometry.anchor;
-    return (
-      <g style={{ cursor: 'pointer' }} onClick={onClick}>
-        <circle cx={x} cy={y} r={6} fill={fill} stroke={stroke} strokeWidth={sw} />
-        <text
-          x={x + 10}
-          y={y - 6}
-          fill={stroke}
-          fontFamily="ui-monospace, monospace"
-          fontSize={14}
-          style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}
-        >
-          {label.attributes.text}
-        </text>
-      </g>
-    );
+  switch (label.type) {
+    case 'dimensioned_distance': {
+      const { start, end } = label.geometry;
+      const refMark = label.attributes.is_reference ? '#f59e0b' : stroke;
+      return (
+        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+          <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={refMark} strokeWidth={sw} />
+          <Tick x={start[0]} y={start[1]} stroke={refMark} sw={sw} />
+          <Tick x={end[0]} y={end[1]} stroke={refMark} sw={sw} />
+        </g>
+      );
+    }
+    case 'dimension_number': {
+      const anchor = label.geometry.anchor;
+      if (!anchor) return null;
+      const [x, y] = anchor;
+      return (
+        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+          <circle cx={x} cy={y} r={6} fill={fill} stroke={stroke} strokeWidth={sw} />
+          <text x={x + 10} y={y - 6} fill={stroke} fontFamily="ui-monospace, monospace"
+                fontSize={14} style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}>
+            {label.attributes.text}
+          </text>
+        </g>
+      );
+    }
+    case 'wall': {
+      const { start, end } = label.geometry;
+      const th = (label.attributes.thickness_mm ?? 365) / 4; // rough viewport-scale visual
+      return (
+        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+          <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]}
+                stroke={stroke} strokeWidth={Math.max(4, th)} strokeOpacity={0.35} />
+          <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={stroke} strokeWidth={sw} />
+        </g>
+      );
+    }
+    case 'floorplan_opening': {
+      const [a, b, c, d] = label.geometry.quad;
+      return (
+        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+          <polygon points={`${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`}
+                   fill={fill} stroke={stroke} strokeWidth={sw} />
+        </g>
+      );
+    }
+    case 'view_opening': {
+      const { top_edge, bottom_edge } = label.geometry;
+      const path = `M ${top_edge.map(p => p.join(',')).join(' L ')}` +
+                   ` L ${[...bottom_edge].reverse().map(p => p.join(',')).join(' L ')} Z`;
+      return (
+        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+          <path d={path} fill={fill} stroke={stroke} strokeWidth={sw} />
+        </g>
+      );
+    }
+    case 'component_line': {
+      const pts = label.geometry.polyline;
+      return (
+        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+          <polyline points={pts.map(p => p.join(',')).join(' ')}
+                    fill="none" stroke={stroke} strokeWidth={sw + 1} />
+          {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill={stroke} />)}
+        </g>
+      );
+    }
+    case 'height_mark': {
+      const [x, y] = label.geometry.anchor;
+      return (
+        <g style={{ cursor: 'pointer' }} onClick={onClick}>
+          <polygon points={`${x},${y} ${x - 10},${y - 16} ${x + 10},${y - 16}`}
+                   fill={fill} stroke={stroke} strokeWidth={sw} />
+          {label.attributes.value_mm != null && (
+            <text x={x + 14} y={y - 6} fill={stroke} fontFamily="ui-monospace, monospace"
+                  fontSize={12} style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}>
+              {(label.attributes.value_mm / 1000).toFixed(2)} m
+            </text>
+          )}
+        </g>
+      );
+    }
   }
   return null;
 }
+
+const LABEL_COLORS: Record<Label['type'], string> = {
+  dimensioned_distance: '#16a34a',
+  dimension_number: '#0ea5e9',
+  wall: '#7c3aed',
+  floorplan_opening: '#ea580c',
+  view_opening: '#ea580c',
+  component_line: '#0891b2',
+  height_mark: '#be185d',
+};
 
 function Tick({ x, y, stroke, sw }: { x: number; y: number; stroke: string; sw: number }) {
   return <circle cx={x} cy={y} r={4} fill={stroke} stroke={stroke} strokeWidth={sw} />;
@@ -724,6 +1012,11 @@ function Inspector({
 
       {label.type === 'dimensioned_distance' && <DimensionedDistanceFields label={label} onChange={onChange} />}
       {label.type === 'dimension_number' && <DimensionNumberFields label={label} onChange={onChange} />}
+      {label.type === 'wall' && <WallFields label={label} onChange={onChange} />}
+      {label.type === 'floorplan_opening' && <FloorplanOpeningFields label={label} onChange={onChange} />}
+      {label.type === 'view_opening' && <ViewOpeningFields label={label} onChange={onChange} />}
+      {label.type === 'component_line' && <ComponentLineFields label={label} onChange={onChange} />}
+      {label.type === 'height_mark' && <HeightMarkFields label={label} onChange={onChange} />}
 
       <section>
         <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">Notizen</h4>
@@ -828,6 +1121,187 @@ function DimensionNumberFields({
       <p className="text-[0.7rem] text-muted">
         Geparst: <span className="font-mono">{label.attributes.parsed_value_mm ?? '–'}</span> mm
       </p>
+    </section>
+  );
+}
+
+function WallFields({ label, onChange }: { label: WallLabel; onChange: (p: Partial<Label>) => void }) {
+  return (
+    <section className="space-y-2">
+      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Wand</h4>
+      <label className="block">
+        <span className="text-[0.7rem] text-muted">Wandstärke (mm)</span>
+        <input
+          type="number"
+          value={label.attributes.thickness_mm ?? ''}
+          onChange={(e) =>
+            onChange({
+              attributes: {
+                thickness_mm: e.target.value === '' ? null : Number(e.target.value),
+              },
+            } as Partial<Label>)
+          }
+          className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
+          placeholder="365"
+        />
+      </label>
+    </section>
+  );
+}
+
+function FloorplanOpeningFields({
+  label, onChange,
+}: { label: FloorplanOpeningLabel; onChange: (p: Partial<Label>) => void }) {
+  const a = label.attributes;
+  return (
+    <section className="space-y-2">
+      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Öffnung (Grundriss)</h4>
+      <label className="block">
+        <span className="text-[0.7rem] text-muted">Art</span>
+        <select
+          value={a.opening_kind ?? 'window'}
+          onChange={(e) => onChange({ attributes: { ...a, opening_kind: e.target.value as FloorplanOpeningLabel['attributes']['opening_kind'] } } as Partial<Label>)}
+          className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
+        >
+          <option value="window">window</option>
+          <option value="door">door</option>
+          <option value="passage">passage</option>
+          <option value="garage_door">garage_door</option>
+          <option value="other">other</option>
+        </select>
+      </label>
+      <label className="block">
+        <span className="text-[0.7rem] text-muted">Breite (mm)</span>
+        <input
+          type="number"
+          value={a.width_mm ?? ''}
+          onChange={(e) => onChange({ attributes: { ...a, width_mm: e.target.value === '' ? null : Number(e.target.value) } } as Partial<Label>)}
+          className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
+        />
+      </label>
+      {a.opening_kind === 'door' && (
+        <>
+          <label className="block">
+            <span className="text-[0.7rem] text-muted">Schwenken</span>
+            <select
+              value={a.swing ?? 'none'}
+              onChange={(e) => onChange({ attributes: { ...a, swing: e.target.value as FloorplanOpeningLabel['attributes']['swing'] } } as Partial<Label>)}
+              className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
+            >
+              <option value="in">in</option>
+              <option value="out">out</option>
+              <option value="sliding">sliding</option>
+              <option value="none">none</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-[0.7rem] text-muted">Anschlag</span>
+            <select
+              value={a.swing_side ?? 'none'}
+              onChange={(e) => onChange({ attributes: { ...a, swing_side: e.target.value as FloorplanOpeningLabel['attributes']['swing_side'] } } as Partial<Label>)}
+              className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
+            >
+              <option value="left">left</option>
+              <option value="right">right</option>
+              <option value="none">none</option>
+            </select>
+          </label>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ViewOpeningFields({
+  label, onChange,
+}: { label: ViewOpeningLabel; onChange: (p: Partial<Label>) => void }) {
+  const a = label.attributes;
+  return (
+    <section className="space-y-2">
+      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Öffnung (Ansicht)</h4>
+      <label className="block">
+        <span className="text-[0.7rem] text-muted">Art</span>
+        <select
+          value={a.opening_kind ?? 'window'}
+          onChange={(e) => onChange({ attributes: { ...a, opening_kind: e.target.value as ViewOpeningLabel['attributes']['opening_kind'] } } as Partial<Label>)}
+          className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
+        >
+          <option value="window">window</option>
+          <option value="door">door</option>
+          <option value="skylight">skylight</option>
+          <option value="dormer">dormer</option>
+          <option value="garage_door">garage_door</option>
+          <option value="other">other</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-2 text-[0.78rem]">
+        <input
+          type="checkbox"
+          checked={a.frame_visible ?? false}
+          onChange={(e) => onChange({ attributes: { ...a, frame_visible: e.target.checked } } as Partial<Label>)}
+        />
+        Rahmen sichtbar
+      </label>
+    </section>
+  );
+}
+
+function ComponentLineFields({
+  label, onChange,
+}: { label: ComponentLineLabel; onChange: (p: Partial<Label>) => void }) {
+  return (
+    <section className="space-y-2">
+      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Bauteillinie</h4>
+      <label className="block">
+        <span className="text-[0.7rem] text-muted">Art</span>
+        <select
+          value={label.attributes.line_kind ?? 'other'}
+          onChange={(e) => onChange({ attributes: { line_kind: e.target.value as ComponentLineLabel['attributes']['line_kind'] } } as Partial<Label>)}
+          className="w-full px-2 py-1 rounded border border-border text-[0.8rem] bg-white"
+        >
+          <option value="first">First</option>
+          <option value="traufe">Traufe</option>
+          <option value="gelaende">Gelände</option>
+          <option value="geschoss">Geschoss</option>
+          <option value="ok_ffb">OK FFB</option>
+          <option value="sockel">Sockel</option>
+          <option value="firstkante">Firstkante</option>
+          <option value="kniestock">Kniestock</option>
+          <option value="other">other</option>
+        </select>
+      </label>
+      <p className="text-[0.65rem] text-muted">
+        Polylinie mit {label.geometry.polyline.length} Punkten.
+      </p>
+    </section>
+  );
+}
+
+function HeightMarkFields({
+  label, onChange,
+}: { label: HeightMarkLabel; onChange: (p: Partial<Label>) => void }) {
+  return (
+    <section className="space-y-2">
+      <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Höhenkote</h4>
+      <label className="block">
+        <span className="text-[0.7rem] text-muted">Wert (mm)</span>
+        <input
+          type="number"
+          value={label.attributes.value_mm ?? ''}
+          onChange={(e) => onChange({ attributes: { ...label.attributes, value_mm: e.target.value === '' ? null : Number(e.target.value) } } as Partial<Label>)}
+          className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
+        />
+      </label>
+      <label className="block">
+        <span className="text-[0.7rem] text-muted">Bezugslinie (Bauteillinien-ID)</span>
+        <input
+          type="text"
+          value={label.attributes.reference_line_id ?? ''}
+          onChange={(e) => onChange({ attributes: { ...label.attributes, reference_line_id: e.target.value || null } } as Partial<Label>)}
+          className="w-full px-2 py-1 rounded border border-border text-[0.78rem] font-mono"
+          placeholder="(none)"
+        />
+      </label>
     </section>
   );
 }
