@@ -391,10 +391,14 @@ export function AnnotatePage() {
       window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), ttl);
     }
   }, []);
-  // M12 auto-save (off by default).
+  // Auto-save (ON by default — 30 s debounce while dirty). User can flip
+  // it off in the sidebar; the explicit setting wins, otherwise true.
   const [autosave, setAutosave] = useState<boolean>(() => {
-    try { return window.localStorage.getItem('bim-db:annotate:autosave') === 'true'; }
-    catch { return false; }
+    try {
+      const v = window.localStorage.getItem('bim-db:annotate:autosave');
+      if (v === null) return true;
+      return v === 'true';
+    } catch { return true; }
   });
   // Global drag flag — set true during any handle / body drag. The right
   // rail dims to near-invisible while it's true so a wall being dragged
