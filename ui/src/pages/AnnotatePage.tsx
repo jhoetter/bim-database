@@ -42,6 +42,7 @@ import { labelColor, LEGEND } from '../lib/colors';
 import { detectClosedRegions } from '../lib/closed_regions';
 import { buildConnectivity, jointMembersAt } from '../lib/connectivity';
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
+import { collectRefineIssues, type RefineIssue } from '../lib/refine';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
   CentreLineIcon, DimensionIcon, DoorIcon, ElevationViewIcon, KeynoteIcon,
@@ -1705,6 +1706,32 @@ export function AnnotatePage() {
         }
       }
 
+      // M5.3 status hotkeys — flip the selected label's status. 1-4 are
+      // unused by tool shortcuts; numeric keys read as "rank" which fits
+      // a quality/triage axis (1 best, 4 worst).
+      const statusHotkeys: Record<string, 'readable' | 'uncertain' | 'not_readable' | 'missing'> = {
+        '1': 'readable',
+        '2': 'uncertain',
+        '3': 'not_readable',
+        '4': 'missing',
+      };
+      if (
+        selectedIds.size > 0 &&
+        !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey &&
+        statusHotkeys[e.key]
+      ) {
+        const next = statusHotkeys[e.key];
+        const ids = Array.from(selectedIds);
+        pushUndo();
+        setLabels((prev) => prev.map((l) =>
+          ids.includes(l.id) ? ({ ...l, status: next, updated_at: nowIso() } as Label) : l,
+        ));
+        setDirty(true);
+        addToast(`${ids.length === 1 ? 'Status' : `${ids.length} Labels Status`} → ${next}`, 'info', 1400);
+        e.preventDefault();
+        return;
+      }
+
       if (e.key === 'q' && !e.metaKey && !e.ctrlKey) {
         // Toggle adaptive building-axis snap. When off, snap falls back
         // to image-axis ortho — useful early in a session (no detected
@@ -1878,6 +1905,57 @@ export function AnnotatePage() {
           onDefaultsChange={() => setDefaultsRev((v) => v + 1)}
           viewOpeningShape={viewOpeningShape}
           onChangeViewOpeningShape={persistViewOpeningShape}
+          onRefineAutoFix={(issue) => {
+            const lbl = labels.find((l) => l.id === issue.labelId);
+            if (!lbl) return;
+            pushUndo();
+            if (issue.autoFix?.type === 'snap_to_axis' && lbl.type === 'wall') {
+              const start = lbl.geometry.start;
+              const end = lbl.geometry.end;
+              const len = Math.hypot(end[0] - start[0], end[1] - start[1]);
+              const rad = (issue.autoFix.targetAngleDeg * Math.PI) / 180;
+              const fixedEnd: Point = [
+                start[0] + len * Math.cos(rad),
+                start[1] - len * Math.sin(rad),
+              ];
+              setLabels((prev) => prev.map((x) =>
+                x.id === lbl.id
+                  ? ({ ...x, geometry: { start, end: fixedEnd }, updated_at: nowIso() } as Label)
+                  : x,
+              ));
+              setDirty(true);
+              addToast('✨ Wand begradigt', 'success', 1200);
+            } else if (issue.autoFix?.type === 'set_status') {
+              updateLabel(lbl.id, { status: 'readable' } as Partial<Label>);
+              addToast(`Status → readable`, 'success', 1200);
+            }
+            setSelectedIds(new Set([lbl.id]));
+          }}
+          onRefineTidyAll={() => {
+            // M5.2 one-shot tidy: apply tidyLineLabel to every line label
+            // in the scene with the current effective building axis. Brief
+            // toast summarizes how many changed.
+            pushUndo();
+            let changed = 0;
+            const imageRadius = (SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1);
+            const next = labels.map((l) => {
+              if (l.type !== 'wall' && l.type !== 'dimensioned_distance' && l.type !== 'component_line') return l;
+              if (l.type === 'component_line') return l;  // polyline tidy is a separate, harder problem
+              const tidy = tidyLineLabel(l, labels, imageRadius, effectiveAxisDeg);
+              if (tidy.orthoChanged || tidy.endpointFused) {
+                changed++;
+                return { ...tidy.label, updated_at: nowIso() } as Label;
+              }
+              return l;
+            });
+            if (changed === 0) {
+              addToast('Nichts zu begradigen — alles ortho 👌', 'info', 1500);
+              return;
+            }
+            setLabels(next);
+            setDirty(true);
+            addToast(`✨ ${changed} Linien aufgeräumt (⌘Z zum Rückgängig)`, 'success', 2200);
+          }}
           onApplyHouseHeight={(datum, value_mm) => {
             pushUndo();
             // If a Höhenkote is selected, set its datum+value. Otherwise
@@ -2679,6 +2757,8 @@ function ToolPalette({
   viewOpeningShape,
   onChangeViewOpeningShape,
   onApplyHouseHeight,
+  onRefineAutoFix,
+  onRefineTidyAll,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -2702,6 +2782,8 @@ function ToolPalette({
   viewOpeningShape: 'rectangle' | 'circle' | 'polygon';
   onChangeViewOpeningShape: (s: 'rectangle' | 'circle' | 'polygon') => void;
   onApplyHouseHeight: (datum: string, value_mm: number) => void;
+  onRefineAutoFix: (issue: RefineIssue) => void;
+  onRefineTidyAll: () => void;
 }) {
   void defaultsRev;
   return (
@@ -2793,6 +2875,13 @@ function ToolPalette({
 
       <SceneChecklist sceneTag={sceneTag} labels={labels} />
 
+      <RefineQueue
+        labels={labels}
+        onJump={(labelId) => onSelectLabel(labelId)}
+        onAutoFix={onRefineAutoFix}
+        onTidyAll={onRefineTidyAll}
+      />
+
       {/* House heights panel — only relevant for scenes that contain
           Höhenkote (ansicht / schnitt / sonstiges). Shows house-wide known
           datums + one-click [Anwenden] to apply them to the current scene
@@ -2859,6 +2948,75 @@ function ToolPalette({
       />
       {/* Legende moved to canvas corner widget; not in the sidebar primary path. */}
     </div>
+  );
+}
+
+// M5.1 Refine queue: sidebar section listing every label with an issue —
+// missing classification, missing value/datum, off-axis wall, non-readable
+// status. Click a row to jump to (and select) the label; click "Fix" for
+// the one-click autoFix. "Alle aufräumen" runs the M5.2 batch tidy.
+function RefineQueue({
+  labels, onJump, onAutoFix, onTidyAll,
+}: {
+  labels: Label[];
+  onJump: (labelId: string) => void;
+  onAutoFix: (issue: RefineIssue) => void;
+  onTidyAll: () => void;
+}) {
+  const issues = useMemo(() => collectRefineIssues(labels), [labels]);
+  const [open, setOpen] = useState(issues.length > 0);
+  if (issues.length === 0) return null;
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-1.5 text-[0.7rem] uppercase tracking-wider text-amber-700 font-semibold mb-1"
+      >
+        <span className="w-3 text-center">{open ? '▾' : '▸'}</span>
+        <span>Auffälligkeiten</span>
+        <span className="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded-full bg-amber-100 text-amber-800 text-[0.65rem] font-mono">
+          {issues.length}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onTidyAll(); }}
+          className="ml-auto text-[0.62rem] px-1.5 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+          title="Alle near-ortho Linien an die Bau-Achse begradigen (M5.2)"
+        >
+          Alle aufräumen
+        </button>
+      </button>
+      {open && (
+        <ul className="space-y-px ml-3">
+          {issues.map((iss, i) => (
+            <li
+              key={`${iss.labelId}-${iss.kind}-${i}`}
+              className="flex items-center gap-1.5 text-[0.7rem] py-0.5"
+            >
+              <button
+                type="button"
+                onClick={() => onJump(iss.labelId)}
+                className="flex-1 text-left truncate hover:text-accent"
+                title="Anspringen + markieren"
+              >
+                {iss.description}
+              </button>
+              {iss.autoFix && (
+                <button
+                  type="button"
+                  onClick={() => onAutoFix(iss)}
+                  className="text-[0.62rem] px-1.5 py-0.5 rounded bg-accent text-white hover:opacity-90"
+                  title="Vorschlag anwenden"
+                >
+                  Fix
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

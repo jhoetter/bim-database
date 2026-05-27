@@ -100,8 +100,46 @@
       "relations": [],
       "created_at": "2026-05-27T17:52:14.366Z",
       "updated_at": "2026-05-27T17:52:14.366Z"
+    },
+    {
+      "id": "3d7f0b2b-e064-4681-8fa8-336a0971c96b",
+      "type": "height_mark",
+      "geometry": {
+        "anchor": [
+          789.3167724609375,
+          454.47430419921875
+        ]
+      },
+      "attributes": {
+        "value_mm": null,
+        "datum": null,
+        "reference_line_id": null
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T17:53:04.622Z",
+      "updated_at": "2026-05-27T17:53:04.622Z"
+    },
+    {
+      "id": "70333b64-b181-4991-88aa-a87860e7a3c9",
+      "type": "height_mark",
+      "geometry": {
+        "anchor": [
+          789.3167724609375,
+          146.1493682861328
+        ]
+      },
+      "attributes": {
+        "value_mm": null,
+        "datum": null,
+        "reference_line_id": null
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T17:53:08.946Z",
+      "updated_at": "2026-05-27T17:53:08.946Z"
     }
   ],
   "annotated_by": "jhoetter",
-  "annotated_at": "2026-05-27T17:52:44.382Z"
+  "annotated_at": "2026-05-27T18:02:56.356Z"
 }
