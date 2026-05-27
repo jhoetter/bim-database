@@ -503,7 +503,7 @@ Implements §4 in full:
 - `Alt` to disable snap, `Shift` for axis-lock
 - Snap on draw + snap on drag (existing labels snap when moved)
 
-### M9 — Wall thickness handle + slider + arrow keys + redo
+### M9 — Wall thickness handle + slider + arrow keys + redo ✅ shipped 2026-05-27
 
 The wall-thickness UX (§7) in full + redo functionality.
 

@@ -45,7 +45,9 @@ const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel — see spec/annotation
 // Dirty indicator + Cmd/Ctrl+S + N=50 undo stack (see
 // spec/annotation-tool.md §11).
 
-const UNDO_LIMIT = 50;
+const UNDO_LIMIT = 200;                    // raised from 50 per spec §17 M9
+const WALL_PX_PER_MM = 0.05;               // visual scale for wall band; pragmatic for h-1's ~10 m × 1024 px
+const STANDARD_THICKNESS_MM = [115, 175, 240, 300, 365] as const;
 const TAGS: SceneTag[] = ['grundriss', 'ansicht', 'schnitt', 'sonstiges', 'nicht_klassifiziert'];
 const TAG_LABEL: Record<SceneTag, string> = {
   grundriss: 'Grundriss',
@@ -155,6 +157,7 @@ export function AnnotatePage() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const undoStackRef = useRef<Snapshot[]>([]);
+  const redoStackRef = useRef<Snapshot[]>([]);
 
   // Drawing state.
   // - pendingStart: first click of a 2-click tool (wall, dim-distance,
@@ -201,23 +204,38 @@ export function AnnotatePage() {
     return () => window.removeEventListener('beforeunload', beforeUnload);
   }, [dirty]);
 
-  // ── snapshot / undo helpers ───────────────────────────────────────────────
+  // ── snapshot / undo / redo helpers ────────────────────────────────────────
+  // Any new action that pushes onto undo clears the redo stack — standard
+  // "branch on edit" semantics.
   const pushUndo = useCallback(() => {
     undoStackRef.current.push({ labels: [...labels], scene_tag: sceneTag });
     if (undoStackRef.current.length > UNDO_LIMIT) {
       undoStackRef.current.shift();
     }
+    redoStackRef.current = [];
   }, [labels, sceneTag]);
 
   const undo = useCallback(() => {
     const snap = undoStackRef.current.pop();
     if (!snap) return;
+    redoStackRef.current.push({ labels: [...labels], scene_tag: sceneTag });
     setLabels(snap.labels);
     setSceneTag(snap.scene_tag);
     setDirty(true);
     setSelectedId(null);
     setPendingStart(null);
-  }, []);
+  }, [labels, sceneTag]);
+
+  const redo = useCallback(() => {
+    const snap = redoStackRef.current.pop();
+    if (!snap) return;
+    undoStackRef.current.push({ labels: [...labels], scene_tag: sceneTag });
+    setLabels(snap.labels);
+    setSceneTag(snap.scene_tag);
+    setDirty(true);
+    setSelectedId(null);
+    setPendingStart(null);
+  }, [labels, sceneTag]);
 
   // ── coordinate helpers ────────────────────────────────────────────────────
   const eventToSvgPoint = useCallback((e: ReactPointerEvent<SVGSVGElement> | PointerEvent): Point | null => {
@@ -630,7 +648,8 @@ export function AnnotatePage() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        undo();
+        if (e.shiftKey) redo();
+        else undo();
         return;
       }
       if (e.key === 'Escape') {
@@ -666,6 +685,19 @@ export function AnnotatePage() {
           deleteLabel(selectedId);
         }
       }
+      // Wall-only: ← / → adjusts thickness (10 mm step, 50 with Shift).
+      // For other types these will fall through to drawing-tool hotkeys
+      // (none of which currently use bare arrow keys).
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && selectedId) {
+        const sel = labels.find((l) => l.id === selectedId);
+        if (sel?.type === 'wall') {
+          e.preventDefault();
+          const step = e.shiftKey ? 50 : 10;
+          const delta = e.key === 'ArrowRight' ? step : -step;
+          const next = Math.max(50, Math.min(800, (sel.attributes.thickness_mm ?? 365) + delta));
+          updateLabel(sel.id, { attributes: { thickness_mm: next } } as Partial<Label>);
+        }
+      }
       // Tool hotkeys — only switch if the new tool is allowed under the
       // current scene_tag.
       const allowed = TOOLS_BY_TAG[sceneTag];
@@ -684,7 +716,7 @@ export function AnnotatePage() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [save, undo, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag]);
+  }, [save, undo, redo, selectedId, deleteLabel, resetView, tool, pendingPolyline, pushUndo, sceneTag, labels, updateLabel]);
 
   const selectedLabel = labels.find((l) => l.id === selectedId) ?? null;
   const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`;
@@ -828,15 +860,20 @@ export function AnnotatePage() {
                 setTool('select');
               }}
               onMutateGeometry={(newGeom) => {
-                // Direct-manipulation drag: mutate this label's geometry. We
-                // push undo on the first drag-step of a session; subsequent
-                // pointermove updates within the same drag don't push more.
-                // (For now, push every commit — drag tracker handles the
-                // "first step" condition internally below.)
                 setLabels((prev) =>
                   prev.map((x) =>
                     x.id === l.id
                       ? ({ ...x, geometry: newGeom, updated_at: nowIso() } as Label)
+                      : x,
+                  ),
+                );
+                setDirty(true);
+              }}
+              onMutateAttributes={(newAttrs) => {
+                setLabels((prev) =>
+                  prev.map((x) =>
+                    x.id === l.id
+                      ? ({ ...x, attributes: { ...x.attributes, ...newAttrs }, updated_at: nowIso() } as Label)
                       : x,
                   ),
                 );
@@ -1123,6 +1160,7 @@ function LabelGlyph({
   eventToSvgPoint,
   onSelect,
   onMutateGeometry,
+  onMutateAttributes,
   onStartDrag,
 }: {
   label: Label;
@@ -1132,6 +1170,7 @@ function LabelGlyph({
   eventToSvgPoint: (e: ReactPointerEvent<SVGSVGElement> | PointerEvent) => Point | null;
   onSelect: () => void;
   onMutateGeometry: (newGeom: Label['geometry']) => void;
+  onMutateAttributes: (newAttrs: Record<string, unknown>) => void;
   onStartDrag: () => void;
 }) {
   // Color per type — selected always takes precedence; in link mode the
@@ -1258,12 +1297,18 @@ function LabelGlyph({
       break;
     }
     case 'wall': {
+      // M9: walls render as a perpendicular BAND, not a fat stroke. The
+      // band's width = thickness_mm * WALL_PX_PER_MM, computed perpendicular
+      // to the wall axis. The axis line is drawn on top so the wall direction
+      // stays legible at any thickness.
       const { start, end } = label.geometry;
-      const th = (label.attributes.thickness_mm ?? 365) / 4;
+      const thicknessMm = label.attributes.thickness_mm ?? 365;
+      const path = wallBandPath(start, end, thicknessMm, WALL_PX_PER_MM);
       body = (
         <g {...bodyProps}>
-          <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]}
-                stroke={stroke} strokeWidth={Math.max(4, th)} strokeOpacity={0.35} />
+          {path && (
+            <path d={path} fill={stroke} fillOpacity={0.18} stroke={stroke} strokeWidth={sw} />
+          )}
           <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={stroke} strokeWidth={sw} />
         </g>
       );
@@ -1324,6 +1369,63 @@ function LabelGlyph({
   // tools shouldn't show edit chrome).
   const handles: HandleSpec[] = selected && tool === 'select' ? handlesFor(label) : [];
 
+  // Wall-specific thickness handle: perpendicular drag adjusts thickness_mm.
+  const showThicknessHandle = selected && tool === 'select' && label.type === 'wall';
+  const thicknessHandlePos = showThicknessHandle
+    ? wallThicknessHandlePos(
+        label.geometry.start,
+        label.geometry.end,
+        label.attributes.thickness_mm ?? 365,
+        WALL_PX_PER_MM,
+      )
+    : null;
+
+  const onThicknessHandleDown = (e: React.PointerEvent<SVGElement>) => {
+    if (label.type !== 'wall') return;
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    const start = eventToSvgPoint(e as unknown as ReactPointerEvent<SVGSVGElement>);
+    if (!start) return;
+    const wall = label;
+    const dx = wall.geometry.end[0] - wall.geometry.start[0];
+    const dy = wall.geometry.end[1] - wall.geometry.start[1];
+    const len = Math.hypot(dx, dy);
+    if (len === 0) return;
+    const perpX = -dy / len;
+    const perpY = dx / len;
+    const startThickness = wall.attributes.thickness_mm ?? 365;
+    let pushed = false;
+    const onMove = (mv: PointerEvent) => {
+      const pt = eventToSvgPoint(mv);
+      if (!pt) return;
+      // Projection of cursor delta onto the perpendicular axis.
+      const ddx = pt[0] - start[0];
+      const ddy = pt[1] - start[1];
+      const projPx = ddx * perpX + ddy * perpY;
+      // Δthickness_mm = 2 × projection / pxPerMm (handle sits at half-thickness)
+      const deltaMm = (2 * projPx) / WALL_PX_PER_MM;
+      let next = Math.max(50, Math.min(800, startThickness + deltaMm));
+      // Snap to standard residential thicknesses if within 5 mm.
+      for (const std of STANDARD_THICKNESS_MM) {
+        if (Math.abs(next - std) < 5) {
+          next = std;
+          break;
+        }
+      }
+      if (!pushed) {
+        onStartDrag();
+        pushed = true;
+      }
+      onMutateAttributes({ thickness_mm: Math.round(next) });
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   return (
     <g>
       {body}
@@ -1339,6 +1441,21 @@ function LabelGlyph({
           <circle cx={h.pt[0]} cy={h.pt[1]} r={3} fill="#dc2626" />
         </g>
       ))}
+      {thicknessHandlePos && (
+        <g style={{ cursor: 'ns-resize' }} onPointerDown={onThicknessHandleDown}>
+          {/* small square so it reads as "different from endpoint handles" */}
+          <rect
+            x={thicknessHandlePos[0] - 8} y={thicknessHandlePos[1] - 8}
+            width={16} height={16}
+            fill="white" stroke="#7c3aed" strokeWidth={2.5} rx={2}
+          />
+          <rect
+            x={thicknessHandlePos[0] - 3} y={thicknessHandlePos[1] - 3}
+            width={6} height={6}
+            fill="#7c3aed"
+          />
+        </g>
+      )}
     </g>
   );
 }
@@ -1487,6 +1604,42 @@ function LinkVisuals({ labels, selectedId }: { labels: Label[]; selectedId: stri
       ))}
     </g>
   );
+}
+
+// Compute a wall's perpendicular band as an SVG path. Returns '' for a
+// degenerate zero-length wall (avoids NaN in the path string).
+function wallBandPath(start: Point, end: Point, thicknessMm: number, pxPerMm: number): string {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return '';
+  const ux = dx / len;
+  const uy = dy / len;
+  // Perpendicular unit vector (90° CCW)
+  const px = -uy;
+  const py = ux;
+  const half = (thicknessMm * pxPerMm) / 2;
+  const a: Point = [start[0] + px * half, start[1] + py * half];
+  const b: Point = [end[0] + px * half, end[1] + py * half];
+  const c: Point = [end[0] - px * half, end[1] - py * half];
+  const d: Point = [start[0] - px * half, start[1] - py * half];
+  return `M ${a[0]},${a[1]} L ${b[0]},${b[1]} L ${c[0]},${c[1]} L ${d[0]},${d[1]} Z`;
+}
+
+// Position of the wall's perpendicular thickness handle: midpoint + perp
+// vector × (current thickness / 2). The user drags this handle perpendicular
+// to the wall axis to grow / shrink the band.
+function wallThicknessHandlePos(start: Point, end: Point, thicknessMm: number, pxPerMm: number): Point | null {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return null;
+  const ux = dx / len;
+  const uy = dy / len;
+  const px = -uy;
+  const py = ux;
+  const half = (thicknessMm * pxPerMm) / 2;
+  return [(start[0] + end[0]) / 2 + px * half, (start[1] + end[1]) / 2 + py * half];
 }
 
 const LABEL_COLORS: Record<Label['type'], string> = {
@@ -1865,25 +2018,49 @@ function DimensionNumberFields({
 }
 
 function WallFields({ label, onChange }: { label: WallLabel; onChange: (p: Partial<Label>) => void }) {
+  const t = label.attributes.thickness_mm ?? 365;
+  const set = (mm: number) => onChange({ attributes: { thickness_mm: mm } } as Partial<Label>);
   return (
     <section className="space-y-2">
       <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Wand</h4>
       <label className="block">
-        <span className="text-[0.7rem] text-muted">Wandstärke (mm)</span>
+        <span className="text-[0.7rem] text-muted flex items-baseline gap-2">
+          Wandstärke <span className="font-mono text-zinc-900">{t} mm</span>
+        </span>
         <input
-          type="number"
-          value={label.attributes.thickness_mm ?? ''}
-          onChange={(e) =>
-            onChange({
-              attributes: {
-                thickness_mm: e.target.value === '' ? null : Number(e.target.value),
-              },
-            } as Partial<Label>)
-          }
-          className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
-          placeholder="365"
+          type="range" min={50} max={500} step={5}
+          value={t}
+          onChange={(e) => set(Number(e.target.value))}
+          className="w-full accent-violet-600"
         />
       </label>
+      <input
+        type="number"
+        value={label.attributes.thickness_mm ?? ''}
+        onChange={(e) => set(e.target.value === '' ? 0 : Number(e.target.value))}
+        className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
+        placeholder="365"
+      />
+      <div className="flex gap-1 flex-wrap">
+        {STANDARD_THICKNESS_MM.map((mm) => (
+          <button
+            key={mm}
+            type="button"
+            onClick={() => set(mm)}
+            className={`px-2 py-1 rounded text-[0.7rem] font-mono ${
+              t === mm
+                ? 'bg-violet-600 text-white font-semibold'
+                : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+            }`}
+          >
+            {mm}
+          </button>
+        ))}
+      </div>
+      <p className="text-[0.65rem] text-muted leading-snug">
+        Tipp: Lila Vierecks-Handle perpendikulär zur Wandachse zieht die
+        Wandstärke direkt auf der Zeichnung. ← / → ändert ±10 mm (Shift = 50 mm).
+      </p>
     </section>
   );
 }
