@@ -1489,6 +1489,54 @@ export function AnnotatePage() {
             </pattern>
           </defs>
           <image href={imageUrl} x={0} y={0} width={imageSize[0]} height={imageSize[1]} />
+          {/* Implied height-bezugslinien — for every Höhenkote, draw a
+              thin dashed horizontal line across the canvas at its
+              y-coordinate. The line is IMPLIED by the Höhenkote —
+              labeling it with datum='first' IS labeling the First level.
+              The user never has to draw the line itself.
+              The Bezugshöhe (value=0) gets a much more prominent line:
+              solid amber instead of dashed pink, so the ±0,00 anchor
+              reads at a glance. */}
+          {labels.map((l) => {
+            if (l.type !== 'height_mark') return null;
+            const datum = l.attributes.datum;
+            const value = l.attributes.value_mm;
+            // Only draw the implied line if there's SOMETHING to convey —
+            // either a datum (which type of height) or a value of 0
+            // (the Bezugshöhe).
+            if (!datum && value !== 0) return null;
+            const isBezug = value === 0;
+            const [, yy] = l.geometry.anchor;
+            const sw = (isBezug ? 1.8 : 1) / Math.max(0.1, view.w / imageSize[0]);
+            const fontPx = (isBezug ? 13 : 11) * (view.w / imageSize[0]);
+            const labelText = isBezug
+              ? `±0,00${datum && DATUM_LABELS[datum] ? ` · ${DATUM_LABELS[datum]}` : ''}`
+              : (datum && DATUM_LABELS[datum]) || '';
+            const lineColor = isBezug ? '#f59e0b' : '#be185d';
+            return (
+              <g key={`implied-${l.id}`} pointerEvents="none">
+                <line
+                  x1={0} y1={yy} x2={imageSize[0]} y2={yy}
+                  stroke={lineColor} strokeWidth={sw}
+                  strokeDasharray={isBezug ? '0' : '3,5'}
+                  opacity={isBezug ? 0.7 : 0.35}
+                />
+                {labelText && (
+                  <text
+                    x={6} y={yy - 4}
+                    fill={lineColor}
+                    fontFamily="ui-monospace, monospace"
+                    fontSize={fontPx}
+                    fontWeight={isBezug ? 800 : 600}
+                    opacity={isBezug ? 0.95 : 0.7}
+                    style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}
+                  >
+                    {labelText}
+                  </text>
+                )}
+              </g>
+            );
+          })}
           {/* Linking visuals — dashed lines between number ↔ distance pairs */}
           <LinkVisuals labels={labels} selectedId={selectedId} />
           {/* Existing labels */}
@@ -2545,14 +2593,41 @@ function LabelGlyph({
     }
     case 'height_mark': {
       const [x, y] = label.geometry.anchor;
+      const datum = label.attributes.datum ?? null;
+      const value = label.attributes.value_mm;
+      // A Höhenkote with value=0 is the Bezugshöhe (±0,00) — the anchor
+      // that every other height is read relative to. Render it with a
+      // prominent visual: filled amber triangle + "±0,00" label.
+      const isBezug = value === 0;
+      const triFill = isBezug ? '#f59e0b' : fill;
+      const triStroke = isBezug ? '#b45309' : stroke;
+      const triSw = isBezug ? sw + 1 : sw;
+      const valueText = value != null
+        ? (value === 0
+            ? '±0,00'
+            : `${value > 0 ? '+' : ''}${(value / 1000).toFixed(2).replace('.', ',')} m`)
+        : null;
+      const fullLabel = [datum ? DATUM_LABELS[datum] ?? datum : '', valueText]
+        .filter(Boolean).join(' ');
       body = (
         <g {...bodyProps}>
+          {isBezug && (
+            // Outer ring for the Bezugshöhe — reads as "this one is special".
+            <polygon
+              points={`${x},${y + 3} ${x - 14},${y - 19} ${x + 14},${y - 19}`}
+              fill="none" stroke="#f59e0b" strokeWidth={triSw + 1}
+              strokeDasharray="3,2" opacity={0.7}
+            />
+          )}
           <polygon points={`${x},${y} ${x - 10},${y - 16} ${x + 10},${y - 16}`}
-                   fill={fill} stroke={stroke} strokeWidth={sw} />
-          {label.attributes.value_mm != null && (
-            <text x={x + 14} y={y - 6} fill={stroke} fontFamily="ui-monospace, monospace"
-                  fontSize={12} style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}>
-              {(label.attributes.value_mm / 1000).toFixed(2)} m
+                   fill={triFill} stroke={triStroke} strokeWidth={triSw} />
+          {fullLabel && (
+            <text x={x + 14} y={y - 6} fill={isBezug ? '#b45309' : stroke}
+                  fontFamily="ui-monospace, monospace"
+                  fontSize={isBezug ? 15 : 13}
+                  fontWeight={isBezug ? 800 : 600}
+                  style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}>
+              {fullLabel}
             </text>
           )}
         </g>
@@ -3113,6 +3188,22 @@ const LABEL_COLORS: Record<Label['type'], string> = {
   view_opening: '#ea580c',
   component_line: '#0891b2',
   height_mark: '#be185d',
+};
+
+// Display labels for Höhenkote datums — used by the glyph and the implied
+// horizontal-line layer. A Höhenkote with datum='first' renders as
+// "First +12,5 m" on the canvas; that single label encodes both "this is
+// the Firsthöhe" and "this is the value" — no separate component_line
+// needed.
+const DATUM_LABELS: Record<string, string> = {
+  first:     'First',
+  traufe:    'Traufe',
+  gelaende:  'Gelände',
+  geschoss:  'Geschoss',
+  ok_ffb:    'OK FFB',
+  sockel:    'Sockel',
+  kniestock: 'Kniestock',
+  other:     '',
 };
 
 function Tick({
@@ -3847,9 +3938,24 @@ function ComponentLineFields({
 function HeightMarkFields({
   label, onChange,
 }: { label: HeightMarkLabel; onChange: (p: Partial<Label>) => void }) {
+  const isBezug = label.attributes.value_mm === 0;
   return (
     <section className="space-y-2">
       <h4 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">Höhenkote</h4>
+      <button
+        type="button"
+        onClick={() => onChange({
+          attributes: { ...label.attributes, value_mm: isBezug ? null : 0 },
+        } as Partial<Label>)}
+        className={`w-full px-2 py-1.5 rounded text-[0.78rem] font-medium border transition ${
+          isBezug
+            ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+            : 'bg-white border-border text-zinc-700 hover:bg-zinc-50'
+        }`}
+        title="Eine Höhenkote pro Szene sollte die Bezugshöhe (±0,00) sein — alle anderen werden relativ dazu gelesen."
+      >
+        {isBezug ? '✓ Bezugshöhe (±0,00)' : 'Als ±0,00 markieren (Bezugshöhe)'}
+      </button>
       <label className="block">
         <span className="text-[0.7rem] text-muted">Datum (welche Höhe?)</span>
         <select
@@ -3875,7 +3981,7 @@ function HeightMarkFields({
           value={label.attributes.value_mm ?? ''}
           onChange={(e) => onChange({ attributes: { ...label.attributes, value_mm: e.target.value === '' ? null : Number(e.target.value) } } as Partial<Label>)}
           className="w-full px-2 py-1 rounded border border-border text-[0.8rem]"
-          placeholder="z. B. 12500 (= 12,5 m)"
+          placeholder="z. B. 12500 (= 12,5 m). 0 = Bezugshöhe."
         />
       </label>
     </section>
