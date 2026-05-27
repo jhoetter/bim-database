@@ -87,12 +87,18 @@ function fuseEndpoint(
  *
  * Only fires on label types whose geometry is {start, end}: wall,
  * dimensioned_distance, component_line (handled segment-by-segment by caller).
+ *
+ * @param skipOrtho When true, only endpoint-fuse runs — no ortho-snapping
+ *   of the line direction. Caller passes this when the user has disabled
+ *   ortho-snap globally (Q-off) but might still want endpoint-fuse, which
+ *   is structural (wall corners meeting) and orientation-agnostic.
  */
 export function tidyLineLabel(
   label: Label,
   others: Label[],
   imageRadiusPx: number,
   referenceAngleDeg: number = 0,
+  skipOrtho = false,
 ): { label: Label; orthoChanged: boolean; endpointFused: boolean } {
   const g: any = label.geometry;
   if (!('start' in g) || !('end' in g)) {
@@ -104,11 +110,14 @@ export function tidyLineLabel(
   let endpointFused = false;
 
   // 1. Ortho-tidy: align near-ortho lines to the building axis (or image
-  // axis if no axis detected). Catches the cases the live snap missed.
-  const fitted = fitOrtho(start, end, referenceAngleDeg);
-  if (fitted.changed) {
-    end = fitted.end;
-    orthoChanged = true;
+  // axis if no axis detected). Skipped when the user has disabled ortho-
+  // snap — they explicitly DON'T want their lines auto-straightened.
+  if (!skipOrtho) {
+    const fitted = fitOrtho(start, end, referenceAngleDeg);
+    if (fitted.changed) {
+      end = fitted.end;
+      orthoChanged = true;
+    }
   }
 
   // 2. Endpoint-fuse: snap each endpoint to a nearby existing endpoint.

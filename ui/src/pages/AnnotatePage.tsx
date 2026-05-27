@@ -950,11 +950,15 @@ export function AnnotatePage() {
           } as WallLabel;
         }
         // Post-commit tidy: align near-ortho lines to exact ortho + fuse
-        // endpoints within snap-radius of existing endpoints. K2: Alt held
-        // → skip tidy entirely (user explicitly opted out of helpers).
+        // endpoints within snap-radius of existing endpoints.
+        //   • Alt held → skip BOTH ortho-tidy and endpoint-fuse (per K2,
+        //     user wants no helpers at all).
+        //   • Q-off (adaptiveAxisEnabled=false) → skip ortho-tidy only;
+        //     endpoint-fuse still runs because it's structural (wall corners
+        //     meeting) and has nothing to do with ortho preference.
         const tidyResult = altHeld
           ? { label, orthoChanged: false, endpointFused: false }
-          : tidyLineLabel(label, labels, imageSnapRadiusForView, effectiveAxisDeg);
+          : tidyLineLabel(label, labels, imageSnapRadiusForView, effectiveAxisDeg, !adaptiveAxisEnabled);
         label = tidyResult.label;
         if (tidyResult.orthoChanged || tidyResult.endpointFused) {
           const bits: string[] = [];

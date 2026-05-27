@@ -8,7 +8,92 @@
     827,
     608
   ],
-  "labels": [],
+  "labels": [
+    {
+      "id": "605e8f76-af71-470d-b448-1e414ac9bcfa",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          244.6320037841797,
+          53.83180618286133
+        ],
+        "end": [
+          274.8261413574219,
+          421.68170166015625
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T21:26:25.132Z",
+      "updated_at": "2026-05-27T21:26:25.133Z"
+    },
+    {
+      "id": "bcb94ec4-36ae-4225-bf5a-f37c44400480",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          274.8261413574219,
+          421.68170166015625
+        ],
+        "end": [
+          687.7689208984375,
+          398.5483703613281
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T21:26:28.384Z",
+      "updated_at": "2026-05-27T21:26:28.384Z"
+    },
+    {
+      "id": "7cb45ee6-3e69-4467-9a7a-caaa60081bd2",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          687.7689208984375,
+          398.5483703613281
+        ],
+        "end": [
+          658.3095631762668,
+          39.65016925714838
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T21:26:30.113Z",
+      "updated_at": "2026-05-27T21:26:30.113Z"
+    },
+    {
+      "id": "77192f89-244b-4b85-97ac-bc214e4552a3",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          658.3095631762668,
+          39.65016925714838
+        ],
+        "end": [
+          244.6320037841797,
+          53.83180618286133
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 365
+      },
+      "status": "readable",
+      "relations": [],
+      "created_at": "2026-05-27T21:26:35.472Z",
+      "updated_at": "2026-05-27T21:26:35.472Z"
+    }
+  ],
   "annotated_by": "jhoetter",
-  "annotated_at": "2026-05-27T18:46:43.710Z"
+  "annotated_at": "2026-05-27T21:27:05.480Z"
 }
