@@ -1965,31 +1965,19 @@ export function AnnotatePage() {
           updateLabel(sel.id, { attributes: { thickness_mm: next } } as Partial<Label>);
         }
       }
-      // Tool hotkeys — only switch if the new tool is allowed under the
-      // current scene_tag (or 'allTools' override is on).
-      const allowed = allTools ? TOOLS_BY_TAG.sonstiges : TOOLS_BY_TAG[sceneTag];
-      const trySetTool = (t: Tool) => {
-        if (allowed.includes(t)) setTool(t);
-      };
-      if (e.key === 'd') trySetTool('dimensioned_distance');
-      if (e.key === 'n') trySetTool('dimension_number');
-      if (e.key === 'w') trySetTool('wall');
-      if (e.key === 'o') trySetTool(sceneTag === 'grundriss' ? 'floorplan_opening' : 'view_opening');
-      if (e.key === 'l') trySetTool('component_line');
-      if (e.key === 'h' && !e.metaKey && !e.ctrlKey) trySetTool('height_mark');
-      if (e.key === 's' && !e.metaKey && !e.ctrlKey) trySetTool('select');
-      if (e.key === 'r') resetView();
-      if (e.key === '+' || (e.key === '=' && !e.shiftKey)) { e.preventDefault(); zoomBy(0.7); }
-      if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(1.4); }
-      if (e.key === '0') { e.preventDefault(); resetView(); }
-      // Quick re-classify the currently-selected opening label. Lowercase
-      // letters only, no modifiers — these collide with no other shortcut
-      // (W/H/L/O/S are the tool hotkeys; F/T/G/D/A/Z are free).
+      // K3 context-aware letter dispatch.
+      // BEFORE the tool letter check below: if a single label is selected
+      // and the typed letter is a reclassify hotkey for THAT label's type,
+      // do the reclassify and return — never reach the tool switch. So
+      // pressing D with a Bauteillinie selected reclassifies to Dach and
+      // does NOT also switch to the Bemaßung tool. Letters with no
+      // context action for the selected label type fall through to the
+      // tool-switch block, which still fires.
       const openingHotkeys: Record<string, string> = {
         f: 'window',
         t: 'door',
-        g: 'dormer',     // floorplan has no dormer; falls back to other below
-        d: 'skylight',   // floorplan: passage
+        g: 'dormer',
+        d: 'skylight',
         a: 'garage_door',
         z: 'other',
       };
@@ -2018,8 +2006,6 @@ export function AnnotatePage() {
           e.preventDefault();
           return;
         }
-        // component_line hotkeys: W/D/Z. Conflict-free against the opening
-        // family (different label type, mutually exclusive selection).
         if (sel && sel.type === 'component_line' && lineHotkeys[e.key]) {
           updateLabel(sel.id, {
             attributes: { ...sel.attributes, line_kind: lineHotkeys[e.key] } as never,
@@ -2029,6 +2015,25 @@ export function AnnotatePage() {
           return;
         }
       }
+
+      // Tool hotkeys — only switch if the new tool is allowed under the
+      // current scene_tag (or 'allTools' override is on). Reached only
+      // when no context-reclassify above already handled the key.
+      const allowed = allTools ? TOOLS_BY_TAG.sonstiges : TOOLS_BY_TAG[sceneTag];
+      const trySetTool = (t: Tool) => {
+        if (allowed.includes(t)) setTool(t);
+      };
+      if (e.key === 'd') trySetTool('dimensioned_distance');
+      if (e.key === 'n') trySetTool('dimension_number');
+      if (e.key === 'w') trySetTool('wall');
+      if (e.key === 'o') trySetTool(sceneTag === 'grundriss' ? 'floorplan_opening' : 'view_opening');
+      if (e.key === 'l') trySetTool('component_line');
+      if (e.key === 'h' && !e.metaKey && !e.ctrlKey) trySetTool('height_mark');
+      if (e.key === 's' && !e.metaKey && !e.ctrlKey) trySetTool('select');
+      if (e.key === 'r') resetView();
+      if (e.key === '+' || (e.key === '=' && !e.shiftKey)) { e.preventDefault(); zoomBy(0.7); }
+      if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(1.4); }
+      if (e.key === '0') { e.preventDefault(); resetView(); }
 
       // M5.3 status hotkeys — flip the selected label's status. 1-4 are
       // unused by tool shortcuts; numeric keys read as "rank" which fits
