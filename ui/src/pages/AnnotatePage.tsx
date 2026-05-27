@@ -1571,9 +1571,9 @@ export function AnnotatePage() {
         />
       }
     >
-      <div className="h-full bg-zinc-800 relative overflow-hidden">
-        {loading && <p className="absolute top-4 left-4 text-white text-sm">Lade Labels…</p>}
-        {error && <p className="absolute top-4 left-4 text-red-300 text-sm">Fehler: {error.message}</p>}
+      <div className="h-full bg-white relative overflow-hidden">
+        {loading && <p className="absolute top-4 left-4 text-zinc-700 text-sm">Lade Labels…</p>}
+        {error && <p className="absolute top-4 left-4 text-red-700 text-sm">Fehler: {error.message}</p>}
         <svg
           ref={svgRef}
           viewBox={viewBox}
@@ -1867,52 +1867,40 @@ export function AnnotatePage() {
           <br />
           Zoom: nur +/-/FIT (oder Tasten +/-/0) · Pan: 2-Finger-Scroll oder Shift+Drag
         </div>
-        {/* Image-display controls — opacity + color/gray toggle. Sit just
-            above the zoom panel so all canvas-display knobs live together
-            in the bottom-right. Both settings persist across images and
-            houses (localStorage). */}
-        <div className="absolute bottom-32 right-3 w-44 bg-white/95 border border-zinc-300 rounded shadow-md p-2 space-y-1.5 text-[0.7rem]">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-zinc-700 font-medium">Bildansicht</span>
-            <button
-              type="button"
-              onClick={() => setImgGrayscale((v) => !v)}
-              className={`px-1.5 py-0.5 rounded text-[0.65rem] font-medium border transition ${
-                imgGrayscale
-                  ? 'bg-zinc-800 text-white border-zinc-800'
-                  : 'bg-white text-zinc-700 border-border hover:bg-zinc-50'
-              }`}
-              title="Bild in Graustufen oder Farbe anzeigen"
-            >
-              {imgGrayscale ? 'Grau' : 'Farbe'}
-            </button>
-          </div>
-          <label className="flex items-center gap-2">
-            <span className="text-[0.6rem] text-zinc-500 w-8 shrink-0">Op</span>
+        {/* Canvas-display controls — opacity slider + color/gray toggle +
+            zoom buttons in ONE horizontal palette at the bottom-right.
+            Both image settings persist across images and houses
+            (localStorage). Canvas background is white so lowering the
+            opacity correctly fades the image to WHITE (the previous
+            zinc-800 background made it fade to dark which read wrong). */}
+        <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-white/95 border border-zinc-300 rounded shadow-md px-2 py-1">
+          <button
+            type="button"
+            onClick={() => setImgGrayscale((v) => !v)}
+            className={`px-2 py-1 rounded text-[0.65rem] font-medium border transition ${
+              imgGrayscale
+                ? 'bg-zinc-800 text-white border-zinc-800'
+                : 'bg-white text-zinc-700 border-border hover:bg-zinc-50'
+            }`}
+            title="Bild in Graustufen oder Farbe anzeigen"
+          >
+            {imgGrayscale ? 'Grau' : 'Farbe'}
+          </button>
+          <label className="flex items-center gap-1.5 ml-1">
+            <span className="text-[0.6rem] text-zinc-500">Op</span>
             <input
               type="range"
               min={0.1} max={1} step={0.05}
               value={imgOpacity}
               onChange={(e) => setImgOpacity(Number(e.target.value))}
-              className="flex-1 accent-accent"
-              title="Bilddeckkraft — dimmen, wenn das Bild die Labels überdeckt"
+              className="w-24 accent-accent"
+              title="Bilddeckkraft — Bild auf Weiß ausblenden, um Labels gegen den weißen Canvas zu prüfen"
             />
             <span className="text-[0.6rem] tabular-nums text-zinc-500 w-8 text-right">
               {Math.round(imgOpacity * 100)}%
             </span>
           </label>
-        </div>
-        {/* Zoom controls — bottom-right corner. Visible alternative to the
-            wheel/trackpad gestures and the +/-/0 hotkeys. */}
-        <div className="absolute bottom-3 right-3 flex flex-col gap-1 bg-white/95 border border-zinc-300 rounded shadow-md p-1">
-          <button
-            type="button"
-            onClick={() => zoomBy(0.7)}
-            className="w-7 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-800 text-lg leading-none"
-            title="Hereinzoomen (+)"
-          >
-            +
-          </button>
+          <div className="mx-1 w-px h-5 bg-zinc-300" aria-hidden="true" />
           <button
             type="button"
             onClick={() => zoomBy(1.4)}
@@ -1923,8 +1911,16 @@ export function AnnotatePage() {
           </button>
           <button
             type="button"
+            onClick={() => zoomBy(0.7)}
+            className="w-7 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-800 text-lg leading-none"
+            title="Hereinzoomen (+)"
+          >
+            +
+          </button>
+          <button
+            type="button"
             onClick={resetView}
-            className="w-7 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-700 text-[0.6rem] font-semibold leading-none"
+            className="w-9 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-700 text-[0.6rem] font-semibold leading-none"
             title="Ansicht zurücksetzen (0/R)"
           >
             FIT
