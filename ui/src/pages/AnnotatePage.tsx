@@ -42,6 +42,7 @@ import { labelColor, LEGEND } from '../lib/colors';
 import { detectClosedRegions } from '../lib/closed_regions';
 import { buildConnectivity, jointMembersAt } from '../lib/connectivity';
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
+import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
 import { collectRefineIssues, type RefineIssue } from '../lib/refine';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
@@ -490,6 +491,13 @@ export function AnnotatePage() {
 
   // Editable state — initialised from `data` once it loads.
   const [labels, setLabels] = useState<Label[]>([]);
+  // X5: transient client-side provenance for cross-scene auto-fills.
+  // `labelId → "{kind} aus {sourceSceneFile}"`. Cleared when (a) the user
+  // edits the label's value (so the badge disappears once they verify or
+  // override), (b) the label is deleted, (c) the scene navigates away.
+  // Not persisted — lives only for the current annotation session so the
+  // user can SEE that a value came from elsewhere and undo if they want.
+  const [crossSceneProvenance, setCrossSceneProvenance] = useState<Map<string, string>>(() => new Map());
   const [sceneTag, setSceneTag] = useState<SceneTag>('nicht_klassifiziert');
   const [imageSize, setImageSize] = useState<[number, number]>([1024, 1024]);
   // Multi-select via Set (M11). Single-label code paths use the helper
@@ -708,6 +716,7 @@ export function AnnotatePage() {
     setPendingStart(null);
     setPendingPolyline([]);
     setWallChainAnchor(null);
+    setCrossSceneProvenance(new Map());
   }, [scope, key, decodedFile]);
   // X7: clear half-drawn state when the user switches tools. A pending
   // wall chain or polyline shouldn't leak into the next tool's behavior.
@@ -912,12 +921,42 @@ export function AnnotatePage() {
         // For dim_distance, re-run the M1 pick over ALL dims in the scene
         // after adding the new one — the new dim might be the new longest
         // in its orientation. Toast if THIS dim ended up flagged.
-        const labelsAfterAdd = [...labels, label];
-        const finalLabels = tool === 'dimensioned_distance'
-          ? recomputeM1References(labelsAfterAdd)
-          : labelsAfterAdd;
+        let labelsAfterAdd = [...labels, label];
+        if (tool === 'dimensioned_distance') {
+          labelsAfterAdd = recomputeM1References(labelsAfterAdd);
+        }
+        // X4: when the new dim is the now-promoted M1 reference AND the
+        // user hasn't entered value_mm yet, pre-fill from the house-wide
+        // building dims cache (same sceneTag + orientation).
+        let crossSceneNote: string | null = null;
+        if (tool === 'dimensioned_distance') {
+          const me = labelsAfterAdd.find((l) => l.id === label.id) as DimensionedDistanceLabel | undefined;
+          if (me?.attributes.is_reference && me.attributes.value_mm == null) {
+            const orient = dimOrientation(effStart, effEnd);
+            if (orient) {
+              const cached = getBuildingDim(scope, key, sceneTag, orient);
+              if (cached) {
+                labelsAfterAdd = labelsAfterAdd.map((l) =>
+                  l.id === label.id
+                    ? ({ ...l, attributes: { ...l.attributes, value_mm: cached.value_mm } } as Label)
+                    : l,
+                );
+                crossSceneNote = `Bezug ${orient === 'horizontal' ? 'H' : 'V'} = ${(cached.value_mm / 1000).toFixed(2).replace('.', ',')} m aus „${cached.from_scene_file}"`;
+              }
+            }
+          }
+        }
+        const finalLabels = labelsAfterAdd;
         setLabels(finalLabels);
         setDirty(true);
+        if (crossSceneNote) {
+          setCrossSceneProvenance((m) => {
+            const next = new Map(m);
+            next.set(label.id, crossSceneNote!);
+            return next;
+          });
+          addToast(`↻ ${crossSceneNote}`, 'success', 2500);
+        }
         if (tool === 'dimensioned_distance') {
           const me = finalLabels.find((l) => l.id === label.id) as
             | DimensionedDistanceLabel | undefined;
@@ -926,11 +965,13 @@ export function AnnotatePage() {
             const dy2 = effEnd[1] - effStart[1];
             const a2 = Math.abs((Math.atan2(dy2, dx2) * 180) / Math.PI);
             const horiz = a2 < 15 || a2 > 165;
-            addToast(
-              horiz ? '↔ längste horizontale → Bezug (M1)' : '↕ längste vertikale → Bezug (M1)',
-              'success',
-              2500,
-            );
+            if (!crossSceneNote) {
+              addToast(
+                horiz ? '↔ längste horizontale → Bezug (M1)' : '↕ längste vertikale → Bezug (M1)',
+                'success',
+                2500,
+              );
+            }
           }
         }
         // Wall chaining: keep drawing — the next wall starts where this one
@@ -1481,6 +1522,14 @@ export function AnnotatePage() {
   // ── label mutation helpers ────────────────────────────────────────────────
   const updateLabel = useCallback((id: string, patch: Partial<Label>) => {
     pushUndo();
+    // X5: any user-initiated edit clears the provenance badge — the value
+    // is no longer purely "from another scene" once the user has touched it.
+    setCrossSceneProvenance((m) => {
+      if (!m.has(id)) return m;
+      const next = new Map(m);
+      next.delete(id);
+      return next;
+    });
     setLabels((prev) => {
       let touchedDim = false;
       const mapped = prev.map((l) => {
@@ -1647,6 +1696,16 @@ export function AnnotatePage() {
       // — never let a Grundriss save touch the house-heights cache.
       if (sceneTag === 'ansicht' || sceneTag === 'schnitt' || sceneTag === 'sonstiges') {
         rememberHouseHeights(scope, key, labels);
+      }
+      // X4: cache the building's horizontal + vertical reference dims so
+      // sibling scenes of the same sceneTag can pre-fill them. Only writes
+      // when value_mm is set — otherwise the cache learns nothing useful.
+      for (const l of labels) {
+        if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
+        if (l.attributes.value_mm == null) continue;
+        const o = dimOrientation(l.geometry.start, l.geometry.end);
+        if (!o) continue;
+        rememberBuildingDim(scope, key, sceneTag, o, l.attributes.value_mm, decodedFile);
       }
       // M4.3: also remember the Bezugsachse X (as a ratio of image width)
       // so the next scene of the same house picks the same vertical
@@ -3008,6 +3067,7 @@ export function AnnotatePage() {
                 <Inspector
                   label={selectedLabel}
                   allLabels={labels}
+                  provenance={crossSceneProvenance.get(selectedLabel.id) ?? null}
                   onChange={(patch) => updateLabel(selectedLabel.id, patch)}
                   onDelete={() => deleteLabel(selectedLabel.id)}
                   onUnlink={(otherId) => {
@@ -3026,7 +3086,16 @@ export function AnnotatePage() {
                   }}
                   scope={scope}
                   houseKey={key}
-                  onAutoFillToast={(m) => addToast(m, 'success', 2500)}
+                  onAutoFillToast={(m, labelId, note) => {
+                    addToast(m, 'success', 2500);
+                    if (labelId && note) {
+                      setCrossSceneProvenance((mp) => {
+                        const n = new Map(mp);
+                        n.set(labelId, note);
+                        return n;
+                      });
+                    }
+                  }}
                 />
               ) : null}
             </FloatingPopover>
@@ -5182,6 +5251,7 @@ function labelGlyphStr(t: string): string {
 function Inspector({
   label,
   allLabels,
+  provenance,
   onChange,
   onDelete,
   onUnlink,
@@ -5193,6 +5263,10 @@ function Inspector({
 }: {
   label: Label;
   allLabels: Label[];
+  /** X5: transient note shown at the top of the inspector when a value
+   *  on this label was auto-filled from another scene of the same house.
+   *  Cleared by the parent on the next user edit. */
+  provenance: string | null;
   onChange: (patch: Partial<Label>) => void;
   onDelete: () => void;
   onUnlink: (otherId: string) => void;
@@ -5200,7 +5274,7 @@ function Inspector({
   onLinkTo: (otherId: string) => void;
   scope: LabelScope;
   houseKey: string;
-  onAutoFillToast: (message: string) => void;
+  onAutoFillToast: (message: string, provenanceForLabelId?: string, provenanceNote?: string) => void;
 }) {
   return (
     <div className="p-4 space-y-4">
@@ -5208,6 +5282,15 @@ function Inspector({
         <div className="text-[0.65rem] uppercase tracking-wider text-muted font-medium">Label</div>
         <div className="text-[0.95rem] font-semibold">{label.type}</div>
         <div className="text-[0.65rem] text-zinc-400 font-mono break-all">{label.id}</div>
+        {provenance && (
+          <div
+            className="mt-2 text-[0.7rem] px-2 py-1 rounded bg-sky-50 border border-sky-200 text-sky-900 inline-flex items-center gap-1.5"
+            title="Aus einer anderen Szene desselben Hauses übernommen. Sobald du den Wert änderst, verschwindet dieser Hinweis."
+          >
+            <span aria-hidden>↻</span>
+            <span>{provenance}</span>
+          </div>
+        )}
       </header>
 
       <section>
@@ -5899,7 +5982,7 @@ function HeightMarkFields({
   onChange: (p: Partial<Label>) => void;
   scope: LabelScope;
   houseKey: string;
-  onAutoFillToast: (message: string) => void;
+  onAutoFillToast: (message: string, provenanceForLabelId?: string, provenanceNote?: string) => void;
 }) {
   const isBezug = label.attributes.value_mm === 0;
   // House-wide datum → value lookup: shows which datums are already known
@@ -5945,6 +6028,8 @@ function HeightMarkFields({
                 patch.value_mm = known;
                 onAutoFillToast(
                   `↑ ${DATUM_NAMES[newDatum] ?? newDatum} = ${known === 0 ? '±0,00' : `${(known / 1000).toFixed(2).replace('.', ',')} m`} aus anderer Szene übernommen`,
+                  label.id,
+                  `${DATUM_NAMES[newDatum] ?? newDatum} aus anderer Szene`,
                 );
               }
             }
