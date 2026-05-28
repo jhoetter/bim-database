@@ -49,6 +49,7 @@ import {
 } from '../lib/glyphs';
 import { inferRegionKind, polygonCentroid, regionKindLabel } from '../lib/region_kind';
 import type { RegionKind } from '../lib/region_kind';
+import { detectRooms } from '../lib/rooms';
 import { detectClosedRegions } from '../lib/closed_regions';
 import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib/connectivity';
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
@@ -725,6 +726,27 @@ export function AnnotatePage() {
     () => buildConnectivity(labels, 6),
     [labels],
   );
+  // V3.3 — detected rooms on Grundriss only. Cheap enough to recompute on
+  // every label change (n is small); skip when we know the user isn't on a
+  // floorplan.
+  const rooms = useMemo(
+    () => sceneTag === 'grundriss' ? detectRooms(labels) : [],
+    [labels, sceneTag],
+  );
+  // V3 — refine kinds per label, used on the canvas to draw issue rings,
+  // ? corners, etc. We pass house context for cross-scene checks; the
+  // refine module returns at most one issue per label, picking the most
+  // critical kind via append order (height_conflict > off_axis > classify ...).
+  const refineKindByLabel = useMemo(() => {
+    const m = new Map<string, RefineIssue['kind']>();
+    const issues = collectRefineIssues(labels, { scope, houseKey: key, sceneLevel });
+    for (const i of issues) {
+      // height_conflict trumps everything else on the same label.
+      const prev = m.get(i.labelId);
+      if (!prev || i.kind === 'height_conflict') m.set(i.labelId, i.kind);
+    }
+    return m;
+  }, [labels, scope, key, sceneLevel]);
   // Adaptive building axis. Detected from existing walls/dim-distances —
   // photographed-paper plans are commonly tilted 1-3°, and snapping to
   // image axes then fights the user. The "Q" key toggles back to image
@@ -2903,6 +2925,31 @@ export function AnnotatePage() {
               })}
             </g>
           )}
+          {/* V3.3 — Grundriss room badges. Detected wall-cycles get a
+              small "Raum" centroid pictogram; classification (kind +
+              persistence) is deferred to V9. */}
+          {sceneTag === 'grundriss' && rooms.map((r) => {
+            const glyphPx = 18 * (view.w / Math.max(1, svgRef.current?.clientWidth ?? 1));
+            return (
+              <g key={r.id} pointerEvents="none">
+                <circle
+                  cx={r.centroid[0]} cy={r.centroid[1]}
+                  r={glyphPx * 0.7}
+                  fill="white" stroke="#475569" strokeWidth={1.2} opacity={0.85}
+                />
+                <text
+                  x={r.centroid[0]} y={r.centroid[1] + glyphPx * 0.18}
+                  textAnchor="middle"
+                  fontSize={glyphPx * 0.55}
+                  fontWeight={700}
+                  fontFamily="ui-sans-serif, system-ui"
+                  fill="#475569"
+                >
+                  Raum
+                </text>
+              </g>
+            );
+          })}
           {/* Existing labels */}
           {labels.map((l) => (
             <LabelGlyph
@@ -2911,6 +2958,8 @@ export function AnnotatePage() {
               selected={selectedIds.has(l.id)}
               tool={tool}
               allLabels={labels}
+              inheritedFromOtherScene={crossSceneProvenance.has(l.id)}
+              refineKind={refineKindByLabel.get(l.id) ?? null}
               imageHeight={imageSize[1]}
               screenScale={view.w / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               imageSnapRadius={(SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1)}
@@ -5052,6 +5101,41 @@ function regionGlyphFor(kind: RegionKind): GlyphComponent | null {
   }
 }
 
+// Axis-aligned bounding box for any label. Returns [minX, minY, maxX, maxY]
+// in image-pixel coords. Used to anchor V3 cross-cutting decorations
+// (corner badges, issue rings) without each branch reimplementing.
+function labelBBox(label: Label): [number, number, number, number] | null {
+  const acc: Point[] = [];
+  const g = label.geometry as Record<string, unknown>;
+  if (label.type === 'wall' || label.type === 'dimensioned_distance') {
+    acc.push((g.start as Point), (g.end as Point));
+  } else if (label.type === 'floorplan_opening') {
+    acc.push(...(g.quad as Point[]));
+  } else if (label.type === 'view_opening') {
+    if (g.shape === 'circle') {
+      const c = g.center as Point;
+      const r = g.radius_px as number;
+      acc.push([c[0] - r, c[1] - r], [c[0] + r, c[1] + r]);
+    } else if (g.shape === 'polygon') {
+      acc.push(...(g.polygon as Point[]));
+    } else {
+      acc.push(...(g.top_edge as Point[]), ...(g.bottom_edge as Point[]));
+    }
+  } else if (label.type === 'component_line') {
+    acc.push(...((g.polyline as Point[])));
+  } else if (label.type === 'height_mark') {
+    const a = g.anchor as Point;
+    acc.push([a[0] - 14, a[1] - 19], [a[0] + 14, a[1] + 4]);
+  } else if (label.type === 'dimension_number') {
+    const a = g.anchor as Point | undefined;
+    if (a) acc.push(a);
+  }
+  if (acc.length === 0) return null;
+  const xs = acc.map((p) => p[0]);
+  const ys = acc.map((p) => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
 function heightMarkGlyphFor(datum: string | null | undefined, isBezug: boolean): GlyphComponent | null {
   if (isBezug) return BezugGlyph;
   switch (datum) {
@@ -5072,6 +5156,8 @@ function LabelGlyph({
   selected,
   tool,
   allLabels,
+  inheritedFromOtherScene,
+  refineKind,
   imageHeight,
   screenScale,
   imageSnapRadius,
@@ -5093,6 +5179,10 @@ function LabelGlyph({
    *  attached floorplan_opening drag projected onto its parent wall axis)
    *  and snap-on-edit (handle drag snaps to other labels' endpoints). */
   allLabels: Label[];
+  /** V3 — when true, label was promoted from another scene's facts. */
+  inheritedFromOtherScene: boolean;
+  /** V3 — most critical RefineIssue kind for this label, or null. */
+  refineKind: RefineIssue['kind'] | null;
   /** Image height in px — used by region-kind inference (V2). */
   imageHeight: number;
   /** Image-pixels per screen-pixel — used to size on-canvas glyphs in
@@ -5718,9 +5808,104 @@ function LabelGlyph({
     window.addEventListener('pointerup', onUp);
   };
 
+  // V3 — cross-cutting decorations (provenance + refine).
+  const v3Bbox = (inheritedFromOtherScene || refineKind) ? labelBBox(label) : null;
+  const v3GlyphPx = 14 * screenScale;
+  const v3Pad = 4 * screenScale;
+  // refineKind → display config.
+  // height_conflict is the loudest: red ring around the bbox + corner badge.
+  // off_axis / classify / no_value / no_datum / not_readable share an amber
+  // ? corner-badge (less alarming).
+  const isLoudIssue = refineKind === 'height_conflict';
+  const showQBadge = refineKind != null && refineKind !== 'height_conflict';
+
   return (
     <g>
       {body}
+      {/* V3 — provenance + refine overlay. Drawn over the body but under
+          selection handles so issue rings sit on top of the geometry. */}
+      {v3Bbox && (
+        <g pointerEvents="none">
+          {/* Inherited-from-other-scene dashed outline. */}
+          {inheritedFromOtherScene && (
+            <rect
+              x={v3Bbox[0] - v3Pad}
+              y={v3Bbox[1] - v3Pad}
+              width={v3Bbox[2] - v3Bbox[0] + v3Pad * 2}
+              height={v3Bbox[3] - v3Bbox[1] + v3Pad * 2}
+              fill="none"
+              stroke="#7c3aed"
+              strokeWidth={1.4}
+              strokeDasharray="4,3"
+              opacity={0.6}
+              rx={3}
+            />
+          )}
+          {/* Loud issue ring (height_conflict). */}
+          {isLoudIssue && (
+            <rect
+              x={v3Bbox[0] - v3Pad * 1.5}
+              y={v3Bbox[1] - v3Pad * 1.5}
+              width={v3Bbox[2] - v3Bbox[0] + v3Pad * 3}
+              height={v3Bbox[3] - v3Bbox[1] + v3Pad * 3}
+              fill="none"
+              stroke="#dc2626"
+              strokeWidth={2}
+              strokeDasharray="3,2"
+              opacity={0.75}
+              rx={3}
+            />
+          )}
+          {/* Inherited corner badge — ↻ glyph at upper-right. */}
+          {inheritedFromOtherScene && (
+            <g style={{ color: '#7c3aed' }}>
+              <circle
+                cx={v3Bbox[2] + v3Pad}
+                cy={v3Bbox[1] - v3Pad}
+                r={v3GlyphPx * 0.55}
+                fill="white"
+                stroke="#7c3aed"
+                strokeWidth={1}
+              />
+              <text
+                x={v3Bbox[2] + v3Pad}
+                y={v3Bbox[1] - v3Pad + v3GlyphPx * 0.22}
+                textAnchor="middle"
+                fontSize={v3GlyphPx * 0.7}
+                fontFamily="ui-monospace, monospace"
+                fill="#7c3aed"
+                fontWeight={700}
+              >
+                ↻
+              </text>
+            </g>
+          )}
+          {/* "?" / "!" corner badge for refine issues. */}
+          {(isLoudIssue || showQBadge) && (
+            <g style={{ color: isLoudIssue ? '#dc2626' : '#d97706' }}>
+              <circle
+                cx={v3Bbox[0] - v3Pad}
+                cy={v3Bbox[1] - v3Pad}
+                r={v3GlyphPx * 0.55}
+                fill="white"
+                stroke={isLoudIssue ? '#dc2626' : '#d97706'}
+                strokeWidth={1}
+              />
+              <text
+                x={v3Bbox[0] - v3Pad}
+                y={v3Bbox[1] - v3Pad + v3GlyphPx * 0.25}
+                textAnchor="middle"
+                fontSize={v3GlyphPx * 0.8}
+                fontWeight={800}
+                fontFamily="ui-monospace, monospace"
+                fill={isLoudIssue ? '#dc2626' : '#d97706'}
+              >
+                {isLoudIssue ? '!' : '?'}
+              </text>
+            </g>
+          )}
+        </g>
+      )}
       {handles.map((h) => {
         const sharedCount = jointSize(h.id);
         // Multi-joint visualization: a thicker green ring around the
