@@ -848,17 +848,86 @@ export function AnnotatePage() {
   }, [sceneTag, allTools]);
   useEffect(() => {
     if (data) {
-      setLabels(data.labels ?? []);
-      setSceneTag(data.scene_tag ?? 'nicht_klassifiziert');
+      const initialLabels = data.labels ?? [];
+      const tag = data.scene_tag ?? 'nicht_klassifiziert';
+      const imgSize = data.image_size_px ?? [1024, 1024];
+
+      // N5 auto-apply: when opening a fresh Ansicht/Schnitt that has no
+      // height_marks yet but the house already knows them (from Ansicht 1
+      // etc.), drop them in immediately so the user doesn't have to click
+      // "Alle anwenden" on every sibling scene. Height_marks are house-wide
+      // properties, not per-scene — they should appear automatically.
+      // - Y comes from N5 calibration when available, otherwise stacks
+      //   vertically off the viewport centre with 30 px per row.
+      // - X defaults to the per-(house, tag) Bezugsachse cache or image
+      //   centre as last resort.
+      const wantsAutoHeights =
+        (tag === 'ansicht' || tag === 'schnitt') &&
+        !initialLabels.some((l) => l.type === 'height_mark');
+      let hydratedLabels: Label[] = initialLabels;
+      let autoAppliedCount = 0;
+      const autoProvenance = new Map<string, string>();
+      if (wantsAutoHeights) {
+        const known = getHouseHeights(scope, key);
+        const knownEntries = Object.entries(known);
+        if (knownEntries.length > 0) {
+          const facts = loadHouseFacts(scope, key);
+          const calib = facts.calibration_per_scene[decodedFile];
+          const xRatio = getHouseBezugXRatio(scope, key, tag);
+          const bezugX = xRatio != null ? xRatio * imgSize[0] : imgSize[0] / 2;
+          // Without a bezug Höhenkote in this scene, Y is just stacked off
+          // the centre. With calibration we'd need a Bezugshöhe anchor to
+          // resolve real Y — N5 logic gates on that; here we keep it simple.
+          const newHMs: HeightMarkLabel[] = [];
+          let row = 0;
+          for (const [datum, mm] of knownEntries) {
+            const y = calib
+              ? imgSize[1] / 2 - mm * calib.px_per_mm
+              : imgSize[1] / 2 - row * 30;
+            const hm: HeightMarkLabel = {
+              id: uuid(),
+              type: 'height_mark',
+              geometry: { anchor: [bezugX, y] },
+              attributes: {
+                value_mm: mm,
+                datum: datum as HeightMarkLabel['attributes']['datum'],
+                reference_line_id: null,
+              },
+              status: 'readable',
+              relations: [],
+              created_at: nowIso(),
+              updated_at: nowIso(),
+            };
+            newHMs.push(hm);
+            autoProvenance.set(hm.id, `${datum} aus anderer Szene`);
+            row++;
+          }
+          hydratedLabels = [...initialLabels, ...newHMs];
+          autoAppliedCount = newHMs.length;
+        }
+      }
+
+      setLabels(hydratedLabels);
+      setSceneTag(tag);
       setSceneOrientation(data.scene_orientation ?? null);
       setSceneLevel(data.scene_level ?? null);
-      setImageSize(data.image_size_px ?? [1024, 1024]);
-      setView({ x: 0, y: 0, w: data.image_size_px?.[0] ?? 1024, h: data.image_size_px?.[1] ?? 1024 });
+      setImageSize(imgSize);
+      setView({ x: 0, y: 0, w: imgSize[0], h: imgSize[1] });
       undoStackRef.current = [];
       redoStackRef.current = [];
       setSelectedIds(new Set());
-      setDirty(false);
+      // Auto-applied heights count as a change the user should save.
+      setDirty(autoAppliedCount > 0);
+      if (autoAppliedCount > 0) {
+        setCrossSceneProvenance(autoProvenance);
+        addToast(
+          `↻ ${autoAppliedCount} Haus-Höhen automatisch eingesetzt — bei Bedarf verschieben`,
+          'info',
+          2600,
+        );
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   // Remember the last-visited scene for this house so opening the house
@@ -3552,10 +3621,13 @@ function SceneOrientationPicker({
 function SceneLevelPicker({
   value, onChange,
 }: { value: SceneLevel | null; onChange: (v: SceneLevel | null) => void }) {
-  const opts: Array<{ id: SceneLevel; label: string }> = [
-    { id: 'kg', label: 'KG' }, { id: 'ug', label: 'UG' },
-    { id: 'eg', label: 'EG' }, { id: 'og', label: 'OG' },
-    { id: 'dg', label: 'DG' }, { id: 'spitzboden', label: 'Sp' },
+  const opts: Array<{ id: SceneLevel; label: string; full: string }> = [
+    { id: 'kg', label: 'KG', full: 'Kellergeschoss' },
+    { id: 'ug', label: 'UG', full: 'Untergeschoss' },
+    { id: 'eg', label: 'EG', full: 'Erdgeschoss' },
+    { id: 'og', label: 'OG', full: 'Obergeschoss' },
+    { id: 'dg', label: 'DG', full: 'Dachgeschoss' },
+    { id: 'spitzboden', label: 'Spitzb.', full: 'Spitzboden' },
   ];
   return (
     <div className="mt-2">
@@ -3573,7 +3645,7 @@ function SceneLevelPicker({
               className={`px-2 py-1 rounded text-[0.72rem] ${
                 active ? 'bg-accent text-white font-semibold' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
               }`}
-              title={`${o.label} — ${active ? 'abwählen' : 'als Geschoss setzen'}`}
+              title={`${o.full} — ${active ? 'abwählen' : 'als Geschoss setzen'}`}
             >
               {o.label}
             </button>
