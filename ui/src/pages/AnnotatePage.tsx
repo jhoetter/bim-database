@@ -211,6 +211,52 @@ function nearestEndpointOfAny(
   return best;
 }
 
+// N2 (extended): find the nearest anchor — either an existing endpoint OR a
+// projection onto an existing structural edge — within snap radius. Picks
+// the closest of the two. Structural edges are wall segments and
+// component_line segments (the things a new polygon "sits on", e.g. a roof
+// landing on a gable wall edge). Returns the snapped point itself so the
+// caller can replace its click coordinate with the on-line projection.
+function nearestStructuralAnchor(
+  pt: Point,
+  labels: Label[],
+  snapPx: number,
+): { labelId: string; point: Point; dist: number } | null {
+  let best: { labelId: string; point: Point; dist: number } | null = null;
+  // 1) Endpoints (any label).
+  const ep = nearestEndpointOfAny(pt, labels, snapPx);
+  if (ep) best = { labelId: ep.labelId, point: ep.endpoint, dist: ep.dist };
+  // 2) Edges of walls + component_lines.
+  const projectOntoSegment = (a: Point, b: Point, p: Point): { proj: Point; dist: number } | null => {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq < 1) return null;
+    let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    const proj: Point = [a[0] + t * dx, a[1] + t * dy];
+    const dist = Math.hypot(proj[0] - p[0], proj[1] - p[1]);
+    return { proj, dist };
+  };
+  for (const l of labels) {
+    if (l.type === 'wall') {
+      const r = projectOntoSegment(l.geometry.start, l.geometry.end, pt);
+      if (r && r.dist < snapPx && (!best || r.dist < best.dist)) {
+        best = { labelId: l.id, point: r.proj, dist: r.dist };
+      }
+    } else if (l.type === 'component_line') {
+      const poly = l.geometry.polyline;
+      for (let i = 0; i < poly.length - 1; i++) {
+        const r = projectOntoSegment(poly[i], poly[i + 1], pt);
+        if (r && r.dist < snapPx && (!best || r.dist < best.dist)) {
+          best = { labelId: l.id, point: r.proj, dist: r.dist };
+        }
+      }
+    }
+  }
+  return best;
+}
+
 function uuid(): string {
   // RFC4122-ish; good enough for label ids
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -1422,17 +1468,20 @@ export function AnnotatePage() {
             return;
           }
         }
-        // N2 anchored auto-commit: if THIS click lands on an existing label's
-        // endpoint AND pendingPolyline[0] was ALSO on an existing endpoint,
-        // the new polyline is "anchored at both ends" — commit immediately
-        // without requiring Enter. Skipped on Alt (per K2).
+        // N2 anchored auto-commit: if THIS click lands on an existing
+        // structural anchor (endpoint OR projection onto a wall/
+        // component_line edge) AND pendingPolyline[0] was ALSO on a
+        // structural anchor, the new polyline is "anchored at both ends" —
+        // commit immediately without requiring Enter. Skipped on Alt
+        // (per K2). The "on the edge" case is what lets a roof line that
+        // sits on the gable wall mid-edge auto-close without Enter.
         if (!altHeld && pendingPolyline.length >= 1) {
-          const endAnchor = nearestEndpointOfAny(pt, labels, imageSnapRadiusForView * 2);
-          const startAnchor = nearestEndpointOfAny(pendingPolyline[0], labels, imageSnapRadiusForView * 2);
+          const endAnchor = nearestStructuralAnchor(pt, labels, imageSnapRadiusForView * 2);
+          const startAnchor = nearestStructuralAnchor(pendingPolyline[0], labels, imageSnapRadiusForView * 2);
           if (endAnchor && startAnchor) {
             pushUndo();
             const def = getDefaults(scope, key, sceneTag, 'component_line');
-            const finalPoly = [...pendingPolyline, endAnchor.endpoint];
+            const finalPoly = [...pendingPolyline, endAnchor.point];
             const inferredLine = inferLineKind(finalPoly, imageSize[1]);
             const label: ComponentLineLabel = {
               id: uuid(),
