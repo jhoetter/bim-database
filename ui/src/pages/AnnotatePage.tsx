@@ -2768,6 +2768,17 @@ export function AnnotatePage() {
           workflowScenes={workflowSnapshot.scenes}
           currentSceneFile={decodedFile}
           onGoToScene={goToScene}
+          onSetOrientation={(wallId, grundrissFile) => {
+            const f = loadHouseFacts(scope, key);
+            f.orientation = {
+              north_edge_label_id: wallId,
+              source_grundriss_file: grundrissFile,
+              north_angle_deg: null,
+            };
+            saveHouseFacts(scope, key, f);
+            setSceneSummaryRev((r) => r + 1);
+            addToast('✓ Nordkante festgelegt', 'success', 2000);
+          }}
           labels={labels}
           selectedId={selectedId}
           onSelectLabel={setSelectedId}
@@ -3804,6 +3815,19 @@ export function AnnotatePage() {
         />
         {/* M12 toast stack — bottom-center over the canvas */}
         <ToastStack toasts={toasts} />
+        {/* W4 — compass widget on Ansicht/Schnitt + north arrow on Grundriss.
+            Renders only when Phase 3 orientation is set (so it actually has
+            meaningful data to show). */}
+        {workflowSnapshot.facts.orientation?.north_edge_label_id &&
+         (sceneTag === 'ansicht' || sceneTag === 'schnitt' || sceneTag === 'grundriss') && (
+          <SceneCompass
+            sceneTag={sceneTag}
+            sceneOrientation={sceneOrientation}
+            facts={workflowSnapshot.facts}
+            currentSceneFile={decodedFile}
+            currentSceneLabels={labels}
+          />
+        )}
         {/* M13 keyboard cheatsheet (toggle with '?') */}
         {cheatsheetOpen && (
           <Cheatsheet onClose={() => setCheatsheetOpen(false)} />
@@ -4006,12 +4030,20 @@ function WorkflowGuide({
   facts,
   scenes,
   currentSceneFile,
+  currentSceneTag,
+  currentSceneLabels,
   onGoToScene,
+  onSetOrientation,
 }: {
   facts: HouseFacts;
   scenes: WorkflowSceneSummary[];
   currentSceneFile: string;
+  currentSceneTag: SceneTag;
+  currentSceneLabels: Label[];
   onGoToScene: (file: string) => void;
+  /** Phase 3 hook — caller writes facts.orientation, saves, and bumps
+   *  sceneSummaryRev so the WorkflowGuide re-derives. */
+  onSetOrientation: (wallId: string, grundrissFile: string) => void;
 }) {
   const phase = workflowCurrentPhase(facts, scenes);
   const snap = workflowPhaseStatusSnapshot(facts, scenes);
@@ -4138,8 +4170,21 @@ function WorkflowGuide({
             />
           )}
 
-          {/* Phase 3-4 placeholders for now. W4-W5 fill in. */}
-          {(phase === 'orientation' || phase === 'bezugsmasse') && (() => {
+          {/* Phase 3 body — orientation. */}
+          {phase === 'orientation' && (
+            <WorkflowGuideOrientation
+              facts={facts}
+              scenes={scenes}
+              currentSceneFile={currentSceneFile}
+              currentSceneTag={currentSceneTag}
+              currentSceneLabels={currentSceneLabels}
+              onGoToScene={onGoToScene}
+              onSetOrientation={onSetOrientation}
+            />
+          )}
+
+          {/* Phase 4 placeholder for now. W5 fills in. */}
+          {phase === 'bezugsmasse' && (() => {
             const rec = workflowRecommendSceneFor(phase, facts, scenes);
             const onRec = rec === currentSceneFile;
             return (
@@ -4309,6 +4354,174 @@ function WorkflowGuideFootprint({
   );
 }
 
+// W4 — compass widget. On Grundriss: shows the picked north arrow.
+// On Ansicht/Schnitt: shows the cardinal direction the scene faces.
+// Always positioned at bottom-right, screen-pinned, doesn't intercept
+// pointer events on the canvas.
+function SceneCompass({
+  sceneTag, sceneOrientation, facts, currentSceneFile, currentSceneLabels,
+}: {
+  sceneTag: SceneTag;
+  sceneOrientation: SceneOrientation | null;
+  facts: HouseFacts;
+  currentSceneFile: string;
+  currentSceneLabels: Label[];
+}) {
+  // Determine the arrow direction.
+  let label = '?';
+  let arrowDeg = 0;        // 0 = up
+  if (sceneTag === 'ansicht' || sceneTag === 'schnitt') {
+    if (sceneOrientation) {
+      label = ({ north: 'N', south: 'S', east: 'O', west: 'W' } as const)[sceneOrientation];
+      arrowDeg = ({ north: 0, east: 90, south: 180, west: 270 } as const)[sceneOrientation];
+    }
+  } else if (sceneTag === 'grundriss') {
+    // On the source Grundriss, render the picked wall's normal vector as
+    // the north arrow. Otherwise just show "N" pointing up.
+    label = 'N';
+    if (currentSceneFile === facts.orientation?.source_grundriss_file) {
+      const wall = currentSceneLabels.find(
+        (l) => l.id === facts.orientation?.north_edge_label_id && l.type === 'wall',
+      ) as WallLabel | undefined;
+      if (wall) {
+        const dx = wall.geometry.end[0] - wall.geometry.start[0];
+        const dy = wall.geometry.end[1] - wall.geometry.start[1];
+        // The wall RUNS along its length; north is the outward normal of
+        // the building, which is perpendicular. The convention: the
+        // outward normal points away from the building's centroid. We
+        // don't have the centroid here, so use the wall's perpendicular
+        // direction (the *image* perpendicular — left-hand normal).
+        const ang = (Math.atan2(-dx, dy) * 180) / Math.PI;
+        arrowDeg = ((ang % 360) + 360) % 360;
+      }
+    }
+  }
+  return (
+    <div className="absolute bottom-3 right-3 z-10 pointer-events-none">
+      <div className="w-12 h-12 rounded-full bg-white/95 border border-zinc-300 shadow-md flex items-center justify-center relative">
+        <span
+          className="absolute text-amber-600 font-bold text-base leading-none"
+          style={{
+            transform: `rotate(${arrowDeg}deg)`,
+            transformOrigin: '50% 50%',
+            top: '6px',
+          }}
+        >
+          ▲
+        </span>
+        <span className="absolute bottom-0.5 text-[0.62rem] font-bold text-zinc-700">
+          {label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// W4 — Phase 3 sub-step UI. On the EG Grundriss, lists every wall with
+// its direction (horizontal / vertical) and length. Click a wall →
+// records it as the north-facing edge via onSetOrientation. The
+// geometric formula in faceLengthAlong() then drives Phase 4's
+// horizontal Bezugsmaß auto-suggestions.
+function WorkflowGuideOrientation({
+  facts, scenes, currentSceneFile, currentSceneTag, currentSceneLabels,
+  onGoToScene, onSetOrientation,
+}: {
+  facts: HouseFacts;
+  scenes: WorkflowSceneSummary[];
+  currentSceneFile: string;
+  currentSceneTag: SceneTag;
+  currentSceneLabels: Label[];
+  onGoToScene: (file: string) => void;
+  onSetOrientation: (wallId: string, grundrissFile: string) => void;
+}) {
+  const rec = workflowRecommendSceneFor('orientation', facts, scenes);
+  const onRec = rec === currentSceneFile;
+  const onGrundriss = currentSceneTag === 'grundriss';
+  const set = facts.orientation?.north_edge_label_id != null;
+  // Outer walls on this Grundriss — heuristic: pick the 6 longest walls,
+  // they're the most likely outer perimeter members.
+  const outerWalls = (() => {
+    if (!onGrundriss) return [];
+    const walls = currentSceneLabels.filter((l) => l.type === 'wall');
+    const sorted = walls
+      .map((w) => {
+        const wall = w as WallLabel;
+        const dx = wall.geometry.end[0] - wall.geometry.start[0];
+        const dy = wall.geometry.end[1] - wall.geometry.start[1];
+        const len = Math.hypot(dx, dy);
+        const angDeg = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+        const isHoriz = angDeg < 15 || angDeg > 165;
+        const isVert = angDeg > 75 && angDeg < 105;
+        return { id: wall.id, length: len, isHoriz, isVert };
+      })
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 8);
+    return sorted;
+  })();
+  const px_per_mm = facts.calibration_per_scene[currentSceneFile]?.px_per_mm;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[0.72rem] text-zinc-700 leading-snug">
+        <span className="font-semibold">Schritt 4: Himmelsrichtung festlegen.</span>{' '}
+        Auf dem Grundriss eine Außenwand als Nordkante markieren. Damit
+        weiß jede Ansicht/Schnitt, welche Hausbreite sie zeigt.
+      </p>
+      {set && (
+        <p className="text-[0.7rem] text-emerald-700">
+          ✓ Nordkante gewählt — du kannst neu wählen, wenn nötig.
+        </p>
+      )}
+      {rec && !onRec && (
+        <button
+          type="button"
+          onClick={() => onGoToScene(rec)}
+          className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium"
+        >
+          → Empfohlene Szene: {rec}
+        </button>
+      )}
+      {onRec && !onGrundriss && (
+        <p className="text-[0.7rem] text-amber-700">
+          ⚠ Diese Szene ist nicht als Grundriss klassifiziert.
+        </p>
+      )}
+      {onGrundriss && outerWalls.length === 0 && (
+        <p className="text-[0.7rem] text-amber-700">
+          Noch keine Wände. Schritt 3 abschließen, dann hier weitermachen.
+        </p>
+      )}
+      {onGrundriss && outerWalls.length > 0 && (
+        <ul className="space-y-0.5 ml-1 max-h-44 overflow-auto">
+          {outerWalls.map((w) => {
+            const isPicked = facts.orientation?.north_edge_label_id === w.id;
+            const dir = w.isHoriz ? '↔' : w.isVert ? '↕' : '↗';
+            const mm = px_per_mm ? (w.length / px_per_mm).toFixed(0) : '—';
+            return (
+              <li key={w.id}>
+                <button
+                  type="button"
+                  onClick={() => onSetOrientation(w.id, currentSceneFile)}
+                  className={`w-full text-left text-[0.7rem] px-1.5 py-0.5 rounded flex items-center gap-1.5 ${
+                    isPicked
+                      ? 'bg-emerald-100 text-emerald-900 font-semibold'
+                      : 'hover:bg-amber-50 text-zinc-800'
+                  }`}
+                  title={`Wall ${w.id.slice(0, 6)} — ${dir} ${mm} mm`}
+                >
+                  <span className="text-zinc-400 w-4 text-center">{dir}</span>
+                  <span className="flex-1 truncate font-mono text-[0.65rem]">{w.id.slice(0, 8)}</span>
+                  <span className="font-mono text-zinc-500">{mm} mm</span>
+                  {isPicked && <span className="text-emerald-600 ml-1">✓ N</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ToolPalette({
   tool,
   setTool,
@@ -4322,6 +4535,7 @@ function ToolPalette({
   workflowScenes,
   currentSceneFile,
   onGoToScene,
+  onSetOrientation,
   labels,
   selectedId,
   onSelectLabel,
@@ -4355,6 +4569,7 @@ function ToolPalette({
   workflowScenes: WorkflowSceneSummary[];
   currentSceneFile: string;
   onGoToScene: (file: string) => void;
+  onSetOrientation: (wallId: string, grundrissFile: string) => void;
   labels: Label[];
   selectedId: string | null;
   onSelectLabel: (id: string | null) => void;
@@ -4377,13 +4592,19 @@ function ToolPalette({
   onRefineTidyAll: () => void;
 }) {
   void defaultsRev;
+  // Avoid unused-prop warnings; scope and houseKey are read by the inline
+  // Phase 3 picker that writes facts.orientation.
+  void scope; void houseKey;
   return (
     <div className="px-3 py-3 space-y-4">
       <WorkflowGuide
         facts={workflowFacts}
         scenes={workflowScenes}
         currentSceneFile={currentSceneFile}
+        currentSceneTag={sceneTag}
+        currentSceneLabels={labels}
         onGoToScene={onGoToScene}
+        onSetOrientation={onSetOrientation}
       />
       <section>
         <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">

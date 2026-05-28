@@ -278,6 +278,131 @@ export function recommendSceneFor(
   }
 }
 
+// ── Phase 4 (W5) geometric extent derivation ────────────────────────────
+
+import type { Label, Point, WallLabel } from '../api/types';
+
+/** Pixel length of a wall's geometry. */
+function pixelLength(wall: WallLabel): number {
+  const dx = wall.geometry.end[0] - wall.geometry.start[0];
+  const dy = wall.geometry.end[1] - wall.geometry.start[1];
+  return Math.hypot(dx, dy);
+}
+
+/** Unit direction vector of a wall (from start to end). */
+function wallDirection(wall: WallLabel): [number, number] {
+  const dx = wall.geometry.end[0] - wall.geometry.start[0];
+  const dy = wall.geometry.end[1] - wall.geometry.start[1];
+  const m = Math.hypot(dx, dy);
+  return m < 1e-6 ? [1, 0] : [dx / m, dy / m];
+}
+
+/** Smallest angle between two unit vectors (degrees, in [0, 180]). */
+function angleBetweenDeg(a: [number, number], b: [number, number]): number {
+  const dot = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1]));
+  return (Math.acos(dot) * 180) / Math.PI;
+}
+
+/** Given the orientation graph + the labels of the Grundriss it points
+ *  to, return:
+ *  - northEdge: the picked wall (or null)
+ *  - eastEdge:  another outer wall ≈ perpendicular to northEdge (or null)
+ *  - pxPerMm:   the Grundriss calibration
+ *
+ *  Used by faceLengthAlong() and the canvas compass overlay. */
+export function resolveOrientationBasis(
+  facts: HouseFacts,
+  grundrissLabels: Label[],
+): {
+  northEdge: WallLabel | null;
+  eastEdge: WallLabel | null;
+  pxPerMm: number | null;
+} {
+  const o = facts.orientation;
+  if (!o?.north_edge_label_id) return { northEdge: null, eastEdge: null, pxPerMm: null };
+  const northEdge = grundrissLabels.find(
+    (l) => l.id === o.north_edge_label_id && l.type === 'wall',
+  ) as WallLabel | undefined;
+  if (!northEdge) return { northEdge: null, eastEdge: null, pxPerMm: null };
+  const nDir = wallDirection(northEdge);
+  // Find the longest wall that's ≈90° to northEdge — that's our east edge.
+  let eastEdge: WallLabel | null = null;
+  let bestLen = 0;
+  for (const l of grundrissLabels) {
+    if (l.type !== 'wall') continue;
+    if (l.id === northEdge.id) continue;
+    const ang = angleBetweenDeg(nDir, wallDirection(l));
+    if (ang < 75 || ang > 105) continue;  // not perpendicular
+    const len = pixelLength(l);
+    if (len > bestLen) { bestLen = len; eastEdge = l; }
+  }
+  const calib = facts.calibration_per_scene[o.source_grundriss_file];
+  return { northEdge, eastEdge, pxPerMm: calib?.px_per_mm ?? null };
+}
+
+/** §4.3 geometric face-length lookup. Returns the building's face
+ *  extent in mm along the given axis ('north' = the picked edge's
+ *  direction, 'east' = the perpendicular direction).
+ *
+ *  Falls back to facts.extent.{width,depth}_mm when calibration or the
+ *  edge geometry isn't available — those values were captured directly
+ *  via Phase 2 Bezugsmaße and don't require the graph to be intact. */
+export function faceLengthAlong(
+  axis: 'north' | 'east',
+  facts: HouseFacts,
+  grundrissLabels: Label[],
+): number | null {
+  const { northEdge, eastEdge, pxPerMm } = resolveOrientationBasis(facts, grundrissLabels);
+  if (pxPerMm && pxPerMm > 0) {
+    const wall = axis === 'north' ? northEdge : eastEdge;
+    if (wall) return pixelLength(wall) / pxPerMm;
+  }
+  // Fallback: when the graph isn't reachable, just return the
+  // Phase 2 extents. The caller will get the right *magnitudes*,
+  // possibly the wrong *assignment* (width vs depth) for gable-N houses.
+  return axis === 'north'
+    ? facts.extent.depth_mm ?? null    // n̂ axis = building depth in typical orientation
+    : facts.extent.width_mm ?? null;
+}
+
+/** §5 row: horizontal Bezugsmaß suggestion for the given scene. */
+export function horizontalExtentForScene(
+  scene: { scene_tag: string | null | undefined; scene_orientation: string | null | undefined },
+  facts: HouseFacts,
+  grundrissLabels: Label[],
+): number | null {
+  const tag = scene.scene_tag;
+  if (tag === 'grundriss') return null;  // direct measurement, no derivation
+  if (tag !== 'ansicht' && tag !== 'schnitt') return null;
+  const o = scene.scene_orientation;
+  if (!o) return null;
+  if (tag === 'ansicht') {
+    return o === 'north' || o === 'south'
+      ? faceLengthAlong('east', facts, grundrissLabels)
+      : faceLengthAlong('north', facts, grundrissLabels);
+  }
+  // Schnitt cuts perpendicular to the face it names.
+  return o === 'north' || o === 'south'
+    ? faceLengthAlong('north', facts, grundrissLabels)
+    : faceLengthAlong('east', facts, grundrissLabels);
+}
+
+export function verticalExtentForScene(
+  scene: { scene_tag: string | null | undefined },
+  facts: HouseFacts,
+): number | null {
+  const tag = scene.scene_tag;
+  if (tag !== 'ansicht' && tag !== 'schnitt') return null;
+  const first = facts.heights.first_mm;
+  const gel = facts.heights.gelaende_mm;
+  if (typeof first === 'number' && typeof gel === 'number') return first - gel;
+  if (typeof first === 'number') return first;
+  return facts.extent.height_mm ?? null;
+}
+
+// Re-export Point so the compass widget can import from one place.
+export type { Point };
+
 /** Mark a phase user-skipped (so the guide stops nagging). Caller writes
  *  the returned facts back via saveHouseFacts. */
 export function setPhaseSkipped(
