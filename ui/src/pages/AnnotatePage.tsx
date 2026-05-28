@@ -41,6 +41,12 @@ import { findSnap, pointToSegment, referenceAngle, SNAP_COLOR, type SnapTarget, 
 import { tidyLineLabel } from '../lib/tidy';
 import { applyLengthMatch, findLengthMatch, type LengthMatch } from '../lib/length_match';
 import { labelColor, LEGEND } from '../lib/colors';
+import {
+  WindowPaneGlyph, DoorSwingGlyph, DoorHandleGlyph, GarageDoorGlyph,
+  PassageGlyph, SkylightGlyph, DormerGlyph, WindowCircleGlyph, WindowArchedGlyph,
+  RoofSlopeGlyph, RidgeGlyph, EaveGlyph, GroundGlyph, LevelTickGlyph,
+  BezugGlyph, DimRefStarGlyph, QuestionGlyph,
+} from '../lib/glyphs';
 import { detectClosedRegions } from '../lib/closed_regions';
 import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib/connectivity';
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
@@ -2887,6 +2893,7 @@ export function AnnotatePage() {
               selected={selectedIds.has(l.id)}
               tool={tool}
               allLabels={labels}
+              screenScale={view.w / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               imageSnapRadius={(SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               eventToSvgPoint={eventToSvgPoint}
               onDragStateChange={setIsDragging}
@@ -4931,11 +4938,100 @@ function SceneChecklist({
 
 // ── canvas glyph rendering ─────────────────────────────────────────────────
 
+// V1 — map each label subtype to a hatch pattern id (rendered as a
+// pattern overlay on top of the solid fill) and a centroid glyph. Each
+// helper returns null when no decoration applies.
+
+function floorplanOpeningHatch(kind: string | undefined | null): string | null {
+  switch (kind) {
+    case 'window':       return 'bim-mullion-h';
+    case 'garage_door':  return 'bim-mullion-v';
+    case 'other':        return 'bim-stripe-30';
+    case 'door':         return null;
+    case 'passage':      return null;
+    default:             return null;
+  }
+}
+
+function viewOpeningHatch(kind: string | undefined | null): string | null {
+  switch (kind) {
+    case 'window':       return 'bim-mullion-h';
+    case 'skylight':     return 'bim-skylight-tilt';
+    case 'garage_door':  return 'bim-mullion-v';
+    case 'dormer':       return 'bim-gable-sparse';
+    case 'other':        return 'bim-stripe-30';
+    case 'door':         return null;
+    default:             return null;
+  }
+}
+
+type GlyphComponent = (props: { cx: number; cy: number; size?: number; strokeWidth?: number }) => React.ReactElement;
+
+function openingGlyphFor(kind: string | undefined | null): GlyphComponent | null {
+  switch (kind) {
+    case 'door':         return DoorSwingGlyph;
+    case 'garage_door':  return GarageDoorGlyph;
+    case 'passage':      return PassageGlyph;
+    case 'other':        return QuestionGlyph;
+    case 'window':       return null;
+    default:             return null;
+  }
+}
+
+function viewOpeningGlyphFor(kind: string | undefined | null, shape: string | undefined): GlyphComponent | null {
+  if (kind === 'window') {
+    if (shape === 'circle')  return WindowCircleGlyph;
+    if (shape === 'polygon') return WindowArchedGlyph;
+    return WindowPaneGlyph;
+  }
+  switch (kind) {
+    case 'door':         return DoorHandleGlyph;
+    case 'skylight':     return SkylightGlyph;
+    case 'dormer':       return DormerGlyph;
+    case 'garage_door':  return GarageDoorGlyph;
+    case 'other':        return QuestionGlyph;
+    default:             return null;
+  }
+}
+
+function openLineGlyphFor(kind: string | undefined | null): GlyphComponent | null {
+  switch (kind) {
+    case 'first':         return RidgeGlyph;
+    case 'traufe':        return EaveGlyph;
+    case 'gelaende':      return GroundGlyph;
+    case 'dachschraege':  return RoofSlopeGlyph;
+    case 'geschoss':
+    case 'ok_ffb':
+    case 'sockel':
+    case 'kniestock':     return LevelTickGlyph;
+    case 'firstkante':    return RidgeGlyph;
+    case 'gebaeudekante': return null;
+    case 'other':         return QuestionGlyph;
+    default:              return null;
+  }
+}
+
+function heightMarkGlyphFor(datum: string | null | undefined, isBezug: boolean): GlyphComponent | null {
+  if (isBezug) return BezugGlyph;
+  switch (datum) {
+    case 'first':       return RidgeGlyph;
+    case 'traufe':      return EaveGlyph;
+    case 'gelaende':    return GroundGlyph;
+    case 'geschoss':
+    case 'ok_ffb':
+    case 'sockel':
+    case 'kniestock':   return LevelTickGlyph;
+    case 'other':       return QuestionGlyph;
+    default:            return null;
+  }
+}
+
 function LabelGlyph({
   label,
   selected,
   tool,
   allLabels,
+  screenScale,
   imageSnapRadius,
   eventToSvgPoint,
   onSelect,
@@ -4955,6 +5051,9 @@ function LabelGlyph({
    *  attached floorplan_opening drag projected onto its parent wall axis)
    *  and snap-on-edit (handle drag snaps to other labels' endpoints). */
   allLabels: Label[];
+  /** Image-pixels per screen-pixel — used to size on-canvas glyphs in
+   *  screen-pinned units (multiply a desired screen px by this factor). */
+  screenScale: number;
   /** Per-image-pixel snap radius. Caller computes it from the screen radius
    *  divided by the current view-to-screen scale. */
   imageSnapRadius: number;
@@ -5213,6 +5312,10 @@ function LabelGlyph({
               >
                 M1
               </text>
+              {/* V1 — gold star above the chip: this dim drives the homography. */}
+              <g style={{ color: '#f59e0b' }}>
+                <DimRefStarGlyph cx={0} cy={-18} size={12 * screenScale} />
+              </g>
             </g>
           )}
         </g>
@@ -5262,23 +5365,46 @@ function LabelGlyph({
       const [a, b, c, d] = label.geometry.quad;
       const attached = (label.relations ?? []).some((r) => r.kind === 'belongs_to');
       const inner = floorplanOpeningInner(label.geometry.quad, label.attributes, stroke);
+      const kind = label.attributes.opening_kind ?? 'window';
+      const hatchId = floorplanOpeningHatch(kind);
+      const cx = (a[0] + b[0] + c[0] + d[0]) / 4;
+      const cy = (a[1] + b[1] + c[1] + d[1]) / 4;
+      const quadW = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const quadH = Math.hypot(d[0] - a[0], d[1] - a[1]);
+      const minDim = Math.min(quadW, quadH);
+      const glyphPx = 16 * screenScale;
+      // Don't paint a glyph when it would dwarf the opening itself.
+      const showGlyph = kind !== 'window' && minDim > glyphPx * 1.8;
+      const Glyph = openingGlyphFor(kind);
+      const pts = `${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`;
       body = (
         <g {...bodyProps}>
           {attached && (
             <polygon
-              points={`${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`}
+              points={pts}
               fill="white" stroke="#a21caf" strokeWidth={sw + 1} strokeDasharray="4,3"
             />
           )}
-          <polygon points={`${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`}
-                   fill={fill} stroke={stroke} strokeWidth={sw} />
+          <polygon points={pts} fill={fill} stroke={stroke} strokeWidth={sw} />
+          {hatchId && (
+            <polygon points={pts} fill={`url(#${hatchId})`} stroke="none" opacity={0.7} />
+          )}
           {inner}
+          {showGlyph && Glyph && (
+            <g pointerEvents="none" style={{ color: stroke }}>
+              <Glyph cx={cx} cy={cy} size={glyphPx} />
+            </g>
+          )}
         </g>
       );
       break;
     }
     case 'view_opening': {
       const g = label.geometry as Record<string, unknown>;
+      const kind = label.attributes.opening_kind ?? 'window';
+      const hatchId = viewOpeningHatch(kind);
+      const glyphPx = 16 * screenScale;
+      const ViewGlyph = viewOpeningGlyphFor(kind, g.shape as string | undefined);
       if (g.shape === 'circle') {
         const center = g.center as Point;
         const radius_px = g.radius_px as number;
@@ -5288,23 +5414,61 @@ function LabelGlyph({
               cx={center[0]} cy={center[1]} r={radius_px}
               fill={fill} stroke={stroke} strokeWidth={sw}
             />
+            {hatchId && (
+              <circle
+                cx={center[0]} cy={center[1]} r={radius_px}
+                fill={`url(#${hatchId})`} stroke="none" opacity={0.65}
+              />
+            )}
+            {ViewGlyph && radius_px > glyphPx * 0.9 && (
+              <g pointerEvents="none" style={{ color: stroke }}>
+                <ViewGlyph cx={center[0]} cy={center[1]} size={glyphPx} />
+              </g>
+            )}
           </g>
         );
       } else if (g.shape === 'polygon') {
         const polygon = g.polygon as Point[];
         const path = `M ${polygon.map(p => p.join(',')).join(' L ')} Z`;
+        const cx = polygon.reduce((s, p) => s + p[0], 0) / polygon.length;
+        const cy = polygon.reduce((s, p) => s + p[1], 0) / polygon.length;
+        const bx = Math.max(...polygon.map(p => p[0])) - Math.min(...polygon.map(p => p[0]));
+        const by = Math.max(...polygon.map(p => p[1])) - Math.min(...polygon.map(p => p[1]));
+        const small = Math.min(bx, by);
         body = (
           <g {...bodyProps}>
             <path d={path} fill={fill} stroke={stroke} strokeWidth={sw} />
+            {hatchId && (
+              <path d={path} fill={`url(#${hatchId})`} stroke="none" opacity={0.65} />
+            )}
+            {ViewGlyph && small > glyphPx * 1.6 && (
+              <g pointerEvents="none" style={{ color: stroke }}>
+                <ViewGlyph cx={cx} cy={cy} size={glyphPx} />
+              </g>
+            )}
           </g>
         );
       } else {
         const { top_edge, bottom_edge } = label.geometry as { top_edge: Point[]; bottom_edge: Point[] };
         const path = `M ${top_edge.map(p => p.join(',')).join(' L ')}` +
                      ` L ${[...bottom_edge].reverse().map(p => p.join(',')).join(' L ')} Z`;
+        const all = [...top_edge, ...bottom_edge];
+        const cx = all.reduce((s, p) => s + p[0], 0) / all.length;
+        const cy = all.reduce((s, p) => s + p[1], 0) / all.length;
+        const bx = Math.max(...all.map(p => p[0])) - Math.min(...all.map(p => p[0]));
+        const by = Math.max(...all.map(p => p[1])) - Math.min(...all.map(p => p[1]));
+        const small = Math.min(bx, by);
         body = (
           <g {...bodyProps}>
             <path d={path} fill={fill} stroke={stroke} strokeWidth={sw} />
+            {hatchId && (
+              <path d={path} fill={`url(#${hatchId})`} stroke="none" opacity={0.65} />
+            )}
+            {ViewGlyph && small > glyphPx * 1.6 && (
+              <g pointerEvents="none" style={{ color: stroke }}>
+                <ViewGlyph cx={cx} cy={cy} size={glyphPx} />
+              </g>
+            )}
           </g>
         );
       }
@@ -5325,6 +5489,26 @@ function LabelGlyph({
       // Pump fill alpha up so closed regions are actually visible (was
       // 0x1a → effectively invisible on pale-paper scans). 0x33 ≈ 20%.
       const areaFill = selected ? '#dc262655' : `${baseColor}33`;
+      const lk = label.attributes.line_kind ?? 'other';
+      const LineGlyph = openLineGlyphFor(lk);
+      const glyphPx = 16 * screenScale;
+      // Place glyph at midpoint of the longest segment so it doesn't crowd
+      // joints. Skip for closed areas — they get a centroid glyph below.
+      let lineGlyphAt: Point | null = null;
+      if (!isArea && pts.length >= 2 && LineGlyph) {
+        let bestLen = 0;
+        let bestMid: Point = pts[0];
+        for (let i = 0; i < pts.length - 1; i++) {
+          const dx = pts[i + 1][0] - pts[i][0];
+          const dy = pts[i + 1][1] - pts[i][1];
+          const len = Math.hypot(dx, dy);
+          if (len > bestLen && len > glyphPx * 2) {
+            bestLen = len;
+            bestMid = [(pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2];
+          }
+        }
+        if (bestLen > 0) lineGlyphAt = bestMid;
+      }
       body = (
         <g {...bodyProps}>
           {closedPath && (
@@ -5336,6 +5520,15 @@ function LabelGlyph({
           <polyline points={pts.map(p => p.join(',')).join(' ')}
                     fill="none" stroke={stroke} strokeWidth={sw + 1} />
           {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill={stroke} />)}
+          {lineGlyphAt && LineGlyph && (
+            <g pointerEvents="none" style={{ color: stroke }}>
+              <g>
+                <circle cx={lineGlyphAt[0]} cy={lineGlyphAt[1]} r={glyphPx * 0.65}
+                        fill="white" stroke={stroke} strokeWidth={0.8} opacity={0.85} />
+              </g>
+              <LineGlyph cx={lineGlyphAt[0]} cy={lineGlyphAt[1]} size={glyphPx * 0.9} />
+            </g>
+          )}
         </g>
       );
       break;
@@ -5358,6 +5551,13 @@ function LabelGlyph({
         : null;
       const fullLabel = [datum ? DATUM_LABELS[datum] ?? datum : '', valueText]
         .filter(Boolean).join(' ');
+      const DatumGlyph = heightMarkGlyphFor(datum, isBezug);
+      const glyphPx = 14 * screenScale;
+      // Glyph sits to the right of the text. Approximate text width via
+      // character count × monospace cell (~7px × font size / 13).
+      const textPx = (fullLabel?.length ?? 0) * 7.5 * (isBezug ? 15 : 13) / 13;
+      const glyphX = x + 14 + textPx + glyphPx * 0.7;
+      const glyphY = y - 12;
       body = (
         <g {...bodyProps}>
           {isBezug && (
@@ -5378,6 +5578,11 @@ function LabelGlyph({
                   style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}>
               {fullLabel}
             </text>
+          )}
+          {DatumGlyph && fullLabel && (
+            <g pointerEvents="none" style={{ color: isBezug ? '#b45309' : stroke }} opacity={0.85}>
+              <DatumGlyph cx={glyphX} cy={glyphY} size={glyphPx} />
+            </g>
           )}
         </g>
       );
