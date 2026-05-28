@@ -200,6 +200,54 @@ interface Snapshot {
   scene_tag: SceneTag;
 }
 
+// Save-time guard: reject labels whose geometry contains NaN / Infinity.
+// `JSON.stringify(NaN)` emits `null`, which then fails the Point schema's
+// `items: { type: "number" }` and the server returns 422. The few code
+// paths that could ever produce NaN (V0.1 auto-apply when bezugHM exists
+// but its anchor is corrupt, drag off-screen, etc.) get caught here.
+function pointIsFinite(p: unknown): boolean {
+  return Array.isArray(p) && p.length >= 2 &&
+    typeof p[0] === 'number' && Number.isFinite(p[0]) &&
+    typeof p[1] === 'number' && Number.isFinite(p[1]);
+}
+function labelGeometryIsFinite(label: Label): boolean {
+  const g = label.geometry as Record<string, unknown>;
+  if (label.type === 'wall' || label.type === 'dimensioned_distance') {
+    return pointIsFinite(g.start) && pointIsFinite(g.end);
+  }
+  if (label.type === 'floorplan_opening') {
+    const q = g.quad as unknown[];
+    return Array.isArray(q) && q.length === 4 && q.every(pointIsFinite);
+  }
+  if (label.type === 'view_opening') {
+    if (g.shape === 'circle') {
+      const r = g.radius_px;
+      return pointIsFinite(g.center) && typeof r === 'number' && Number.isFinite(r);
+    }
+    if (g.shape === 'polygon') {
+      return Array.isArray(g.polygon) && (g.polygon as unknown[]).every(pointIsFinite);
+    }
+    return Array.isArray(g.top_edge) && (g.top_edge as unknown[]).every(pointIsFinite)
+        && Array.isArray(g.bottom_edge) && (g.bottom_edge as unknown[]).every(pointIsFinite);
+  }
+  if (label.type === 'component_line') {
+    return Array.isArray(g.polyline) && (g.polyline as unknown[]).every(pointIsFinite);
+  }
+  if (label.type === 'height_mark') {
+    return pointIsFinite(g.anchor);
+  }
+  if (label.type === 'dimension_number') {
+    // anchor optional, bbox optional — both must be finite if present
+    if (g.anchor !== undefined && !pointIsFinite(g.anchor)) return false;
+    if (g.bbox !== undefined) {
+      const b = g.bbox as unknown[];
+      if (!Array.isArray(b) || b.length !== 4 || !b.every(pointIsFinite)) return false;
+    }
+    return true;
+  }
+  return true;
+}
+
 // N2 helper: find the nearest existing label endpoint to a point, within
 // snap radius. Used by the anchored-polyline auto-commit + the close-anchor
 // visual hint. Excludes nothing — labels are scene-local, no cross-scene.
@@ -907,7 +955,9 @@ export function AnnotatePage() {
             const d = l.attributes.datum;
             if (d && d !== 'other') datumsHere.add(d);
           }
-          const missingEntries = knownEntries.filter(([d]) => !datumsHere.has(d));
+          const missingEntries = knownEntries.filter(
+            ([d, mm]) => !datumsHere.has(d) && typeof mm === 'number' && Number.isFinite(mm),
+          );
           if (missingEntries.length > 0) {
             const facts = loadHouseFacts(scope, key);
             const calib = facts.calibration_per_scene[decodedFile];
@@ -2045,9 +2095,20 @@ export function AnnotatePage() {
     setSaving(true);
     try {
       const anomalies = collectAnomalies(labels);
+      // Defensive sanitation: drop labels whose geometry contains NaN /
+      // non-finite numbers (those serialize to `null` and fail Point
+      // schema validation). This guards against bad auto-applied state
+      // (V0.1 with NaN calib, dragged labels gone off-screen, etc.).
+      const cleanLabels = labels.filter((l) => labelGeometryIsFinite(l));
+      const droppedCount = labels.length - cleanLabels.length;
+      if (droppedCount > 0) {
+        console.warn(`[save] dropping ${droppedCount} labels with non-finite geometry`);
+      }
+      // Schema allows ONLY a fixed top-level key set; spreading `data`
+      // could carry deprecated keys. Build the payload from scratch.
       const payload: SceneLabels = {
-        ...data,
         schema_version: '1.0',
+        scope,
         scene_key: key,
         scene_file: decodedFile,
         scene_tag: sceneTag,
@@ -2056,8 +2117,10 @@ export function AnnotatePage() {
         image_size_px: imageSize,
         annotated_by: data.annotated_by ?? 'jhoetter',
         annotated_at: nowIso(),
-        labels,
+        labels: cleanLabels,
         anomalies: anomalies.length > 0 ? anomalies : undefined,
+        // Preserve homography only when present + valid.
+        ...(data.homography ? { homography: data.homography } : {}),
       };
       await saveLabels(scope, key, decodedFile, payload);
       setDirty(false);
@@ -2102,7 +2165,9 @@ export function AnnotatePage() {
       rememberHouseBezugXRatio(scope, key, sceneTag, labels, imageSize[0]);
       addToast(`✓ Gespeichert (${labels.length} Labels)`, 'success');
     } catch (e) {
-      addToast(`✗ Speichern fehlgeschlagen: ${(e as Error).message}`, 'error', 6000);
+      const msg = (e as Error).message;
+      console.error('saveLabels failed', e);
+      addToast(`✗ Speichern fehlgeschlagen — ${msg}`, 'error', 12000);
     } finally {
       setSaving(false);
     }
