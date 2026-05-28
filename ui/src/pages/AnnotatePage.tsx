@@ -1356,14 +1356,54 @@ export function AnnotatePage() {
           if (me?.attributes.is_reference && me.attributes.value_mm == null && !crossSceneNote) {
             const orient = dimOrientation(effStart, effEnd);
             if (orient) {
-              const cached = getBuildingDim(scope, key, sceneTag, orient);
-              if (cached) {
+              // W5 — Phase 4 derivation: prefer house_facts.extent over the
+              // X4 per-tag cache when extent + orientation graph are set.
+              // The W4 geometric formula picks width vs depth correctly for
+              // gable-facing-N houses.
+              const facts = loadHouseFacts(scope, key);
+              let derivedMm: number | null = null;
+              let derivedSource = '';
+              if (sceneTag === 'ansicht' || sceneTag === 'schnitt') {
+                if (orient === 'horizontal' && sceneOrientation && facts.orientation?.north_edge_label_id) {
+                  // For Ansicht: 'north'/'south' face → faceLengthAlong('east')
+                  // For Schnitt: 'north'/'south' → faceLengthAlong('north')
+                  const along: 'north' | 'east' =
+                    sceneTag === 'ansicht'
+                      ? (sceneOrientation === 'north' || sceneOrientation === 'south' ? 'east' : 'north')
+                      : (sceneOrientation === 'north' || sceneOrientation === 'south' ? 'north' : 'east');
+                  const fb = along === 'east' ? facts.extent.width_mm : facts.extent.depth_mm;
+                  if (typeof fb === 'number') {
+                    derivedMm = fb;
+                    derivedSource = `Hausbreite/-tiefe (${along === 'east' ? 'ê' : 'n̂'}-Achse)`;
+                  }
+                } else if (orient === 'vertical') {
+                  if (typeof facts.heights.first_mm === 'number' && typeof facts.heights.gelaende_mm === 'number') {
+                    derivedMm = facts.heights.first_mm - facts.heights.gelaende_mm;
+                    derivedSource = 'First − Gelände';
+                  } else if (typeof facts.heights.first_mm === 'number') {
+                    derivedMm = facts.heights.first_mm;
+                    derivedSource = 'First';
+                  } else if (typeof facts.extent.height_mm === 'number') {
+                    derivedMm = facts.extent.height_mm;
+                    derivedSource = 'Hausgröße';
+                  }
+                }
+              }
+              if (derivedMm == null) {
+                const cached = getBuildingDim(scope, key, sceneTag, orient);
+                if (cached) {
+                  derivedMm = cached.value_mm;
+                  derivedSource = `aus „${cached.from_scene_file}"`;
+                }
+              }
+              if (derivedMm != null) {
+                const finalMm = derivedMm;
                 labelsAfterAdd = labelsAfterAdd.map((l) =>
                   l.id === label.id
-                    ? ({ ...l, attributes: { ...l.attributes, value_mm: cached.value_mm } } as Label)
+                    ? ({ ...l, attributes: { ...l.attributes, value_mm: finalMm } } as Label)
                     : l,
                 );
-                crossSceneNote = `Bezug ${orient === 'horizontal' ? 'H' : 'V'} = ${(cached.value_mm / 1000).toFixed(2).replace('.', ',')} m aus „${cached.from_scene_file}"`;
+                crossSceneNote = `Bezug ${orient === 'horizontal' ? 'H' : 'V'} = ${(finalMm / 1000).toFixed(2).replace('.', ',')} m (${derivedSource})`;
               }
             }
           }
@@ -3668,11 +3708,24 @@ export function AnnotatePage() {
         {/* M12 inline edit. <input> floats at the cursor; Enter commits, Esc
             cancels (and deletes the freshly-created label so the user can
             click again). */}
-        {pendingInlineEdit && (
+        {pendingInlineEdit && (() => {
+          // W5 — pre-fill with the dim's current value_mm if it was already
+          // set (e.g. from Phase 4 derivation or cross-scene cache). User
+          // can confirm with Enter or override.
+          const target = labels.find((l) => l.id === pendingInlineEdit.labelId);
+          let initialValue = '';
+          if (target?.type === 'dimensioned_distance' && pendingInlineEdit.field === 'value_mm') {
+            const v = target.attributes.value_mm;
+            if (typeof v === 'number' && v > 0) {
+              initialValue = (v / 1000).toFixed(2).replace('.', ',');
+            }
+          }
+          return (
           <InlineEditInput
             key={pendingInlineEdit.labelId}
             screenPos={pendingInlineEdit.screenPos}
             placeholder={pendingInlineEdit.field === 'text' ? 'z. B. 1,75' : 'z. B. 1,75 oder 1750'}
+            initialValue={initialValue}
             onCommit={(value) => {
               const trimmed = value.trim();
               if (trimmed === '') {
@@ -3725,7 +3778,8 @@ export function AnnotatePage() {
               setPendingInlineEdit(null);
             }}
           />
-        )}
+          );
+        })()}
         {/* Building-axis badge — bottom-left corner. Shows the detected
             plan rotation so the user knows the snap is rotated to match
             the plan, not the image frame. Click to toggle adaptive snap
@@ -4183,31 +4237,17 @@ function WorkflowGuide({
             />
           )}
 
-          {/* Phase 4 placeholder for now. W5 fills in. */}
-          {phase === 'bezugsmasse' && (() => {
-            const rec = workflowRecommendSceneFor(phase, facts, scenes);
-            const onRec = rec === currentSceneFile;
-            return (
-              <div className="space-y-1.5">
-                <p className="text-[0.72rem] text-zinc-700 leading-snug">
-                  <span className="font-semibold">Schritt {phaseIdx + 1}: {workflowPhaseLabelDe(phase)}.</span>{' '}
-                  Anleitung wird in den nächsten Wellen ergänzt.
-                </p>
-                {rec && !onRec && (
-                  <button
-                    type="button"
-                    onClick={() => onGoToScene(rec)}
-                    className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900"
-                  >
-                    → Empfohlene Szene: {rec}
-                  </button>
-                )}
-                {onRec && (
-                  <p className="text-[0.7rem] text-emerald-700">↳ du bist auf der empfohlenen Szene.</p>
-                )}
-              </div>
-            );
-          })()}
+          {/* Phase 4 body — bezugsmasse. */}
+          {phase === 'bezugsmasse' && (
+            <WorkflowGuideBezugsmasse
+              facts={facts}
+              scenes={scenes}
+              currentSceneFile={currentSceneFile}
+              currentSceneTag={currentSceneTag}
+              currentSceneLabels={currentSceneLabels}
+              onGoToScene={onGoToScene}
+            />
+          )}
           {phase === 'detail' && (
             <p className="text-[0.72rem] text-emerald-700 leading-snug">
               ✓ Hausgerüst steht. Detail-Beschriftung läuft frei.
@@ -4413,6 +4453,96 @@ function SceneCompass({
           {label}
         </span>
       </div>
+    </div>
+  );
+}
+
+// W5 — Phase 4 sub-step UI. Per current Ansicht/Schnitt: tracks 4.a
+// (Bezugshöhe in scene), 4.b (horizontal is_reference dim), 4.c (vertical
+// is_reference dim). The three together unlock per-scene calibration.
+// When the user isn't on an Ansicht/Schnitt, shows the next-uncalibrated
+// scene as the "go here" recommendation.
+function WorkflowGuideBezugsmasse({
+  facts, scenes, currentSceneFile, currentSceneTag, currentSceneLabels, onGoToScene,
+}: {
+  facts: HouseFacts;
+  scenes: WorkflowSceneSummary[];
+  currentSceneFile: string;
+  currentSceneTag: SceneTag;
+  currentSceneLabels: Label[];
+  onGoToScene: (file: string) => void;
+}) {
+  const rec = workflowRecommendSceneFor('bezugsmasse', facts, scenes);
+  const onRec = rec === currentSceneFile;
+  const isHeightScene = currentSceneTag === 'ansicht' || currentSceneTag === 'schnitt';
+  // 4.a — Bezugshöhe (value_mm === 0) exists in current scene.
+  const hasBezug = currentSceneLabels.some(
+    (l) => l.type === 'height_mark' && l.attributes.value_mm === 0,
+  );
+  // 4.b / 4.c — is_reference dims with value_mm set, in horizontal vs vertical.
+  let hasHRef = false; let hasVRef = false;
+  for (const l of currentSceneLabels) {
+    if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
+    if (l.attributes.value_mm == null) continue;
+    const dx = l.geometry.end[0] - l.geometry.start[0];
+    const dy = l.geometry.end[1] - l.geometry.start[1];
+    const ang = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+    if (ang < 15 || ang > 165) hasHRef = true;
+    else if (ang > 75 && ang < 105) hasVRef = true;
+  }
+  // Coverage of all Ansicht/Schnitt scenes — how far the phase is overall.
+  const heightScenes = scenes.filter((s) => {
+    const t = facts.scene_metadata[s.file]?.kind ?? s.tag;
+    return (t === 'ansicht' || t === 'schnitt') && !s.detail_only;
+  });
+  const done = heightScenes.filter((s) => facts.calibration_per_scene[s.file]).length;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[0.72rem] text-zinc-700 leading-snug">
+        <span className="font-semibold">Schritt 5: Bezugsmaße pro Szene.</span>{' '}
+        In jeder Ansicht/Schnitt eine Bezugshöhe (±0,00) setzen, dann
+        einen horizontalen + vertikalen Bezugsmaß. Werte werden aus
+        Haus-Maßen vorgeschlagen.
+      </p>
+      <p className="text-[0.7rem] text-zinc-500">
+        {done} / {heightScenes.length} Szenen kalibriert
+      </p>
+      {rec && !onRec && (
+        <button
+          type="button"
+          onClick={() => onGoToScene(rec)}
+          className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium"
+        >
+          → Nächste unkalibrierte Szene: {rec}
+        </button>
+      )}
+      {isHeightScene && (
+        <ul className="space-y-0.5 ml-1">
+          <li className="flex items-center gap-1.5 text-[0.7rem]">
+            <span className={hasBezug ? 'text-emerald-600' : 'text-amber-600'}>
+              {hasBezug ? '✓' : '⚠'}
+            </span>
+            <span className={hasBezug ? 'text-zinc-600' : 'text-zinc-800'}>4.a — Bezugshöhe ±0,00 setzen</span>
+          </li>
+          <li className="flex items-center gap-1.5 text-[0.7rem]">
+            <span className={hasHRef ? 'text-emerald-600' : 'text-amber-600'}>
+              {hasHRef ? '✓' : '⚠'}
+            </span>
+            <span className={hasHRef ? 'text-zinc-600' : 'text-zinc-800'}>4.b — Horizontaler Bezugsmaß</span>
+          </li>
+          <li className="flex items-center gap-1.5 text-[0.7rem]">
+            <span className={hasVRef ? 'text-emerald-600' : 'text-amber-600'}>
+              {hasVRef ? '✓' : '⚠'}
+            </span>
+            <span className={hasVRef ? 'text-zinc-600' : 'text-zinc-800'}>4.c — Vertikaler Bezugsmaß</span>
+          </li>
+        </ul>
+      )}
+      {isHeightScene && !hasBezug && (
+        <p className="text-[0.65rem] text-zinc-500 italic">
+          Tipp: 4.a ist Pflicht zuerst. Ohne Bezugshöhe ist Y für geerbte Höhenkoten nicht definiert.
+        </p>
+      )}
     </div>
   );
 }
@@ -6936,11 +7066,13 @@ function Cheatsheet({ onClose }: { onClose: () => void }) {
 function InlineEditInput({
   screenPos,
   placeholder,
+  initialValue,
   onCommit,
   onCancel,
 }: {
   screenPos: [number, number];
   placeholder: string;
+  initialValue?: string;
   onCommit: (value: string) => void;
   onCancel: () => void;
 }) {
@@ -6954,7 +7086,7 @@ function InlineEditInput({
       ref={ref}
       type="text"
       placeholder={placeholder}
-      defaultValue=""
+      defaultValue={initialValue ?? ''}
       style={{
         position: 'fixed',
         left: screenPos[0],
