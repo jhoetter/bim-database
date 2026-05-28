@@ -2819,6 +2819,16 @@ export function AnnotatePage() {
             setSceneSummaryRev((r) => r + 1);
             addToast('✓ Nordkante festgelegt', 'success', 2000);
           }}
+          onMarkDetailDone={() => {
+            const f = loadHouseFacts(scope, key);
+            const wf = f.workflow ?? { ...{ schema_version: '1.0' as const, phase: 'detail' as const, phase_completed_at: { inventory: null, height_anchor: null, footprint: null, orientation: null, bezugsmasse: null, detail: null }, source_scene: { inventory: null, height_anchor: null, footprint: null, orientation: null, bezugsmasse: null, detail: null }, user_skipped: {} } };
+            wf.phase_completed_at = { ...wf.phase_completed_at, detail: nowIso() };
+            wf.phase = 'detail';
+            f.workflow = wf;
+            saveHouseFacts(scope, key, f);
+            setSceneSummaryRev((r) => r + 1);
+            addToast('✓ Haus fertig markiert', 'success', 3000);
+          }}
           labels={labels}
           selectedId={selectedId}
           onSelectLabel={setSelectedId}
@@ -4088,6 +4098,7 @@ function WorkflowGuide({
   currentSceneLabels,
   onGoToScene,
   onSetOrientation,
+  onMarkDetailDone,
 }: {
   facts: HouseFacts;
   scenes: WorkflowSceneSummary[];
@@ -4098,6 +4109,9 @@ function WorkflowGuide({
   /** Phase 3 hook — caller writes facts.orientation, saves, and bumps
    *  sceneSummaryRev so the WorkflowGuide re-derives. */
   onSetOrientation: (wallId: string, grundrissFile: string) => void;
+  /** Phase 5 hook — user clicks "fertig"; caller stamps
+   *  workflow.phase_completed_at.detail = nowIso(). */
+  onMarkDetailDone: () => void;
 }) {
   const phase = workflowCurrentPhase(facts, scenes);
   const snap = workflowPhaseStatusSnapshot(facts, scenes);
@@ -4249,9 +4263,13 @@ function WorkflowGuide({
             />
           )}
           {phase === 'detail' && (
-            <p className="text-[0.72rem] text-emerald-700 leading-snug">
-              ✓ Hausgerüst steht. Detail-Beschriftung läuft frei.
-            </p>
+            <WorkflowGuideDetail
+              facts={facts}
+              scenes={scenes}
+              currentSceneFile={currentSceneFile}
+              onGoToScene={onGoToScene}
+              onMarkDetailDone={onMarkDetailDone}
+            />
           )}
         </div>
       )}
@@ -4453,6 +4471,84 @@ function SceneCompass({
           {label}
         </span>
       </div>
+    </div>
+  );
+}
+
+// W6 — Phase 5 detail UI. Hausgerüst steht; user goes scene-by-scene.
+// Coverage heuristic per scene: count expected label types (walls for
+// Grundriss, openings + heights for Ansicht/Schnitt) vs. observed. Bar
+// shows the running average; click any scene to navigate. "Fertig"
+// button stamps phase_completed_at.detail.
+function WorkflowGuideDetail({
+  facts, scenes, currentSceneFile, onGoToScene, onMarkDetailDone,
+}: {
+  facts: HouseFacts;
+  scenes: WorkflowSceneSummary[];
+  currentSceneFile: string;
+  onGoToScene: (file: string) => void;
+  onMarkDetailDone: () => void;
+}) {
+  // For each scene, we don't have its full label list here (only the
+  // current scene's). Fall back to scene_metadata. Coverage is "is the
+  // scene calibrated AND has metadata" for Ansicht/Schnitt, "has level"
+  // for Grundriss. Real per-scene label-count coverage would need a
+  // server endpoint; this is the cheap version.
+  const done = facts.workflow?.phase_completed_at.detail != null;
+  return (
+    <div className="space-y-1.5">
+      {!done && (
+        <p className="text-[0.72rem] text-zinc-700 leading-snug">
+          <span className="font-semibold">Schritt 6: Detail-Beschriftung.</span>{' '}
+          Hausgerüst steht — geh die Szenen frei durch und ergänze
+          Öffnungen, Wände, weitere Höhen, Maße. Wenn du fertig bist,
+          klick „Haus fertig" unten.
+        </p>
+      )}
+      {done && (
+        <p className="text-[0.72rem] text-emerald-700 leading-snug">
+          ✓ Du hast dieses Haus als fertig markiert. Du kannst trotzdem
+          weiter beschriften.
+        </p>
+      )}
+      <ul className="space-y-0.5 ml-1 max-h-44 overflow-auto">
+        {scenes.map((s) => {
+          const meta = facts.scene_metadata[s.file];
+          const tag = meta?.kind ?? s.tag ?? '?';
+          const hasCalib = !!facts.calibration_per_scene[s.file];
+          const isHeightScene = tag === 'ansicht' || tag === 'schnitt';
+          const ok = isHeightScene ? hasCalib : tag === 'grundriss' ? !!meta?.level : !!meta?.kind;
+          const isCurrent = s.file === currentSceneFile;
+          return (
+            <li key={s.file}>
+              <button
+                type="button"
+                onClick={() => !isCurrent && onGoToScene(s.file)}
+                disabled={isCurrent}
+                className={`w-full text-left text-[0.7rem] px-1.5 py-0.5 rounded flex items-center gap-1.5 ${
+                  isCurrent
+                    ? 'bg-amber-100 text-amber-900 font-semibold cursor-default'
+                    : 'hover:bg-zinc-100 text-zinc-800'
+                }`}
+                title={`${tag}${meta?.orientation ? ` · ${meta.orientation}` : ''}${meta?.level ? ` · ${meta.level}` : ''}${hasCalib ? ' · kalibriert' : ''}`}
+              >
+                <span className={ok ? 'text-emerald-600' : 'text-zinc-400'}>{ok ? '✓' : '○'}</span>
+                <span className="flex-1 truncate">{s.file}</span>
+                <span className="text-[0.62rem] text-zinc-500 font-mono">{tag.slice(0, 3)}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {!done && (
+        <button
+          type="button"
+          onClick={onMarkDetailDone}
+          className="w-full text-[0.7rem] px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+        >
+          ✓ Haus fertig markieren
+        </button>
+      )}
     </div>
   );
 }
@@ -4666,6 +4762,7 @@ function ToolPalette({
   currentSceneFile,
   onGoToScene,
   onSetOrientation,
+  onMarkDetailDone,
   labels,
   selectedId,
   onSelectLabel,
@@ -4700,6 +4797,7 @@ function ToolPalette({
   currentSceneFile: string;
   onGoToScene: (file: string) => void;
   onSetOrientation: (wallId: string, grundrissFile: string) => void;
+  onMarkDetailDone: () => void;
   labels: Label[];
   selectedId: string | null;
   onSelectLabel: (id: string | null) => void;
@@ -4735,6 +4833,7 @@ function ToolPalette({
         currentSceneLabels={labels}
         onGoToScene={onGoToScene}
         onSetOrientation={onSetOrientation}
+        onMarkDetailDone={onMarkDetailDone}
       />
       <section>
         <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
