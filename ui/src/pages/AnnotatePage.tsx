@@ -55,12 +55,19 @@ import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
 import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
 import { autoTSplit } from '../lib/auto_split';
-import { loadHouseFacts, promoteToFacts, saveHouseFacts } from '../lib/house_facts';
+import { loadHouseFacts, promoteToFacts, saveHouseFacts, type HouseFacts } from '../lib/house_facts';
 import {
   advanceWorkflow,
+  currentPhase as workflowCurrentPhase,
+  phaseStatusSnapshot as workflowPhaseStatusSnapshot,
   PHASE_LABEL_DE,
+  type PhaseId,
   type SceneSummary as WorkflowSceneSummary,
 } from '../lib/workflow';
+
+function workflowPhaseLabelDe(p: PhaseId): string {
+  return PHASE_LABEL_DE[p];
+}
 import { collectRefineIssues, type RefineIssue } from '../lib/refine';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
@@ -825,6 +832,17 @@ export function AnnotatePage() {
     () => sceneTag === 'grundriss' ? detectRooms(labels) : [],
     [labels, sceneTag],
   );
+  // W0 — workflow snapshot for the WorkflowGuide panel. Re-computes when the
+  // facts cache or the scene list changes (sceneSummaryRev increments on
+  // save → loadHouseFacts returns fresh data → memo recomputes).
+  const workflowSnapshot = useMemo(() => {
+    const facts = loadHouseFacts(scope, key);
+    const scenes: WorkflowSceneSummary[] = (houseScenes ?? []).map((s) => ({
+      file: s.file,
+      tag: facts.scene_metadata[s.file]?.kind ?? null,
+    }));
+    return { facts, scenes };
+  }, [scope, key, houseScenes, sceneSummaryRev]);
   // V3 — refine kinds per label, used on the canvas to draw issue rings,
   // ? corners, etc. We pass house context for cross-scene checks; the
   // refine module returns at most one issue per label, picking the most
@@ -2739,6 +2757,10 @@ export function AnnotatePage() {
           setSceneOrientation={(v) => { setSceneOrientation(v); setDirty(true); }}
           sceneLevel={sceneLevel}
           setSceneLevel={(v) => { setSceneLevel(v); setDirty(true); }}
+          workflowFacts={workflowSnapshot.facts}
+          workflowScenes={workflowSnapshot.scenes}
+          currentSceneFile={decodedFile}
+          onGoToScene={goToScene}
           labels={labels}
           selectedId={selectedId}
           onSelectLabel={setSelectedId}
@@ -3969,6 +3991,145 @@ function SceneLevelPicker({
   );
 }
 
+// W1+ — house-first workflow guidance panel. Lives at the top of the rail
+// above Szenen-Tag. Shows the current phase, what's blocking it, and a
+// "go here" button to jump to the recommended scene. Auto-collapses once
+// the user reaches Phase 5 (detail labeling).
+function WorkflowGuide({
+  facts,
+  scenes,
+  currentSceneFile,
+  onGoToScene,
+}: {
+  facts: HouseFacts;
+  scenes: WorkflowSceneSummary[];
+  currentSceneFile: string;
+  onGoToScene: (file: string) => void;
+}) {
+  const phase = workflowCurrentPhase(facts, scenes);
+  const snap = workflowPhaseStatusSnapshot(facts, scenes);
+  const [open, setOpen] = useState(phase !== 'detail');
+  const phaseList: PhaseId[] = ['inventory', 'height_anchor', 'footprint', 'orientation', 'bezugsmasse', 'detail'];
+  const phaseIdx = phaseList.indexOf(phase);
+
+  // W1 — Phase 0 inventory body: list every scene that's missing a
+  // tag/orientation/level. Per-scene "open" button → goToScene().
+  const inventoryGaps = (() => {
+    const gaps: { file: string; reason: string }[] = [];
+    for (const s of scenes) {
+      const meta = facts.scene_metadata[s.file];
+      const tag = meta?.kind ?? s.tag;
+      if (!tag || tag === 'nicht_klassifiziert') {
+        gaps.push({ file: s.file, reason: 'Szenen-Tag fehlt' });
+        continue;
+      }
+      if ((tag === 'ansicht' || tag === 'schnitt') && !meta?.orientation) {
+        gaps.push({ file: s.file, reason: 'Himmelsrichtung fehlt' });
+        continue;
+      }
+      if (tag === 'grundriss' && !meta?.level) {
+        gaps.push({ file: s.file, reason: 'Geschoss fehlt' });
+      }
+    }
+    return gaps;
+  })();
+
+  return (
+    <section className="border border-zinc-200 rounded bg-zinc-50">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[0.7rem] uppercase tracking-wider text-zinc-700 font-semibold"
+      >
+        <span className="w-3 text-center">{open ? '▾' : '▸'}</span>
+        <span>Arbeitsablauf</span>
+        <span className="ml-auto text-zinc-500 font-normal">
+          Schritt {phaseIdx + 1} / 6 — {workflowPhaseLabelDe(phase)}
+        </span>
+      </button>
+      {open && (
+        <div className="px-2 pb-2 space-y-1.5">
+          {/* Six-step progress strip. Filled = complete (or user-skipped),
+              empty = pending. The current step gets the accent ring. */}
+          <div className="flex gap-1">
+            {phaseList.map((p, i) => {
+              const st = snap[p];
+              const isCurrent = p === phase;
+              const cls = st.complete
+                ? 'bg-emerald-500 border-emerald-600'
+                : isCurrent
+                  ? 'bg-amber-200 border-amber-500'
+                  : 'bg-zinc-100 border-zinc-300';
+              return (
+                <div
+                  key={p}
+                  className={`flex-1 h-1.5 rounded border ${cls}`}
+                  title={`${i + 1}. ${workflowPhaseLabelDe(p)}${st.complete ? ' ✓' : ''}`}
+                />
+              );
+            })}
+          </div>
+
+          {/* Phase 0 body. */}
+          {phase === 'inventory' && (
+            <div className="space-y-1.5">
+              <p className="text-[0.72rem] text-zinc-700 leading-snug">
+                <span className="font-semibold">Schritt 1: Szenen-Inventar.</span> Jede
+                Szene braucht einen Tag + (für Ansicht/Schnitt) eine Himmelsrichtung,
+                (für Grundriss) ein Geschoss.
+              </p>
+              <p className="text-[0.7rem] text-zinc-500">
+                {scenes.length - inventoryGaps.length} / {scenes.length} klassifiziert
+                {inventoryGaps.length > 0 ? ` — ${inventoryGaps.length} offen:` : ' ✓'}
+              </p>
+              <ul className="space-y-0.5 ml-1 max-h-44 overflow-auto">
+                {inventoryGaps.map((g) => {
+                  const isCurrent = g.file === currentSceneFile;
+                  return (
+                    <li key={g.file}>
+                      <button
+                        type="button"
+                        onClick={() => !isCurrent && onGoToScene(g.file)}
+                        disabled={isCurrent}
+                        className={`w-full text-left text-[0.7rem] px-1.5 py-0.5 rounded flex items-center gap-1.5 ${
+                          isCurrent
+                            ? 'bg-amber-100 text-amber-900 font-semibold cursor-default'
+                            : 'hover:bg-zinc-100 text-zinc-800'
+                        }`}
+                        title={g.reason}
+                      >
+                        <span className="text-amber-600">⚠</span>
+                        <span className="truncate flex-1">{g.file}</span>
+                        <span className="text-[0.62rem] text-zinc-500">
+                          {isCurrent ? '↳ hier' : g.reason}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Phase 1-5 placeholders — surfaced as one-line "next" hints with
+              "noch nicht implementiert" notes for waves W2-W6. */}
+          {phase !== 'inventory' && phase !== 'detail' && (
+            <p className="text-[0.72rem] text-zinc-700 leading-snug">
+              <span className="font-semibold">Schritt {phaseIdx + 1}: {workflowPhaseLabelDe(phase)}.</span>{' '}
+              Anleitung wird in den nächsten Wellen ergänzt.
+            </p>
+          )}
+          {phase === 'detail' && (
+            <p className="text-[0.72rem] text-emerald-700 leading-snug">
+              ✓ Hausgerüst steht. Detail-Beschriftung läuft frei.
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ToolPalette({
   tool,
   setTool,
@@ -3978,6 +4139,10 @@ function ToolPalette({
   setSceneOrientation,
   sceneLevel,
   setSceneLevel,
+  workflowFacts,
+  workflowScenes,
+  currentSceneFile,
+  onGoToScene,
   labels,
   selectedId,
   onSelectLabel,
@@ -4007,6 +4172,10 @@ function ToolPalette({
   setSceneOrientation: (v: SceneOrientation | null) => void;
   sceneLevel: SceneLevel | null;
   setSceneLevel: (v: SceneLevel | null) => void;
+  workflowFacts: HouseFacts;
+  workflowScenes: WorkflowSceneSummary[];
+  currentSceneFile: string;
+  onGoToScene: (file: string) => void;
   labels: Label[];
   selectedId: string | null;
   onSelectLabel: (id: string | null) => void;
@@ -4031,6 +4200,12 @@ function ToolPalette({
   void defaultsRev;
   return (
     <div className="px-3 py-3 space-y-4">
+      <WorkflowGuide
+        facts={workflowFacts}
+        scenes={workflowScenes}
+        currentSceneFile={currentSceneFile}
+        onGoToScene={onGoToScene}
+      />
       <section>
         <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
           Szenen-Tag
@@ -4060,10 +4235,14 @@ function ToolPalette({
             only pre-fill future Nordansichten, EG's wall thicknesses only
             pre-fill EG, etc. */}
         {(sceneTag === 'ansicht' || sceneTag === 'schnitt') && (
-          <SceneOrientationPicker value={sceneOrientation} onChange={setSceneOrientation} />
+          <div className={sceneOrientation == null ? 'ring-2 ring-amber-400 rounded animate-pulse' : ''}>
+            <SceneOrientationPicker value={sceneOrientation} onChange={setSceneOrientation} />
+          </div>
         )}
         {sceneTag === 'grundriss' && (
-          <SceneLevelPicker value={sceneLevel} onChange={setSceneLevel} />
+          <div className={sceneLevel == null ? 'ring-2 ring-amber-400 rounded animate-pulse' : ''}>
+            <SceneLevelPicker value={sceneLevel} onChange={setSceneLevel} />
+          </div>
         )}
       </section>
 

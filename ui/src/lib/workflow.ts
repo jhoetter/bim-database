@@ -13,8 +13,10 @@
 //
 // Phase pointer = first phase whose predicate fails. Never moves backward.
 
-import type { HouseFacts, PhaseId, SceneMetadataEntry, WorkflowState } from './house_facts';
-import { PHASE_IDS, defaultWorkflowState } from './house_facts';
+import type { HouseFacts, SceneMetadataEntry, WorkflowState } from './house_facts';
+import { PHASE_IDS, defaultWorkflowState, type PhaseId } from './house_facts';
+
+export type { PhaseId };
 
 /** Minimal projection of a scene needed for phase predicates. */
 export interface SceneSummary {
