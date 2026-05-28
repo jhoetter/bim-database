@@ -60,6 +60,7 @@ import {
   advanceWorkflow,
   currentPhase as workflowCurrentPhase,
   phaseStatusSnapshot as workflowPhaseStatusSnapshot,
+  recommendSceneFor as workflowRecommendSceneFor,
   PHASE_LABEL_DE,
   type PhaseId,
   type SceneSummary as WorkflowSceneSummary,
@@ -4111,14 +4112,41 @@ function WorkflowGuide({
             </div>
           )}
 
-          {/* Phase 1-5 placeholders — surfaced as one-line "next" hints with
-              "noch nicht implementiert" notes for waves W2-W6. */}
-          {phase !== 'inventory' && phase !== 'detail' && (
-            <p className="text-[0.72rem] text-zinc-700 leading-snug">
-              <span className="font-semibold">Schritt {phaseIdx + 1}: {workflowPhaseLabelDe(phase)}.</span>{' '}
-              Anleitung wird in den nächsten Wellen ergänzt.
-            </p>
+          {/* Phase 1 body — height anchor. */}
+          {phase === 'height_anchor' && (
+            <WorkflowGuideHeightAnchor
+              facts={facts}
+              scenes={scenes}
+              currentSceneFile={currentSceneFile}
+              onGoToScene={onGoToScene}
+            />
           )}
+
+          {/* Phase 2-4 placeholders for now. W3-W5 fill in. */}
+          {(phase === 'footprint' || phase === 'orientation' || phase === 'bezugsmasse') && (() => {
+            const rec = workflowRecommendSceneFor(phase, facts, scenes);
+            const onRec = rec === currentSceneFile;
+            return (
+              <div className="space-y-1.5">
+                <p className="text-[0.72rem] text-zinc-700 leading-snug">
+                  <span className="font-semibold">Schritt {phaseIdx + 1}: {workflowPhaseLabelDe(phase)}.</span>{' '}
+                  Anleitung wird in den nächsten Wellen ergänzt.
+                </p>
+                {rec && !onRec && (
+                  <button
+                    type="button"
+                    onClick={() => onGoToScene(rec)}
+                    className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900"
+                  >
+                    → Empfohlene Szene: {rec}
+                  </button>
+                )}
+                {onRec && (
+                  <p className="text-[0.7rem] text-emerald-700">↳ du bist auf der empfohlenen Szene.</p>
+                )}
+              </div>
+            );
+          })()}
           {phase === 'detail' && (
             <p className="text-[0.72rem] text-emerald-700 leading-snug">
               ✓ Hausgerüst steht. Detail-Beschriftung läuft frei.
@@ -4127,6 +4155,75 @@ function WorkflowGuide({
         </div>
       )}
     </section>
+  );
+}
+
+// W2 — Phase 1 sub-step UI. Lists the named height datums; each is ✓ if
+// in house_facts.heights, ○ if missing. When the user is on the
+// recommended Phase 1 scene, shows them as a checklist; otherwise shows
+// the "go here" button.
+function WorkflowGuideHeightAnchor({
+  facts, scenes, currentSceneFile, onGoToScene,
+}: {
+  facts: HouseFacts;
+  scenes: WorkflowSceneSummary[];
+  currentSceneFile: string;
+  onGoToScene: (file: string) => void;
+}) {
+  const rec = workflowRecommendSceneFor('height_anchor', facts, scenes);
+  const onRec = rec === currentSceneFile;
+  const fmt = (mm: number | undefined) =>
+    typeof mm !== 'number' ? '—'
+    : mm === 0 ? '±0,00'
+    : `${mm > 0 ? '+' : ''}${(mm / 1000).toFixed(2).replace('.', ',')} m`;
+  const required: Array<{ key: keyof typeof facts.heights; label: string; required: boolean }> = [
+    { key: 'bezug_mm', label: 'Bezugshöhe (±0,00)', required: true },
+    { key: 'first_mm', label: 'First',              required: true },
+    { key: 'traufe_mm', label: 'Traufe',            required: false },
+    { key: 'gelaende_mm', label: 'Gelände',         required: false },
+    { key: 'ok_ffb_eg_mm', label: 'OK FFB EG',      required: false },
+    { key: 'ok_ffb_og_mm', label: 'OK FFB OG',      required: false },
+    { key: 'ok_ffb_dg_mm', label: 'OK FFB DG',      required: false },
+  ];
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[0.72rem] text-zinc-700 leading-snug">
+        <span className="font-semibold">Schritt 2: Höhenkoten ankern.</span>{' '}
+        Bezugshöhe + First in einer Ansicht/Schnitt setzen. Weitere Höhen
+        sind willkommen, aber optional.
+      </p>
+      {rec && !onRec && (
+        <button
+          type="button"
+          onClick={() => onGoToScene(rec)}
+          className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium"
+        >
+          → Empfohlene Szene: {rec}
+        </button>
+      )}
+      {onRec && (
+        <p className="text-[0.7rem] text-emerald-700">↳ du bist auf der empfohlenen Szene.</p>
+      )}
+      <ul className="space-y-0.5 ml-1">
+        {required.map(({ key, label, required: req }) => {
+          const v = facts.heights[key] as number | undefined;
+          const set = typeof v === 'number';
+          return (
+            <li
+              key={key}
+              className="flex items-center gap-1.5 text-[0.7rem]"
+              title={set ? `${label} = ${fmt(v)}` : (req ? 'Pflicht für Schritt 2' : 'optional')}
+            >
+              <span className={set ? 'text-emerald-600' : (req ? 'text-amber-600' : 'text-zinc-400')}>
+                {set ? '✓' : (req ? '⚠' : '○')}
+              </span>
+              <span className={set ? 'text-zinc-600' : 'text-zinc-800'}>{label}</span>
+              <span className="ml-auto font-mono text-zinc-500">{set ? fmt(v) : '—'}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

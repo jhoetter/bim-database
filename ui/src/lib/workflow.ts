@@ -198,6 +198,86 @@ export function advanceWorkflow(
   };
 }
 
+// ── Scene recommendation ────────────────────────────────────────────────
+
+/** First source listed for any fact key in `sources`; used to recover the
+ *  scene file a fact was promoted from. */
+function firstSourceScene(sources: Record<string, string[]>, key: string): string | null {
+  const refs = sources[key];
+  if (!refs || refs.length === 0) return null;
+  // Format: '<file>#<kind>:<labelId>'.
+  const file = refs[0].split('#')[0];
+  return file || null;
+}
+
+/** Phase-1 recommended scene: prefer the scene that *already* placed the
+ *  Bezugshöhe (so the user continues there); else the first Ansicht
+ *  alphabetically; else the first Schnitt; else null. */
+export function recommendHeightScene(
+  facts: HouseFacts, scenes: SceneSummary[],
+): string | null {
+  const fromBezug = firstSourceScene(facts.heights.sources, 'bezug_mm');
+  if (fromBezug) return fromBezug;
+  const fromFirst = firstSourceScene(facts.heights.sources, 'first_mm');
+  if (fromFirst) return fromFirst;
+  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.kind ?? s.tag;
+  const ansichten = scenes.filter((s) => tagOf(s) === 'ansicht').sort((a, b) => a.file.localeCompare(b.file));
+  if (ansichten.length > 0) return ansichten[0].file;
+  const schnitte = scenes.filter((s) => tagOf(s) === 'schnitt').sort((a, b) => a.file.localeCompare(b.file));
+  if (schnitte.length > 0) return schnitte[0].file;
+  return null;
+}
+
+/** Phase-2/3 recommended scene: the EG Grundriss; else the lowest level
+ *  Grundriss available; else null. Phase 2 and Phase 3 share the same
+ *  scene (the user dimensions the Grundriss, then picks the north edge
+ *  on the same view). */
+export function recommendFootprintScene(
+  facts: HouseFacts, scenes: SceneSummary[],
+): string | null {
+  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.kind ?? s.tag;
+  const grundrisse = scenes.filter((s) => tagOf(s) === 'grundriss');
+  const eg = grundrisse.find((s) => facts.scene_metadata[s.file]?.level === 'eg');
+  if (eg) return eg.file;
+  const levelOrder = ['eg', 'og', 'dg', 'spitzboden', 'ug', 'kg'] as const;
+  for (const lvl of levelOrder) {
+    const found = grundrisse.find((s) => facts.scene_metadata[s.file]?.level === lvl);
+    if (found) return found.file;
+  }
+  return grundrisse[0]?.file ?? null;
+}
+
+/** Phase 4 recommended scene: the next Ansicht/Schnitt that still lacks
+ *  per-scene calibration. Deterministic alphabetical walk. */
+export function recommendBezugsmasseScene(
+  facts: HouseFacts, scenes: SceneSummary[],
+): string | null {
+  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.kind ?? s.tag;
+  const candidates = scenes
+    .filter((s) => {
+      const t = tagOf(s);
+      return (t === 'ansicht' || t === 'schnitt') && !s.detail_only;
+    })
+    .sort((a, b) => a.file.localeCompare(b.file));
+  for (const s of candidates) {
+    if (!facts.calibration_per_scene[s.file]) return s.file;
+  }
+  return null;
+}
+
+export function recommendSceneFor(
+  phase: PhaseId, facts: HouseFacts, scenes: SceneSummary[],
+): string | null {
+  switch (phase) {
+    case 'inventory': return null;  // user picks from the gap list
+    case 'height_anchor': return recommendHeightScene(facts, scenes);
+    case 'footprint':     return recommendFootprintScene(facts, scenes);
+    case 'orientation':   return recommendFootprintScene(facts, scenes);
+    case 'bezugsmasse':   return recommendBezugsmasseScene(facts, scenes);
+    case 'detail':        return null;
+  }
+}
+
 /** Mark a phase user-skipped (so the guide stops nagging). Caller writes
  *  the returned facts back via saveHouseFacts. */
 export function setPhaseSkipped(
