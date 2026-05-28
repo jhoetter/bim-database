@@ -3,6 +3,7 @@ import type { House } from '../api/types';
 import { useOntology, ontoLabel } from '../api/ontology';
 import { fmt, fmtPrice, pickThumbnail } from '../lib/format';
 import { Badge, constructionTone } from './Badge';
+import { WorkflowPhaseBadge } from './WorkflowPhaseBadge';
 
 function modelableTitle(h: House): string {
   if (h.modelable_in_bim_ai === true) return 'bim-ai can model this house today';
@@ -89,6 +90,13 @@ export function HouseCard({ h }: { h: House }) {
           )}
           {h.roof_type && <Badge tone="roof">{h.roof_type}</Badge>}
           {h.style && <Badge tone="style">{ontoLabel(onto, 'styles', h.style)}</Badge>}
+        </div>
+        <div className="mt-2">
+          <WorkflowPhaseBadge
+            scope="house"
+            houseKey={h.key}
+            sceneFiles={(h.images ?? []).map((i) => i.file)}
+          />
         </div>
       </div>
     </Link>

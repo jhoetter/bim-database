@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router';
 import { fetchDatasets, useResource } from '../api/client';
+import { WorkflowPhaseBadge } from '../components/WorkflowPhaseBadge';
 import type { DatasetDrawing, DatasetHouse } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
@@ -300,6 +301,11 @@ function HouseCard({ house }: { house: DatasetHouse }) {
             </span>
           )}
         </div>
+        <WorkflowPhaseBadge
+          scope="dataset"
+          houseKey={house.key}
+          sceneFiles={house.drawings.map((d) => d.file)}
+        />
       </div>
     </Link>
   );
