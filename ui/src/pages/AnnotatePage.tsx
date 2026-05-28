@@ -677,6 +677,10 @@ export function AnnotatePage() {
   // Not persisted — lives only for the current annotation session so the
   // user can SEE that a value came from elsewhere and undo if they want.
   const [crossSceneProvenance, setCrossSceneProvenance] = useState<Map<string, string>>(() => new Map());
+  // W7 — per-scene visibility filter. Hydrated from SceneLabels.display
+  // on load; written back on save. Labels in this set still exist in JSON,
+  // they just don't render or appear in the main label list.
+  const [hiddenLabelIds, setHiddenLabelIds] = useState<Set<string>>(() => new Set());
   const [sceneTag, setSceneTag] = useState<SceneTag>('nicht_klassifiziert');
   // N6: scene_orientation (Ansicht/Schnitt) + scene_level (Grundriss). Both
   // persist into SceneLabels on save. Drive cross-scene cache scoping —
@@ -963,6 +967,7 @@ export function AnnotatePage() {
     setPendingPolyline([]);
     setWallChainAnchor(null);
     setCrossSceneProvenance(new Map());
+    setHiddenLabelIds(new Set());
     setSceneOrientation(null);
     setSceneLevel(null);
   }, [scope, key, decodedFile]);
@@ -1078,6 +1083,7 @@ export function AnnotatePage() {
       setSceneTag(tag);
       setSceneOrientation(data.scene_orientation ?? null);
       setSceneLevel(data.scene_level ?? null);
+      setHiddenLabelIds(new Set(data.display?.hidden_label_ids ?? []));
       setImageSize(imgSize);
       setView({ x: 0, y: 0, w: imgSize[0], h: imgSize[1] });
       undoStackRef.current = [];
@@ -2235,6 +2241,10 @@ export function AnnotatePage() {
         anomalies: anomalies.length > 0 ? anomalies : undefined,
         // Preserve homography only when present + valid.
         ...(data.homography ? { homography: data.homography } : {}),
+        // W7 — persist per-scene visibility filter so hides survive sessions.
+        ...(hiddenLabelIds.size > 0
+          ? { display: { hidden_label_ids: [...hiddenLabelIds] } }
+          : {}),
       };
       await saveLabels(scope, key, decodedFile, payload);
       setDirty(false);
@@ -2819,6 +2829,26 @@ export function AnnotatePage() {
             setSceneSummaryRev((r) => r + 1);
             addToast('✓ Nordkante festgelegt', 'success', 2000);
           }}
+          hiddenLabelIds={hiddenLabelIds}
+          onToggleHiddenLabel={(id) => {
+            setHiddenLabelIds((prev) => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            });
+            setDirty(true);
+          }}
+          onHideInherited={() => {
+            setHiddenLabelIds((prev) => {
+              const next = new Set(prev);
+              for (const id of crossSceneProvenance.keys()) next.add(id);
+              return next;
+            });
+            setDirty(true);
+            addToast('↻ Geerbte Labels ausgeblendet', 'info', 2000);
+          }}
+          inheritedLabelIds={new Set(crossSceneProvenance.keys())}
           onMarkDetailDone={() => {
             const f = loadHouseFacts(scope, key);
             const wf = f.workflow ?? { ...{ schema_version: '1.0' as const, phase: 'detail' as const, phase_completed_at: { inventory: null, height_anchor: null, footprint: null, orientation: null, bezugsmasse: null, detail: null }, source_scene: { inventory: null, height_anchor: null, footprint: null, orientation: null, bezugsmasse: null, detail: null }, user_skipped: {} } };
@@ -3180,8 +3210,8 @@ export function AnnotatePage() {
               </g>
             );
           })}
-          {/* Existing labels */}
-          {labels.map((l) => (
+          {/* Existing labels — W7 hidden_label_ids skipped on canvas. */}
+          {labels.filter((l) => !hiddenLabelIds.has(l.id)).map((l) => (
             <LabelGlyph
               key={l.id}
               label={l}
@@ -4763,6 +4793,10 @@ function ToolPalette({
   onGoToScene,
   onSetOrientation,
   onMarkDetailDone,
+  hiddenLabelIds,
+  onToggleHiddenLabel,
+  onHideInherited,
+  inheritedLabelIds,
   labels,
   selectedId,
   onSelectLabel,
@@ -4798,6 +4832,10 @@ function ToolPalette({
   onGoToScene: (file: string) => void;
   onSetOrientation: (wallId: string, grundrissFile: string) => void;
   onMarkDetailDone: () => void;
+  hiddenLabelIds: Set<string>;
+  onToggleHiddenLabel: (id: string) => void;
+  onHideInherited: () => void;
+  inheritedLabelIds: Set<string>;
   labels: Label[];
   selectedId: string | null;
   onSelectLabel: (id: string | null) => void;
@@ -4998,6 +5036,10 @@ function ToolPalette({
             labels={labels}
             selectedId={selectedId}
             onSelect={onSelectLabel}
+            hiddenIds={hiddenLabelIds}
+            onToggleHidden={onToggleHiddenLabel}
+            onHideInherited={onHideInherited}
+            inheritedIds={inheritedLabelIds}
           />
         )}
       </section>
@@ -5777,11 +5819,15 @@ function labelSummary(l: Label): string {
 // per-label summary text instead of just "type". Replaces a flat list
 // that was useless when several labels of the same type existed.
 function LabelsByType({
-  labels, selectedId, onSelect,
+  labels, selectedId, onSelect, hiddenIds, onToggleHidden, onHideInherited, inheritedIds,
 }: {
   labels: Label[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  hiddenIds: Set<string>;
+  onToggleHidden: (id: string) => void;
+  onHideInherited: () => void;
+  inheritedIds: Set<string>;
 }) {
   const [collapsed, setCollapsed] = useState<Set<Label['type']>>(() => new Set());
   const groups = useMemo(() => {
@@ -5805,8 +5851,20 @@ function LabelsByType({
     });
   };
 
+  // W7 — when this scene has any inherited labels not yet hidden, show
+  // the batch "ausblenden" button.
+  const inheritedVisible = labels.some((l) => inheritedIds.has(l.id) && !hiddenIds.has(l.id));
   return (
     <div className="space-y-2">
+      {inheritedVisible && (
+        <button
+          type="button"
+          onClick={onHideInherited}
+          className="w-full text-[0.66rem] uppercase tracking-wider text-zinc-500 hover:text-zinc-900 py-0.5"
+        >
+          ↻ Geerbte ausblenden
+        </button>
+      )}
       {groups.map(([type, group]) => {
         const isCollapsed = collapsed.has(type);
         return (
@@ -5822,16 +5880,18 @@ function LabelsByType({
             </button>
             {!isCollapsed && (
               <ul className="space-y-px mt-1 ml-3">
-                {group.map((l) => (
-                  <li key={l.id}>
+                {group.map((l) => {
+                  const isHidden = hiddenIds.has(l.id);
+                  return (
+                  <li key={l.id} className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => onSelect(l.id)}
-                      className={`w-full text-left px-2 py-1 rounded text-[0.72rem] truncate flex items-center gap-1.5 ${
+                      className={`flex-1 text-left px-2 py-1 rounded text-[0.72rem] truncate flex items-center gap-1.5 ${
                         selectedId === l.id
                           ? 'bg-accent/10 text-accent font-semibold'
                           : 'hover:bg-zinc-100 text-zinc-800'
-                      }`}
+                      } ${isHidden ? 'opacity-50 italic' : ''}`}
                       title={l.id}
                     >
                       <span
@@ -5841,8 +5901,19 @@ function LabelsByType({
                       <span className="font-mono">{labelGlyph(l)}</span>{' '}
                       <span className="truncate">{labelSummary(l)}</span>
                     </button>
+                    {/* W7 — eye-icon toggle. Hidden = label exists in JSON
+                        but doesn't render on canvas. */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onToggleHidden(l.id); }}
+                      title={isHidden ? 'Auf Canvas wieder einblenden' : 'Auf Canvas ausblenden (bleibt gespeichert)'}
+                      className="px-1 py-0.5 text-zinc-400 hover:text-zinc-900"
+                    >
+                      {isHidden ? '◌' : '●'}
+                    </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>

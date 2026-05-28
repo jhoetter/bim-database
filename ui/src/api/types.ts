@@ -219,6 +219,13 @@ export interface SceneLabels {
     status?: 'ok' | 'insufficient_references' | 'degenerate';
   };
   anomalies?: string[];
+  /** W7: per-scene display preferences. Labels listed in hidden_label_ids
+   *  exist in the JSON but are not rendered on the canvas — useful for
+   *  inherited Höhenkoten that pile up but aren't useful in this view.
+   *  Stays out of the schema's required set so older saves load forward. */
+  display?: {
+    hidden_label_ids?: string[];
+  };
 }
 
 // Dataset (supervised-learning corpus) — drawings come from two sources:

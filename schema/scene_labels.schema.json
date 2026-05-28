@@ -67,6 +67,18 @@
       "type": "array",
       "items": {"type": "string"},
       "description": "Short human-readable strings surfacing consistency issues (e.g. dimension_number text doesn't match linked distance.value_mm)."
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hidden_label_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "W7: per-scene display preference — label ids that exist in the JSON but should not render on the canvas (e.g. inherited Höhenkoten that aren't useful in this view)."
+        }
+      },
+      "description": "W7: per-scene display preferences (visibility toggles). Stays orthogonal to the label data — hidden ≠ deleted."
     }
   },
   "$defs": {
