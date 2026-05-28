@@ -852,58 +852,82 @@ export function AnnotatePage() {
       const tag = data.scene_tag ?? 'nicht_klassifiziert';
       const imgSize = data.image_size_px ?? [1024, 1024];
 
-      // N5 auto-apply: when opening a fresh Ansicht/Schnitt that has no
-      // height_marks yet but the house already knows them (from Ansicht 1
-      // etc.), drop them in immediately so the user doesn't have to click
-      // "Alle anwenden" on every sibling scene. Height_marks are house-wide
-      // properties, not per-scene — they should appear automatically.
-      // - Y comes from N5 calibration when available, otherwise stacks
-      //   vertically off the viewport centre with 30 px per row.
-      // - X defaults to the per-(house, tag) Bezugsachse cache or image
-      //   centre as last resort.
-      const wantsAutoHeights =
-        (tag === 'ansicht' || tag === 'schnitt') &&
-        !initialLabels.some((l) => l.type === 'height_mark');
+      // V0.1 (was N5 auto-apply): when opening an Ansicht/Schnitt, inject
+      // *any* house-wide known datum that's missing from this scene.
+      // Previously gated on "scene has zero height_marks" so a scene with
+      // just ±0,00 already labeled blocked First/Traufe from coming in.
+      // - Y resolves real-world: prefers an existing Bezugshöhe (value=0)
+      //   anchor + calibration when both present; else viewport-Y +
+      //   calibration; else stacked rows.
+      // - X defaults to existing Bezugshöhe X if any, then the per-tag
+      //   ratio cache, then image centre.
+      const isHeightTag = tag === 'ansicht' || tag === 'schnitt';
       let hydratedLabels: Label[] = initialLabels;
       let autoAppliedCount = 0;
       const autoProvenance = new Map<string, string>();
-      if (wantsAutoHeights) {
+      if (isHeightTag) {
         const known = getHouseHeights(scope, key);
         const knownEntries = Object.entries(known);
         if (knownEntries.length > 0) {
-          const facts = loadHouseFacts(scope, key);
-          const calib = facts.calibration_per_scene[decodedFile];
-          const xRatio = getHouseBezugXRatio(scope, key, tag);
-          const bezugX = xRatio != null ? xRatio * imgSize[0] : imgSize[0] / 2;
-          // Without a bezug Höhenkote in this scene, Y is just stacked off
-          // the centre. With calibration we'd need a Bezugshöhe anchor to
-          // resolve real Y — N5 logic gates on that; here we keep it simple.
-          const newHMs: HeightMarkLabel[] = [];
-          let row = 0;
-          for (const [datum, mm] of knownEntries) {
-            const y = calib
-              ? imgSize[1] / 2 - mm * calib.px_per_mm
-              : imgSize[1] / 2 - row * 30;
-            const hm: HeightMarkLabel = {
-              id: uuid(),
-              type: 'height_mark',
-              geometry: { anchor: [bezugX, y] },
-              attributes: {
-                value_mm: mm,
-                datum: datum as HeightMarkLabel['attributes']['datum'],
-                reference_line_id: null,
-              },
-              status: 'readable',
-              relations: [],
-              created_at: nowIso(),
-              updated_at: nowIso(),
-            };
-            newHMs.push(hm);
-            autoProvenance.set(hm.id, `${datum} aus anderer Szene`);
-            row++;
+          // Which datums already exist locally (any value_mm — we don't
+          // overwrite). Bezugshöhe (value=0, no datum) doesn't claim a datum.
+          const datumsHere = new Set<string>();
+          for (const l of initialLabels) {
+            if (l.type !== 'height_mark') continue;
+            const d = l.attributes.datum;
+            if (d && d !== 'other') datumsHere.add(d);
           }
-          hydratedLabels = [...initialLabels, ...newHMs];
-          autoAppliedCount = newHMs.length;
+          const missingEntries = knownEntries.filter(([d]) => !datumsHere.has(d));
+          if (missingEntries.length > 0) {
+            const facts = loadHouseFacts(scope, key);
+            const calib = facts.calibration_per_scene[decodedFile];
+            // Anchor to existing Bezugshöhe (±0,00) if present.
+            const existingHMs = initialLabels.filter(
+              (l) => l.type === 'height_mark',
+            ) as HeightMarkLabel[];
+            const bezugHM = existingHMs.find((h) => h.attributes.value_mm === 0);
+            const xRatio = getHouseBezugXRatio(scope, key, tag);
+            const bezugX = bezugHM
+              ? bezugHM.geometry.anchor[0]
+              : xRatio != null ? xRatio * imgSize[0] : imgSize[0] / 2;
+            const newHMs: HeightMarkLabel[] = [];
+            let row = 0;
+            for (const [datum, mm] of missingEntries) {
+              let y: number;
+              if (calib && bezugHM) {
+                // Real-world placement: bezug_y - value_mm × px_per_mm.
+                y = bezugHM.geometry.anchor[1] - mm * calib.px_per_mm;
+              } else if (calib) {
+                y = imgSize[1] / 2 - mm * calib.px_per_mm;
+              } else {
+                y = imgSize[1] / 2 - row * 30;
+              }
+              const hm: HeightMarkLabel = {
+                id: uuid(),
+                type: 'height_mark',
+                geometry: { anchor: [bezugX, y] },
+                attributes: {
+                  value_mm: mm,
+                  datum: datum as HeightMarkLabel['attributes']['datum'],
+                  reference_line_id: null,
+                },
+                status: 'readable',
+                relations: [],
+                created_at: nowIso(),
+                updated_at: nowIso(),
+              };
+              newHMs.push(hm);
+              autoProvenance.set(
+                hm.id,
+                calib && bezugHM
+                  ? `${datum} mit Y aus Bezug + Kalibrierung`
+                  : `${datum} aus anderer Szene`,
+              );
+              row++;
+            }
+            hydratedLabels = [...initialLabels, ...newHMs];
+            autoAppliedCount = newHMs.length;
+          }
         }
       }
 
@@ -2693,6 +2717,80 @@ export function AnnotatePage() {
                      width="9" height="9" patternTransform="rotate(45)">
               <line x1="0" y1="0" x2="0" y2="9" stroke="#7c3aed"
                     strokeWidth="0.7" opacity="0.35" />
+            </pattern>
+            {/* V0.2 / V1.2 — area hatch patterns. Each is named by region
+                kind so renderers can pick by inferred type. Each pattern's
+                strokes carry their own opacity; the consumer layers the
+                pattern on top of a coloured fill via two stacked <path>s. */}
+            {/* Generic area hatch — fallback for unknown closed regions. */}
+            <pattern id="bim-area-hatch" patternUnits="userSpaceOnUse"
+                     width="10" height="10" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="10" stroke="currentColor"
+                    strokeWidth="0.6" opacity="0.45" />
+            </pattern>
+            {/* Roof hatch — crossed diagonals (architectural roof shading). */}
+            <pattern id="bim-roof-hatch" patternUnits="userSpaceOnUse"
+                     width="10" height="10" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="10" stroke="#ea580c"
+                    strokeWidth="0.7" opacity="0.4" />
+              <line x1="0" y1="0" x2="10" y2="0" stroke="#ea580c"
+                    strokeWidth="0.4" opacity="0.25" />
+            </pattern>
+            {/* Gable hatch — sparse 60° diagonal. */}
+            <pattern id="bim-gable-sparse" patternUnits="userSpaceOnUse"
+                     width="14" height="14" patternTransform="rotate(60)">
+              <line x1="0" y1="0" x2="0" y2="14" stroke="#fb923c"
+                    strokeWidth="0.6" opacity="0.4" />
+            </pattern>
+            {/* Wall-body region hatch (dense 45° — matches wall hatch tone). */}
+            <pattern id="bim-wall-region" patternUnits="userSpaceOnUse"
+                     width="8" height="8" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="8" stroke="#1f2937"
+                    strokeWidth="0.7" opacity="0.5" />
+            </pattern>
+            {/* Ground / earth — alternating short ticks. */}
+            <pattern id="bim-ground-hatch" patternUnits="userSpaceOnUse"
+                     width="12" height="8">
+              <line x1="0" y1="6" x2="3" y2="2" stroke="#166534"
+                    strokeWidth="0.7" opacity="0.55" />
+              <line x1="6" y1="6" x2="9" y2="2" stroke="#166534"
+                    strokeWidth="0.7" opacity="0.55" />
+            </pattern>
+            {/* Mullion patterns — horizontal lines for windows, vertical for garage doors. */}
+            <pattern id="bim-mullion-h" patternUnits="userSpaceOnUse"
+                     width="10" height="6">
+              <line x1="0" y1="3" x2="10" y2="3" stroke="#0284c7"
+                    strokeWidth="0.6" opacity="0.55" />
+            </pattern>
+            <pattern id="bim-mullion-v" patternUnits="userSpaceOnUse"
+                     width="6" height="10">
+              <line x1="3" y1="0" x2="3" y2="10" stroke="#92400e"
+                    strokeWidth="0.7" opacity="0.5" />
+            </pattern>
+            {/* Skylight — tilted 24° close-spaced. */}
+            <pattern id="bim-skylight-tilt" patternUnits="userSpaceOnUse"
+                     width="6" height="6" patternTransform="rotate(24)">
+              <line x1="0" y1="0" x2="0" y2="6" stroke="#0891b2"
+                    strokeWidth="0.6" opacity="0.55" />
+            </pattern>
+            {/* Stripe-30 — generic "unclassified" overlay. */}
+            <pattern id="bim-stripe-30" patternUnits="userSpaceOnUse"
+                     width="8" height="8" patternTransform="rotate(30)">
+              <line x1="0" y1="0" x2="0" y2="8" stroke="#737373"
+                    strokeWidth="0.5" opacity="0.4" />
+            </pattern>
+            {/* Interior wall cross-hatch (60° + 120°). */}
+            <pattern id="bim-wall-cross" patternUnits="userSpaceOnUse"
+                     width="12" height="12" patternTransform="rotate(60)">
+              <line x1="0" y1="0" x2="0" y2="12" stroke="#475569"
+                    strokeWidth="0.6" opacity="0.4" />
+              <line x1="0" y1="0" x2="12" y2="0" stroke="#475569"
+                    strokeWidth="0.6" opacity="0.4" />
+            </pattern>
+            {/* Partition wall stipple. */}
+            <pattern id="bim-wall-stipple" patternUnits="userSpaceOnUse"
+                     width="6" height="6">
+              <circle cx="3" cy="3" r="0.5" fill="#94a3b8" opacity="0.5" />
             </pattern>
           </defs>
           <image
@@ -5214,17 +5312,26 @@ function LabelGlyph({
     }
     case 'component_line': {
       const pts = label.geometry.polyline;
-      // P9: a closed polyline (first ≈ last within snap-radius equivalent)
-      // is conceptually an AREA. Render with a low-opacity fill so the user
+      // V0.2: a component_line with ≥3 vertices is conceptually an AREA
+      // (the polygon closed via the implicit first→last edge), even when
+      // the user didn't loop back to the start — anchoring both ends to
+      // existing walls (N2 auto-commit) is a closed region too. Two-vertex
+      // polylines stay as lines. Render with a hatched fill so the user
       // sees the enclosed region as a thing, not just an outline.
-      const isClosed = pts.length >= 3 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) <= 6;
-      const closedPath = isClosed
+      const isArea = pts.length >= 3;
+      const closedPath = isArea
         ? `M ${pts.map((p) => p.join(',')).join(' L ')} Z`
         : null;
+      // Pump fill alpha up so closed regions are actually visible (was
+      // 0x1a → effectively invisible on pale-paper scans). 0x33 ≈ 20%.
+      const areaFill = selected ? '#dc262655' : `${baseColor}33`;
       body = (
         <g {...bodyProps}>
           {closedPath && (
-            <path d={closedPath} fill={fill} stroke="none" />
+            <>
+              <path d={closedPath} fill={areaFill} stroke="none" />
+              <path d={closedPath} fill="url(#bim-area-hatch)" stroke="none" opacity={0.55} />
+            </>
           )}
           <polyline points={pts.map(p => p.join(',')).join(' ')}
                     fill="none" stroke={stroke} strokeWidth={sw + 1} />
