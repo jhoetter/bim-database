@@ -55,7 +55,12 @@ import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
 import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
 import { autoTSplit } from '../lib/auto_split';
-import { loadHouseFacts, promoteToFacts } from '../lib/house_facts';
+import { loadHouseFacts, promoteToFacts, saveHouseFacts } from '../lib/house_facts';
+import {
+  advanceWorkflow,
+  PHASE_LABEL_DE,
+  type SceneSummary as WorkflowSceneSummary,
+} from '../lib/workflow';
 import { collectRefineIssues, type RefineIssue } from '../lib/refine';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
 import {
@@ -2193,6 +2198,8 @@ export function AnnotatePage() {
       // N4 — promote this scene's labels to house-wide facts. Idempotent:
       // saving the same scene twice produces the same facts. Drives N5
       // (height inference) and N7 (suggestions) on subsequent scenes.
+      // W0 — snapshot facts before promote so we can detect phase advance.
+      const prevFacts = loadHouseFacts(scope, key);
       promoteToFacts({
         scope,
         houseKey: key,
@@ -2203,6 +2210,24 @@ export function AnnotatePage() {
         imageSize,
         labels,
       });
+      // W0 — phase advancement detection. If a phase just completed, fire
+      // a toast and write back the timestamp. SceneSummary uses the saved
+      // house-list metadata; tag falls back to null for unsaved scenes.
+      const nextFacts = loadHouseFacts(scope, key);
+      const workflowScenes: WorkflowSceneSummary[] = (houseScenes ?? []).map((s) => ({
+        file: s.file,
+        tag: nextFacts.scene_metadata[s.file]?.kind ?? null,
+      }));
+      const { newFacts, advancedTo, nowOnPhase } = advanceWorkflow(
+        prevFacts, nextFacts, workflowScenes, decodedFile, nowIso(),
+      );
+      if (advancedTo) {
+        saveHouseFacts(scope, key, newFacts);
+        addToast(
+          `✓ ${PHASE_LABEL_DE[advancedTo]} erledigt — weiter mit ${PHASE_LABEL_DE[nowOnPhase]}`,
+          'success', 4000,
+        );
+      }
       // M4.3: also remember the Bezugsachse X (as a ratio of image width)
       // so the next scene of the same house picks the same vertical
       // reference column for its first Höhenkote.

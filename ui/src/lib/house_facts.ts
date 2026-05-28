@@ -38,6 +38,54 @@ export interface SceneMetadataEntry {
   bezug_y_px?: number;
 }
 
+// W4 — orientation graph (Phase 3). The user picks one EG-Grundriss wall
+// as the north-facing edge; everything else is derived from that wall's
+// pixel geometry × the Grundriss calibration. The cardinal name is the
+// user's label; the geometry decides which extent dimension a given
+// Ansicht/Schnitt spans (per spec §4.3 — gable-facing-N case must
+// resolve to depth, not width).
+export interface OrientationGraph {
+  /** Wall label id (in the source Grundriss file) the user picked as
+   *  "the north-facing edge". Null until Phase 3 completes. */
+  north_edge_label_id: string | null;
+  /** Optional manual rotation for scanned plans not orthogonal to the
+   *  page. Defaults to 0; applied as a counter-clockwise rotation of
+   *  the derived basis. */
+  north_angle_deg?: number | null;
+  /** Which scene file the picked edge belongs to — needed for
+   *  resolving the wall's geometry on load. */
+  source_grundriss_file: string;
+}
+
+// W0.1 — workflow state machine. Persisted alongside house_facts so it
+// survives sessions. The phase pointer is the *first phase whose
+// completion predicate fails*; once it advances, the phase_completed_at
+// timestamp records when. user_skipped lets a user permanently dismiss
+// a phase ("I've got that upstream — stop telling me").
+export const PHASE_IDS = [
+  'inventory', 'height_anchor', 'footprint',
+  'orientation', 'bezugsmasse', 'detail',
+] as const;
+export type PhaseId = typeof PHASE_IDS[number];
+
+export interface WorkflowState {
+  schema_version: '1.0';
+  phase: PhaseId;
+  phase_completed_at: Record<PhaseId, string | null>;
+  source_scene: Record<PhaseId, string | null>;
+  user_skipped: Partial<Record<PhaseId, boolean>>;
+}
+
+// W0.2 — generic provenance-tagged fact bag for future extensions
+// (roof pitch, gable count, chimney count, …). Lives outside the typed
+// fields so new derived facts append without schema churn.
+export interface FactEntry {
+  value: unknown;
+  sources: string[];
+  computed_at: string;
+  algorithm?: string;
+}
+
 export interface HouseFacts {
   schema_version: '1.0';
   extent: {
@@ -72,6 +120,24 @@ export interface HouseFacts {
   }>;
   calibration_per_scene: Record<string, SceneCalibration>;
   scene_metadata: Record<string, SceneMetadataEntry>;
+  // W0 — optional so older caches load forward without migration.
+  orientation?: OrientationGraph | null;
+  workflow?: WorkflowState | null;
+  derived_facts?: Record<string, FactEntry>;
+}
+
+export function defaultWorkflowState(): WorkflowState {
+  const blank: Record<PhaseId, string | null> = {
+    inventory: null, height_anchor: null, footprint: null,
+    orientation: null, bezugsmasse: null, detail: null,
+  };
+  return {
+    schema_version: '1.0',
+    phase: 'inventory',
+    phase_completed_at: blank,
+    source_scene: { ...blank },
+    user_skipped: {},
+  };
 }
 
 function defaultFacts(): HouseFacts {
@@ -83,6 +149,9 @@ function defaultFacts(): HouseFacts {
     openings_catalog: [],
     calibration_per_scene: {},
     scene_metadata: {},
+    orientation: null,
+    workflow: defaultWorkflowState(),
+    derived_facts: {},
   };
 }
 
@@ -95,8 +164,13 @@ export function loadHouseFacts(scope: LabelScope, houseKey: string): HouseFacts 
     const raw = window.localStorage.getItem(storageKey(scope, houseKey));
     if (!raw) return defaultFacts();
     const parsed = JSON.parse(raw);
-    if (parsed?.schema_version === '1.0') return parsed as HouseFacts;
-    return defaultFacts();
+    if (parsed?.schema_version !== '1.0') return defaultFacts();
+    // W0 forward-compat: old caches may lack orientation/workflow/derived_facts.
+    const facts = parsed as HouseFacts;
+    if (facts.orientation === undefined) facts.orientation = null;
+    if (!facts.workflow) facts.workflow = defaultWorkflowState();
+    if (!facts.derived_facts) facts.derived_facts = {};
+    return facts;
   } catch {
     return defaultFacts();
   }
