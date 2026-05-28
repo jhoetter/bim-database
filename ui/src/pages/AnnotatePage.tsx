@@ -1254,11 +1254,17 @@ export function AnnotatePage() {
           const inheritedT = altHeld
             ? null
             : inferWallThicknessMm(newMid, labels, imageSnapRadiusForView * 8);
+          // W3 — fall back to house-wide outer_mm when no neighbor inherit
+          // applies. Phase 2's promotion writes this value; subsequent
+          // outer-wall draws on any scene of the house pick it up.
+          const houseOuterT = altHeld ? undefined : loadHouseFacts(scope, key).wall_thickness.outer_mm;
           label = {
             id: uuid(),
             type: 'wall',
             geometry: { start: pendingStart, end: commitPt },
-            attributes: { thickness_mm: inheritedT ?? (def.thickness_mm as number) ?? 365 },
+            attributes: {
+              thickness_mm: inheritedT ?? houseOuterT ?? (def.thickness_mm as number) ?? 365,
+            },
             status: 'readable',
             relations: [],
             created_at: nowIso(),
@@ -4122,8 +4128,18 @@ function WorkflowGuide({
             />
           )}
 
-          {/* Phase 2-4 placeholders for now. W3-W5 fill in. */}
-          {(phase === 'footprint' || phase === 'orientation' || phase === 'bezugsmasse') && (() => {
+          {/* Phase 2 body — footprint. */}
+          {phase === 'footprint' && (
+            <WorkflowGuideFootprint
+              facts={facts}
+              scenes={scenes}
+              currentSceneFile={currentSceneFile}
+              onGoToScene={onGoToScene}
+            />
+          )}
+
+          {/* Phase 3-4 placeholders for now. W4-W5 fill in. */}
+          {(phase === 'orientation' || phase === 'bezugsmasse') && (() => {
             const rec = workflowRecommendSceneFor(phase, facts, scenes);
             const onRec = rec === currentSceneFile;
             return (
@@ -4222,6 +4238,72 @@ function WorkflowGuideHeightAnchor({
             </li>
           );
         })}
+      </ul>
+    </div>
+  );
+}
+
+// W3 — Phase 2 sub-step UI. Checks footprint extent + outer wall
+// thickness; pulls every fact from house_facts. New outer walls drawn
+// in any scene of this house inherit wall_thickness.outer_mm by default.
+function WorkflowGuideFootprint({
+  facts, scenes, currentSceneFile, onGoToScene,
+}: {
+  facts: HouseFacts;
+  scenes: WorkflowSceneSummary[];
+  currentSceneFile: string;
+  onGoToScene: (file: string) => void;
+}) {
+  const rec = workflowRecommendSceneFor('footprint', facts, scenes);
+  const onRec = rec === currentSceneFile;
+  const fmt = (mm: number | undefined) =>
+    typeof mm !== 'number' ? '—' : `${(mm / 1000).toFixed(2).replace('.', ',')} m`;
+  const fmtTh = (mm: number | undefined) =>
+    typeof mm !== 'number' ? '—' : `${mm} mm`;
+  const checklist: Array<{ key: string; label: string; set: boolean; value: string }> = [
+    {
+      key: 'width', label: 'Breite (horizontaler Bezugsmaß)',
+      set: typeof facts.extent.width_mm === 'number',
+      value: fmt(facts.extent.width_mm),
+    },
+    {
+      key: 'depth', label: 'Tiefe (vertikaler Bezugsmaß)',
+      set: typeof facts.extent.depth_mm === 'number',
+      value: fmt(facts.extent.depth_mm),
+    },
+    {
+      key: 'outer', label: 'Außenwand-Dicke',
+      set: typeof facts.wall_thickness.outer_mm === 'number',
+      value: fmtTh(facts.wall_thickness.outer_mm),
+    },
+  ];
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[0.72rem] text-zinc-700 leading-snug">
+        <span className="font-semibold">Schritt 3: Hausgrundriss vermessen.</span>{' '}
+        Außenwände zeichnen, Wandstärke setzen, horizontalen + vertikalen
+        Bezugsmaß über die volle Gebäudebreite/-tiefe legen.
+      </p>
+      {rec && !onRec && (
+        <button
+          type="button"
+          onClick={() => onGoToScene(rec)}
+          className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium"
+        >
+          → Empfohlene Szene: {rec}
+        </button>
+      )}
+      {onRec && (
+        <p className="text-[0.7rem] text-emerald-700">↳ du bist auf dem EG-Grundriss.</p>
+      )}
+      <ul className="space-y-0.5 ml-1">
+        {checklist.map(({ key, label, set, value }) => (
+          <li key={key} className="flex items-center gap-1.5 text-[0.7rem]">
+            <span className={set ? 'text-emerald-600' : 'text-amber-600'}>{set ? '✓' : '⚠'}</span>
+            <span className={set ? 'text-zinc-600' : 'text-zinc-800'}>{label}</span>
+            <span className="ml-auto font-mono text-zinc-500">{value}</span>
+          </li>
+        ))}
       </ul>
     </div>
   );
