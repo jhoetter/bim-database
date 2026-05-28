@@ -854,14 +854,17 @@ export function AnnotatePage() {
   // critical kind via append order (height_conflict > off_axis > classify ...).
   const refineKindByLabel = useMemo(() => {
     const m = new Map<string, RefineIssue['kind']>();
-    const issues = collectRefineIssues(labels, { scope, houseKey: key, sceneLevel });
+    const issues = collectRefineIssues(labels, {
+      scope, houseKey: key, sceneLevel,
+      sceneTag, sceneOrientation,
+    });
     for (const i of issues) {
       // height_conflict trumps everything else on the same label.
       const prev = m.get(i.labelId);
       if (!prev || i.kind === 'height_conflict') m.set(i.labelId, i.kind);
     }
     return m;
-  }, [labels, scope, key, sceneLevel]);
+  }, [labels, scope, key, sceneLevel, sceneTag, sceneOrientation]);
   // Adaptive building axis. Detected from existing walls/dim-distances —
   // photographed-paper plans are commonly tilted 1-3°, and snapping to
   // image axes then fights the user. The "Q" key toggles back to image
@@ -4980,6 +4983,8 @@ function ToolPalette({
         scope={scope}
         houseKey={houseKey}
         sceneLevel={sceneLevel}
+        sceneTag={sceneTag}
+        sceneOrientation={sceneOrientation}
         onJump={(labelId) => onSelectLabel(labelId)}
         onAutoFix={onRefineAutoFix}
         onTidyAll={onRefineTidyAll}
@@ -5063,19 +5068,21 @@ function ToolPalette({
 // status. Click a row to jump to (and select) the label; click "Fix" for
 // the one-click autoFix. "Alle aufräumen" runs the M5.2 batch tidy.
 function RefineQueue({
-  labels, scope, houseKey, sceneLevel, onJump, onAutoFix, onTidyAll,
+  labels, scope, houseKey, sceneLevel, sceneTag, sceneOrientation, onJump, onAutoFix, onTidyAll,
 }: {
   labels: Label[];
   scope: LabelScope;
   houseKey: string;
   sceneLevel: SceneLevel | null;
+  sceneTag: SceneTag;
+  sceneOrientation: SceneOrientation | null;
   onJump: (labelId: string) => void;
   onAutoFix: (issue: RefineIssue) => void;
   onTidyAll: () => void;
 }) {
   const issues = useMemo(
-    () => collectRefineIssues(labels, { scope, houseKey, sceneLevel }),
-    [labels, scope, houseKey, sceneLevel],
+    () => collectRefineIssues(labels, { scope, houseKey, sceneLevel, sceneTag, sceneOrientation }),
+    [labels, scope, houseKey, sceneLevel, sceneTag, sceneOrientation],
   );
   const [open, setOpen] = useState(issues.length > 0);
   if (issues.length === 0) return null;

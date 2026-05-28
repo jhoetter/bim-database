@@ -17,7 +17,7 @@
 //   • NOT_READABLE — status is 'blurry' or 'rejected'; surfaced so the
 //                    user can re-triage.
 
-import type { Label, LabelScope, SceneLevel } from '../api/types';
+import type { Label, LabelScope, SceneLevel, SceneOrientation, SceneTag } from '../api/types';
 import { loadHouseFacts } from './house_facts';
 import { referenceAngle } from './snap';
 
@@ -27,7 +27,8 @@ export type RefineKind =
   | 'no_datum'
   | 'off_axis'
   | 'not_readable'
-  | 'height_conflict';
+  | 'height_conflict'
+  | 'extent_mismatch';
 
 export interface RefineIssue {
   labelId: string;
@@ -50,8 +51,15 @@ function lineAngleDeg(start: [number, number], end: [number, number]): number {
 export function collectRefineIssues(
   labels: Label[],
   /** Optional house context — when provided, enables cross-scene checks
-   *  like HEIGHT_CONFLICT (datum value disagrees with house facts). */
-  context?: { scope: LabelScope; houseKey: string; sceneLevel: SceneLevel | null },
+   *  like HEIGHT_CONFLICT (datum value disagrees with house facts) and
+   *  EXTENT_MISMATCH (is_reference dim disagrees with derived extent). */
+  context?: {
+    scope: LabelScope;
+    houseKey: string;
+    sceneLevel: SceneLevel | null;
+    sceneTag?: SceneTag;
+    sceneOrientation?: SceneOrientation | null;
+  },
 ): RefineIssue[] {
   const out: RefineIssue[] = [];
   const refAngle = referenceAngle(labels);
@@ -202,6 +210,58 @@ export function collectRefineIssues(
         fixHint: `→ ${fmt(houseVal)}`,
         autoFix: undefined,    // resolution is a user decision — no auto-fix
       });
+    }
+
+    // W8 — extent_mismatch: an is_reference dim whose value differs from
+    // the house's derived extent by >5%. Catches typos and Phase 4 dims
+    // that were typed before Phase 2 was finalized.
+    if (context.sceneTag === 'ansicht' || context.sceneTag === 'schnitt') {
+      for (const l of labels) {
+        if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
+        const v = l.attributes.value_mm;
+        if (v == null || v <= 0) continue;
+        const dx = l.geometry.end[0] - l.geometry.start[0];
+        const dy = l.geometry.end[1] - l.geometry.start[1];
+        const ang = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+        const isH = ang < 15 || ang > 165;
+        const isV = ang > 75 && ang < 105;
+        if (!isH && !isV) continue;
+        let derived: number | undefined;
+        let derivedName = '';
+        if (isV) {
+          if (typeof facts.heights.first_mm === 'number' && typeof facts.heights.gelaende_mm === 'number') {
+            derived = facts.heights.first_mm - facts.heights.gelaende_mm;
+            derivedName = 'First − Gelände';
+          } else if (typeof facts.heights.first_mm === 'number') {
+            derived = facts.heights.first_mm;
+            derivedName = 'First';
+          } else if (typeof facts.extent.height_mm === 'number') {
+            derived = facts.extent.height_mm;
+            derivedName = 'Hausgröße';
+          }
+        } else if (isH && context.sceneOrientation) {
+          const o = context.sceneOrientation;
+          const useEast = context.sceneTag === 'ansicht'
+            ? (o === 'north' || o === 'south')
+            : (o === 'east' || o === 'west');
+          const fact = useEast ? facts.extent.width_mm : facts.extent.depth_mm;
+          if (typeof fact === 'number') {
+            derived = fact;
+            derivedName = useEast ? 'Hausbreite (ê)' : 'Haustiefe (n̂)';
+          }
+        }
+        if (typeof derived !== 'number') continue;
+        const denom = Math.max(derived, 100);
+        if (Math.abs(derived - v) / denom < 0.05) continue;
+        const fmt = (mm: number) => `${(mm / 1000).toFixed(2).replace('.', ',')} m`;
+        out.push({
+          labelId: l.id,
+          kind: 'extent_mismatch',
+          description: `Maß-Konflikt: ${fmt(v)} hier vs ${fmt(derived)} (${derivedName})`,
+          fixHint: `→ ${fmt(derived)}`,
+          autoFix: undefined,
+        });
+      }
     }
   }
 
