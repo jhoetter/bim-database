@@ -45,8 +45,10 @@ import {
   WindowPaneGlyph, DoorSwingGlyph, DoorHandleGlyph, GarageDoorGlyph,
   PassageGlyph, SkylightGlyph, DormerGlyph, WindowCircleGlyph, WindowArchedGlyph,
   RoofSlopeGlyph, RidgeGlyph, EaveGlyph, GroundGlyph, LevelTickGlyph,
-  BezugGlyph, DimRefStarGlyph, QuestionGlyph,
+  BezugGlyph, DimRefStarGlyph, QuestionGlyph, WallBodyGlyph, GableGlyph,
 } from '../lib/glyphs';
+import { inferRegionKind, polygonCentroid, regionKindLabel } from '../lib/region_kind';
+import type { RegionKind } from '../lib/region_kind';
 import { detectClosedRegions } from '../lib/closed_regions';
 import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib/connectivity';
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
@@ -1563,7 +1565,13 @@ export function AnnotatePage() {
               setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
             }
             setPendingPolyline([]);
-            addToast('Polygon geschlossen ✓', 'success', 1200);
+            const rk = inferRegionKind(label, { imageHeight: imageSize[1] });
+            addToast(
+              rk === 'unknown'
+                ? 'Polygon geschlossen ✓'
+                : `Polygon geschlossen ✓ — ↻ ${regionKindLabel(rk)} erkannt`,
+              'success', 1500,
+            );
             return;
           }
         }
@@ -1599,12 +1607,16 @@ export function AnnotatePage() {
             const mid = finalPoly[Math.floor(finalPoly.length / 2)];
             setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
             setPendingPolyline([]);
+            const rk = inferRegionKind(label, { imageHeight: imageSize[1] });
+            const baseToast = startAnchor.labelId === endAnchor.labelId
+              ? '↩ verankert an gemeinsamem Label — Polylinie geschlossen'
+              : '↩ verankert an zwei Labels';
             addToast(
-              startAnchor.labelId === endAnchor.labelId
-                ? '↩ verankert an gemeinsamem Label — Polylinie geschlossen'
-                : '↩ verankert an zwei Labels',
+              rk === 'unknown'
+                ? baseToast
+                : `${baseToast} — ↻ ${regionKindLabel(rk)} erkannt`,
               'success',
-              1800,
+              2000,
             );
             return;
           }
@@ -2172,6 +2184,12 @@ export function AnnotatePage() {
           setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
         }
         setPendingPolyline([]);
+        if (pendingPolyline.length >= 3) {
+          const rk = inferRegionKind(label, { imageHeight: imageSize[1] });
+          if (rk !== 'unknown') {
+            addToast(`↻ ${regionKindLabel(rk)} erkannt`, 'info', 1800);
+          }
+        }
         return;
       }
       // Polygon view_opening: Enter commits the current polyline as a
@@ -2893,6 +2911,7 @@ export function AnnotatePage() {
               selected={selectedIds.has(l.id)}
               tool={tool}
               allLabels={labels}
+              imageHeight={imageSize[1]}
               screenScale={view.w / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               imageSnapRadius={(SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               eventToSvgPoint={eventToSvgPoint}
@@ -5011,6 +5030,28 @@ function openLineGlyphFor(kind: string | undefined | null): GlyphComponent | nul
   }
 }
 
+function regionHatchFor(kind: RegionKind): string | null {
+  switch (kind) {
+    case 'roof':       return 'bim-roof-hatch';
+    case 'gable':      return 'bim-gable-sparse';
+    case 'wall_body':  return 'bim-wall-region';
+    case 'ground':     return 'bim-ground-hatch';
+    case 'unknown':    return 'bim-area-hatch';
+    default:           return 'bim-area-hatch';
+  }
+}
+
+function regionGlyphFor(kind: RegionKind): GlyphComponent | null {
+  switch (kind) {
+    case 'roof':       return RoofSlopeGlyph;
+    case 'gable':      return GableGlyph;
+    case 'wall_body':  return WallBodyGlyph;
+    case 'ground':     return GroundGlyph;
+    case 'unknown':    return QuestionGlyph;
+    default:           return null;
+  }
+}
+
 function heightMarkGlyphFor(datum: string | null | undefined, isBezug: boolean): GlyphComponent | null {
   if (isBezug) return BezugGlyph;
   switch (datum) {
@@ -5031,6 +5072,7 @@ function LabelGlyph({
   selected,
   tool,
   allLabels,
+  imageHeight,
   screenScale,
   imageSnapRadius,
   eventToSvgPoint,
@@ -5051,6 +5093,8 @@ function LabelGlyph({
    *  attached floorplan_opening drag projected onto its parent wall axis)
    *  and snap-on-edit (handle drag snaps to other labels' endpoints). */
   allLabels: Label[];
+  /** Image height in px — used by region-kind inference (V2). */
+  imageHeight: number;
   /** Image-pixels per screen-pixel — used to size on-canvas glyphs in
    *  screen-pinned units (multiply a desired screen px by this factor). */
   screenScale: number;
@@ -5492,6 +5536,15 @@ function LabelGlyph({
       const lk = label.attributes.line_kind ?? 'other';
       const LineGlyph = openLineGlyphFor(lk);
       const glyphPx = 16 * screenScale;
+      // V2 — when this polyline is a closed area, run region-kind inference
+      // and pick the matching hatch + centroid glyph. Falls back to the
+      // generic bim-area-hatch when inference returns 'unknown'.
+      const regionKind: RegionKind | null = isArea
+        ? inferRegionKind(label, { imageHeight })
+        : null;
+      const regionHatchId = regionKind ? regionHatchFor(regionKind) : null;
+      const RegionGlyph = regionKind ? regionGlyphFor(regionKind) : null;
+      const regionCentroid = isArea ? polygonCentroid(pts) : null;
       // Place glyph at midpoint of the longest segment so it doesn't crowd
       // joints. Skip for closed areas — they get a centroid glyph below.
       let lineGlyphAt: Point | null = null;
@@ -5514,19 +5567,32 @@ function LabelGlyph({
           {closedPath && (
             <>
               <path d={closedPath} fill={areaFill} stroke="none" />
-              <path d={closedPath} fill="url(#bim-area-hatch)" stroke="none" opacity={0.55} />
+              <path
+                d={closedPath}
+                fill={`url(#${regionHatchId ?? 'bim-area-hatch'})`}
+                stroke="none"
+                opacity={0.6}
+              />
             </>
           )}
           <polyline points={pts.map(p => p.join(',')).join(' ')}
                     fill="none" stroke={stroke} strokeWidth={sw + 1} />
           {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill={stroke} />)}
+          {/* Per-kind line glyph for OPEN polylines. */}
           {lineGlyphAt && LineGlyph && (
             <g pointerEvents="none" style={{ color: stroke }}>
-              <g>
-                <circle cx={lineGlyphAt[0]} cy={lineGlyphAt[1]} r={glyphPx * 0.65}
-                        fill="white" stroke={stroke} strokeWidth={0.8} opacity={0.85} />
-              </g>
+              <circle cx={lineGlyphAt[0]} cy={lineGlyphAt[1]} r={glyphPx * 0.65}
+                      fill="white" stroke={stroke} strokeWidth={0.8} opacity={0.85} />
               <LineGlyph cx={lineGlyphAt[0]} cy={lineGlyphAt[1]} size={glyphPx * 0.9} />
+            </g>
+          )}
+          {/* V2 — region centroid glyph for CLOSED areas (roof/gable/wall/ground). */}
+          {regionCentroid && RegionGlyph && (
+            <g pointerEvents="none" style={{ color: stroke }} opacity={0.9}>
+              <circle cx={regionCentroid[0]} cy={regionCentroid[1]}
+                      r={glyphPx * 0.85}
+                      fill="white" stroke={stroke} strokeWidth={1} opacity={0.85} />
+              <RegionGlyph cx={regionCentroid[0]} cy={regionCentroid[1]} size={glyphPx * 1.1} />
             </g>
           )}
         </g>
