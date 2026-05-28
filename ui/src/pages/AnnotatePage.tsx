@@ -248,6 +248,45 @@ function labelGeometryIsFinite(label: Label): boolean {
   return true;
 }
 
+// Enum guards mirroring scene_labels.schema.json — used at save time so a
+// label with a stale attribute (e.g. an old datum value removed from the
+// enum) doesn't blow up the server with 422. When invalid, we coerce to
+// null/'other' which the schema accepts.
+const VALID_OPENING_KINDS_FLOORPLAN = new Set(['door', 'window', 'passage', 'garage_door', 'other']);
+const VALID_OPENING_KINDS_VIEW = new Set(['door', 'window', 'skylight', 'dormer', 'garage_door', 'other']);
+const VALID_LINE_KINDS = new Set(['first', 'traufe', 'gelaende', 'geschoss', 'ok_ffb', 'sockel', 'firstkante', 'dachschraege', 'kniestock', 'gebaeudekante', 'other']);
+const VALID_DATUMS = new Set(['first', 'traufe', 'gelaende', 'geschoss', 'ok_ffb', 'sockel', 'kniestock', 'other']);
+const VALID_STATUSES = new Set(['readable', 'not_readable', 'missing', 'uncertain']);
+
+function sanitizeLabelForSave(label: Label): Label {
+  const next: Label = { ...label, attributes: { ...label.attributes } } as Label;
+  if (!VALID_STATUSES.has(next.status as string)) {
+    (next as Label).status = 'readable';
+  }
+  if (next.type === 'floorplan_opening') {
+    const k = (next.attributes as { opening_kind?: string }).opening_kind;
+    if (k && !VALID_OPENING_KINDS_FLOORPLAN.has(k)) {
+      (next.attributes as { opening_kind?: string }).opening_kind = 'other';
+    }
+  } else if (next.type === 'view_opening') {
+    const k = (next.attributes as { opening_kind?: string }).opening_kind;
+    if (k && !VALID_OPENING_KINDS_VIEW.has(k)) {
+      (next.attributes as { opening_kind?: string }).opening_kind = 'other';
+    }
+  } else if (next.type === 'component_line') {
+    const k = (next.attributes as { line_kind?: string }).line_kind;
+    if (k && !VALID_LINE_KINDS.has(k)) {
+      (next.attributes as { line_kind?: string }).line_kind = 'other';
+    }
+  } else if (next.type === 'height_mark') {
+    const a = next.attributes as { datum?: string | null };
+    if (a.datum && !VALID_DATUMS.has(a.datum)) {
+      a.datum = 'other';
+    }
+  }
+  return next;
+}
+
 // N2 helper: find the nearest existing label endpoint to a point, within
 // snap radius. Used by the anchored-polyline auto-commit + the close-anchor
 // visual hint. Excludes nothing — labels are scene-local, no cross-scene.
@@ -2099,7 +2138,12 @@ export function AnnotatePage() {
       // non-finite numbers (those serialize to `null` and fail Point
       // schema validation). This guards against bad auto-applied state
       // (V0.1 with NaN calib, dragged labels gone off-screen, etc.).
-      const cleanLabels = labels.filter((l) => labelGeometryIsFinite(l));
+      // Also coerce any enum-typed attribute (opening_kind, line_kind,
+      // datum, status) back into the schema's allowed set so a stale
+      // value from an old session can't blow up the save.
+      const cleanLabels = labels
+        .filter((l) => labelGeometryIsFinite(l))
+        .map(sanitizeLabelForSave);
       const droppedCount = labels.length - cleanLabels.length;
       if (droppedCount > 0) {
         console.warn(`[save] dropping ${droppedCount} labels with non-finite geometry`);
@@ -2166,8 +2210,14 @@ export function AnnotatePage() {
       addToast(`✓ Gespeichert (${labels.length} Labels)`, 'success');
     } catch (e) {
       const msg = (e as Error).message;
-      console.error('saveLabels failed', e);
-      addToast(`✗ Speichern fehlgeschlagen — ${msg}`, 'error', 12000);
+      console.error('[saveLabels] failed:', e);
+      // Detail line(s) on a new line so the toast actually shows the
+      // server's schema reason and the user can paste it back.
+      addToast(
+        `✗ Speichern fehlgeschlagen\n${msg}`,
+        'error',
+        20000,
+      );
     } finally {
       setSaving(false);
     }
@@ -5201,6 +5251,87 @@ function labelBBox(label: Label): [number, number, number, number] | null {
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
+// German labels per opening_kind (for the readable pill).
+function openingKindLabel(kind: string | undefined | null): string {
+  switch (kind) {
+    case 'window':       return 'Fenster';
+    case 'door':         return 'Tür';
+    case 'garage_door':  return 'Tor';
+    case 'passage':      return 'Durchgang';
+    case 'skylight':     return 'Dachfenster';
+    case 'dormer':       return 'Gaube';
+    case 'other':        return '?';
+    default:             return 'Öffnung';
+  }
+}
+function lineKindLabel(kind: string | undefined | null): string {
+  switch (kind) {
+    case 'first':         return 'First';
+    case 'traufe':        return 'Traufe';
+    case 'gelaende':      return 'Gelände';
+    case 'dachschraege':  return 'Dachkante';
+    case 'gebaeudekante': return 'Gebäudekante';
+    case 'firstkante':    return 'Firstkante';
+    case 'geschoss':      return 'Geschoss';
+    case 'ok_ffb':        return 'OK FFB';
+    case 'sockel':        return 'Sockel';
+    case 'kniestock':     return 'Kniestock';
+    case 'other':         return '?';
+    default:              return 'Linie';
+  }
+}
+
+// Floating label pill — glyph + German text — used at the centroid of any
+// region/opening/line so its semantic kind reads at a glance. Sized in
+// screen-pinned units via the caller's `screenScale`.
+function LabelKindPill({
+  cx, cy, color, Glyph, label, screenScale,
+}: {
+  cx: number;
+  cy: number;
+  color: string;
+  Glyph: GlyphComponent | null;
+  label: string;
+  screenScale: number;
+}) {
+  const fontPx = 11 * screenScale;
+  const padPx = 6 * screenScale;
+  const glyphSize = 14 * screenScale;
+  const hasGlyph = Glyph != null;
+  const textW = label.length * fontPx * 0.6;
+  const pillW = (hasGlyph ? glyphSize + padPx : 0) + textW + padPx * 1.6;
+  const pillH = Math.max(glyphSize, fontPx) + padPx;
+  const px = cx - pillW / 2;
+  const py = cy - pillH / 2;
+  return (
+    <g pointerEvents="none" style={{ color }}>
+      <rect
+        x={px} y={py}
+        width={pillW} height={pillH}
+        rx={pillH / 2}
+        fill="white" stroke={color} strokeWidth={1} opacity={0.92}
+      />
+      {hasGlyph && Glyph && (
+        <Glyph
+          cx={px + padPx * 0.8 + glyphSize / 2}
+          cy={py + pillH / 2}
+          size={glyphSize}
+        />
+      )}
+      <text
+        x={px + (hasGlyph ? padPx * 0.8 + glyphSize + padPx : padPx * 0.8)}
+        y={py + pillH / 2 + fontPx * 0.32}
+        fill={color}
+        fontFamily="ui-sans-serif, system-ui"
+        fontSize={fontPx}
+        fontWeight={700}
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
+
 function heightMarkGlyphFor(datum: string | null | undefined, isBezug: boolean): GlyphComponent | null {
   if (isBezug) return BezugGlyph;
   switch (datum) {
@@ -5589,10 +5720,15 @@ function LabelGlyph({
             <polygon points={pts} fill={`url(#${hatchId})`} stroke="none" opacity={0.7} />
           )}
           {inner}
-          {showGlyph && Glyph && (
-            <g pointerEvents="none" style={{ color: stroke }}>
-              <Glyph cx={cx} cy={cy} size={glyphPx} />
-            </g>
+          {showGlyph && (
+            <LabelKindPill
+              cx={cx}
+              cy={cy}
+              color={stroke}
+              Glyph={Glyph}
+              label={openingKindLabel(kind)}
+              screenScale={screenScale}
+            />
           )}
         </g>
       );
@@ -5619,10 +5755,15 @@ function LabelGlyph({
                 fill={`url(#${hatchId})`} stroke="none" opacity={0.65}
               />
             )}
-            {ViewGlyph && radius_px > glyphPx * 0.9 && (
-              <g pointerEvents="none" style={{ color: stroke }}>
-                <ViewGlyph cx={center[0]} cy={center[1]} size={glyphPx} />
-              </g>
+            {radius_px > glyphPx * 1.6 && (
+              <LabelKindPill
+                cx={center[0]}
+                cy={center[1]}
+                color={stroke}
+                Glyph={ViewGlyph}
+                label={openingKindLabel(kind)}
+                screenScale={screenScale}
+              />
             )}
           </g>
         );
@@ -5640,10 +5781,15 @@ function LabelGlyph({
             {hatchId && (
               <path d={path} fill={`url(#${hatchId})`} stroke="none" opacity={0.65} />
             )}
-            {ViewGlyph && small > glyphPx * 1.6 && (
-              <g pointerEvents="none" style={{ color: stroke }}>
-                <ViewGlyph cx={cx} cy={cy} size={glyphPx} />
-              </g>
+            {small > glyphPx * 1.6 && (
+              <LabelKindPill
+                cx={cx}
+                cy={cy}
+                color={stroke}
+                Glyph={ViewGlyph}
+                label={openingKindLabel(kind)}
+                screenScale={screenScale}
+              />
             )}
           </g>
         );
@@ -5663,10 +5809,15 @@ function LabelGlyph({
             {hatchId && (
               <path d={path} fill={`url(#${hatchId})`} stroke="none" opacity={0.65} />
             )}
-            {ViewGlyph && small > glyphPx * 1.6 && (
-              <g pointerEvents="none" style={{ color: stroke }}>
-                <ViewGlyph cx={cx} cy={cy} size={glyphPx} />
-              </g>
+            {small > glyphPx * 1.6 && (
+              <LabelKindPill
+                cx={cx}
+                cy={cy}
+                color={stroke}
+                Glyph={ViewGlyph}
+                label={openingKindLabel(kind)}
+                screenScale={screenScale}
+              />
             )}
           </g>
         );
@@ -5733,22 +5884,29 @@ function LabelGlyph({
           <polyline points={pts.map(p => p.join(',')).join(' ')}
                     fill="none" stroke={stroke} strokeWidth={sw + 1} />
           {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={3} fill={stroke} />)}
-          {/* Per-kind line glyph for OPEN polylines. */}
-          {lineGlyphAt && LineGlyph && (
-            <g pointerEvents="none" style={{ color: stroke }}>
-              <circle cx={lineGlyphAt[0]} cy={lineGlyphAt[1]} r={glyphPx * 0.65}
-                      fill="white" stroke={stroke} strokeWidth={0.8} opacity={0.85} />
-              <LineGlyph cx={lineGlyphAt[0]} cy={lineGlyphAt[1]} size={glyphPx * 0.9} />
-            </g>
+          {/* Per-kind line pill at midpoint of OPEN polylines. */}
+          {lineGlyphAt && (
+            <LabelKindPill
+              cx={lineGlyphAt[0]}
+              cy={lineGlyphAt[1]}
+              color={stroke}
+              Glyph={LineGlyph}
+              label={lineKindLabel(lk)}
+              screenScale={screenScale}
+            />
           )}
-          {/* V2 — region centroid glyph for CLOSED areas (roof/gable/wall/ground). */}
-          {regionCentroid && RegionGlyph && (
-            <g pointerEvents="none" style={{ color: stroke }} opacity={0.9}>
-              <circle cx={regionCentroid[0]} cy={regionCentroid[1]}
-                      r={glyphPx * 0.85}
-                      fill="white" stroke={stroke} strokeWidth={1} opacity={0.85} />
-              <RegionGlyph cx={regionCentroid[0]} cy={regionCentroid[1]} size={glyphPx * 1.1} />
-            </g>
+          {/* V2 — region centroid pill: text-first ("Dachfläche") so two
+              regions of different kinds are unmistakable, with the
+              pictogram as a glyph next to it. */}
+          {regionCentroid && regionKind && (
+            <LabelKindPill
+              cx={regionCentroid[0]}
+              cy={regionCentroid[1]}
+              color={stroke}
+              Glyph={RegionGlyph}
+              label={regionKindLabel(regionKind)}
+              screenScale={screenScale}
+            />
           )}
         </g>
       );
@@ -6229,7 +6387,7 @@ function ToastStack({ toasts }: { toasts: Array<{ id: string; message: string; t
         return (
           <div
             key={t.id}
-            className={`px-3 py-1.5 rounded shadow-lg text-[0.78rem] leading-snug ${cls}`}
+            className={`px-3 py-1.5 rounded shadow-lg text-[0.78rem] leading-snug max-w-[80vw] whitespace-pre-line break-words ${cls}`}
           >
             {t.message}
           </div>
