@@ -25,7 +25,6 @@ import {
 import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { SceneThumb } from '../components/SceneThumb';
 import { rememberLastStep } from '../lib/step_state';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
@@ -114,6 +113,10 @@ export function ExtractPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The extracted-scene action menu (Annotieren / Bbox anpassen /
+  // Löschen) lives here so the SceneStrip can open it for off-canvas
+  // chip clicks the same way the canvas click on a green rect does.
+  const [menuForExtracted, setMenuForExtracted] = useState<string | null>(null);
   // Post-draw classifier chip: appears next to the freshly-committed bbox
   // and walks the user through kind → sub-classification with keyboard
   // hints. step='kind' → pick Grundriss/Ansicht/Schnitt/Detail; then
@@ -440,16 +443,22 @@ export function ExtractPage() {
     >
       <div className="flex flex-col h-full">
         <SceneStrip
-          houseKey={key}
           scenes={dataset?.drawings ?? []}
           drafts={draft.bboxes}
           selectedDraftId={selectedId}
+          menuForFile={menuForExtracted}
           currentPage={currentPage}
-          onJumpToPage={setPage}
+          onSelectScene={(file) => {
+            const d = (dataset?.drawings ?? []).find((x) => x.file === file);
+            const p = (d?.crop_from as { page?: number } | undefined)?.page;
+            if (p && p !== currentPage) setPage(p);
+            setMenuForExtracted(file);
+          }}
           onSelectDraft={(id) => {
             const d = draft.bboxes.find((b) => b.id === id);
             if (d && d.page !== currentPage) setPage(d.page);
             setSelectedId(id);
+            setMenuForExtracted(null);
           }}
           onDeleteScene={onDeleteScene}
           onDeleteDraft={onDeleteBbox}
@@ -498,6 +507,8 @@ export function ExtractPage() {
             houseKey={key}
             onDeleteExtracted={onDeleteScene}
             onAdjustExtracted={onAdjustExtracted}
+            menuFor={menuForExtracted}
+            setMenuFor={setMenuForExtracted}
           />
         )}
         </div>
@@ -514,21 +525,51 @@ export function ExtractPage() {
 // The "active" outline only fires for the selected draft so the user
 // can't misread "this scene's source is on the page you're viewing" as
 // "this chip is selected".
+type StripItem =
+  | { kind: 'scene'; page: number; drawing: DatasetHouse['drawings'][number] }
+  | { kind: 'draft'; page: number; draft: DraftBbox };
+
 function SceneStrip({
-  houseKey, scenes, drafts, selectedDraftId, currentPage,
-  onJumpToPage, onSelectDraft, onDeleteScene, onDeleteDraft,
+  scenes, drafts, selectedDraftId, menuForFile, currentPage,
+  onSelectScene, onSelectDraft, onDeleteScene, onDeleteDraft,
 }: {
-  houseKey: string;
   scenes: DatasetHouse['drawings'];
   drafts: DraftBbox[];
   selectedDraftId: string | null;
+  menuForFile: string | null;
   currentPage: number;
-  onJumpToPage: (n: number) => void;
+  onSelectScene: (file: string) => void;
   onSelectDraft: (id: string) => void;
   onDeleteScene: (file: string) => void;
   onDeleteDraft: (id: string) => void;
 }) {
   const total = scenes.length + drafts.length;
+  // Single unified list ordered by source page. Scenes and drafts
+  // interleave by page index so the user sees the natural reading order
+  // of the PDF; no category bucket.
+  const items: StripItem[] = useMemo(() => {
+    const out: StripItem[] = [];
+    for (const d of scenes) {
+      const p = (d.crop_from as { page?: number } | undefined)?.page ?? Number.MAX_SAFE_INTEGER;
+      out.push({ kind: 'scene', page: p, drawing: d });
+    }
+    for (const b of drafts) {
+      out.push({ kind: 'draft', page: b.page, draft: b });
+    }
+    out.sort((a, b) => a.page - b.page);
+    return out;
+  }, [scenes, drafts]);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const firstHereRef = useRef<HTMLSpanElement>(null);
+  // When the current PDF page changes, slide the strip so the first chip
+  // matching that page is visible without the user having to scroll.
+  useEffect(() => {
+    const el = firstHereRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+  }, [currentPage, items.length]);
+
   if (total === 0) {
     return (
       <div className="px-3 py-1.5 border-b border-border bg-zinc-50 text-[0.72rem] text-zinc-500">
@@ -536,87 +577,94 @@ function SceneStrip({
       </div>
     );
   }
-  // Sort so the user's current PDF page lands at the front of the strip
-  // without scrolling. Stable inside each bucket: extracted first, then
-  // drafts.
-  const scenesSorted = [...scenes].sort((a, b) => {
-    const pa = (a.crop_from as { page?: number } | undefined)?.page ?? Infinity;
-    const pb = (b.crop_from as { page?: number } | undefined)?.page ?? Infinity;
-    const aHere = pa === currentPage ? 0 : 1;
-    const bHere = pb === currentPage ? 0 : 1;
-    return aHere - bHere || pa - pb;
-  });
-  const draftsSorted = [...drafts].sort((a, b) => {
-    const aHere = a.page === currentPage ? 0 : 1;
-    const bHere = b.page === currentPage ? 0 : 1;
-    return aHere - bHere || a.page - b.page;
-  });
-  const onPageCount =
-    scenes.filter((s) => (s.crop_from as { page?: number } | undefined)?.page === currentPage).length +
-    drafts.filter((d) => d.page === currentPage).length;
+  const onPageCount = items.filter((it) => it.page === currentPage).length;
+  let firstHereMarked = false;
   return (
     <div className="border-b border-border bg-zinc-50">
-      <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
+      <div ref={scrollRef} className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
         <span className="text-[0.62rem] uppercase tracking-wider text-muted shrink-0">
+          {scenes.length} extrahiert{drafts.length > 0 ? ` · ${drafts.length} Entwurf` : ''}
           {onPageCount > 0 && (
-            <span className="text-accent font-semibold">
-              {onPageCount} auf S{currentPage} ·{' '}
+            <span className="ml-1.5 text-accent font-semibold">
+              · {onPageCount} auf S{currentPage}
             </span>
           )}
-          {scenes.length} extrahiert{drafts.length > 0 ? ` · ${drafts.length} Entwurf` : ''}
         </span>
-        {scenesSorted.map((d) => {
-          const cf = d.crop_from as { page?: number } | undefined;
-          const pageN = cf?.page ?? null;
-          const isOnPage = pageN === currentPage;
-          const label =
-            d.kind === 'floorplan' && d.floor ? `${KIND_LABEL.floorplan} ${(FLOOR_LABEL as Record<string, string>)[d.floor] ?? d.floor}` :
-            d.kind === 'elevation' && d.view ? `${KIND_LABEL.elevation} ${(VIEW_LABEL as Record<string, string>)[d.view] ?? d.view}` :
-            (KIND_LABEL as Record<string, string>)[d.kind] ?? d.kind;
-          return (
-            <SceneThumb
-              key={d.file}
-              to={`/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`}
-              url={d.url}
-              shortLabel={label}
-              title={`${d.file} — Klick öffnet Annotation${pageN != null ? ` · von Seite ${pageN}` : ''}`}
-              labeled={d.labeled}
-              size="md"
-              trailing={
-                <span className="flex items-center gap-0.5 ml-0.5">
-                  {pageN != null && (
+        {items.map((it) => {
+          const isHere = it.page === currentPage;
+          // ref only on the first chip whose source is the current page,
+          // so scrollIntoView lands on the correct one.
+          const isFirstHere = isHere && !firstHereMarked;
+          if (isFirstHere) firstHereMarked = true;
+          const wrapRef = isFirstHere ? firstHereRef : undefined;
+          // Subtle "this is from the page you're looking at" highlight —
+          // an accent underline + soft background tint. Different from
+          // the "selected" state (which uses a stronger ring) so the
+          // affordances don't read as the same thing.
+          const hereCls = isHere ? 'bg-accent/5 ring-1 ring-accent/30' : '';
+          if (it.kind === 'scene') {
+            const d = it.drawing;
+            const cf = d.crop_from as { page?: number } | undefined;
+            const pageN = cf?.page ?? null;
+            const label =
+              d.kind === 'floorplan' && d.floor ? `${KIND_LABEL.floorplan} ${(FLOOR_LABEL as Record<string, string>)[d.floor] ?? d.floor}` :
+              d.kind === 'elevation' && d.view ? `${KIND_LABEL.elevation} ${(VIEW_LABEL as Record<string, string>)[d.view] ?? d.view}` :
+              (KIND_LABEL as Record<string, string>)[d.kind] ?? d.kind;
+            const isMenu = menuForFile === d.file;
+            return (
+              <span ref={wrapRef} key={`s-${d.file}`} className={`relative inline-flex shrink-0 rounded-md ${hereCls}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelectScene(d.file)}
+                  title={`${d.file} — Klick zeigt die Bbox auf der Seite${pageN != null ? ` ${pageN}` : ''}`}
+                  className={`inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-md border transition ${
+                    isMenu
+                      ? 'bg-emerald-50 border-emerald-500'
+                      : 'bg-white border-zinc-200 hover:border-zinc-400'
+                  }`}
+                >
+                  <span className={`relative w-10 h-10 shrink-0 rounded overflow-hidden bg-zinc-100 border ${isMenu ? 'border-emerald-500' : 'border-zinc-200'}`}>
+                    {d.url ? (
+                      <img src={d.url} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                    ) : (
+                      <span className="absolute inset-0 flex items-center justify-center text-zinc-400 text-[0.55rem] font-semibold">?</span>
+                    )}
+                    {d.labeled && (
+                      <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[0.5rem] leading-none px-0.5 py-0.5 rounded-tl">✓</span>
+                    )}
+                  </span>
+                  <span className="text-[0.72rem] font-medium whitespace-nowrap">{label}</span>
+                  <span className="flex items-center gap-0.5 ml-0.5">
+                    {pageN != null && (
+                      <span
+                        className={`text-[0.6rem] px-1 py-0.5 rounded ${
+                          isHere ? 'text-accent font-semibold' : 'text-zinc-500'
+                        }`}
+                        title={isHere ? `Seite ${pageN} (aktuell)` : `Seite ${pageN}`}
+                      >
+                        S{pageN}
+                      </span>
+                    )}
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onJumpToPage(pageN); }}
-                      className={`text-[0.6rem] px-1 py-0.5 rounded hover:bg-zinc-100 ${
-                        isOnPage ? 'text-accent font-semibold' : 'text-zinc-500 hover:text-accent'
-                      }`}
-                      title={isOnPage ? `Quelle: Seite ${pageN} (aktuell)` : `Bbox auf Seite ${pageN} zeigen`}
+                      onClick={(e) => { e.stopPropagation(); onDeleteScene(d.file); }}
+                      className="text-[0.6rem] text-zinc-400 hover:text-red-700 px-1 py-0.5 rounded hover:bg-red-50"
+                      title="Szene aus dem Datensatz entfernen"
                     >
-                      S{pageN}
+                      ✕
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteScene(d.file); }}
-                    className="text-[0.6rem] text-zinc-400 hover:text-red-700 px-1 py-0.5 rounded hover:bg-red-50"
-                    title="Szene aus dem Datensatz entfernen"
-                  >
-                    ✕
-                  </button>
-                </span>
-              }
-            />
-          );
-        })}
-        {draftsSorted.map((b) => {
+                  </span>
+                </button>
+              </span>
+            );
+          }
+          const b = it.draft;
           const kindLabel = b.kind == null
             ? 'Entwurf · ?'
             : `Entwurf · ${KIND_LABEL[b.kind]}${b.floor ? ` ${(FLOOR_LABEL as Record<string, string>)[b.floor] ?? b.floor}` : ''}${b.view ? ` ${(VIEW_LABEL as Record<string, string>)[b.view] ?? b.view}` : ''}`;
           const sel = b.id === selectedDraftId;
-          const isOnPage = b.page === currentPage;
           return (
-            <span key={b.id} className="relative inline-flex shrink-0">
+            <span ref={wrapRef} key={`d-${b.id}`} className={`relative inline-flex shrink-0 rounded-md ${hereCls}`}>
               <button
                 type="button"
                 onClick={() => onSelectDraft(b.id)}
@@ -634,9 +682,9 @@ function SceneStrip({
                 <span className="flex items-center gap-0.5 ml-0.5">
                   <span
                     className={`text-[0.6rem] px-1 py-0.5 rounded ${
-                      isOnPage ? 'text-accent font-semibold' : 'text-zinc-500'
+                      isHere ? 'text-accent font-semibold' : 'text-zinc-500'
                     }`}
-                    title={isOnPage ? `Seite ${b.page} (aktuell)` : `Seite ${b.page}`}
+                    title={isHere ? `Seite ${b.page} (aktuell)` : `Seite ${b.page}`}
                   >
                     S{b.page}
                   </span>
@@ -949,6 +997,7 @@ function PageCanvas({
   draftBboxes, extracted, selectedId, onSelect, onCommit, onUpdate,
   postDraw, onPostDrawPick, onPostDrawDismiss,
   houseKey, onDeleteExtracted, onAdjustExtracted,
+  menuFor, setMenuFor,
 }: {
   pdfKey: string;
   page: number;
@@ -966,8 +1015,9 @@ function PageCanvas({
   houseKey: string;
   onDeleteExtracted: (file: string) => void;
   onAdjustExtracted: (file: string) => void;
+  menuFor: string | null;
+  setMenuFor: (file: string | null) => void;
 }) {
-  const [menuFor, setMenuFor] = useState<string | null>(null);
   // The pageRef tracks the WHITE PAGE DIV (not the outer dark scroll
   // container) — its bbox is what we measure against for pointer-to-PDF
   // unit conversion. Otherwise the coords are off by however much
@@ -1069,8 +1119,14 @@ function PageCanvas({
         >
           {/* Already-extracted scenes — emerald semi-transparent. Click
               opens the contextual action menu (go to annotation / convert
-              back to a draft for re-cropping / delete). */}
-          {extracted.map((d) => {
+              back to a draft for re-cropping / delete). The "active" rect
+              (matching menuFor) renders LAST so it sits on top of any
+              overlapping siblings — SVG z-order is document order. */}
+          {[...extracted].sort((a, b) => {
+            const aSel = menuFor === a.file ? 1 : 0;
+            const bSel = menuFor === b.file ? 1 : 0;
+            return aSel - bSel;
+          }).map((d) => {
             const cf = d.crop_from as { bbox_pdf_units?: [number, number, number, number] } | undefined;
             if (!cf?.bbox_pdf_units) return null;
             const [x0, y0, x1, y1] = cf.bbox_pdf_units;
@@ -1079,9 +1135,9 @@ function PageCanvas({
               <g key={d.file}>
                 <rect
                   x={x0} y={y0} width={x1 - x0} height={y1 - y0}
-                  fill={isMenu ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.10)'}
-                  stroke="#059669"
-                  strokeWidth={isMenu ? 2 : 1.5}
+                  fill={isMenu ? 'rgba(16, 185, 129, 0.22)' : 'rgba(16, 185, 129, 0.10)'}
+                  stroke={isMenu ? '#047857' : '#059669'}
+                  strokeWidth={isMenu ? 3 : 1.5}
                   strokeDasharray="4 3"
                   style={{ pointerEvents: 'auto', cursor: 'pointer' }}
                   data-bbox-handle="extracted"
@@ -1091,7 +1147,7 @@ function PageCanvas({
                     // is the parent div's secondary guard.
                     e.stopPropagation();
                     if (e.button !== 0) return;
-                    setMenuFor((m) => m === d.file ? null : d.file);
+                    setMenuFor(menuFor === d.file ? null : d.file);
                   }}
                 >
                   <title>{`${d.file} — Klick für Aktionen`}</title>
