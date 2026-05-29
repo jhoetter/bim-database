@@ -1397,8 +1397,25 @@ async def recompute_homography(key: str, file: str) -> dict:
 
 @mcp.tool()
 async def get_house_facts(key: str) -> dict:
-    """Full HouseFacts for a house. Returns null `data` if not yet
-    populated (no `data/dataset/<key>/house_facts.json` on disk)."""
+    """Full HouseFacts for a house — extent, heights, wall_thickness,
+    orientation, calibration_per_scene, scene_metadata, workflow pointer.
+
+    USE when:
+      - Reading the current phase predicates before deciding the next
+        write. Cheap (single GET).
+      - Verifying a `set_house_facts` patch landed.
+
+    DON'T USE when:
+      - You only need to know which phase is next — `get_workflow_state`
+        is more targeted.
+
+    Args:
+      key: house key.
+
+    Returns: full HouseFacts dict, or `data: null` if no
+    `data/dataset/<key>/house_facts.json` exists yet (a brand-new house
+    surfaces as null until the first `set_house_facts` call).
+    """
     started = time.time()
     try:
         status, body = await _api_get(f"/datasets/{key}/house_facts")
@@ -1551,7 +1568,17 @@ async def export_house(
 
 @mcp.tool()
 async def list_anomalies(key: str) -> dict:
-    """List validator-flagged issues for a house.
+    """List validator-flagged issues for a house — everything blocking
+    a clean export plus any per-phase predicate failures.
+
+    USE when:
+      - Triaging a failed `export_house`: which blockers must be cleared?
+      - Pre-flight before committing a labeling pass: how clean is the
+        house?
+
+    DON'T USE when:
+      - The agent already knows the current phase's blockers from
+        `get_workflow_state`; this tool aggregates across all phases.
 
     v0.1: surfaces the workflow blockers + the export gate blockers.
     Future: pulls from a dedicated /datasets/{key}/anomalies endpoint
