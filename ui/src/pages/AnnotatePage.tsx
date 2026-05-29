@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
-import { fetchHouse, fetchLabels, fetchDataset, saveLabels, useResource } from '../api/client';
+import { fetchLabels, fetchDataset, saveLabels, useResource } from '../api/client';
 import type {
   ComponentLineLabel,
   DimensionNumberLabel,
@@ -599,12 +599,12 @@ export function AnnotatePage() {
   const { key = '', file = '' } = useParams();
   const decodedFile = decodeURIComponent(file);
 
-  // Scope: derived from URL prefix. /dataset/... → dataset; /house/... → house.
-  const scope: LabelScope = location.pathname.startsWith('/dataset/') ? 'dataset' : 'house';
-  const imageUrl =
-    scope === 'dataset'
-      ? `/static/dataset/${key}/${decodedFile}`
-      : `/scene/${key}/${encodeURIComponent(decodedFile)}`;
+  // R0 — scope is always 'dataset' now (catalog path removed). Kept as a
+  // const for callers that still take it through; the type alias enforces
+  // the single-value invariant.
+  void location;
+  const scope: LabelScope = 'dataset';
+  const imageUrl = `/static/dataset/${key}/${decodedFile}`;
 
   const { data, loading, error } = useResource(() => fetchLabels(scope, key, decodedFile), [scope, key, decodedFile]);
 
@@ -613,12 +613,8 @@ export function AnnotatePage() {
   // file. Re-fetches only when the house changes, not when the scene does.
   const { data: houseScenes } = useResource(
     async () => {
-      if (scope === 'dataset') {
-        const h = await fetchDataset(key);
-        return h.drawings.map((d) => ({ file: d.file, title: d.title ?? d.file }));
-      }
-      const h = await fetchHouse(key);
-      return (h.images ?? []).map((i) => ({ file: i.file, title: i.caption ?? i.file }));
+      const h = await fetchDataset(key);
+      return h.drawings.map((d) => ({ file: d.file, title: d.title ?? d.file }));
     },
     [scope, key],
   );

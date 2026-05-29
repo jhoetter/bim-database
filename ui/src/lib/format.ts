@@ -1,12 +1,9 @@
-import type { House, SceneImage } from '../api/types';
+// R0 — catalog-specific formatters (fmtPrice, pickThumbnail) deleted with
+// the houses path. Only the generic numeric / fact-value formatters
+// survive; they're shared across the dataset side.
 
 export const fmt = (n: number | null | undefined, suf = ''): string =>
   n != null ? n.toLocaleString('de-DE') + suf : '–';
-
-export function fmtPrice(h: House): string | null {
-  if (h.price_on_request) return 'Preis auf Anfrage';
-  return h.price_eur != null ? '€ ' + h.price_eur.toLocaleString('de-DE') : null;
-}
 
 // Pretty-print a fact's scalar value. Recurses for arrays; objects fall
 // through to renderFactValue (which builds a table).
@@ -25,15 +22,4 @@ export function formatFactValue(v: unknown, unit?: string | null): string {
   if (typeof v === 'boolean') return v ? 'ja' : 'nein';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v) + (unit ? ' ' + unit : '');
-}
-
-// Card thumbnail: prefer an exterior, then drawings if that's all we have.
-export function pickThumbnail(h: House): SceneImage | null {
-  const order = ['exterior', 'elevation', 'perspective', 'interior', 'detail', 'floorplan', 'section'];
-  const rank = (c: string) => {
-    const i = order.indexOf(c);
-    return i < 0 ? 999 : i;
-  };
-  const sorted = [...h.images].sort((a, b) => rank(a.category) - rank(b.category));
-  return sorted[0] ?? null;
 }

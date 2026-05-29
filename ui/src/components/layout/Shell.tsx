@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, NavLink } from 'react-router';
+import { Link } from 'react-router';
 
 // Resizable left sidebar + topbar with breadcrumb slot + main content + optional
 // right rail (slides in when `rightRail` is provided). Mirrors the AppShell
@@ -210,11 +210,11 @@ export function Shell({
       >
         <div className="h-full flex flex-col">
           <div className="h-11 flex-shrink-0 px-4 border-b border-border flex items-center gap-2">
-            <Link to="/" className="text-[0.95rem] font-semibold tracking-tight">
-              BIM House DB
+            <Link to="/dataset" className="text-[0.95rem] font-semibold tracking-tight">
+              BIM Datensatz
             </Link>
           </div>
-          <SectionTabs />
+          {/* R0 — SectionTabs removed; only the dataset path remains. */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0">{leftSidebar}</div>
         </div>
       </aside>
@@ -360,29 +360,6 @@ function PinIcon({ filled }: { filled: boolean }) {
     <svg width="14" height="14" viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <path d="M8 1.5l1.8 4.5h3.7l-3.2 2.4 1.2 4.6L8 10.8 4.5 13l1.2-4.6L2.5 6h3.7L8 1.5z" />
     </svg>
-  );
-}
-
-// Two top-level sections: the house catalog (default '/', source records and
-// real architect plans) and the supervised-learning dataset (under '/dataset',
-// a mix of AI-generated gpt-image-* drawings and real plans copied in from
-// starred houses via scripts/include_real_plans.py).
-function SectionTabs() {
-  const linkCls = ({ isActive }: { isActive: boolean }) =>
-    `flex-1 text-center text-[0.72rem] font-medium px-2 py-1.5 rounded ${
-      isActive
-        ? 'bg-white text-zinc-900 shadow-sm'
-        : 'text-muted hover:text-zinc-900'
-    }`;
-  return (
-    <div className="mx-3 mt-3 inline-flex bg-zinc-100 rounded-md p-0.5 gap-0.5">
-      <NavLink to="/" end className={linkCls}>
-        Häuser
-      </NavLink>
-      <NavLink to="/dataset" className={linkCls}>
-        Datensatz
-      </NavLink>
-    </div>
   );
 }
 

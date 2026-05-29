@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "house_key": "house-22",
+  "consolidated_pdf": "house-22.pdf",
+  "source_filenames": [
+    "Grundrisse, Ansichten, Schnitt (1).pdf"
+  ],
+  "uploaded_at": "2026-05-29T06:01:09Z",
+  "page_count": null,
+  "state": "partial",
+  "user_notes": "Seed PDF carried over from data/houses/ during R0 cleanup.",
+  "extracted_scenes": []
+}

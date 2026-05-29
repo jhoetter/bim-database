@@ -39,14 +39,7 @@ export function DatasetHousePage() {
             <h1 className="text-[1rem] font-semibold leading-snug mt-0.5 break-words">
               {data?.model ?? key}
             </h1>
-            {data?.linked_house_meta && (
-              <Link
-                to={`/house/${data.linked_house_meta.key}`}
-                className="inline-block mt-2.5 px-2.5 py-1 rounded-md text-[0.7rem] bg-white text-zinc-900 border border-border hover:border-zinc-400"
-              >
-                → echtes Haus öffnen
-              </Link>
-            )}
+            {/* R0 — link to "echtes Haus" removed with the catalog path. */}
           </header>
 
           {loading && <p className="text-[0.78rem] text-muted">Lade…</p>}

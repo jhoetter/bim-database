@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router';
 import { fetchDatasets, useResource } from '../api/client';
 import { WorkflowPhaseBadge } from '../components/WorkflowPhaseBadge';
@@ -20,6 +20,17 @@ export function DatasetPage() {
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [labelFilter, setLabelFilter] = useState<LabelFilter>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('by-house');
+  const [houseSweepCount, setHouseSweepCount] = useState<number | null>(null);
+
+  // R0.13 — surface the one-time house-localStorage sweep result. main.tsx
+  // ran the sweep before React mounted; we pull the count off `window`.
+  useEffect(() => {
+    const w = window as unknown as { __bimHouseSweepCount?: number };
+    if (typeof w.__bimHouseSweepCount === 'number' && w.__bimHouseSweepCount > 0) {
+      setHouseSweepCount(w.__bimHouseSweepCount);
+      delete w.__bimHouseSweepCount;
+    }
+  }, []);
 
   const houses = useMemo(() => data ?? [], [data]);
 
@@ -60,6 +71,16 @@ export function DatasetPage() {
       }
     >
       <div className="px-6 py-5">
+        {houseSweepCount != null && (
+          <div className="mb-4 px-3 py-2 rounded-md bg-emerald-50 border border-emerald-300 text-[0.78rem] text-emerald-900">
+            ↻ {houseSweepCount} alte House-Einträge aus dem Browser entfernt — Dataset-Daten bleiben unberührt.
+            <button
+              type="button"
+              onClick={() => setHouseSweepCount(null)}
+              className="ml-2 underline text-[0.7rem]"
+            >schließen</button>
+          </div>
+        )}
         {loading && <p className="text-muted text-sm">Lade…</p>}
         {error && <p className="text-red-700 text-sm">Fehler: {error.message}</p>}
         {!loading && !error && filtered.length === 0 && <EmptyState />}

@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "house_key": "house-23",
+  "consolidated_pdf": "house-23.pdf",
+  "source_filenames": [
+    "Kannenofen.pdf"
+  ],
+  "uploaded_at": "2026-05-29T06:01:09Z",
+  "page_count": null,
+  "state": "partial",
+  "user_notes": "Seed PDF carried over from data/houses/ during R0 cleanup.",
+  "extracted_scenes": []
+}

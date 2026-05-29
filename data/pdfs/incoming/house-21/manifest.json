@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "house_key": "house-21",
+  "consolidated_pdf": "house-21.pdf",
+  "source_filenames": [
+    "2025-06-13 Schalksmühle EBB Weidenstr.pdf",
+    "20250616 Auskunft Baulast.pdf",
+    "5.11.1956 Baubeschreibung Weidenstr. 4.pdf",
+    "535_06 KH Exposé.pdf",
+    "535_06 KH Nebenkosten.pdf",
+    "Altlastenauskunft.pdf",
+    "Ansichten.pdf",
+    "DG.pdf",
+    "EG.pdf",
+    "Entwässerungsplan.pdf",
+    "GB v_ Schalksmühle Blatt 218 mit Kennzeichnung d. Flurstücke.pdf",
+    "Grundrisse, Schnitt.pdf",
+    "Grundstücksflächen_Timonline.pdf",
+    "NW-2025-005835290.pdf",
+    "Umbauter Raum.pdf",
+    "Wohnflächenberechnung.pdf"
+  ],
+  "uploaded_at": "2026-05-29T06:01:09Z",
+  "page_count": null,
+  "state": "partial",
+  "user_notes": "Seed PDF carried over from data/houses/ during R0 cleanup.",
+  "extracted_scenes": []
+}

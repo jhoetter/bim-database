@@ -18,10 +18,11 @@ export default defineConfig({
     port: webPort,
     strictPort: true,
     proxy: {
-      '/houses': apiTarget,
-      '/ontology': apiTarget,
+      '/datasets': apiTarget,
+      '/labels': apiTarget,
+      '/pdfs': apiTarget,
+      '/exports': apiTarget,
       '/static': apiTarget,
-      '/scene': apiTarget,
     },
   },
 });
