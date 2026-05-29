@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { fetchLabels, fetchDataset, saveLabels, useResource } from '../api/client';
 import type {
   ComponentLineLabel,
@@ -30,10 +30,7 @@ import type {
 } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { StepperBar } from '../components/StepperBar';
-import { computePerHouseSteps, rememberLastStep } from '../lib/step_state';
-import { getIncomingPdf as fetchIncomingPdf } from '../api/client';
-import type { IncomingPdf } from '../api/types';
+import { rememberLastStep } from '../lib/step_state';
 import {
   handlesFor,
   labelCentroid,
@@ -625,23 +622,6 @@ export function AnnotatePage() {
   const sceneList = houseScenes ?? [];
   const sceneIndex = sceneList.findIndex((s) => s.file === decodedFile);
 
-  // P0.3 — fetch intake bundle for stepper state. Best-effort: a missing
-  // intake bundle (legacy houses that were never uploaded) doesn't block.
-  const { data: intakeBundle } = useResource<IncomingPdf | null>(
-    async () => {
-      try { return await fetchIncomingPdf(key); } catch { return null; }
-    },
-    [key],
-  );
-  const datasetForSteps = useMemo(() => (
-    houseScenes
-      ? { key, drawings: houseScenes.map((s) => ({ file: s.file, url: '', kind: '', labeled: true })) }
-      : null
-  ) as unknown as Parameters<typeof computePerHouseSteps>[2], [houseScenes, key]);
-  const stepState = useMemo(
-    () => computePerHouseSteps(key, intakeBundle, datasetForSteps),
-    [key, intakeBundle, datasetForSteps],
-  );
   useEffect(() => { rememberLastStep(key, 'annotate'); }, [key]);
   const prevScene = sceneIndex > 0 ? sceneList[sceneIndex - 1] : null;
   const nextScene = sceneIndex >= 0 && sceneIndex < sceneList.length - 1 ? sceneList[sceneIndex + 1] : null;
@@ -2211,7 +2191,13 @@ export function AnnotatePage() {
   // Scene navigation — prev/next within the same house. Dirty-state guard:
   // if there are unsaved changes, prompt before navigating away. Autosave
   // users skip the prompt (their work is/will be persisted).
-  const goToScene = useCallback((targetFile: string) => {
+  // Forward-decl: a mutable ref points at save() so the autosave-on-leave
+  // path in goToScene can call it even though save is defined below.
+  const saveRef = useRef<(() => Promise<void>) | null>(null);
+  const goToScene = useCallback(async (targetFile: string) => {
+    if (dirty && autosave && saveRef.current) {
+      try { await saveRef.current(); } catch { /* fall through to confirm */ }
+    }
     if (dirty && !autosave) {
       const ok = window.confirm(
         'Ungespeicherte Änderungen.\n\n' +
@@ -2220,11 +2206,9 @@ export function AnnotatePage() {
       );
       if (!ok) return;
     }
-    const path = scope === 'dataset'
-      ? `/${key}/scene/${encodeURIComponent(targetFile)}/annotate`
-      : `/house/${key}/scene/${encodeURIComponent(targetFile)}/annotate`;
+    const path = `/${key}/scene/${encodeURIComponent(targetFile)}/annotate`;
     navigate(path);
-  }, [dirty, autosave, scope, key, navigate]);
+  }, [dirty, autosave, key, navigate]);
 
   // ── save ──────────────────────────────────────────────────────────────────
   const save = useCallback(async () => {
@@ -2344,6 +2328,8 @@ export function AnnotatePage() {
       setSaving(false);
     }
   }, [data, key, decodedFile, sceneTag, labels, imageSize, scope, addToast]);
+  // Keep the goToScene autosave bridge pointed at the latest save closure.
+  useEffect(() => { saveRef.current = save; }, [save]);
 
   // M12 auto-save: when enabled + dirty, schedule a save after 30 s of
   // inactivity. Any new edit resets the timer.
@@ -2665,12 +2651,19 @@ export function AnnotatePage() {
         <Breadcrumb
           items={[
             { label: key, to: `/${key}` },
-            { label: `Annotieren: ${decodedFile}` },
+            { label: decodedFile },
           ]}
         />
       }
       topbarTrailing={
         <div className="flex items-center gap-2">
+          <Link
+            to={`/${key}/scene/${encodeURIComponent(decodedFile)}/export`}
+            className="text-[0.72rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+            title="Set A / Set B Vorschau für diese Szene"
+          >
+            Export ▸
+          </Link>
           {sceneList.length > 1 && (
             <div className="flex items-center gap-1 border border-border rounded-md p-0.5 bg-white max-w-[44vw] overflow-x-auto"
                  title="Szene wechseln — , = vorige, . = nächste">
@@ -2895,6 +2888,30 @@ export function AnnotatePage() {
             clearDefaults(scope, key, sceneTag);
             addToast(`Defaults für "${sceneTag}" zurückgesetzt`, 'info');
           }}
+          onResetLabels={async () => {
+            const ok = window.confirm(
+              `Alle Labels für „${decodedFile}" wirklich zurücksetzen?\n\n` +
+              `Diese Aktion kann NICHT rückgängig gemacht werden.\n` +
+              `Die Szene bleibt im Datensatz; nur die Annotationen verschwinden.`,
+            );
+            if (!ok) return;
+            // Wipe local label state + the scene's metadata so the next
+            // save() writes a clean payload. The save runs immediately so
+            // the disk reflects the wipe even if the user closes the tab.
+            pushUndo();
+            setLabels([]);
+            setSceneTag('nicht_klassifiziert');
+            setSceneOrientation(null);
+            setSceneLevel(null);
+            setHiddenLabelIds(new Set());
+            setCrossSceneProvenance(new Map());
+            setSelectedIds(new Set());
+            setDirty(true);
+            // Defer the save by one tick so the React state updates
+            // commit before save() reads them.
+            setTimeout(() => { saveRef.current?.(); }, 0);
+            addToast('Labels zurückgesetzt — speichere…', 'warn', 2200);
+          }}
           allTools={allTools}
           onToggleAllTools={() => {
             setAllTools((v) => {
@@ -3018,16 +3035,7 @@ export function AnnotatePage() {
         />
       }
     >
-      <div className="flex flex-col h-full">
-        <StepperBar
-          houseKey={key}
-          current="annotate"
-          intakeDone={stepState.intakeDone}
-          extractDone={stepState.extractDone}
-          annotateDone={stepState.annotateDone}
-          exportDone={stepState.exportDone}
-        />
-        <div className="flex-1 min-h-0 bg-white relative overflow-hidden">
+      <div className="h-full bg-white relative overflow-hidden">
         {loading && <p className="absolute top-4 left-4 text-zinc-700 text-sm">Lade Labels…</p>}
         {error && <p className="absolute top-4 left-4 text-red-700 text-sm">Fehler: {error.message}</p>}
         <svg
@@ -4061,7 +4069,6 @@ export function AnnotatePage() {
             </FloatingPopover>
           </div>
         )}
-        </div>
       </div>
     </Shell>
   );
@@ -4833,6 +4840,7 @@ function ToolPalette({
   autosave,
   onToggleAutosave,
   onResetDefaults,
+  onResetLabels,
   allTools,
   onToggleAllTools,
   scope,
@@ -4872,6 +4880,7 @@ function ToolPalette({
   autosave: boolean;
   onToggleAutosave: () => void;
   onResetDefaults: () => void;
+  onResetLabels: () => void;
   allTools: boolean;
   onToggleAllTools: () => void;
   scope: LabelScope;
@@ -5080,6 +5089,7 @@ function ToolPalette({
         allTools={allTools}
         onToggleAllTools={onToggleAllTools}
         onResetDefaults={onResetDefaults}
+        onResetLabels={onResetLabels}
         sceneTag={sceneTag}
       />
       {/* Legende moved to canvas corner widget; not in the sidebar primary path. */}
@@ -5279,13 +5289,14 @@ function HouseHeightsPanel({
 function SettingsMenu({
   autosave, onToggleAutosave,
   allTools, onToggleAllTools,
-  onResetDefaults, sceneTag,
+  onResetDefaults, onResetLabels, sceneTag,
 }: {
   autosave: boolean;
   onToggleAutosave: () => void;
   allTools: boolean;
   onToggleAllTools: () => void;
   onResetDefaults: () => void;
+  onResetLabels: () => void;
   sceneTag: SceneTag;
 }) {
   const [open, setOpen] = useState(false);
@@ -5312,10 +5323,18 @@ function SettingsMenu({
           <button
             type="button"
             onClick={onResetDefaults}
-            className="text-zinc-500 hover:text-accent hover:underline"
+            className="text-zinc-500 hover:text-accent hover:underline text-left"
             title={`Defaults für scope+tag '${sceneTag}' zurücksetzen`}
           >
             Defaults für „{sceneTag}" zurücksetzen
+          </button>
+          <button
+            type="button"
+            onClick={onResetLabels}
+            className="text-red-700 hover:underline text-left font-medium"
+            title="Alle Labels dieser Szene löschen und Anmerkungen von vorn anfangen"
+          >
+            ⚠ Labels dieser Szene zurücksetzen…
           </button>
         </div>
       )}

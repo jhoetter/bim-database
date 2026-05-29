@@ -13,8 +13,7 @@ import { fetchDataset, fetchExportPreview, fetchLabels, getIncomingPdf } from '.
 import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { StepperBar } from '../components/StepperBar';
-import { computePerHouseSteps, rememberLastStep } from '../lib/step_state';
+import { rememberLastStep } from '../lib/step_state';
 
 interface SceneRow {
   file: string;
@@ -91,7 +90,7 @@ export function ExportPage() {
     }
   }, [key]);
 
-  const steps = computePerHouseSteps(key, intake, dataset);
+  void intake; void dataset;
 
   const onBulkExport = async () => {
     setExporting(true); setBulkResult(null);
@@ -156,14 +155,6 @@ export function ExportPage() {
       }
     >
       <div className="flex flex-col h-full">
-        <StepperBar
-          houseKey={key}
-          current="export"
-          intakeDone={steps.intakeDone}
-          extractDone={steps.extractDone}
-          annotateDone={steps.annotateDone}
-          exportDone={steps.exportDone}
-        />
         <div className="px-4 py-4 flex-1 overflow-auto">
           {loading && <p className="text-[0.78rem] text-muted">Lade…</p>}
           {error && <p className="text-[0.78rem] text-red-700">{error}</p>}
@@ -178,7 +169,7 @@ export function ExportPage() {
               {rows.map((r) => (
                 <li key={r.file}>
                   <Link
-                    to={`/${key}/scene/${encodeURIComponent(r.file)}/export-preview`}
+                    to={`/${key}/scene/${encodeURIComponent(r.file)}/export`}
                     className="block rounded-md border border-border bg-white px-3 py-2 hover:border-zinc-400 hover:shadow-sm"
                   >
                     <div className="flex items-center gap-2 text-[0.78rem]">

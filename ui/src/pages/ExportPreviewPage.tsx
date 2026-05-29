@@ -39,7 +39,8 @@ export function ExportPreviewPage() {
         <Breadcrumb
           items={[
             { label: key, to: `/${key}` },
-            { label: `Export-Vorschau: ${decodedFile}` },
+            { label: decodedFile, to: `/${key}/scene/${encodeURIComponent(decodedFile)}/annotate` },
+            { label: 'Export' },
           ]}
         />
       }

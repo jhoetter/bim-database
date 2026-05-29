@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-22",
+  "scene_file": "house-22-floorplan-floorplan-4.jpg",
+  "scene_tag": "schnitt",
+  "scene_orientation": null,
+  "scene_level": null,
+  "image_size_px": [
+    2550,
+    1755
+  ],
+  "annotated_by": "jhoetter",
+  "annotated_at": "2026-05-29T07:25:29.652Z",
+  "labels": []
+}

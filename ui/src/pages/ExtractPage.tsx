@@ -24,8 +24,7 @@ import {
 import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { StepperBar } from '../components/StepperBar';
-import { computePerHouseSteps, rememberLastStep } from '../lib/step_state';
+import { rememberLastStep } from '../lib/step_state';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
 const KIND_LABEL: Record<ExtractItem['kind'], string> = {
@@ -50,7 +49,10 @@ interface DraftBbox {
   page: number;
   // bbox in PDF UNITS so cache-invalidating page renders don't reflow.
   bbox_pdf: [number, number, number, number];
-  kind: ExtractItem['kind'];
+  // null until the user picks. Pre-labeling everything as 'floorplan'
+  // was wrong more often than right; rather have "Typ wählen" than a
+  // false default.
+  kind: ExtractItem['kind'] | null;
   view?: string;
   floor?: string;
   title?: string;
@@ -169,7 +171,7 @@ export function ExtractPage() {
     setDraft((d) => ({
       ...d,
       bboxes: [...d.bboxes, {
-        id, page: currentPage, bbox_pdf: bbox, kind: 'floorplan',
+        id, page: currentPage, bbox_pdf: bbox, kind: null,
       }],
     }));
     setSelectedId(id);
@@ -195,7 +197,9 @@ export function ExtractPage() {
       const items: ExtractItem[] = draft.bboxes.map((b) => ({
         page: b.page,
         bbox_pdf_units: b.bbox_pdf,
-        kind: b.kind,
+        // Typeguard upstream: every kind is non-null before this point
+        // (the extract button is disabled otherwise).
+        kind: b.kind as ExtractItem['kind'],
         view: b.view ?? null,
         floor: b.floor ?? null,
         title: b.title ?? null,
@@ -226,14 +230,9 @@ export function ExtractPage() {
     }
   }, [key]);
 
-  // R3 — remember this house's last step + compute step flags for the
-  // top stepper. Re-runs on every state change cheaply (localStorage is
-  // synchronous + the inputs are already memoized).
+  // The house IS the extract view now; mark it as the user's
+  // "last step" so /dataset list cards resume here.
   useEffect(() => { rememberLastStep(key, 'extract'); }, [key]);
-  const stepState = useMemo(
-    () => computePerHouseSteps(key, intake, dataset),
-    [key, intake, dataset],
-  );
 
   const pageBboxes = draft.bboxes.filter((b) => b.page === currentPage);
   const extractedOnPage = useMemo(
@@ -246,12 +245,25 @@ export function ExtractPage() {
   return (
     <Shell
       breadcrumb={
-        <Breadcrumb
-          items={[
-            { label: key, to: `/${key}` },
-            { label: 'Szenen extrahieren' },
-          ]}
-        />
+        <Breadcrumb items={[{ label: key }]} />
+      }
+      topbarTrailing={
+        <div className="flex items-center gap-1.5">
+          <Link
+            to={`/${key}/export`}
+            className="text-[0.72rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+            title="Export-Übersicht (alle Szenen) + Bulk-Export"
+          >
+            Export ▸
+          </Link>
+          <Link
+            to={`/${key}/3d`}
+            className="text-[0.72rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+            title="3D-Vorschau der annotierten Geometrie"
+          >
+            3D ▸
+          </Link>
+        </div>
       }
       leftSidebar={
         <ExtractSidebar
@@ -281,18 +293,17 @@ export function ExtractPage() {
           }}
           busy={busy}
           totalDraft={draft.bboxes.length}
+          allDrafts={draft.bboxes}
         />
       }
       rightRailLabel="Szenen"
     >
       <div className="flex flex-col h-full">
-        <StepperBar
+        <SceneStrip
           houseKey={key}
-          current="extract"
-          intakeDone={stepState.intakeDone}
-          extractDone={stepState.extractDone}
-          annotateDone={stepState.annotateDone}
-          exportDone={stepState.exportDone}
+          scenes={dataset?.drawings ?? []}
+          currentPage={currentPage}
+          onJumpToPage={setPage}
         />
         <div className="px-4 py-3 flex flex-col flex-1 min-h-0">
         <PageNav
@@ -303,6 +314,11 @@ export function ExtractPage() {
           extractedOnPage={extractedOnPage.length}
           totalDraft={draft.bboxes.length}
           lastSaved={new Date(draft.updated_at).toLocaleTimeString('de-DE')}
+          pageInfo={pageInfo}
+          onFullPage={() => {
+            if (!pageInfo) return;
+            onCommitBbox([0, 0, pageInfo.width_pt, pageInfo.height_pt]);
+          }}
         />
         {error && <p className="text-[0.78rem] text-red-700 my-2">{error}</p>}
         {info && pageInfo && (
@@ -326,8 +342,77 @@ export function ExtractPage() {
   );
 }
 
+// Horizontal strip of every extracted scene in this house. Clicking a
+// pill opens that scene's annotation; clicking the page-link beside the
+// pill jumps the bbox view to the source page. Empty state nudges the
+// user toward the first bbox.
+function SceneStrip({
+  houseKey, scenes, currentPage, onJumpToPage,
+}: {
+  houseKey: string;
+  scenes: DatasetHouse['drawings'];
+  currentPage: number;
+  onJumpToPage: (n: number) => void;
+}) {
+  if (scenes.length === 0) {
+    return (
+      <div className="px-3 py-1.5 border-b border-border bg-zinc-50 text-[0.72rem] text-zinc-500">
+        Noch keine Szenen extrahiert — zieh eine Bbox auf die Seite oder klick „Ganze Seite als Szene".
+      </div>
+    );
+  }
+  return (
+    <div className="border-b border-border bg-zinc-50">
+      <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
+        <span className="text-[0.62rem] uppercase tracking-wider text-muted shrink-0">
+          {scenes.length} Szene{scenes.length === 1 ? '' : 'n'}
+        </span>
+        {scenes.map((d) => {
+          const cf = d.crop_from as { page?: number } | undefined;
+          const pageN = cf?.page ?? null;
+          const isOnPage = pageN === currentPage;
+          const label =
+            d.kind === 'floorplan' && d.floor ? `${KIND_LABEL.floorplan} ${(FLOOR_LABEL as Record<string, string>)[d.floor] ?? d.floor}` :
+            d.kind === 'elevation' && d.view ? `${KIND_LABEL.elevation} ${(VIEW_LABEL as Record<string, string>)[d.view] ?? d.view}` :
+            (KIND_LABEL as Record<string, string>)[d.kind] ?? d.kind;
+          return (
+            <div
+              key={d.file}
+              className={`shrink-0 inline-flex items-center text-[0.72rem] rounded-full border ${
+                isOnPage ? 'border-accent bg-white' : 'border-zinc-300 bg-white'
+              }`}
+              title={d.file}
+            >
+              <Link
+                to={`/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`}
+                className="px-2 py-0.5 hover:bg-zinc-100 rounded-l-full"
+              >
+                <span className={d.labeled ? 'text-emerald-700' : 'text-zinc-700'}>
+                  {d.labeled ? '✓ ' : '○ '}
+                </span>
+                {label}
+              </Link>
+              {pageN != null && (
+                <button
+                  type="button"
+                  onClick={() => onJumpToPage(pageN)}
+                  className="px-1.5 py-0.5 border-l border-zinc-200 text-[0.62rem] text-zinc-500 hover:bg-zinc-100 rounded-r-full"
+                  title={`Bbox auf Seite ${pageN} zeigen`}
+                >
+                  S{pageN}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PageNav({
   info, page, onPage, draftCount, extractedOnPage, totalDraft, lastSaved,
+  pageInfo, onFullPage,
 }: {
   info: PdfInfo | null;
   page: number;
@@ -336,6 +421,8 @@ function PageNav({
   extractedOnPage: number;
   totalDraft: number;
   lastSaved: string;
+  pageInfo: PdfInfo['pages'][number] | null;
+  onFullPage: () => void;
 }) {
   if (!info) return <p className="text-[0.78rem] text-muted">Lade PDF…</p>;
   return (
@@ -366,6 +453,15 @@ function PageNav({
         className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 disabled:opacity-40"
         title="Nächste Seite (→)"
       >→</button>
+      <button
+        type="button"
+        onClick={onFullPage}
+        disabled={!pageInfo}
+        className="px-2 py-0.5 rounded bg-accent text-white hover:opacity-90 disabled:opacity-40"
+        title="Ganze Seite als eine Szene (Doppelklick auf Seite tut dasselbe)"
+      >
+        🗋 Ganze Seite als Szene
+      </button>
       <span className="ml-3 inline-flex items-center gap-1">
         {extractedOnPage > 0 && (
           <span className="text-[0.7rem] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-semibold">
@@ -382,7 +478,7 @@ function PageNav({
         {totalDraft > 0 ? (
           <>Auto-gespeichert · {lastSaved}</>
         ) : (
-          <>Click-drag = neue Bbox · ← → Seiten · Esc deselect · Del löschen</>
+          <>Drag = Bbox · Doppelklick = ganze Seite · ← → Seiten · Esc deselect · Del löschen</>
         )}
       </span>
     </div>
@@ -449,21 +545,14 @@ function ExtractSidebar({
           })}
         </ul>
       </section>
-      <section>
-        <Link to="/intake" className="block text-[0.72rem] text-accent hover:underline">
-          ← Eingangsstapel
-        </Link>
-        <Link to={`/${intake?.key ?? ''}`} className="block text-[0.72rem] text-accent hover:underline mt-1">
-          → Annotieren
-        </Link>
-      </section>
     </div>
   );
 }
 
 function ExtractInspector({
   bboxes, selectedId, onSelect, onUpdate, onDelete,
-  extractedOnPage, onDeleteScene, onExtract, onDiscardDraft, busy, totalDraft,
+  extractedOnPage, onDeleteScene, onExtract, onDiscardDraft,
+  busy, totalDraft, allDrafts,
 }: {
   bboxes: DraftBbox[];
   selectedId: string | null;
@@ -476,8 +565,10 @@ function ExtractInspector({
   onDiscardDraft: () => void;
   busy: boolean;
   totalDraft: number;
+  allDrafts: DraftBbox[];
 }) {
   const sel = bboxes.find((b) => b.id === selectedId) ?? null;
+  const missingKinds = allDrafts.filter((b) => b.kind == null).length;
   return (
     <div className="px-3 py-3 space-y-4">
       <section>
@@ -501,9 +592,14 @@ function ExtractInspector({
                     : 'hover:bg-zinc-100 text-zinc-800'
                 }`}
               >
-                <span className="font-mono">{KIND_LABEL[b.kind].slice(0, 2)}</span>
+                <span className={`font-mono ${b.kind ? '' : 'text-amber-700'}`}>
+                  {b.kind ? KIND_LABEL[b.kind].slice(0, 2) : '?'}
+                </span>
                 <span className="flex-1 truncate">
-                  {b.title || `${KIND_LABEL[b.kind]}${b.floor ? ` · ${FLOOR_LABEL[b.floor as keyof typeof FLOOR_LABEL] ?? b.floor}` : ''}${b.view ? ` · ${VIEW_LABEL[b.view as keyof typeof VIEW_LABEL] ?? b.view}` : ''}`}
+                  {b.kind == null
+                    ? <span className="italic text-amber-700">Typ wählen…</span>
+                    : (b.title || `${KIND_LABEL[b.kind]}${b.floor ? ` · ${FLOOR_LABEL[b.floor as keyof typeof FLOOR_LABEL] ?? b.floor}` : ''}${b.view ? ` · ${VIEW_LABEL[b.view as keyof typeof VIEW_LABEL] ?? b.view}` : ''}`)
+                  }
                 </span>
                 <button
                   type="button"
@@ -524,10 +620,15 @@ function ExtractInspector({
           <label className="block text-[0.72rem]">
             Typ
             <select
-              value={sel.kind}
-              onChange={(e) => onUpdate(sel.id, { kind: e.target.value as ExtractItem['kind'] })}
-              className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.78rem]"
+              value={sel.kind ?? ''}
+              onChange={(e) => onUpdate(sel.id, {
+                kind: e.target.value ? (e.target.value as ExtractItem['kind']) : null,
+              })}
+              className={`w-full mt-0.5 px-2 py-1 border rounded text-[0.78rem] ${
+                sel.kind == null ? 'border-amber-500 bg-amber-50' : 'border-zinc-300'
+              }`}
             >
+              <option value="">Typ wählen…</option>
               {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
             </select>
           </label>
@@ -595,12 +696,14 @@ function ExtractInspector({
         <button
           type="button"
           onClick={onExtract}
-          disabled={busy || totalDraft === 0}
+          disabled={busy || totalDraft === 0 || missingKinds > 0}
           className="w-full text-[0.85rem] px-3 py-2 rounded-md bg-emerald-600 text-white font-semibold hover:opacity-90 disabled:opacity-40"
         >
           {busy ? 'Extrahiere…' : totalDraft === 0
             ? 'Bbox zeichnen, dann extrahieren'
-            : `→ ${totalDraft} Szenen extrahieren`}
+            : missingKinds > 0
+              ? `Typ fehlt bei ${missingKinds} Bbox${missingKinds === 1 ? '' : 'en'}`
+              : `→ ${totalDraft} Szenen extrahieren`}
         </button>
         {totalDraft > 0 && !busy && (
           <button
@@ -692,6 +795,13 @@ function PageCanvas({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onDoubleClick={(e) => {
+          // Full-page bbox shortcut. Don't fire when the user double-
+          // clicked an existing handle (resize-bbox), only on the bare
+          // page area.
+          if ((e.target as HTMLElement).closest('[data-bbox-handle]')) return;
+          onCommit([0, 0, pageWidthPt, pageHeightPt]);
+        }}
         className="relative my-3 bg-white shadow-lg cursor-crosshair ring-1 ring-zinc-700"
         style={{
           width: `min(${naturalWidthPx}px, calc(100% - 24px))`,

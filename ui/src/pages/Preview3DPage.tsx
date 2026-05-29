@@ -15,8 +15,6 @@ import { fetchDataset, fetchLabels } from '../api/client';
 import type { DatasetHouse, SceneLabels } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { StepperBar } from '../components/StepperBar';
-import { computePerHouseSteps } from '../lib/step_state';
 import { loadHouseFacts } from '../lib/house_facts';
 import { buildScene3D, type BuiltScene3D } from '../lib/scene_3d';
 import { labelColor } from '../lib/colors';
@@ -66,7 +64,7 @@ export function Preview3DPage() {
     return buildScene3D({ facts, scenes: labelsByFile });
   }, [facts, labelsByFile]);
 
-  const steps = computePerHouseSteps(key, null, dataset);
+  void dataset;
 
   return (
     <Shell
@@ -86,14 +84,6 @@ export function Preview3DPage() {
       leftSidebar={<SidePanel scene={scene3d} />}
     >
       <div className="flex flex-col h-full">
-        <StepperBar
-          houseKey={key}
-          current="annotate"
-          intakeDone={steps.intakeDone}
-          extractDone={steps.extractDone}
-          annotateDone={steps.annotateDone}
-          exportDone={steps.exportDone}
-        />
         <div className="flex-1 min-h-0 bg-zinc-200 relative">
           {loading && <p className="absolute top-3 left-3 text-[0.78rem] text-zinc-700">Lade…</p>}
           {error && <p className="absolute top-3 left-3 text-[0.78rem] text-red-700">{error}</p>}

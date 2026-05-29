@@ -1,0 +1,125 @@
+{
+  "key": "house-22",
+  "drawings": [
+    {
+      "file": "house-22-floorplan-floorplan.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": null,
+      "title": null,
+      "imported_at": "2026-05-29T07:22:38Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 1,
+        "bbox_pdf_units": [
+          0.11328125,
+          -42.26237384856694,
+          612.0,
+          403.6000061035156
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-floorplan-floorplan-2.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": null,
+      "title": null,
+      "imported_at": "2026-05-29T07:22:38Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 2,
+        "bbox_pdf_units": [
+          -184.26171875,
+          -66.39868748230597,
+          612.0,
+          413.3999938964844
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-floorplan-floorplan-3.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": null,
+      "title": null,
+      "imported_at": "2026-05-29T07:22:39Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 3,
+        "bbox_pdf_units": [
+          -49.39453125,
+          -18.66015625,
+          612.0,
+          412.0
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-floorplan-floorplan-4.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": null,
+      "title": null,
+      "imported_at": "2026-05-29T07:22:39Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 4,
+        "bbox_pdf_units": [
+          -166.8515625,
+          -41.242800226724654,
+          612.0,
+          421.1000061035156
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-floorplan-floorplan-5.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": null,
+      "title": null,
+      "imported_at": "2026-05-29T07:22:39Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 5,
+        "bbox_pdf_units": [
+          -28.218750000000007,
+          -41.61765352519231,
+          612.0,
+          419.70001220703125
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-floorplan-floorplan-6.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": null,
+      "title": null,
+      "imported_at": "2026-05-29T07:22:39Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 6,
+        "bbox_pdf_units": [
+          -167.5078125,
+          -106.75465926418971,
+          612.0,
+          441.29998779296875
+        ],
+        "dpi": 300
+      }
+    }
+  ]
+}

@@ -1,8 +1,19 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, createBrowserRouter } from 'react-router';
+import { Navigate, createBrowserRouter, useParams } from 'react-router';
+
+// Legacy /:key/extract or /:key/scene/:file → bounce to the new
+// canonical URLs. Saves bookmarks from breaking.
+function BackToHouse() {
+  const { key = '' } = useParams();
+  return <Navigate to={`/${key}`} replace />;
+}
+function RenameScenePreview() {
+  const { key = '', file = '' } = useParams();
+  return <Navigate to={`/${key}/scene/${encodeURIComponent(file)}/export`} replace />;
+}
+
 import { App } from './App';
 import { DatasetPage } from './pages/DatasetPage';
-import { DatasetHousePage } from './pages/DatasetHousePage';
 import { AnnotatePage } from './pages/AnnotatePage';
 import { IntakePage } from './pages/IntakePage';
 import { ExtractPage } from './pages/ExtractPage';
@@ -33,14 +44,17 @@ export const router = createBrowserRouter([
       // dropped since this app only does one thing now.
       { index: true, Component: DatasetPage },
       { path: 'intake', Component: IntakePage },
-      { path: ':key/extract', Component: ExtractPage },
+      // The house IS the PDF + scene extraction. /:key opens the
+      // extract view directly; the deeper level is per-scene annotation.
+      { path: ':key', Component: ExtractPage },
       { path: ':key/export', Component: ExportPage },
-      { path: ':key/scene/:file/export-preview', Component: ExportPreviewPage },
-      { path: ':key/3d', Component: Preview3DSuspense },
-      { path: ':key', Component: DatasetHousePage },
-      { path: ':key/scene/:file', Component: DatasetHousePage },
       { path: ':key/scene/:file/annotate', Component: AnnotatePage },
-      // Back-compat: /dataset/* URLs from before the rename still resolve.
+      { path: ':key/scene/:file/export', Component: ExportPreviewPage },
+      { path: ':key/3d', Component: Preview3DSuspense },
+      // Back-compat: legacy URL prefixes from earlier iterations.
+      { path: ':key/extract', element: <BackToHouse /> },
+      { path: ':key/scene/:file/export-preview', element: <RenameScenePreview /> },
+      { path: ':key/scene/:file', element: <BackToHouse /> },
       { path: 'dataset', element: <Navigate to="/" replace /> },
     ],
   },
