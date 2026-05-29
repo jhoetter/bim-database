@@ -253,29 +253,39 @@ export function ExtractPage() {
     if (selectedId === id) setSelectedId(null);
   }, [selectedId]);
 
-  const onExtract = useCallback(async () => {
-    if (draft.bboxes.length === 0) return;
-    setBusy(true);
+  // A1 — extract a single draft bbox the moment its classification
+  // completes. The "Extract N scenes" batch button is gone; the post-
+  // draw classifier writes straight through to the server, the orange
+  // bbox becomes a green extracted scene as soon as the round-trip
+  // returns. The chip stays in 'busy' state during the trip.
+  const extractDraftNow = useCallback(async (draftId: string) => {
     setError(null);
+    // Snapshot the latest draft state for this id (caller may have
+    // applied a setDraft just before invoking us).
+    const draftSnap = draft.bboxes.find((b) => b.id === draftId);
+    if (!draftSnap || !draftSnap.kind) return;
+    setBusy(true);
     try {
-      const items: ExtractItem[] = draft.bboxes.map((b) => ({
-        page: b.page,
-        bbox_pdf_units: b.bbox_pdf,
-        // Typeguard upstream: every kind is non-null before this point
-        // (the extract button is disabled otherwise).
-        kind: b.kind as ExtractItem['kind'],
-        view: b.view ?? null,
-        floor: b.floor ?? null,
-        title: b.title ?? null,
-      }));
-      await extractScenes(key, items);
-      // Reload dataset + intake; wipe draft.
-      const [d, b] = await Promise.all([fetchDataset(key), getIncomingPdf(key).catch(() => null)]);
+      await extractScenes(key, [{
+        page: draftSnap.page,
+        bbox_pdf_units: draftSnap.bbox_pdf,
+        kind: draftSnap.kind,
+        view: draftSnap.view ?? null,
+        floor: draftSnap.floor ?? null,
+        title: draftSnap.title ?? null,
+      }]);
+      const [d, b] = await Promise.all([
+        fetchDataset(key),
+        getIncomingPdf(key).catch(() => null),
+      ]);
       setDataset(d);
       setIntake(b);
-      clearDraft(key);
-      setDraft(emptyDraft());
-      setSelectedId(null);
+      setDraft((curr) => {
+        const next = { ...curr, bboxes: curr.bboxes.filter((b2) => b2.id !== draftId) };
+        if (next.bboxes.length === 0) clearDraft(key);
+        return next;
+      });
+      setSelectedId((sel) => sel === draftId ? null : sel);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -427,14 +437,12 @@ export function ExtractPage() {
           onSelectBbox={setSelectedId}
           onUpdateBbox={onUpdateBbox}
           onDeleteBbox={onDeleteBbox}
-          onExtract={onExtract}
           onDiscardDraft={() => {
             if (!window.confirm(`Alle ${draft.bboxes.length} Bbox-Entwürfe verwerfen?`)) return;
             clearDraft(key);
             setDraft(emptyDraft());
             setSelectedId(null);
           }}
-          busy={busy}
         />
       }
     >
@@ -492,15 +500,34 @@ export function ExtractPage() {
             postDraw={postDraw}
             onPostDrawPick={(patch) => {
               if (!postDraw) return;
+              const id = postDraw.id;
               setDraft((d) => ({
                 ...d,
-                bboxes: d.bboxes.map((b) => b.id === postDraw.id ? { ...b, ...patch } : b),
+                bboxes: d.bboxes.map((b) => b.id === id ? { ...b, ...patch } : b),
               }));
-              if (patch.kind === 'floorplan') setPostDraw({ id: postDraw.id, step: 'floor' });
-              else if (patch.kind === 'elevation' || patch.kind === 'section') setPostDraw({ id: postDraw.id, step: 'view' });
-              else setPostDraw(null);
+              // A1 — figure out whether this pick *completes* the
+              // classification. Detail: complete after kind. Grundriss:
+              // complete after floor. Ansicht/Schnitt: complete after
+              // view. When complete, fire-and-forget the auto-extract.
+              const becomesComplete =
+                (postDraw.step === 'kind' && patch.kind === 'detail') ||
+                postDraw.step === 'floor' ||
+                postDraw.step === 'view';
+              if (patch.kind === 'floorplan' && postDraw.step === 'kind') {
+                setPostDraw({ id, step: 'floor' });
+              } else if ((patch.kind === 'elevation' || patch.kind === 'section') && postDraw.step === 'kind') {
+                setPostDraw({ id, step: 'view' });
+              } else {
+                setPostDraw(null);
+              }
+              if (becomesComplete) {
+                // Defer one tick so the setDraft above commits before
+                // extractDraftNow's snapshot read.
+                setTimeout(() => { void extractDraftNow(id); }, 0);
+              }
             }}
             onPostDrawDismiss={() => setPostDraw(null)}
+            extractBusy={busy}
             houseKey={key}
             onDeleteExtracted={onDeleteScene}
             onAdjustExtracted={onAdjustExtracted}
@@ -773,7 +800,7 @@ function PageNav({
 function ExtractSidebar({
   info, currentPage, intake, dataset, draft, onPage,
   pageBboxes, selectedId, onSelectBbox, onUpdateBbox, onDeleteBbox,
-  onExtract, onDiscardDraft, busy,
+  onDiscardDraft,
 }: {
   info: PdfInfo | null;
   currentPage: number;
@@ -786,12 +813,9 @@ function ExtractSidebar({
   onSelectBbox: (id: string | null) => void;
   onUpdateBbox: (id: string, patch: Partial<DraftBbox>) => void;
   onDeleteBbox: (id: string) => void;
-  onExtract: () => void;
   onDiscardDraft: () => void;
-  busy: boolean;
 }) {
   const totalDraft = draft.bboxes.length;
-  const missingKinds = draft.bboxes.filter((b) => b.kind == null).length;
   const sel = pageBboxes.find((b) => b.id === selectedId) ?? null;
   return (
     <div className="px-3 py-3 flex flex-col h-full">
@@ -949,34 +973,25 @@ function ExtractSidebar({
         </section>
       )}
 
-      {/* Sticky bottom: the primary commit action. Always visible so the
-          user knows where they are heading. */}
-      <section className="shrink-0 mt-3 border-t border-border pt-3 space-y-1.5">
-        <button
-          type="button"
-          onClick={onExtract}
-          disabled={busy || totalDraft === 0}
-          className="w-full text-[0.85rem] px-3 py-2 rounded-md bg-emerald-600 text-white font-semibold hover:opacity-90 disabled:opacity-40"
-        >
-          {busy ? 'Extrahiere…' : totalDraft === 0
-            ? 'Bbox zeichnen, dann extrahieren'
-            : `→ ${totalDraft} Szene${totalDraft === 1 ? '' : 'n'} extrahieren`}
-        </button>
-        {missingKinds > 0 && !busy && (
-          <p className="text-[0.65rem] text-amber-700 text-center">
-            {missingKinds} ohne Typ — werden als „Detail" abgelegt.
+      {/* A1 — no more manual extract button. The post-draw classifier
+          writes through to the server the moment the user picks the
+          last required field. Unclassified drafts still need an
+          escape hatch: classify them via the post-draw chip OR
+          discard them. */}
+      {totalDraft > 0 && (
+        <section className="shrink-0 mt-3 border-t border-border pt-3 space-y-1">
+          <p className="text-[0.65rem] text-zinc-500 text-center">
+            {totalDraft} unklassifizierter Entwurf — Typ wählen, dann automatisch extrahiert.
           </p>
-        )}
-        {totalDraft > 0 && !busy && (
           <button
             type="button"
             onClick={onDiscardDraft}
             className="w-full text-[0.62rem] text-zinc-500 hover:text-red-700"
           >
-            Entwurf verwerfen
+            Entwürfe verwerfen
           </button>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   );
 }
@@ -990,7 +1005,7 @@ function ExtractSidebar({
 function PageCanvas({
   pdfKey, page, pageWidthPt, pageHeightPt,
   draftBboxes, extracted, selectedId, onSelect, onCommit, onUpdate,
-  postDraw, onPostDrawPick, onPostDrawDismiss,
+  postDraw, onPostDrawPick, onPostDrawDismiss, extractBusy,
   houseKey, onDeleteExtracted, onAdjustExtracted,
   menuFor, setMenuFor, onDatasetRefresh,
 }: {
@@ -1007,6 +1022,7 @@ function PageCanvas({
   postDraw: { id: string; step: 'kind' | 'floor' | 'view' } | null;
   onPostDrawPick: (patch: Partial<DraftBbox>) => void;
   onPostDrawDismiss: () => void;
+  extractBusy: boolean;
   houseKey: string;
   onDeleteExtracted: (file: string) => void;
   onAdjustExtracted: (file: string) => void;
@@ -1230,6 +1246,7 @@ function PageCanvas({
               placement={placement}
               onPick={onPostDrawPick}
               onDismiss={onPostDrawDismiss}
+              busy={extractBusy}
             />
           );
         })()}
@@ -1505,7 +1522,7 @@ function ExtractedSceneMenu({
 }
 
 function PostDrawChip({
-  step, leftPct, topPct, placement, onPick, onDismiss,
+  step, leftPct, topPct, placement, onPick, onDismiss, busy,
 }: {
   step: 'kind' | 'floor' | 'view';
   leftPct: number;
@@ -1513,6 +1530,7 @@ function PostDrawChip({
   placement: 'above' | 'inside';
   onPick: (patch: Partial<DraftBbox>) => void;
   onDismiss: () => void;
+  busy: boolean;
 }) {
   let opts: Array<{ label: string; key: string; patch: Partial<DraftBbox> }>;
   if (step === 'kind') {
@@ -1570,14 +1588,20 @@ function PostDrawChip({
           <button
             key={opt.key}
             type="button"
+            disabled={busy}
             onClick={() => onPick(opt.patch)}
-            className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-accent hover:text-white text-[0.72rem] inline-flex items-center gap-1"
+            className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-accent hover:text-white text-[0.72rem] inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-wait"
           >
             <span>{opt.label}</span>
             <kbd className="text-[0.58rem] font-mono text-zinc-400">{opt.key}</kbd>
           </button>
         ))}
       </div>
+      {busy && (
+        <p className="text-[0.62rem] text-zinc-500 text-center -mt-0.5">
+          ↻ extrahiere…
+        </p>
+      )}
     </div>
   );
 }
