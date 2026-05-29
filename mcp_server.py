@@ -1292,6 +1292,52 @@ async def add_reference_dim(
     payload, err = await _read_labels(key, file, started)
     if err is not None:
         return err
+    # G4-2 (followups-tracker): refuse endpoints outside image_size_px.
+    # Catches the failure mode where the agent reads a building-scale
+    # dim off the broad tier on a detail crop — endpoints land outside
+    # the actual cropped image bounds.
+    image_size = payload.get("image_size_px") or []
+    if len(image_size) == 2:
+        img_w, img_h = image_size[0], image_size[1]
+        for name, pt in (("start", start), ("end", end)):
+            if not (0 <= pt[0] <= img_w and 0 <= pt[1] <= img_h):
+                return _err(
+                    "endpoint_out_of_image",
+                    f"{name} {pt!r} is outside image bounds ({img_w}x{img_h})",
+                    hint=(
+                        "the dim line endpoint must be inside the scene's "
+                        "visible area. Re-check via get_scene_view(region=…) "
+                        "around the dim; a building-scale dim probably bled "
+                        "into this view from outside the crop frame."
+                    ),
+                    retry=False,
+                    started_at=started,
+                )
+    # G4-1 (followups-tracker): refuse a 3rd is_reference dim in the same
+    # orientation. The homography only needs one ref dim per axis; a 3rd
+    # is almost always the agent thrashing instead of fixing the broken
+    # one. Force the agent to delete first.
+    existing_refs_same_orient = [
+        l for l in (payload.get("labels") or [])
+        if l.get("type") == "dimensioned_distance"
+        and (l.get("attributes") or {}).get("is_reference") is True
+        and (l.get("attributes") or {}).get("target_orientation") == orientation
+    ]
+    if len(existing_refs_same_orient) >= 2:
+        return _err(
+            "too_many_reference_dims",
+            f"scene already has {len(existing_refs_same_orient)} {orientation} "
+            f"reference dims — refusing to add a 3rd",
+            hint=(
+                f"delete one of: {[l.get('id') for l in existing_refs_same_orient]} "
+                "first. The homography only needs ONE ref dim per axis; a "
+                "third is almost always the agent thrashing instead of "
+                "fixing the broken one."
+            ),
+            retry=False,
+            details={"existing_ref_ids": [l.get("id") for l in existing_refs_same_orient]},
+            started_at=started,
+        )
     distance_id = _new_label_id()
     midpoint = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2]
     # Offset the dim number 14 px perpendicular to the stroke so it
@@ -1462,12 +1508,97 @@ async def set_house_facts(
         current = {"schema_version": "1.0"}
     elif cur_status >= 400:
         return _http_status_to_error(cur_status, current, started)
+
+    # G4-3 (followups-tracker): force assumed:true when north_angle_deg
+    # is set without a north_edge_label_id. Catches the agent's "I
+    # guessed but said I knew" failure mode (B3).
+    warnings: list[str] = []
+    auto_corrections: list[str] = []
+    orient_patch = patch.get("orientation") if isinstance(patch.get("orientation"), dict) else None
+    if orient_patch is not None:
+        existing_orient = current.get("orientation") if isinstance(current.get("orientation"), dict) else {}
+        # Merge patch + existing to see the post-merge state.
+        merged_orient = {**(existing_orient or {}), **orient_patch}
+        has_angle = isinstance(merged_orient.get("north_angle_deg"), (int, float))
+        has_edge = bool(merged_orient.get("north_edge_label_id"))
+        if has_angle and not has_edge:
+            if merged_orient.get("assumed") is not True:
+                # Inject the correction into the patch we're about to apply.
+                if not isinstance(patch.get("orientation"), dict):
+                    patch["orientation"] = {}
+                patch["orientation"]["assumed"] = True
+                auto_corrections.append(
+                    "orientation.assumed forced to true (north_angle_deg set "
+                    "without north_edge_label_id — see §G4-3)"
+                )
+
+    # G4-4 (followups-tracker): warn when heights.{bezug_mm, first_mm}
+    # is set without matching height_mark labels. Block in
+    # HOUSE_FACTS_STRICT mode (per §8 decision 2).
+    heights_patch = patch.get("heights") if isinstance(patch.get("heights"), dict) else None
+    if heights_patch is not None and any(k in heights_patch for k in ("bezug_mm", "first_mm")):
+        # Check whether any scene's labels contain a matching height_mark.
+        try:
+            ds_status, ds_body = await _api_get(f"/datasets/{key}")
+            scenes = (ds_body or {}).get("drawings") or []
+            need_bezug = "bezug_mm" in heights_patch
+            need_first = "first_mm" in heights_patch
+            saw_bezug_label = False
+            saw_first_label = False
+            for d in scenes:
+                f = d.get("file")
+                if not f:
+                    continue
+                lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{f}")
+                if lbl_status != 200 or not isinstance(lbl, dict):
+                    continue
+                for lab in (lbl.get("labels") or []):
+                    if lab.get("type") != "height_mark":
+                        continue
+                    attrs = lab.get("attributes") or {}
+                    if need_bezug and attrs.get("value_mm") == 0:
+                        saw_bezug_label = True
+                    if need_first and attrs.get("datum") == "first":
+                        saw_first_label = True
+                if (not need_bezug or saw_bezug_label) and (not need_first or saw_first_label):
+                    break
+            missing = []
+            if need_bezug and not saw_bezug_label:
+                missing.append("bezug_mm (need a height_mark with value_mm == 0)")
+            if need_first and not saw_first_label:
+                missing.append("first_mm (need a height_mark with datum == 'first')")
+            if missing:
+                strict = os.environ.get("HOUSE_FACTS_STRICT", "0").strip() not in ("", "0", "false")
+                msg = "heights set without matching height_mark labels: " + "; ".join(missing)
+                if strict:
+                    return _err(
+                        "heights_without_labels",
+                        msg,
+                        hint=(
+                            "drop the height_mark labels first (via upsert_label "
+                            "or follow the W1-height-anchor MCP prompt). "
+                            "HOUSE_FACTS_STRICT=1 blocks this write."
+                        ),
+                        retry=False,
+                        started_at=started,
+                    )
+                else:
+                    warnings.append(msg + " (would block in strict mode)")
+        except Exception:  # noqa: BLE001
+            # Lookup failure is non-fatal — the heights write itself still goes through.
+            pass
+
     merged = _deep_merge(current or {}, patch)
     merged.setdefault("schema_version", "1.0")
     put_status, put_body = await _api_put(f"/datasets/{key}/house_facts", merged)
     if put_status >= 400:
         return _http_status_to_error(put_status, put_body, started)
-    return _ok(merged, started_at=started, status_code=put_status)
+    envelope = _ok(merged, started_at=started, status_code=put_status)
+    if warnings:
+        envelope["_meta"]["warnings"] = warnings
+    if auto_corrections:
+        envelope["_meta"]["auto_corrections"] = auto_corrections
+    return envelope
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:

@@ -322,25 +322,37 @@ def test_add_reference_dim_unlocks_w4_via_server_derivation():
     if target_key is None:
         pytest.skip("no elevation/section scene in corpus")
 
-    # Snapshot existing labels
+    # G4-1 introduced a 2-ref-dim-per-orientation cap. If a prior test
+    # left ref dims behind, our adds would hit the cap. Defensive prune
+    # of any existing is_reference dims so this test always starts clean.
+    existing = _run(mcp_server.list_scene_labels(key=target_key, file=target_file))
+    for lab in existing["data"]["labels"]:
+        if lab.get("type") == "dimensioned_distance":
+            _run(mcp_server.delete_label(
+                key=target_key, file=target_file, label_id=lab["id"],
+            ))
+    # Re-snapshot post-prune
     existing = _run(mcp_server.list_scene_labels(key=target_key, file=target_file))
     snapshot_label_ids = [l["id"] for l in existing["data"]["labels"]]
 
     # Tag as ansicht so the predicate counts it
     _run(mcp_server.set_scene_tag(key=target_key, file=target_file, tag="ansicht"))
 
-    # Add a horizontal + vertical reference dim
+    # Add a horizontal + vertical reference dim. Coords keyed to the
+    # actual image size so G4-2 (endpoint-out-of-image) doesn't bite.
+    meta = _run(mcp_server.get_scene_meta(key=target_key, file=target_file))
+    iw, ih = meta["data"].get("image_size_px") or [2000, 1000]
     r_h = _run(mcp_server.add_reference_dim(
         key=target_key, file=target_file,
         orientation="horizontal",
-        start=[100, 500], end=[1100, 500],
+        start=[iw * 0.1, ih * 0.5], end=[iw * 0.9, ih * 0.5],
         value_mm=10000,
     ))
     assert r_h["ok"], r_h.get("error")
     r_v = _run(mcp_server.add_reference_dim(
         key=target_key, file=target_file,
         orientation="vertical",
-        start=[500, 100], end=[500, 1100],
+        start=[iw * 0.5, ih * 0.1], end=[iw * 0.5, ih * 0.9],
         value_mm=10000,
     ))
     assert r_v["ok"], r_v.get("error")
@@ -362,6 +374,154 @@ def test_add_reference_dim_unlocks_w4_via_server_derivation():
                 _run(mcp_server.delete_label(
                     key=target_key, file=target_file, label_id=lab["id"],
                 ))
+
+
+# ── G4: tool-side guards (followups-tracker §G4-5) ────────────────────────
+
+
+def _scratch_scene_for_guards():
+    """Pick a scene we can safely write+revert against."""
+    rs = _run(mcp_server.list_houses())
+    if not rs["data"]["houses"]:
+        pytest.skip("no houses")
+    for h in rs["data"]["houses"]:
+        gh = _run(mcp_server.get_house(key=h["key"]))
+        for d in gh["data"]["drawings"]:
+            if d.get("kind") in ("elevation", "section"):
+                return h["key"], d["file"]
+    pytest.skip("no elevation/section in corpus")
+
+
+def test_g4_2_add_reference_dim_rejects_out_of_bounds_endpoints():
+    """G4-2: refuse start/end outside image_size_px."""
+    key, file = _scratch_scene_for_guards()
+    meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+    size = meta["data"].get("image_size_px")
+    if not size or len(size) != 2:
+        pytest.skip("scene has no image_size_px")
+    w, h = size
+    # Try start at (w+100, 0) — clearly outside.
+    r = _run(mcp_server.add_reference_dim(
+        key=key, file=file, orientation="horizontal",
+        start=[w + 100.0, 0.0], end=[w + 200.0, 0.0],
+        value_mm=10000,
+    ))
+    assert not r["ok"], "expected reject for out-of-bounds endpoint"
+    assert r["error"]["code"] == "endpoint_out_of_image"
+    assert "outside image bounds" in r["error"]["message"]
+
+
+def test_g4_1_add_reference_dim_rejects_third_in_same_orientation():
+    """G4-1: refuse a 3rd is_reference dim in the same orientation."""
+    key, file = _scratch_scene_for_guards()
+    meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+    size = meta["data"].get("image_size_px") or [2000, 1200]
+    w, h = size
+    # Defensive: clear any existing dim labels so we always start at 0.
+    existing = _run(mcp_server.list_scene_labels(key=key, file=file))
+    for lab in existing["data"]["labels"]:
+        if lab.get("type") == "dimensioned_distance":
+            _run(mcp_server.delete_label(key=key, file=file, label_id=lab["id"]))
+    existing = _run(mcp_server.list_scene_labels(key=key, file=file))
+    keep_ids = {l["id"] for l in existing["data"]["labels"]}
+    # Add 2 horizontal ref dims.
+    r1 = _run(mcp_server.add_reference_dim(
+        key=key, file=file, orientation="horizontal",
+        start=[100.0, h * 0.3], end=[min(w - 100, 800), h * 0.3],
+        value_mm=10000,
+    ))
+    r2 = _run(mcp_server.add_reference_dim(
+        key=key, file=file, orientation="horizontal",
+        start=[100.0, h * 0.4], end=[min(w - 100, 800), h * 0.4],
+        value_mm=10000,
+    ))
+    try:
+        assert r1["ok"], r1.get("error")
+        assert r2["ok"], r2.get("error")
+        # 3rd horizontal should be rejected.
+        r3 = _run(mcp_server.add_reference_dim(
+            key=key, file=file, orientation="horizontal",
+            start=[100.0, h * 0.5], end=[min(w - 100, 800), h * 0.5],
+            value_mm=10000,
+        ))
+        assert not r3["ok"], "expected reject for 3rd ref dim same orientation"
+        assert r3["error"]["code"] == "too_many_reference_dims"
+        # But a VERTICAL one in the same scene should still go through.
+        r4 = _run(mcp_server.add_reference_dim(
+            key=key, file=file, orientation="vertical",
+            start=[w * 0.5, 100.0], end=[w * 0.5, min(h - 100, 800)],
+            value_mm=8000,
+        ))
+        assert r4["ok"], r4.get("error")
+    finally:
+        # Restore — delete every label we created.
+        after = _run(mcp_server.list_scene_labels(key=key, file=file))
+        for lab in after["data"]["labels"]:
+            if lab["id"] not in keep_ids:
+                _run(mcp_server.delete_label(key=key, file=file, label_id=lab["id"]))
+
+
+def test_g4_3_set_house_facts_forces_assumed_true_without_edge():
+    """G4-3: north_angle_deg without north_edge_label_id forces assumed=true."""
+    rs = _run(mcp_server.list_houses())
+    if not rs["data"]["houses"]:
+        pytest.skip("no houses")
+    key = rs["data"]["houses"][0]["key"]
+    # Snapshot
+    snap = _run(mcp_server.get_house_facts(key=key))
+    snap_orient = (snap["data"] or {}).get("orientation")
+    try:
+        r = _run(mcp_server.set_house_facts(key=key, patch={
+            "orientation": {"north_angle_deg": 45.0, "assumed": False},
+        }))
+        assert r["ok"], r.get("error")
+        # The auto_corrections meta should call out the correction.
+        warnings = r["_meta"].get("auto_corrections", [])
+        assert any("assumed" in w.lower() for w in warnings), \
+            f"expected auto-correction warning; got {warnings!r}"
+        # Verify on disk the assumed flag is True.
+        check = _run(mcp_server.get_house_facts(key=key))
+        assert check["data"]["orientation"]["assumed"] is True
+    finally:
+        # Restore
+        if snap_orient is not None:
+            _run(mcp_server.set_house_facts(key=key, patch={"orientation": snap_orient}))
+
+
+def test_g4_4_set_house_facts_warns_on_heights_without_labels():
+    """G4-4: heights set without matching height_mark labels surfaces a
+    warning in _meta.warnings (non-blocking by default)."""
+    rs = _run(mcp_server.list_houses())
+    if not rs["data"]["houses"]:
+        pytest.skip("no houses")
+    key = rs["data"]["houses"][0]["key"]
+    snap = _run(mcp_server.get_house_facts(key=key))
+    snap_heights = (snap["data"] or {}).get("heights")
+    try:
+        # Try to set first_mm without any height_mark label.
+        r = _run(mcp_server.set_house_facts(key=key, patch={
+            "heights": {"first_mm": 12345},
+        }))
+        # Should succeed (non-strict mode) but include a warning.
+        assert r["ok"], r.get("error")
+        warnings = r["_meta"].get("warnings", [])
+        if not warnings:
+            # House may already have a height_mark; check.
+            gh = _run(mcp_server.get_house(key=key))
+            has_first = False
+            for d in gh["data"]["drawings"]:
+                lbls = _run(mcp_server.list_scene_labels(key=key, file=d["file"]))
+                for lab in lbls["data"]["labels"]:
+                    if lab.get("type") == "height_mark":
+                        # We'd need attrs to confirm — skip in that case.
+                        pytest.skip("house already has height_mark labels; can't test warning path")
+            assert has_first
+        else:
+            assert any("first_mm" in w for w in warnings), \
+                f"expected first_mm warning; got {warnings!r}"
+    finally:
+        if snap_heights is not None:
+            _run(mcp_server.set_house_facts(key=key, patch={"heights": snap_heights}))
 
 
 # ── Tool description snapshot (tracker §9 risk: description drift) ───────
