@@ -112,6 +112,15 @@ export function ExtractPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Post-draw classifier chip: appears next to the freshly-committed bbox
+  // and walks the user through kind → sub-classification with keyboard
+  // hints. step='kind' → pick Grundriss/Ansicht/Schnitt/Detail; then
+  // step='floor' for Grundriss or step='view' for Ansicht/Schnitt.
+  // Esc dismisses; any pointer-down outside also dismisses.
+  const [postDraw, setPostDraw] = useState<{
+    id: string;
+    step: 'kind' | 'floor' | 'view';
+  } | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
 
@@ -152,6 +161,54 @@ export function ExtractPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // Post-draw chip first — it owns the keyboard until dismissed.
+      if (postDraw) {
+        if (e.key === 'Escape') { setPostDraw(null); return; }
+        const k = e.key.toLowerCase();
+        if (postDraw.step === 'kind') {
+          const map: Record<string, ExtractItem['kind']> = { g: 'floorplan', a: 'elevation', s: 'section', d: 'detail' };
+          if (k in map) {
+            const kind = map[k];
+            setDraft((d) => ({
+              ...d,
+              bboxes: d.bboxes.map((b) => b.id === postDraw.id ? { ...b, kind } : b),
+            }));
+            setPostDraw(
+              kind === 'floorplan' ? { id: postDraw.id, step: 'floor' }
+              : (kind === 'elevation' || kind === 'section') ? { id: postDraw.id, step: 'view' }
+              : null,
+            );
+            e.preventDefault();
+            return;
+          }
+        }
+        if (postDraw.step === 'floor') {
+          const map: Record<string, typeof FLOORS[number]> = { k: 'kg', u: 'ug', e: 'eg', o: 'og', d: 'dg', s: 'spitzboden' };
+          if (k in map) {
+            const floor = map[k];
+            setDraft((d) => ({
+              ...d,
+              bboxes: d.bboxes.map((b) => b.id === postDraw.id ? { ...b, floor } : b),
+            }));
+            setPostDraw(null);
+            e.preventDefault();
+            return;
+          }
+        }
+        if (postDraw.step === 'view') {
+          const map: Record<string, typeof VIEWS[number]> = { n: 'north', s: 'south', o: 'east', w: 'west' };
+          if (k in map) {
+            const view = map[k];
+            setDraft((d) => ({
+              ...d,
+              bboxes: d.bboxes.map((b) => b.id === postDraw.id ? { ...b, view } : b),
+            }));
+            setPostDraw(null);
+            e.preventDefault();
+            return;
+          }
+        }
+      }
       if (e.key === 'ArrowLeft')  setPage(currentPage - 1);
       if (e.key === 'ArrowRight') setPage(currentPage + 1);
       if (e.key === 'Escape')     setSelectedId(null);
@@ -164,7 +221,7 @@ export function ExtractPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [currentPage, setPage, selectedId]);
+  }, [currentPage, setPage, selectedId, postDraw]);
 
   const onCommitBbox = useCallback((bbox: [number, number, number, number]) => {
     const id = uuid();
@@ -175,6 +232,7 @@ export function ExtractPage() {
       }],
     }));
     setSelectedId(id);
+    setPostDraw({ id, step: 'kind' });
   }, [currentPage]);
 
   const onUpdateBbox = useCallback((id: string, patch: Partial<DraftBbox>) => {
@@ -334,6 +392,18 @@ export function ExtractPage() {
             onSelect={setSelectedId}
             onCommit={onCommitBbox}
             onUpdate={onUpdateBbox}
+            postDraw={postDraw}
+            onPostDrawPick={(patch) => {
+              if (!postDraw) return;
+              setDraft((d) => ({
+                ...d,
+                bboxes: d.bboxes.map((b) => b.id === postDraw.id ? { ...b, ...patch } : b),
+              }));
+              if (patch.kind === 'floorplan') setPostDraw({ id: postDraw.id, step: 'floor' });
+              else if (patch.kind === 'elevation' || patch.kind === 'section') setPostDraw({ id: postDraw.id, step: 'view' });
+              else setPostDraw(null);
+            }}
+            onPostDrawDismiss={() => setPostDraw(null)}
           />
         )}
         </div>
@@ -696,15 +766,18 @@ function ExtractInspector({
         <button
           type="button"
           onClick={onExtract}
-          disabled={busy || totalDraft === 0 || missingKinds > 0}
+          disabled={busy || totalDraft === 0}
           className="w-full text-[0.85rem] px-3 py-2 rounded-md bg-emerald-600 text-white font-semibold hover:opacity-90 disabled:opacity-40"
         >
           {busy ? 'Extrahiere…' : totalDraft === 0
             ? 'Bbox zeichnen, dann extrahieren'
-            : missingKinds > 0
-              ? `Typ fehlt bei ${missingKinds} Bbox${missingKinds === 1 ? '' : 'en'}`
-              : `→ ${totalDraft} Szenen extrahieren`}
+            : `→ ${totalDraft} Szenen extrahieren`}
         </button>
+        {missingKinds > 0 && !busy && (
+          <p className="text-[0.65rem] text-amber-700 text-center">
+            {missingKinds} Bbox{missingKinds === 1 ? '' : 'en'} ohne Typ — werden als „Detail" abgelegt.
+          </p>
+        )}
         {totalDraft > 0 && !busy && (
           <button
             type="button"
@@ -727,6 +800,7 @@ function ExtractInspector({
 function PageCanvas({
   pdfKey, page, pageWidthPt, pageHeightPt,
   draftBboxes, extracted, selectedId, onSelect, onCommit, onUpdate,
+  postDraw, onPostDrawPick, onPostDrawDismiss,
 }: {
   pdfKey: string;
   page: number;
@@ -738,6 +812,9 @@ function PageCanvas({
   onSelect: (id: string | null) => void;
   onCommit: (bbox: [number, number, number, number]) => void;
   onUpdate: (id: string, patch: Partial<DraftBbox>) => void;
+  postDraw: { id: string; step: 'kind' | 'floor' | 'view' } | null;
+  onPostDrawPick: (patch: Partial<DraftBbox>) => void;
+  onPostDrawDismiss: () => void;
 }) {
   // The pageRef tracks the WHITE PAGE DIV (not the outer dark scroll
   // container) — its bbox is what we measure against for pointer-to-PDF
@@ -781,13 +858,15 @@ function PageCanvas({
     }
   };
 
-  // Natural rendered width in CSS pixels — capped at the parent so a
-  // tall PDF doesn't overflow when the sidebar takes most of the width.
-  const naturalWidthPx = pageWidthPt * (PAGE_DPI / 72) / (window.devicePixelRatio || 1);
+  // The page fills the available canvas space, preserving aspect ratio.
+  // We let CSS do the math: aspect-ratio + max-width:100% + max-height:100%
+  // makes the browser pick the largest size that fits both axes. The
+  // outer container is a centered flex box so the page is centred both
+  // horizontally and vertically.
 
   return (
     <div
-      className="relative bg-zinc-800 flex-1 overflow-auto select-none flex items-start justify-center"
+      className="relative bg-zinc-800 flex-1 overflow-hidden select-none flex items-center justify-center p-2"
       style={{ touchAction: 'none' }}
     >
       <div
@@ -802,10 +881,19 @@ function PageCanvas({
           if ((e.target as HTMLElement).closest('[data-bbox-handle]')) return;
           onCommit([0, 0, pageWidthPt, pageHeightPt]);
         }}
-        className="relative my-3 bg-white shadow-lg cursor-crosshair ring-1 ring-zinc-700"
+        className="relative bg-white shadow-lg cursor-crosshair ring-1 ring-zinc-700"
         style={{
-          width: `min(${naturalWidthPx}px, calc(100% - 24px))`,
+          // aspect-ratio + the two max constraints lets the page fill
+          // whichever axis bounds it (no fixed width = no leftover space).
           aspectRatio: `${pageWidthPt}/${pageHeightPt}`,
+          maxWidth: '100%',
+          maxHeight: '100%',
+          // Without an explicit height, some browsers shrink a div that
+          // only has aspect-ratio + max-width. Setting height:100% gives
+          // the aspect-ratio rule something to apply against, then max-
+          // width clamps the resulting width.
+          height: '100%',
+          width: 'auto',
         }}
       >
         {/* First-use hint, fades to opacity-0 once a draft bbox exists. */}
@@ -876,6 +964,102 @@ function PageCanvas({
             );
           })()}
         </svg>
+        {/* Post-draw classifier chip, anchored above the freshly-committed bbox. */}
+        {postDraw && (() => {
+          const target = draftBboxes.find((b) => b.id === postDraw.id);
+          if (!target) return null;
+          const [x0, y0, x1] = target.bbox_pdf;
+          const leftPct = ((x0 + x1) / 2 / pageWidthPt) * 100;
+          const topPct = (y0 / pageHeightPt) * 100;
+          return (
+            <PostDrawChip
+              step={postDraw.step}
+              leftPct={leftPct}
+              topPct={topPct}
+              onPick={onPostDrawPick}
+              onDismiss={onPostDrawDismiss}
+            />
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// Floating classifier chip — appears next to the just-committed bbox so
+// the user picks kind (and floor / view if applicable) without leaving
+// the canvas. Keyboard hints mirror the same letters AnnotatePage uses
+// for its post-draw chip so the muscle memory carries over.
+function PostDrawChip({
+  step, leftPct, topPct, onPick, onDismiss,
+}: {
+  step: 'kind' | 'floor' | 'view';
+  leftPct: number;
+  topPct: number;
+  onPick: (patch: Partial<DraftBbox>) => void;
+  onDismiss: () => void;
+}) {
+  let opts: Array<{ label: string; key: string; patch: Partial<DraftBbox> }>;
+  if (step === 'kind') {
+    opts = [
+      { label: 'Grundriss', key: 'G', patch: { kind: 'floorplan' } },
+      { label: 'Ansicht',   key: 'A', patch: { kind: 'elevation' } },
+      { label: 'Schnitt',   key: 'S', patch: { kind: 'section' } },
+      { label: 'Detail',    key: 'D', patch: { kind: 'detail' } },
+    ];
+  } else if (step === 'floor') {
+    opts = [
+      { label: 'KG',         key: 'K', patch: { floor: 'kg' } },
+      { label: 'UG',         key: 'U', patch: { floor: 'ug' } },
+      { label: 'EG',         key: 'E', patch: { floor: 'eg' } },
+      { label: 'OG',         key: 'O', patch: { floor: 'og' } },
+      { label: 'DG',         key: 'D', patch: { floor: 'dg' } },
+      { label: 'Spitzboden', key: 'S', patch: { floor: 'spitzboden' } },
+    ];
+  } else {
+    opts = [
+      { label: 'Nord', key: 'N', patch: { view: 'north' } },
+      { label: 'Süd',  key: 'S', patch: { view: 'south' } },
+      { label: 'Ost',  key: 'O', patch: { view: 'east' } },
+      { label: 'West', key: 'W', patch: { view: 'west' } },
+    ];
+  }
+  const headline =
+    step === 'kind' ? 'Was zeigt diese Bbox?' :
+    step === 'floor' ? 'Welches Geschoss?' :
+    'Welche Himmelsrichtung?';
+  return (
+    <div
+      className="absolute z-30 -translate-x-1/2 -translate-y-full mt-[-6px] bg-white border border-zinc-300 rounded-md shadow-xl p-2 flex flex-col gap-1.5"
+      style={{
+        left: `${Math.max(2, Math.min(98, leftPct))}%`,
+        top: `${Math.max(0, topPct)}%`,
+        pointerEvents: 'auto',
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between gap-2 text-[0.62rem] uppercase tracking-wider text-muted">
+        <span>{headline}</span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-zinc-400 hover:text-zinc-700 text-base leading-none px-1"
+          title="Schließen (Esc) — Bbox bleibt unklassifiziert"
+        >×</button>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {opts.map((opt) => (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => onPick(opt.patch)}
+            className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-accent hover:text-white text-[0.72rem] inline-flex items-center gap-1"
+          >
+            <span>{opt.label}</span>
+            <kbd className="text-[0.58rem] font-mono text-zinc-400">{opt.key}</kbd>
+          </button>
+        ))}
       </div>
     </div>
   );
