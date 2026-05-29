@@ -536,13 +536,36 @@ function SceneStrip({
       </div>
     );
   }
+  // Sort so the user's current PDF page lands at the front of the strip
+  // without scrolling. Stable inside each bucket: extracted first, then
+  // drafts.
+  const scenesSorted = [...scenes].sort((a, b) => {
+    const pa = (a.crop_from as { page?: number } | undefined)?.page ?? Infinity;
+    const pb = (b.crop_from as { page?: number } | undefined)?.page ?? Infinity;
+    const aHere = pa === currentPage ? 0 : 1;
+    const bHere = pb === currentPage ? 0 : 1;
+    return aHere - bHere || pa - pb;
+  });
+  const draftsSorted = [...drafts].sort((a, b) => {
+    const aHere = a.page === currentPage ? 0 : 1;
+    const bHere = b.page === currentPage ? 0 : 1;
+    return aHere - bHere || a.page - b.page;
+  });
+  const onPageCount =
+    scenes.filter((s) => (s.crop_from as { page?: number } | undefined)?.page === currentPage).length +
+    drafts.filter((d) => d.page === currentPage).length;
   return (
     <div className="border-b border-border bg-zinc-50">
       <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
         <span className="text-[0.62rem] uppercase tracking-wider text-muted shrink-0">
+          {onPageCount > 0 && (
+            <span className="text-accent font-semibold">
+              {onPageCount} auf S{currentPage} ·{' '}
+            </span>
+          )}
           {scenes.length} extrahiert{drafts.length > 0 ? ` · ${drafts.length} Entwurf` : ''}
         </span>
-        {scenes.map((d) => {
+        {scenesSorted.map((d) => {
           const cf = d.crop_from as { page?: number } | undefined;
           const pageN = cf?.page ?? null;
           const isOnPage = pageN === currentPage;
@@ -586,7 +609,7 @@ function SceneStrip({
             />
           );
         })}
-        {drafts.map((b) => {
+        {draftsSorted.map((b) => {
           const kindLabel = b.kind == null
             ? 'Entwurf · ?'
             : `Entwurf · ${KIND_LABEL[b.kind]}${b.floor ? ` ${(FLOOR_LABEL as Record<string, string>)[b.floor] ?? b.floor}` : ''}${b.view ? ` ${(VIEW_LABEL as Record<string, string>)[b.view] ?? b.view}` : ''}`;
@@ -1061,8 +1084,13 @@ function PageCanvas({
                   strokeWidth={isMenu ? 2 : 1.5}
                   strokeDasharray="4 3"
                   style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                  onClick={(e) => {
+                  data-bbox-handle="extracted"
+                  onPointerDown={(e) => {
+                    // pointerdown (not click) so the page's drag-to-create
+                    // gesture never gets a chance to start. data-bbox-handle
+                    // is the parent div's secondary guard.
                     e.stopPropagation();
+                    if (e.button !== 0) return;
                     setMenuFor((m) => m === d.file ? null : d.file);
                   }}
                 >
