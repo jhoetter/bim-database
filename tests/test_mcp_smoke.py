@@ -632,6 +632,38 @@ def test_h5_get_scene_view_with_labels_renders_labels():
         _run(mcp_server.delete_label(key=key, file=file, label_id=new_id))
 
 
+def test_get_scene_view_enhance_passthrough():
+    """Issue #2: enhance flows MCP tool -> API -> renderer and the
+    envelope echoes the applied mode."""
+    import json as _json
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    res = _run(mcp_server.get_scene_view(
+        key=key, file=file, tiers="broad", max_dim=400, enhance="clahe",
+    ))
+    img, text = res
+    assert img.type == "image" and img.mimeType == "image/png"
+    env = _json.loads(text.text)
+    assert env["ok"], env.get("error")
+    assert env["data"]["enhance"] == "clahe"
+
+
+def test_get_scene_view_enhance_rejects_bad_mode():
+    """Issue #2: an unknown enhance mode is a 400 from the API, surfaced
+    as an error envelope."""
+    import json as _json
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    res = _run(mcp_server.get_scene_view(
+        key=key, file=file, tiers="broad", max_dim=400, enhance="bogus",
+    ))
+    # Error path returns a single TextContent envelope.
+    env = _json.loads(res[0].text)
+    assert not env["ok"]
+
+
 def test_h5_7_verify_label_placement_auto_crops():
     """H5-7: verify_label_placement should look up the label, compute
     a tight crop around its geometry, and return a verify view."""

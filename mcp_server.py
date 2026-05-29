@@ -453,6 +453,7 @@ async def get_scene_view(
     region: str | None = None,
     tiers: str = "broad,finer,detail",
     max_dim: int = 1600,
+    enhance: str | None = None,
 ) -> list[ImageContent | TextContent]:
     """Scene image with the three-tier coordinate grid overlay.
 
@@ -460,6 +461,8 @@ async def get_scene_view(
       - Labeling a scene — every coordinate-setting decision should
         consult a fresh grid view first.
       - Identifying scene_tag at W0 (without region; full image).
+      - Reading a faint freehand/pencil scan — pass enhance="auto" (or
+        "threshold" for the faintest) to lift contrast before you read.
 
     DON'T USE when:
       - You only need scene metadata — call `get_scene_meta`.
@@ -470,6 +473,12 @@ async def get_scene_view(
       region:  optional 'x0,y0,x1,y1' (source-pixel coords) — agent zoom.
       tiers:   comma list of {broad, finer, detail}; default all three.
       max_dim: cap on the longer side of the output PNG; default 1600.
+      enhance: contrast lift for faint scans (issue #2): one of
+               none|auto|clahe|threshold (default none). "auto"/"clahe"
+               apply CLAHE; "threshold" additionally binarizes. This is
+               preprocessing for the vision-LLM reader, not OCR. Pixel
+               positions are unchanged — coordinates stay SOURCE-pixel,
+               so readings still map 1:1 to the un-cropped scene.
 
     Per H4 (followups-2 tracker): when `region` is given, the output
     keeps 1:1 native resolution up to `max_dim`. A 400×400 crop comes
@@ -485,6 +494,8 @@ async def get_scene_view(
     params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim}
     if region:
         params["region"] = region
+    if enhance:
+        params["enhance"] = enhance
     try:
         status, content, ctype = await _api_get_bytes(f"/datasets/{key}/{file}/grid", params=params)
     except (httpx.HTTPError, httpx.RequestError):
@@ -531,6 +542,7 @@ async def get_scene_view(
             "region": region,
             "tiers": tiers.split(","),
             "max_dim": max_dim,
+            "enhance": enhance or "none",
         }, started_at=started, status_code=status), indent=2),
     )
     return [image, text]
@@ -543,6 +555,7 @@ async def get_scene_view_with_labels(
     region: str | None = None,
     tiers: str = "broad,finer",
     max_dim: int = 1600,
+    enhance: str | None = None,
 ) -> list[ImageContent | TextContent]:
     """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
     on top. This is the agent's verify view — call it after every
@@ -570,6 +583,9 @@ async def get_scene_view_with_labels(
                'broad,finer' (detail is opt-in for zoom precision).
       max_dim: cap on the longer side of the output PNG; default 1600.
                Per H4, small region crops keep 1:1 native resolution.
+      enhance: contrast lift for faint scans (issue #2):
+               none|auto|clahe|threshold (default none). Coordinates stay
+               SOURCE-pixel; labels still render at their saved positions.
 
     Returns: one ImageContent (PNG, RGBA) + one TextContent envelope.
 
@@ -593,6 +609,8 @@ async def get_scene_view_with_labels(
     params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim}
     if region:
         params["region"] = region
+    if enhance:
+        params["enhance"] = enhance
     try:
         status, content, ctype = await _api_get_bytes(
             f"/datasets/{key}/{file}/grid-with-labels", params=params,
@@ -656,6 +674,7 @@ async def verify_label_placement(
     pad_px: int = 80,
     tiers: str = "finer,detail",
     max_dim: int = 1600,
+    enhance: str | None = None,
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
     a single label so the agent doesn't have to compute the region.
@@ -681,6 +700,8 @@ async def verify_label_placement(
       tiers:     grid tiers to draw; defaults to 'finer,detail' for
                  the closest-possible look.
       max_dim:   max output dim; per H4 small crops stay 1:1.
+      enhance:   contrast lift for faint scans (issue #2):
+                 none|auto|clahe|threshold (default none).
 
     Returns: image + envelope with the same shape as
     `get_scene_view_with_labels`. The envelope's `labels_in_view` will
@@ -742,6 +763,7 @@ async def verify_label_placement(
     region = f"{x0},{y0},{x1},{y1}"
     return await get_scene_view_with_labels(
         key=key, file=file, region=region, tiers=tiers, max_dim=max_dim,
+        enhance=enhance,
     )
 
 

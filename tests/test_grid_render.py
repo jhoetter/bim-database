@@ -174,3 +174,74 @@ def test_cropped_legend_shows_origin(sample_scene):
     w, _ = out.size
     samples = [px[x, y] for x in range(w - 30, w) for y in range(0, 30)]
     assert sum(1 for p in samples if p > 200) > 100
+
+
+# ── Issue #2: contrast enhancement for faint freehand scans ───────────────
+
+
+def _faint_scan(size=(600, 400)) -> Image.Image:
+    """Synthetic near-white image with a barely-darker stroke — stands in
+    for a faint pencil/freehand elevation scan."""
+    img = Image.new("L", size, 248)  # almost-white paper
+    px = img.load()
+    w, h = size
+    # A faint horizontal stroke (gentle dip from the paper tone).
+    for x in range(40, w - 40):
+        for y in range(h // 2 - 1, h // 2 + 2):
+            px[x, y] = 225
+    return img.convert("RGB")
+
+
+def test_enhance_none_is_noop():
+    from api.grid_render import render_grid_overlay
+    src = _faint_scan()
+    plain = render_grid_overlay(src, tiers=("broad",), max_dim=10000, enhance="none")
+    default = render_grid_overlay(src, tiers=("broad",), max_dim=10000)
+    assert list(plain.getdata()) == list(default.getdata())
+
+
+def test_enhance_preserves_dimensions_and_coords():
+    """Enhancement must not move pixels — output size is identical, so
+    SOURCE-pixel coordinates remain valid (issue #2 invariant)."""
+    from api.grid_render import render_grid_overlay, ENHANCE_MODES
+    src = _faint_scan()
+    base = render_grid_overlay(src, tiers=("broad",), max_dim=10000, enhance="none")
+    for mode in ENHANCE_MODES:
+        out = render_grid_overlay(src, tiers=("broad",), max_dim=10000, enhance=mode)
+        assert out.size == base.size, f"{mode} changed output size"
+
+
+def test_enhance_increases_contrast_on_faint_scan():
+    """CLAHE/threshold should widen the intensity spread of the faint
+    stroke vs the paper. Test the pure transform so grid lines don't
+    pollute the histogram."""
+    import numpy as np
+    from api.grid_render import _enhance_image
+    src = _faint_scan()
+
+    def luma_std(img):
+        return float(np.asarray(img.convert("L"), dtype=float).std())
+
+    std_none = luma_std(src)
+    std_clahe = luma_std(_enhance_image(src, "clahe"))
+    std_threshold = luma_std(_enhance_image(src, "threshold"))
+    assert std_clahe > std_none, (std_clahe, std_none)
+    assert std_threshold > std_none, (std_threshold, std_none)
+
+
+def test_enhance_threshold_binarizes():
+    """threshold mode should collapse toward a near-binary image: the
+    overwhelming majority of pixels are pure black or pure white."""
+    import numpy as np
+    from api.grid_render import _enhance_image
+    out = _enhance_image(_faint_scan(), "threshold")
+    arr = np.asarray(out.convert("L"))
+    extremes = int(((arr == 0) | (arr == 255)).sum())
+    assert extremes / arr.size > 0.95, extremes / arr.size
+
+
+def test_enhance_rejects_unknown_mode():
+    from api.grid_render import render_grid_overlay
+    src = _faint_scan()
+    with pytest.raises(ValueError):
+        render_grid_overlay(src, tiers=("broad",), enhance="sharpen")

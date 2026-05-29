@@ -1014,6 +1014,19 @@ def _parse_tiers(tiers: str) -> tuple[str, ...]:
     return tuple(raw)
 
 
+def _parse_enhance(enhance: str | None) -> str:
+    """Validate the `enhance` query arg (issue #2). Returns a normalized
+    mode; defaults to 'none'."""
+    from .grid_render import ENHANCE_MODES
+    mode = (enhance or "none").strip().lower()
+    if mode not in ENHANCE_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown enhance mode {mode!r}; allowed {list(ENHANCE_MODES)}",
+        )
+    return mode
+
+
 def _parse_region(region: str | None) -> tuple[int, int, int, int] | None:
     if not region:
         return None
@@ -1033,6 +1046,7 @@ def render_scene_grid(
     region: str | None = None,
     tiers: str = "broad,finer,detail",
     max_dim: int = 1600,
+    enhance: str | None = None,
 ):
     """Agent vision aid: scene image + coordinate-anchored grid overlay.
 
@@ -1040,6 +1054,9 @@ def render_scene_grid(
       region   optional 'x0,y0,x1,y1' (source-pixel coords) — agent zoom
       tiers    comma list of {broad, finer, detail}; default all three
       max_dim  cap on the longer side of the output PNG; default 1600
+      enhance  contrast lift for faint scans (issue #2): none|auto|clahe|
+               threshold. Default none. Changes pixel intensity only, so
+               coordinates stay in the SOURCE-pixel frame.
 
     Returns image/png; cached on disk under tmp/grid-cache/. The coordinate
     labels in the output reference SOURCE pixels, so the agent can take a
@@ -1056,6 +1073,7 @@ def render_scene_grid(
         raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
     parsed_tiers = _parse_tiers(tiers)
     parsed_region = _parse_region(region)
+    parsed_enhance = _parse_enhance(enhance)
 
     img_mtime = img_path.stat().st_mtime_ns
     cache_root = GRID_CACHE / "scene" / key
@@ -1064,7 +1082,8 @@ def render_scene_grid(
         f"{Path(file).stem}"
         f"-r{region or 'full'}"
         f"-t{'_'.join(parsed_tiers)}"
-        f"-m{max_dim}.png"
+        f"-m{max_dim}"
+        f"-e{parsed_enhance}.png"
     )
     out = cache_root / cache_name
     sentinel = out.with_suffix(".mtime")
@@ -1077,6 +1096,7 @@ def render_scene_grid(
                 tiers=parsed_tiers,
                 region=parsed_region,
                 max_dim=max_dim,
+                enhance=parsed_enhance,
             )
         overlay.save(out, format="PNG", optimize=True)
         sentinel.write_text(str(img_mtime))
@@ -1090,6 +1110,7 @@ def render_scene_grid_with_labels(
     region: str | None = None,
     tiers: str = "broad,finer",
     max_dim: int = 1600,
+    enhance: str | None = None,
 ):
     """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
     SAVED labels rendered on top. Used by `get_scene_view_with_labels`
@@ -1097,6 +1118,8 @@ def render_scene_grid_with_labels(
 
     The labels JSON drives the overlay; if no labels.json exists the
     output is identical to /grid. Cached on (image mtime, labels mtime).
+    `enhance` (issue #2): none|auto|clahe|threshold, contrast lift for
+    faint scans; coordinates stay source-pixel.
     """
     _safe_key(key)
     if "/" in file or ".." in file:
@@ -1108,6 +1131,7 @@ def render_scene_grid_with_labels(
         raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
     parsed_tiers = _parse_tiers(tiers)
     parsed_region = _parse_region(region)
+    parsed_enhance = _parse_enhance(enhance)
 
     label_path = _safe_label_path("dataset", key, file)
     img_mtime = img_path.stat().st_mtime_ns
@@ -1119,7 +1143,8 @@ def render_scene_grid_with_labels(
         f"{Path(file).stem}"
         f"-r{region or 'full'}"
         f"-t{'_'.join(parsed_tiers)}"
-        f"-m{max_dim}.png"
+        f"-m{max_dim}"
+        f"-e{parsed_enhance}.png"
     )
     out = cache_root / cache_name
     sentinel = out.with_suffix(".mtime")
@@ -1141,6 +1166,7 @@ def render_scene_grid_with_labels(
                 tiers=parsed_tiers,
                 region=parsed_region,
                 max_dim=max_dim,
+                enhance=parsed_enhance,
             )
         overlay.save(out, format="PNG", optimize=True)
         sentinel.write_text(cache_key)
