@@ -1,9 +1,7 @@
 # UX Consistency (U) tracker
 
-**Status:** Draft 2026-05-29. U0–U4 shipped. U5–U13 are
-implementation-ready scoped batches; U14+ are open questions. The
-U9–U13 group operationalises principles 4–6 (disclosure) added on
-the user's request.
+**Status:** 2026-05-29. **U0–U13 shipped.** U14+ are open questions.
+The U9–U13 group operationalises principles 4–6 (disclosure).
 
 **Owner:** jhoetter
 **Predecessor:** [`spec/keyboard.md`](keyboard.md) — keyboard / modifier

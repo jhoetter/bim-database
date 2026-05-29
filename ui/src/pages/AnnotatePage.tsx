@@ -57,6 +57,7 @@ import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknes
 import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
 import { autoTSplit } from '../lib/auto_split';
 import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
+import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import {
   advanceWorkflow,
   currentPhase as workflowCurrentPhase,
@@ -609,19 +610,24 @@ export function AnnotatePage() {
   // Scene navigation (prev/next within the same house). Fetch the house's
   // full scene list once per (scope, key); compute index from the current
   // file. Re-fetches only when the house changes, not when the scene does.
-  const { data: houseScenes } = useResource(
-    async () => {
-      const h = await fetchDataset(key);
-      return h.drawings.map((d) => ({
-        file: d.file,
-        title: d.title ?? d.file,
-        url: d.url,
-        labeled: !!d.labeled,
-      }));
-    },
-    [scope, key],
+  // U10 — also carries the full drawing record for each scene so the
+  // SceneDetailsCard can render kind/floor/view without a second fetch.
+  const [datasetRev, setDatasetRev] = useState(0);
+  const { data: houseDataset } = useResource(
+    () => fetchDataset(key),
+    [scope, key, datasetRev],
   );
+  const houseScenes = useMemo(() => {
+    if (!houseDataset) return null;
+    return houseDataset.drawings.map((d) => ({
+      file: d.file,
+      title: d.title ?? d.file,
+      url: d.url,
+      labeled: !!d.labeled,
+    }));
+  }, [houseDataset]);
   const sceneList = houseScenes ?? [];
+  const currentDrawing = houseDataset?.drawings.find((d) => d.file === decodedFile) ?? null;
   const sceneIndex = sceneList.findIndex((s) => s.file === decodedFile);
 
   useEffect(() => { rememberLastStep(key, 'annotate'); }, [key]);
@@ -2964,6 +2970,33 @@ export function AnnotatePage() {
       }
     >
       <div className="flex flex-col h-full">
+        {/* U10 — Mirror of the U9 SceneDetailsCard at the top of the
+            annotation editor. Shows the scene's classification (kind /
+            floor / view / title / status / readiness) and lets the user
+            correct it without opening a sidebar — same edit surface as
+            ExtractPage's bbox popover. */}
+        {currentDrawing && (
+          <div className="shrink-0 border-b border-border bg-white">
+            <SceneDetailsCard
+              houseKey={key}
+              drawing={currentDrawing}
+              readiness={(() => {
+                let hasH = false, hasV = false;
+                for (const l of labels) {
+                  if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
+                  const dx = l.geometry.end[0] - l.geometry.start[0];
+                  const dy = l.geometry.end[1] - l.geometry.start[1];
+                  const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+                  if (a < 15 || a > 165) hasH = true;
+                  else if (a > 75 && a < 105) hasV = true;
+                }
+                return { hasH, hasV };
+              })()}
+              onUpdated={() => setDatasetRev((r) => r + 1)}
+              variant="compact"
+            />
+          </div>
+        )}
         <AnnotateSceneStrip
           scenes={sceneList}
           currentFile={decodedFile}

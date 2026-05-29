@@ -27,6 +27,7 @@ import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 import { rememberLastStep } from '../lib/step_state';
 import { PHASE_IDS, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
+import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
 const KIND_LABEL: Record<ExtractItem['kind'], string> = {
@@ -510,6 +511,7 @@ export function ExtractPage() {
             onAdjustExtracted={onAdjustExtracted}
             menuFor={menuForExtracted}
             setMenuFor={setMenuForExtracted}
+            onDatasetRefresh={setDataset}
           />
         )}
         </div>
@@ -995,7 +997,7 @@ function PageCanvas({
   draftBboxes, extracted, selectedId, onSelect, onCommit, onUpdate,
   postDraw, onPostDrawPick, onPostDrawDismiss,
   houseKey, onDeleteExtracted, onAdjustExtracted,
-  menuFor, setMenuFor,
+  menuFor, setMenuFor, onDatasetRefresh,
 }: {
   pdfKey: string;
   page: number;
@@ -1015,6 +1017,7 @@ function PageCanvas({
   onAdjustExtracted: (file: string) => void;
   menuFor: string | null;
   setMenuFor: (file: string | null) => void;
+  onDatasetRefresh: (manifest: DatasetHouse) => void;
 }) {
   // The pageRef tracks the WHITE PAGE DIV (not the outer dark scroll
   // container) — its bbox is what we measure against for pointer-to-PDF
@@ -1226,10 +1229,11 @@ function PageCanvas({
               topPct={topPct}
               placement={placement}
               houseKey={houseKey}
-              file={d.file}
+              drawing={d}
               onClose={() => setMenuFor(null)}
               onDelete={() => { setMenuFor(null); onDeleteExtracted(d.file); }}
               onAdjust={() => { setMenuFor(null); onAdjustExtracted(d.file); }}
+              onUpdated={onDatasetRefresh}
             />
           );
         })()}
@@ -1418,20 +1422,22 @@ function HouseMenu({
   );
 }
 
-// Floating action menu anchored to an already-extracted scene's bbox on
-// the PDF page. Tightly mirrors PostDrawChip's positioning model so the
-// visual rhythm is consistent. Esc closes; clicking the backdrop closes.
+// U9 — Floating details popover anchored to an already-extracted
+// scene's bbox on the PDF page. Shows the scene's known attributes
+// (kind / floor / view / title / status / readiness), inline-editable,
+// plus the three actions (Annotieren / Bbox anpassen / Löschen).
 function ExtractedSceneMenu({
-  leftPct, topPct, placement, houseKey, file, onClose, onDelete, onAdjust,
+  leftPct, topPct, placement, houseKey, drawing, onClose, onDelete, onAdjust, onUpdated,
 }: {
   leftPct: number;
   topPct: number;
   placement: 'above' | 'below';
   houseKey: string;
-  file: string;
+  drawing: DatasetHouse['drawings'][number];
   onClose: () => void;
   onDelete: () => void;
   onAdjust: () => void;
+  onUpdated: (manifest: DatasetHouse) => void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -1452,7 +1458,7 @@ function ExtractedSceneMenu({
         data-bbox-handle="menu"
       />
       <div
-        className="absolute z-30 -translate-x-1/2 bg-white border border-zinc-300 rounded-md shadow-xl text-[0.78rem] min-w-[12rem]"
+        className="absolute z-30 -translate-x-1/2 bg-white border border-zinc-300 rounded-md shadow-xl text-[0.78rem] min-w-[16rem]"
         data-bbox-handle="menu"
         onPointerDown={(e) => e.stopPropagation()}
         style={{
@@ -1463,31 +1469,15 @@ function ExtractedSceneMenu({
             : 'translate(-50%, 8px)',
         }}
       >
-        <div className="px-3 py-1.5 text-[0.62rem] uppercase tracking-wider text-muted border-b border-border truncate" title={file}>
-          {file}
-        </div>
-        <Link
-          to={`/${houseKey}/scene/${encodeURIComponent(file)}/annotate`}
-          className="block px-3 py-1.5 hover:bg-zinc-100 text-zinc-800"
-          onClick={onClose}
-        >
-          ↗ Annotieren
-        </Link>
-        <button
-          type="button"
-          onClick={onAdjust}
-          className="block w-full text-left px-3 py-1.5 hover:bg-zinc-100 text-zinc-800"
-        >
-          ↔ Bbox anpassen
-          <div className="text-[0.62rem] text-zinc-500">Wird zum Entwurf — danach erneut extrahieren.</div>
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="block w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-700"
-        >
-          ✕ Szene löschen
-        </button>
+        <SceneDetailsCard
+          houseKey={houseKey}
+          drawing={drawing}
+          onAnnotateHref={`/${houseKey}/scene/${encodeURIComponent(drawing.file)}/annotate`}
+          onAdjust={onAdjust}
+          onDelete={onDelete}
+          onUpdated={onUpdated}
+          variant="full"
+        />
       </div>
     </>
   );
