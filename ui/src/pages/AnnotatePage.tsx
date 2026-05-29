@@ -2741,6 +2741,19 @@ export function AnnotatePage() {
       }
       topbarTrailing={
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowGrid(!showGrid)}
+            className={`text-[0.7rem] px-2 py-1 rounded-md border ${
+              showGrid
+                ? 'bg-purple-600 text-white border-purple-600'
+                : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+            }`}
+            title="Agenten-Raster überlagern: das Bild, das ein Labeling-Agent über den MCP-Server sieht (3-stufiges Pixelraster)"
+            aria-label="Agenten-Raster umschalten"
+          >
+            {showGrid ? '🤖 Raster' : 'Raster'}
+          </button>
           <CanvasDisplayPalette
             imgOpacity={imgOpacity}
             setImgOpacity={setImgOpacity}
