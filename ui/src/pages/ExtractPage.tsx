@@ -31,6 +31,7 @@ import { Breadcrumb } from '../components/layout/Breadcrumb';
 import { PHASE_IDS, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT } from '../components/Cheatsheet';
+import { GridToggle } from '../components/GridToggle';
 import { useToast } from '../lib/toast';
 import { useExtractUndo } from '../lib/extract_undo';
 import { UndoRedoControls } from '../components/UndoRedoControls';
@@ -114,6 +115,7 @@ function uuid(): string {
 
 export function ExtractPage() {
   const { key = '' } = useParams();
+  const navigate = useNavigate();
   const [info, setInfo] = useState<PdfInfo | null>(null);
   const [intake, setIntake] = useState<IncomingPdf | null>(null);
   const [dataset, setDataset] = useState<DatasetHouse | null>(null);
@@ -147,7 +149,6 @@ export function ExtractPage() {
     .filter(([, on]) => on)
     .map(([t]) => t)
     .join(',')) || 'broad';
-  const [gridMenuOpen, setGridMenuOpen] = useState(false);
   useEffect(() => {
     try { window.localStorage.setItem('bim-db:extract:show-grid', String(showGrid)); }
     catch { /* no-op */ }
@@ -611,67 +612,12 @@ export function ExtractPage() {
           >
             3D ▸
           </Link>
-          <div className="relative flex items-center">
-            <button
-              type="button"
-              onClick={() => setShowGrid(!showGrid)}
-              className={`text-[0.7rem] px-2 py-1 rounded-l-md border ${
-                showGrid
-                  ? 'bg-purple-600 text-white border-purple-600'
-                  : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
-              }`}
-              title="Agenten-Raster umschalten (3-stufiges Pixelraster, broad/finer/detail)"
-              aria-label="Agenten-Raster umschalten"
-            >
-              {showGrid ? '🤖 Raster' : 'Raster'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setGridMenuOpen((v) => !v)}
-              className={`text-[0.7rem] px-1.5 py-1 rounded-r-md border-y border-r ${
-                showGrid
-                  ? 'bg-purple-700 text-white border-purple-700'
-                  : 'bg-white text-zinc-600 border-zinc-300 hover:bg-zinc-50'
-              }`}
-              title="Raster-Stufen auswählen"
-              aria-label="Raster-Stufen"
-            >
-              ▾
-            </button>
-            {gridMenuOpen && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setGridMenuOpen(false)}
-                  className="fixed inset-0 z-30 cursor-default"
-                  aria-label="Schließen"
-                />
-                <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-zinc-300 rounded-md shadow-xl min-w-[16rem] p-3 space-y-2 text-[0.78rem]">
-                  <div className="text-[0.62rem] uppercase tracking-wider text-muted font-semibold">
-                    Raster-Stufen
-                  </div>
-                  {(['broad', 'finer', 'detail'] as const).map((tier) => (
-                    <label key={tier} className="flex items-center gap-2 text-[0.72rem]">
-                      <input
-                        type="checkbox"
-                        checked={gridTiers[tier]}
-                        onChange={(e) => setGridTiers({ ...gridTiers, [tier]: e.target.checked })}
-                      />
-                      <span className="capitalize font-medium">{tier}</span>
-                      <span className="text-zinc-400 ml-auto text-[0.65rem]">
-                        {tier === 'broad' && '~W/10 px'}
-                        {tier === 'finer' && '~W/50 px'}
-                        {tier === 'detail' && '~W/200 px'}
-                      </span>
-                    </label>
-                  ))}
-                  <p className="text-[0.62rem] text-zinc-500 leading-snug">
-                    Default = broad + finer. Detail nur im Zoom nützlich.
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
+          <GridToggle
+            showGrid={showGrid}
+            setShowGrid={setShowGrid}
+            gridTiers={gridTiers}
+            setGridTiers={setGridTiers}
+          />
           <button
             type="button"
             onClick={() => setCheatsheetOpen((v) => !v)}
@@ -774,6 +720,10 @@ export function ExtractPage() {
             // No client coords — the chip's centre is good enough.
             setMenuForExtracted({ file });
           }}
+          onOpenScene={(file) => {
+            setMenuForExtracted(null);
+            navigate(`/${key}/scene/${encodeURIComponent(file)}/annotate`);
+          }}
           onSelectDraft={(id) => {
             const d = draft.bboxes.find((b) => b.id === id);
             if (d && d.page !== currentPage) setPage(d.page);
@@ -875,7 +825,7 @@ type StripItem =
 
 function SceneStrip({
   scenes, drafts, selectedDraftId, menuForFile, currentPage,
-  onSelectScene, onSelectDraft, onDeleteScene, onDeleteDraft,
+  onSelectScene, onOpenScene, onSelectDraft, onDeleteScene, onDeleteDraft,
 }: {
   scenes: DatasetHouse['drawings'];
   drafts: DraftBbox[];
@@ -883,6 +833,7 @@ function SceneStrip({
   menuForFile: string | null;
   currentPage: number;
   onSelectScene: (file: string) => void;
+  onOpenScene: (file: string) => void;
   onSelectDraft: (id: string) => void;
   onDeleteScene: (file: string) => void;
   onDeleteDraft: (id: string) => void;
@@ -906,6 +857,15 @@ function SceneStrip({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const firstHereRef = useRef<HTMLSpanElement>(null);
+  // Click vs. double-click disambiguation for scene chips — mirrors the
+  // canvas green-rect gesture: a single click opens the action menu, a
+  // double click jumps straight into annotation. The 280ms timer holds the
+  // single-click action so a double click doesn't flash the menu first.
+  const clickTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  useEffect(() => {
+    const timers = clickTimers.current;
+    return () => { for (const t of timers.values()) clearTimeout(t); };
+  }, []);
   // When the current PDF page changes, slide the strip so the first chip
   // matching that page is visible without the user having to scroll.
   useEffect(() => {
@@ -950,8 +910,21 @@ function SceneStrip({
               <span ref={wrapRef} key={`s-${d.file}`} className={`relative inline-flex shrink-0 rounded-md ${hereCls}`}>
                 <button
                   type="button"
-                  onClick={() => onSelectScene(d.file)}
-                  title={`${d.file} — Klick zeigt die Bbox auf der Seite${pageN != null ? ` ${pageN}` : ''}`}
+                  onClick={() => {
+                    const pending = clickTimers.current.get(d.file);
+                    if (pending) clearTimeout(pending);
+                    const t = setTimeout(() => {
+                      clickTimers.current.delete(d.file);
+                      onSelectScene(d.file);
+                    }, 280);
+                    clickTimers.current.set(d.file, t);
+                  }}
+                  onDoubleClick={() => {
+                    const pending = clickTimers.current.get(d.file);
+                    if (pending) { clearTimeout(pending); clickTimers.current.delete(d.file); }
+                    onOpenScene(d.file);
+                  }}
+                  title={`${d.file} — Klick = Bbox auf der Seite${pageN != null ? ` ${pageN}` : ''} zeigen · Doppelklick = Annotieren`}
                   className={`inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-md border transition ${
                     isMenu
                       ? 'bg-emerald-50 border-emerald-500'

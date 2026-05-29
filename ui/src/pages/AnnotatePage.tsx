@@ -60,6 +60,7 @@ import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServe
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT, type CheatsheetSection } from '../components/Cheatsheet';
 import { UndoRedoControls } from '../components/UndoRedoControls';
+import { GridToggle } from '../components/GridToggle';
 import { useToast } from '../lib/toast';
 import {
   advanceWorkflow,
@@ -2777,28 +2778,17 @@ export function AnnotatePage() {
       }
       topbarTrailing={
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowGrid(!showGrid)}
-            className={`text-[0.7rem] px-2 py-1 rounded-md border ${
-              showGrid
-                ? 'bg-purple-600 text-white border-purple-600'
-                : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
-            }`}
-            title="Agenten-Raster überlagern: das Bild, das ein Labeling-Agent über den MCP-Server sieht (3-stufiges Pixelraster)"
-            aria-label="Agenten-Raster umschalten"
-          >
-            {showGrid ? '🤖 Raster' : 'Raster'}
-          </button>
+          <GridToggle
+            showGrid={showGrid}
+            setShowGrid={setShowGrid}
+            gridTiers={gridTiers}
+            setGridTiers={setGridTiers}
+          />
           <CanvasDisplayPalette
             imgOpacity={imgOpacity}
             setImgOpacity={setImgOpacity}
             imgGrayscale={imgGrayscale}
             setImgGrayscale={setImgGrayscale}
-            showGrid={showGrid}
-            gridTiers={gridTiers}
-            setGridTiers={setGridTiers}
-            setShowGrid={setShowGrid}
             onZoomIn={() => zoomBy(0.7)}
             onZoomOut={() => zoomBy(1.4)}
             onFit={resetView}
@@ -4937,22 +4927,14 @@ function SaveStateDot({
   );
 }
 
-type GridTiers = { broad: boolean; finer: boolean; detail: boolean };
-
 function CanvasDisplayPalette({
   imgOpacity, setImgOpacity, imgGrayscale, setImgGrayscale,
-  showGrid, setShowGrid,
-  gridTiers, setGridTiers,
   onZoomIn, onZoomOut, onFit,
 }: {
   imgOpacity: number;
   setImgOpacity: (v: number) => void;
   imgGrayscale: boolean;
   setImgGrayscale: (v: boolean) => void;
-  showGrid: boolean;
-  setShowGrid: (v: boolean) => void;
-  gridTiers: GridTiers;
-  setGridTiers: (v: GridTiers) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
@@ -5042,44 +5024,6 @@ function CanvasDisplayPalette({
               </label>
               <p className="text-[0.62rem] text-zinc-500 leading-snug">
                 Bild auf Weiß ausblenden, um Labels gegen den leeren Canvas zu prüfen.
-              </p>
-              <hr className="border-zinc-200" />
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-medium">Agenten-Raster</span>
-                <button
-                  type="button"
-                  onClick={() => setShowGrid(!showGrid)}
-                  className={`text-[0.7rem] px-2 py-0.5 rounded-md border ${
-                    showGrid
-                      ? 'bg-purple-600 text-white border-purple-600'
-                      : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
-                  }`}
-                  title="Bild mit Koordinatenraster überlagern (genau das, was die Labeling-Agenten sehen)"
-                >
-                  {showGrid ? '🤖 An' : 'Aus'}
-                </button>
-              </div>
-              <div className={`flex flex-col gap-1 ${showGrid ? '' : 'opacity-50 pointer-events-none'}`}>
-                {(['broad', 'finer', 'detail'] as const).map((tier) => (
-                  <label key={tier} className="flex items-center gap-2 text-[0.72rem]">
-                    <input
-                      type="checkbox"
-                      checked={gridTiers[tier]}
-                      onChange={(e) => setGridTiers({ ...gridTiers, [tier]: e.target.checked })}
-                    />
-                    <span className="capitalize">{tier}</span>
-                    <span className="text-zinc-400 ml-auto text-[0.65rem]">
-                      {tier === 'broad' && '≈ W/10 px · dicke schwarze Linien'}
-                      {tier === 'finer' && '≈ W/50 px · mittelgrau'}
-                      {tier === 'detail' && '≈ W/200 px · sehr fein (nur im Zoom nützlich)'}
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <p className="text-[0.62rem] text-zinc-500 leading-snug">
-                Zeigt das Bild mit dem Pixelraster, das die Labeling-Agenten
-                zur Koordinaten-Lokalisierung verwenden. Hilft beim Spot-Check,
-                was ein Agent sieht, wenn seine Labels schief liegen.
               </p>
             </div>
           </>
