@@ -53,7 +53,17 @@ export function DatasetPage() {
 
   return (
     <Shell
-      breadcrumb={<Breadcrumb items={[{ label: 'Datensatz' }]} />}
+      breadcrumb={
+        <div className="flex items-center gap-3">
+          <Breadcrumb items={[{ label: 'Datensatz' }]} />
+          <Link
+            to="/dataset/intake"
+            className="text-[0.72rem] px-2.5 py-1 rounded-md bg-accent text-white font-medium"
+          >
+            + PDFs hochladen
+          </Link>
+        </div>
+      }
       leftSidebar={
         <DatasetFilters
           totalHouses={totalHouses}

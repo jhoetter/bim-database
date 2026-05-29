@@ -3,7 +3,7 @@
 //
 // R0 — catalog ("houses") endpoints removed. Only the dataset path remains.
 import { useEffect, useState } from 'react';
-import type { LabelScope, SceneLabels, DatasetHouse } from './types';
+import type { LabelScope, SceneLabels, DatasetHouse, IncomingPdf } from './types';
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -17,6 +17,58 @@ export function fetchDatasets(): Promise<DatasetHouse[]> {
 
 export function fetchDataset(key: string): Promise<DatasetHouse> {
   return get<DatasetHouse>(`/datasets/${key}`);
+}
+
+// R1 — PDF intake.
+
+export function listIncomingPdfs(): Promise<IncomingPdf[]> {
+  return get<IncomingPdf[]>('/pdfs/incoming');
+}
+
+export function getIncomingPdf(key: string): Promise<IncomingPdf> {
+  return get<IncomingPdf>(`/pdfs/incoming/${encodeURIComponent(key)}`);
+}
+
+export async function uploadPdfs(
+  files: File[], houseKey?: string, notes?: string,
+): Promise<IncomingPdf> {
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f, f.name);
+  const qs = new URLSearchParams();
+  if (houseKey) qs.set('house_key', houseKey);
+  if (notes) qs.set('notes', notes);
+  const url = `/pdfs?${qs}`;
+  const r = await fetch(url, { method: 'POST', body: fd });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
+}
+
+export async function updateIncomingNotes(
+  key: string, patch: { user_notes?: string; state?: string },
+): Promise<IncomingPdf> {
+  const r = await fetch(`/pdfs/incoming/${encodeURIComponent(key)}/manifest`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
+}
+
+export async function deleteIncomingPdf(key: string): Promise<void> {
+  const r = await fetch(`/pdfs/incoming/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
 }
 
 // Annotation labels — dataset-scoped only post-R0. The GET endpoint

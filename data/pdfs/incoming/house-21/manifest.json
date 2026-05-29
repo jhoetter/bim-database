@@ -21,7 +21,7 @@
     "Wohnflächenberechnung.pdf"
   ],
   "uploaded_at": "2026-05-29T06:01:09Z",
-  "page_count": null,
+  "page_count": 63,
   "state": "partial",
   "user_notes": "Seed PDF carried over from data/houses/ during R0 cleanup.",
   "extracted_scenes": []

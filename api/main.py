@@ -14,11 +14,14 @@ The catalog ("houses") path was removed in R0. The surviving routes:
 """
 from __future__ import annotations
 
+import datetime as _dt
+import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -267,8 +270,7 @@ def list_incoming_pdfs():
 
 @app.get("/pdfs/incoming/{key}", tags=["pdfs"])
 def get_incoming_pdf(key: str):
-    if "/" in key or ".." in key:
-        raise HTTPException(status_code=400, detail="bad key")
+    _safe_key(key)
     mp = INCOMING_DIR / key / "manifest.json"
     if not mp.exists():
         raise HTTPException(status_code=404, detail=f"No intake bundle for {key!r}")
@@ -277,3 +279,202 @@ def get_incoming_pdf(key: str):
     if m.get("consolidated_pdf"):
         m["consolidated_url"] = f"/static/pdfs/incoming/{key}/{m['consolidated_pdf']}"
     return m
+
+
+def _safe_key(key: str) -> None:
+    if not key or "/" in key or ".." in key or "\\" in key:
+        raise HTTPException(status_code=400, detail=f"bad key {key!r}")
+
+
+def _now_iso() -> str:
+    return _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _next_free_house_key() -> str:
+    """Lowest unused `house-<N>` across both the dataset and the intake
+    trees. Lets the user upload a brand-new house without picking a key."""
+    used: set[int] = set()
+    for d in (DATASET_DIR, INCOMING_DIR):
+        if d.exists():
+            for p in d.iterdir():
+                m = re.match(r"house-(\d+)$", p.name)
+                if m:
+                    used.add(int(m.group(1)))
+    n = 1
+    while n in used:
+        n += 1
+    return f"house-{n}"
+
+
+def _pdf_page_count(path: Path) -> int | None:
+    try:
+        import fitz  # PyMuPDF
+        with fitz.open(path) as doc:
+            return doc.page_count
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _write_manifest(key: str, m: dict) -> None:
+    bundle = INCOMING_DIR / key
+    bundle.mkdir(parents=True, exist_ok=True)
+    (bundle / "manifest.json").write_text(json.dumps(m, indent=2, ensure_ascii=False))
+
+
+def _read_manifest(key: str) -> dict | None:
+    p = INCOMING_DIR / key / "manifest.json"
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except json.JSONDecodeError:
+        return None
+
+
+def _bundle_state(key: str, manifest: dict) -> str:
+    """Compute a fresh state from the on-disk facts so it survives
+    out-of-band edits."""
+    consolidated = manifest.get("consolidated_pdf")
+    if not consolidated:
+        return "pending"
+    if not (INCOMING_DIR / key / consolidated).exists():
+        return "pending"
+    extracted = manifest.get("extracted_scenes") or []
+    if extracted:
+        return "extracted"
+    return "partial"
+
+
+@app.post("/pdfs", tags=["pdfs"], status_code=201)
+async def upload_pdfs(
+    files: list[UploadFile] = File(..., description="One or more PDF files"),
+    house_key: str | None = None,
+    notes: str | None = None,
+):
+    """R1.2 — accept one or more PDFs and stage them under
+    `data/pdfs/incoming/<house_key>/source/`. When house_key is omitted
+    the next free key is auto-allocated. When multiple files share the
+    same house_key they're consolidated into one PDF (R1.3); a single
+    file becomes the consolidated PDF directly.
+
+    Returns the resulting bundle manifest.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="no files provided")
+    key = house_key or _next_free_house_key()
+    _safe_key(key)
+    INCOMING_DIR.mkdir(parents=True, exist_ok=True)
+    bundle = INCOMING_DIR / key
+    source = bundle / "source"
+    source.mkdir(parents=True, exist_ok=True)
+
+    # Read existing manifest so re-uploads merge cleanly. Source filenames
+    # accumulate, consolidated PDF gets re-merged.
+    manifest = _read_manifest(key) or {
+        "schema_version": "1.0",
+        "house_key": key,
+        "consolidated_pdf": None,
+        "source_filenames": [],
+        "uploaded_at": _now_iso(),
+        "page_count": None,
+        "state": "pending",
+        "user_notes": notes or "",
+        "extracted_scenes": [],
+    }
+    if notes:
+        manifest["user_notes"] = notes
+
+    # R1.7 — dedup by byte hash within this bundle so the same PDF can't
+    # land twice in source/.
+    existing_hashes: dict[str, str] = {}
+    for p in source.glob("*.pdf"):
+        existing_hashes[hashlib.sha256(p.read_bytes()).hexdigest()] = p.name
+
+    saved_names: list[str] = []
+    for upload in files:
+        raw = await upload.read()
+        if not raw.startswith(b"%PDF"):
+            raise HTTPException(status_code=400, detail=f"{upload.filename!r} is not a PDF")
+        h = hashlib.sha256(raw).hexdigest()
+        if h in existing_hashes:
+            saved_names.append(existing_hashes[h])
+            continue
+        # Strip path components from the upload name.
+        safe_name = Path(upload.filename or f"upload-{h[:8]}.pdf").name
+        if not safe_name.lower().endswith(".pdf"):
+            safe_name += ".pdf"
+        # If the name collides with an existing different file, prefix the
+        # hash.
+        if (source / safe_name).exists():
+            safe_name = f"{h[:8]}-{safe_name}"
+        (source / safe_name).write_bytes(raw)
+        saved_names.append(safe_name)
+        existing_hashes[h] = safe_name
+
+    # Accumulate source filenames (dedupe).
+    src_names_set = {*manifest.get("source_filenames", []), *saved_names}
+    manifest["source_filenames"] = sorted(src_names_set)
+
+    # R1.3 — consolidate into one PDF. Single source files become the
+    # consolidated PDF directly; multiple are merged. Always overwrites
+    # so the consolidated artifact always reflects the latest source set.
+    consolidated_name = f"{key}.pdf"
+    consolidated_path = bundle / consolidated_name
+    src_paths = sorted(source.glob("*.pdf"))
+    if len(src_paths) == 1:
+        consolidated_path.write_bytes(src_paths[0].read_bytes())
+    else:
+        try:
+            from pypdf import PdfReader, PdfWriter
+            writer = PdfWriter()
+            for sp in src_paths:
+                reader = PdfReader(str(sp))
+                for page in reader.pages:
+                    writer.add_page(page)
+            with consolidated_path.open("wb") as f:
+                writer.write(f)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"PDF merge failed: {e}")
+
+    manifest["consolidated_pdf"] = consolidated_name
+    manifest["page_count"] = _pdf_page_count(consolidated_path)
+    manifest["state"] = _bundle_state(key, manifest)
+    _write_manifest(key, manifest)
+    manifest["key"] = key
+    manifest["consolidated_url"] = f"/static/pdfs/incoming/{key}/{consolidated_name}"
+    return manifest
+
+
+@app.put("/pdfs/incoming/{key}/manifest", tags=["pdfs"])
+def update_incoming_manifest(key: str, payload: dict[str, Any] = Body(...)):
+    """R1 — edit user_notes / state on an existing bundle. Other fields
+    are server-managed and rejected to avoid the UI corrupting state."""
+    _safe_key(key)
+    manifest = _read_manifest(key)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"No intake bundle for {key!r}")
+    EDITABLE = {"user_notes", "state"}
+    bad = set(payload) - EDITABLE
+    if bad:
+        raise HTTPException(status_code=400, detail=f"non-editable keys: {sorted(bad)}")
+    for k in EDITABLE & payload.keys():
+        manifest[k] = payload[k]
+    _write_manifest(key, manifest)
+    manifest["key"] = key
+    if manifest.get("consolidated_pdf"):
+        manifest["consolidated_url"] = f"/static/pdfs/incoming/{key}/{manifest['consolidated_pdf']}"
+    return manifest
+
+
+@app.delete("/pdfs/incoming/{key}", tags=["pdfs"], status_code=204)
+def delete_incoming_bundle(key: str):
+    """R1 — remove an entire intake bundle (source PDFs, consolidated
+    PDF, manifest). Does NOT touch data/dataset/<key>/. The user has to
+    delete extracted dataset scenes separately."""
+    _safe_key(key)
+    bundle = INCOMING_DIR / key
+    if not bundle.exists():
+        raise HTTPException(status_code=404, detail=f"No intake bundle for {key!r}")
+    import shutil
+    shutil.rmtree(bundle)
+    return None

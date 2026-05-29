@@ -167,6 +167,26 @@ export interface DatasetDrawing {
   label_count?: number;
 }
 
+// R1 — PDF intake bundle. One per house under data/pdfs/incoming/<key>/.
+// The consolidated_url points at the merged PDF used by R2's scene extractor.
+export interface IncomingPdf {
+  schema_version: '1.0';
+  key: string;
+  house_key: string;
+  consolidated_pdf: string | null;
+  consolidated_url?: string | null;
+  source_filenames: string[];
+  uploaded_at: string;
+  page_count: number | null;
+  state: 'pending' | 'partial' | 'extracted' | 'annotated';
+  user_notes: string;
+  extracted_scenes: Array<{
+    page: number;
+    bbox_pdf_units: [number, number, number, number];
+    scene_file: string;
+  }>;
+}
+
 export interface DatasetHouse {
   key: string;
   linked_house: string;

@@ -1,10 +1,7 @@
 fastapi
 uvicorn[standard]
 pillow
-mcp[cli]
 jsonschema
-
-# scripts/generate_synthetic_drawings.py
-openai
-python-dotenv
-tqdm
+python-multipart   # FastAPI file uploads (R1)
+PyMuPDF            # PDF page render + crop (R1 page render, R2 scene crop)
+pypdf              # PDF merge (R1.3 consolidation)
