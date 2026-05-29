@@ -310,14 +310,14 @@ export function ExtractPage() {
         <div className="flex items-center gap-1.5">
           <Link
             to={`/${key}/export`}
-            className="text-[0.72rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+            className="text-[0.75rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
             title="Export-Übersicht (alle Szenen) + Bulk-Export"
           >
             Export ▸
           </Link>
           <Link
             to={`/${key}/3d`}
-            className="text-[0.72rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+            className="text-[0.75rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
             title="3D-Vorschau der annotierten Geometrie"
           >
             3D ▸
@@ -1032,7 +1032,7 @@ function HouseMenu({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="text-[0.78rem] px-2 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+        className="text-[0.75rem] px-2 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
         title={`${houseKey} — Aktionen`}
         aria-label="Menü"
       >

@@ -2657,7 +2657,7 @@ export function AnnotatePage() {
         <div className="flex items-center gap-2">
           <Link
             to={`/${key}/scene/${encodeURIComponent(decodedFile)}/export`}
-            className="text-[0.72rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+            className="text-[0.75rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
             title="Set A / Set B Vorschau für diese Szene"
           >
             Export ▸
@@ -2782,7 +2782,7 @@ export function AnnotatePage() {
             type="button"
             disabled={!dirty || saving}
             onClick={save}
-            className={`px-3 py-1 rounded-md text-[0.78rem] font-medium ${
+            className={`text-[0.75rem] px-3 py-1 rounded-md font-medium ${
               dirty
                 ? 'bg-accent text-white hover:opacity-90'
                 : 'bg-zinc-200 text-zinc-500 cursor-not-allowed'
@@ -2790,13 +2790,6 @@ export function AnnotatePage() {
           >
             {saving ? 'Speichern…' : 'Speichern (Cmd+S)'}
           </button>
-          <a
-            href={location.pathname.replace('/annotate', '/preview')}
-            className="px-3 py-1 rounded-md text-[0.78rem] font-medium bg-white text-zinc-900 border border-border hover:border-zinc-400"
-            title="Vorschau der beiden Ground Truths + ZIP-Export"
-          >
-            Vorschau & Export →
-          </a>
           <button
             type="button"
             onClick={() => setCheatsheetOpen(true)}
