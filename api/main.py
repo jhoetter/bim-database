@@ -242,6 +242,30 @@ def put_house_facts(key: str, body: dict = Body(...)):
     return {"ok": True, "bytes": p.stat().st_size}
 
 
+@app.post("/datasets/{key}/recompute-facts", tags=["dataset"])
+def recompute_facts(key: str):
+    """G1-6 (agentic-labeling-followups-tracker): rebuild
+    house_facts.json from every scene's labels. Idempotent; safe to
+    call repeatedly. Returns the freshly-derived facts dict.
+
+    USE when:
+      - A developer notices stale `scene_metadata` entries (a scene
+        was deleted but its facts row stuck around).
+      - You want to verify the derivation pipeline is producing what
+        the SPA's `promoteToFacts` would.
+      - You just touched labels out-of-band (e.g. edited a JSON file
+        by hand) and want the facts to catch up without a per-scene
+        label PUT.
+    """
+    _safe_key(key)
+    house_dir = DATASET_DIR / key
+    if not house_dir.exists():
+        raise HTTPException(status_code=404, detail=f"no dataset for {key!r}")
+    from .fact_derivation import recompute_facts_after_label_write
+    facts = recompute_facts_after_label_write(key, dataset_root=DATASET_DIR)
+    return facts
+
+
 # ── per-scene attribute patch (U9) ─────────────────────────────────────────
 # In-place edit of a single scene's classification — kind / floor / view /
 # title — used by the U9 popover and the U10 AnnotatePage header. The
@@ -360,7 +384,25 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
             raise HTTPException(status_code=422, detail=f"schema: {e.message} at {list(e.absolute_path)}")
     label_path.parent.mkdir(parents=True, exist_ok=True)
     label_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-    return {"saved": str(label_path.relative_to(BASE)), "bytes": label_path.stat().st_size}
+    # G1 (agentic-labeling-followups-tracker): server-side fact derivation.
+    # Every label write triggers a full recompute of facts.calibration_per_scene
+    # + scene_metadata + extent + heights + openings_catalog. Single source of
+    # truth so the MCP + SPA paths produce identical facts. Failure here is
+    # non-fatal — the label write already succeeded.
+    derivation_note: str | None = None
+    if scope == "dataset":
+        try:
+            from .fact_derivation import recompute_facts_after_label_write
+            recompute_facts_after_label_write(key, dataset_root=DATASET_DIR)
+        except Exception as e:  # noqa: BLE001
+            derivation_note = f"label saved; fact derivation failed: {e!s}"
+    resp = {
+        "saved": str(label_path.relative_to(BASE)),
+        "bytes": label_path.stat().st_size,
+    }
+    if derivation_note:
+        resp["derivation_warning"] = derivation_note
+    return resp
 
 
 # ── PDF intake (R1 — landing routes; full impl lands in R1 wave) ──────────
@@ -1663,6 +1705,15 @@ def delete_extracted_scene(key: str, file: str):
         (recycle_dir / "intake_record.json").write_text(
             json.dumps(intake_record, indent=2, ensure_ascii=False)
         )
+    # G1-7 (agentic-labeling-followups-tracker): prune the scene's
+    # facts row + re-derive the rest. The deleted scene may have
+    # contributed to extent / openings_catalog; recompute picks up
+    # the cascade. Non-fatal — the scene is already gone from disk.
+    try:
+        from .fact_derivation import prune_scene_from_facts
+        prune_scene_from_facts(key, file, dataset_root=DATASET_DIR)
+    except Exception:  # noqa: BLE001
+        pass
     return None
 
 

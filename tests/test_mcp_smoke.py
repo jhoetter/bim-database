@@ -291,6 +291,79 @@ def test_dump_run_summary_writes_file(tmp_path, monkeypatch):
     assert r["ok"], r.get("error")
 
 
+# ── G1-8: round-trip check (workflow state flips after MCP writes) ───────
+
+
+def test_add_reference_dim_unlocks_w4_via_server_derivation():
+    """The failure mode that motivated Phase G1: agent adds ref dims
+    via add_reference_dim, but facts.calibration_per_scene stays empty
+    so W4 never flips. This test asserts the server-side derivation
+    closes that gap.
+
+    Uses a scratch scene: pick the first ansicht/schnitt in the corpus,
+    snapshot its current labels, add fresh ref dims, confirm W4 sees
+    the calibration, then restore.
+    """
+    rs = _run(mcp_server.list_houses())
+    if not rs["data"]["houses"]:
+        pytest.skip("no houses")
+    # Find a house with an ansicht/schnitt scene
+    target_key = None
+    target_file = None
+    for h in rs["data"]["houses"]:
+        gh = _run(mcp_server.get_house(key=h["key"]))
+        for d in gh["data"]["drawings"]:
+            kind = d.get("kind")
+            if kind in ("elevation", "section"):
+                target_key, target_file = h["key"], d["file"]
+                break
+        if target_key:
+            break
+    if target_key is None:
+        pytest.skip("no elevation/section scene in corpus")
+
+    # Snapshot existing labels
+    existing = _run(mcp_server.list_scene_labels(key=target_key, file=target_file))
+    snapshot_label_ids = [l["id"] for l in existing["data"]["labels"]]
+
+    # Tag as ansicht so the predicate counts it
+    _run(mcp_server.set_scene_tag(key=target_key, file=target_file, tag="ansicht"))
+
+    # Add a horizontal + vertical reference dim
+    r_h = _run(mcp_server.add_reference_dim(
+        key=target_key, file=target_file,
+        orientation="horizontal",
+        start=[100, 500], end=[1100, 500],
+        value_mm=10000,
+    ))
+    assert r_h["ok"], r_h.get("error")
+    r_v = _run(mcp_server.add_reference_dim(
+        key=target_key, file=target_file,
+        orientation="vertical",
+        start=[500, 100], end=[500, 1100],
+        value_mm=10000,
+    ))
+    assert r_v["ok"], r_v.get("error")
+
+    try:
+        # Re-fetch facts; calibration_per_scene should now have the file
+        facts = _run(mcp_server.get_house_facts(key=target_key))
+        assert facts["ok"]
+        cps = (facts["data"] or {}).get("calibration_per_scene") or {}
+        assert target_file in cps, \
+            f"server-side derivation didn't populate calibration_per_scene[{target_file!r}]"
+        # And computed_from should reflect both axes
+        assert cps[target_file]["computed_from"] == "M1-both"
+    finally:
+        # Clean up — delete any label whose id wasn't in the snapshot
+        after = _run(mcp_server.list_scene_labels(key=target_key, file=target_file))
+        for lab in after["data"]["labels"]:
+            if lab["id"] not in snapshot_label_ids:
+                _run(mcp_server.delete_label(
+                    key=target_key, file=target_file, label_id=lab["id"],
+                ))
+
+
 # ── Tool description snapshot (tracker §9 risk: description drift) ───────
 
 
