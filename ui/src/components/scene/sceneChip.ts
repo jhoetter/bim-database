@@ -1,10 +1,7 @@
-// U12 — single source of truth for "what a scene looks like as a chip".
-// Five views render scenes (SceneStrip on Extract + Annotate,
-// HouseCard, ExportPage scene table, the U9 popover header). They all
-// have to agree on terminology, indicators and the labeled checkmark.
-// This file gives them one shape and one helper.
-
-import type { DatasetDrawing } from '../../api/types';
+// U12 — shared terminology + label helpers for everywhere a scene's
+// kind/floor/view shows up. SceneStrip (Extract + Annotate),
+// HouseCard, ExportPage scene table, the SceneDetailsCard popover.
+// One dictionary, one label function, no per-call-site re-implementations.
 
 export type SceneKind = 'floorplan' | 'elevation' | 'section' | 'detail';
 
@@ -75,39 +72,6 @@ export function chipReadinessColor(s: Pick<SceneChipData, 'readiness'>): string 
   if (hasH && hasV) return '#10b981'; // emerald — ready
   if (hasH || hasV) return '#f59e0b'; // amber — half
   return '#d4d4d8';                   // zinc — none
-}
-
-export function chipReadinessTitle(s: Pick<SceneChipData, 'readiness'>): string {
-  if (!s.readiness) return '';
-  const { hasH, hasV } = s.readiness;
-  if (hasH && hasV) return ' · Bezug H+V gesetzt → Skalierung+Entzerrung bereit';
-  if (hasH) return ' · nur horizontaler Bezug — vertikalen fehlt noch';
-  if (hasV) return ' · nur vertikaler Bezug — horizontalen fehlt noch';
-  return ' · keine Bezugsmaße — Skalierung+Entzerrung noch nicht möglich';
-}
-
-/** Build a SceneChipData from a DatasetDrawing. The readiness field is
- *  optional — supply it from the caller when a per-scene labels summary
- *  has already been fetched. */
-export function fromDatasetDrawing(
-  d: DatasetDrawing,
-  readiness?: { hasH: boolean; hasV: boolean },
-): SceneChipData {
-  const cf = (d.crop_from as { page?: number } | undefined);
-  return {
-    file: d.file,
-    url: d.url,
-    title: d.title ?? d.file,
-    kind: ((['floorplan', 'elevation', 'section', 'detail'] as const).includes(
-      d.kind as SceneKind,
-    ) ? (d.kind as SceneKind) : null),
-    floor: d.floor ?? null,
-    view: d.view ?? null,
-    page: cf?.page ?? null,
-    labeled: !!d.labeled,
-    labelCount: d.label_count ?? 0,
-    readiness,
-  };
 }
 
 // Helpful aliases the caller can read out the dictionaries; keeps a

@@ -13,7 +13,6 @@ import { fetchDataset, fetchExportPreview, fetchLabels, getIncomingPdf } from '.
 import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { rememberLastStep } from '../lib/step_state';
 
 interface SceneRow {
   file: string;
@@ -32,8 +31,6 @@ export function ExportPage() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
-
-  useEffect(() => { rememberLastStep(key, 'export'); }, [key]);
 
   useEffect(() => {
     let cancelled = false;

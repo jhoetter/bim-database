@@ -17,10 +17,6 @@
 import type { Label, LabelScope, SceneLevel, SceneOrientation, SceneTag } from '../api/types';
 import { dimOrientation } from './building_dims';
 
-export type DatumName =
-  | 'first' | 'traufe' | 'gelaende' | 'ok_ffb'
-  | 'geschoss' | 'sockel' | 'kniestock' | 'firstkante';
-
 export interface SceneCalibration {
   /** Pixels per mm — average of H and V if both M1 references are present. */
   px_per_mm: number;

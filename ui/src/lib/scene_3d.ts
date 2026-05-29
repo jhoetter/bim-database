@@ -312,39 +312,3 @@ export function buildScene3D(bundle: SceneBundle): BuiltScene3D {
   };
 }
 
-/** Door swing direction → floor arc representation. Returns the swing
- *  segment & arc start/end angles in the wall-local XZ plane. Used for
- *  R5.3#10. v1 is a polyline approximation that the renderer plots on
- *  the floor slab. */
-export function doorSwingArc(opening: {
-  swing?: 'in' | 'out' | 'sliding' | 'none';
-  swing_side?: 'left' | 'right' | 'none';
-  width_mm: number;
-}): { arc_points: [number, number][]; is_sliding: boolean } | null {
-  const w = opening.width_mm;
-  if (!opening.swing || opening.swing === 'none' || opening.swing_side === 'none') return null;
-  if (opening.swing === 'sliding') {
-    return {
-      is_sliding: true,
-      arc_points: [[0, 0], [w, 0]],
-    };
-  }
-  const dir = opening.swing_side === 'right' ? -1 : 1;
-  const insideOut = opening.swing === 'out' ? -1 : 1;
-  const pts: [number, number][] = [];
-  const steps = 16;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    // Quarter arc; pivot at (0, 0) (hinge corner), radius = w. The arc
-    // sweeps from the closed leaf (along the wall) to the open leaf
-    // (perpendicular into the room).
-    const ang = (Math.PI / 2) * t;
-    pts.push([
-      Math.cos(ang) * w * dir,
-      Math.sin(ang) * w * insideOut,
-    ]);
-  }
-  // Walk the door leaf as a thin line, then arc — caller plots both.
-  return { is_sliding: false, arc_points: pts };
-}
-

@@ -82,11 +82,6 @@ export const KeynoteIcon = icon(
   </>,
 );
 
-export const LinkIcon = icon(
-  'LinkIcon',
-  <path d="M9 7H7A5 5 0 0 0 7 17H9 M15 7H17A5 5 0 0 1 17 17H15 M8 12H16" />,
-);
-
 // ── scene tags ──────────────────────────────────────────────────────────────
 export const PlanViewIcon = icon(
   'PlanViewIcon',

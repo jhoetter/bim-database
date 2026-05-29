@@ -25,7 +25,6 @@ import {
 import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { rememberLastStep } from '../lib/step_state';
 import { PHASE_IDS, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 
@@ -336,10 +335,6 @@ export function ExtractPage() {
       setError((e as Error).message);
     }
   }, [key, dataset]);
-
-  // The house IS the extract view now; mark it as the user's
-  // "last step" so /dataset list cards resume here.
-  useEffect(() => { rememberLastStep(key, 'extract'); }, [key]);
 
   const pageBboxes = draft.bboxes.filter((b) => b.page === currentPage);
   const extractedOnPage = useMemo(
@@ -1020,6 +1015,10 @@ function PageCanvas({
   onDatasetRefresh: (manifest: DatasetHouse) => void;
 }) {
   const navigate = useNavigate();
+  // Per-bbox single-click timers used to discriminate single click (open
+  // menu) from double click (navigate to annotate). See the rect's
+  // onClick / onDoubleClick handlers below.
+  const clickTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // The pageRef tracks the WHITE PAGE DIV (not the outer dark scroll
   // container) — its bbox is what we measure against for pointer-to-PDF
   // unit conversion. Otherwise the coords are off by however much
@@ -1144,20 +1143,31 @@ function PageCanvas({
                   style={{ pointerEvents: 'auto', cursor: 'pointer' }}
                   data-bbox-handle="extracted"
                   onPointerDown={(e) => {
-                    // pointerdown (not click) so the page's drag-to-create
-                    // gesture never gets a chance to start. data-bbox-handle
-                    // is the parent div's secondary guard.
+                    // pointerdown only stops propagation so the page's
+                    // drag-to-create gesture never starts. The actual
+                    // open-menu vs navigate decision happens in onClick /
+                    // onDoubleClick below.
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
                     e.stopPropagation();
                     if (e.button !== 0) return;
-                    setMenuFor(menuFor === d.file ? null : d.file);
+                    // Delay the menu open so a double-click can win. If
+                    // the user double-clicks within ~280 ms, onDoubleClick
+                    // clears the pending open and navigates instead. The
+                    // single-click case still feels instant.
+                    const pending = clickTimers.current.get(d.file);
+                    if (pending) clearTimeout(pending);
+                    const t = setTimeout(() => {
+                      clickTimers.current.delete(d.file);
+                      setMenuFor(menuFor === d.file ? null : d.file);
+                    }, 280);
+                    clickTimers.current.set(d.file, t);
                   }}
                   onDoubleClick={(e) => {
-                    // Double-click on a green bbox jumps straight to its
-                    // annotation. stopPropagation prevents the page-level
-                    // double-click (which makes a full-page bbox) from
-                    // firing — the user explicitly does NOT want that
-                    // here.
                     e.stopPropagation();
+                    const pending = clickTimers.current.get(d.file);
+                    if (pending) { clearTimeout(pending); clickTimers.current.delete(d.file); }
                     setMenuFor(null);
                     navigate(`/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`);
                   }}

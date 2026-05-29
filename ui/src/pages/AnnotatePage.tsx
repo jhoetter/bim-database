@@ -30,7 +30,6 @@ import type {
 } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { rememberLastStep } from '../lib/step_state';
 import {
   handlesFor,
   labelCentroid,
@@ -505,18 +504,6 @@ function sceneShortLabel(file: string, title?: string): string {
   return t.length > 6 ? t.slice(0, 6) : t;
 }
 
-// localStorage key for the last-visited scene of a house. Scoped by
-// (scope, key) so dataset and source-house namespaces don't collide.
-function lastSceneKey(scope: 'house' | 'dataset', houseKey: string): string {
-  return `bim-db:annotate:last-scene:${scope}:${houseKey}`;
-}
-export function getLastVisitedScene(scope: 'house' | 'dataset', houseKey: string): string | null {
-  try { return window.localStorage.getItem(lastSceneKey(scope, houseKey)); } catch { return null; }
-}
-function rememberLastVisitedScene(scope: 'house' | 'dataset', houseKey: string, file: string): void {
-  try { window.localStorage.setItem(lastSceneKey(scope, houseKey), file); } catch { /* no-op */ }
-}
-
 // House-wide Höhenkote knowledge — once you've labeled First=+12,5m in
 // scene 1, the same datum in any other scene of the same house should
 // pre-fill to the same value. Stored as { [datum]: value_mm } per house
@@ -630,7 +617,6 @@ export function AnnotatePage() {
   const currentDrawing = houseDataset?.drawings.find((d) => d.file === decodedFile) ?? null;
   const sceneIndex = sceneList.findIndex((s) => s.file === decodedFile);
 
-  useEffect(() => { rememberLastStep(key, 'annotate'); }, [key]);
   // U13 — pull server's house_facts into localStorage on house change so
   // cross-machine work resumes. Best-effort; offline = read local cache.
   useEffect(() => {
@@ -1121,15 +1107,6 @@ export function AnnotatePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
-
-  // Remember the last-visited scene for this house so opening the house
-  // again (from the dataset overview card) resumes here instead of
-  // jumping back to the hero scene.
-  useEffect(() => {
-    if (key && decodedFile) {
-      rememberLastVisitedScene(scope, key, decodedFile);
-    }
-  }, [scope, key, decodedFile]);
 
   // Warn on close if dirty
   useEffect(() => {

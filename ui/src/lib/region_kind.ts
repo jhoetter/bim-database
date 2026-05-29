@@ -23,7 +23,7 @@
 // has ONE line_kind for the whole polyline. We look at the line_kind plus
 // topology (vertex positions relative to the image).
 
-import type { ComponentLineLabel, Label, Point } from '../api/types';
+import type { ComponentLineLabel, Point } from '../api/types';
 
 export type RegionKind = 'roof' | 'wall_body' | 'gable' | 'ground' | 'unknown';
 
@@ -73,21 +73,6 @@ export function inferRegionKind(
   //    through to unknown unless the kind hints it.
 
   return 'unknown';
-}
-
-/** Convenience: for every closed-area component_line in the scene,
- *  return its inferred kind. */
-export function inferRegionKinds(
-  labels: Label[],
-  imageHeight: number,
-): Map<string, RegionKind> {
-  const out = new Map<string, RegionKind>();
-  for (const l of labels) {
-    if (l.type !== 'component_line') continue;
-    if (l.geometry.polyline.length < 3) continue;
-    out.set(l.id, inferRegionKind(l, { imageHeight }));
-  }
-  return out;
 }
 
 /** Centroid of a polygon — used for region glyph anchoring. */
