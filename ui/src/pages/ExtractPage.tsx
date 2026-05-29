@@ -124,7 +124,12 @@ export function ExtractPage() {
   // The extracted-scene action menu (Annotieren / Bbox anpassen /
   // Löschen) lives here so the SceneStrip can open it for off-canvas
   // chip clicks the same way the canvas click on a green rect does.
-  const [menuForExtracted, setMenuForExtracted] = useState<string | null>(null);
+  // L4 D3 — menu anchor is the user's click coords (viewport space).
+  // Falls back to the bbox centroid when opened from a chip click in
+  // the SceneStrip (no specific gesture coordinate).
+  const [menuForExtracted, setMenuForExtracted] = useState<
+    { file: string; clientX?: number; clientY?: number } | null
+  >(null);
   // Post-draw classifier chip: appears next to the freshly-committed bbox
   // and walks the user through kind → sub-classification with keyboard
   // hints. step='kind' → pick Grundriss/Ansicht/Schnitt/Detail; then
@@ -395,13 +400,15 @@ export function ExtractPage() {
   // draw classifier writes straight through to the server, the orange
   // bbox becomes a green extracted scene as soon as the round-trip
   // returns. The chip stays in 'busy' state during the trip.
+  // L9 — set of draft IDs currently mid-flight on a server extract.
+  // Drives the in-progress visual on the bbox itself.
+  const [extractingIds, setExtractingIds] = useState<Set<string>>(new Set());
   const extractDraftNow = useCallback(async (draftId: string) => {
     setError(null);
-    // Snapshot the latest draft state for this id (caller may have
-    // applied a setDraft just before invoking us).
     const draftSnap = draft.bboxes.find((b) => b.id === draftId);
     if (!draftSnap || !draftSnap.kind) return;
     setBusy(true);
+    setExtractingIds((s) => { const n = new Set(s); n.add(draftId); return n; });
     try {
       await extractScenes(key, [{
         page: draftSnap.page,
@@ -438,6 +445,7 @@ export function ExtractPage() {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setExtractingIds((s) => { const n = new Set(s); n.delete(draftId); return n; });
     }
   }, [draft, key, pushUndo]);
 
@@ -614,13 +622,14 @@ export function ExtractPage() {
           scenes={dataset?.drawings ?? []}
           drafts={draft.bboxes}
           selectedDraftId={selectedId}
-          menuForFile={menuForExtracted}
+          menuForFile={menuForExtracted?.file ?? null}
           currentPage={currentPage}
           onSelectScene={(file) => {
             const d = (dataset?.drawings ?? []).find((x) => x.file === file);
             const p = (d?.crop_from as { page?: number } | undefined)?.page;
             if (p && p !== currentPage) setPage(p);
-            setMenuForExtracted(file);
+            // No client coords — the chip's centre is good enough.
+            setMenuForExtracted({ file });
           }}
           onSelectDraft={(id) => {
             const d = draft.bboxes.find((b) => b.id === id);
@@ -689,6 +698,7 @@ export function ExtractPage() {
             }}
             onPostDrawDismiss={() => setPostDraw(null)}
             extractBusy={busy}
+            extractingIds={extractingIds}
             houseKey={key}
             onDeleteExtracted={onDeleteScene}
             onAdjustExtracted={onAdjustExtracted}
@@ -1160,7 +1170,7 @@ function ExtractSidebar({
 function PageCanvas({
   pdfKey, page, pageWidthPt, pageHeightPt,
   draftBboxes, extracted, selectedId, onSelect, onCommit, onUpdate,
-  postDraw, onPostDrawPick, onPostDrawDismiss, extractBusy,
+  postDraw, onPostDrawPick, onPostDrawDismiss, extractBusy, extractingIds,
   houseKey, onDeleteExtracted, onAdjustExtracted,
   menuFor, setMenuFor, onDatasetRefresh,
 }: {
@@ -1178,11 +1188,12 @@ function PageCanvas({
   onPostDrawPick: (patch: Partial<DraftBbox>) => void;
   onPostDrawDismiss: () => void;
   extractBusy: boolean;
+  extractingIds: Set<string>;
   houseKey: string;
   onDeleteExtracted: (file: string) => void;
   onAdjustExtracted: (file: string) => void;
-  menuFor: string | null;
-  setMenuFor: (file: string | null) => void;
+  menuFor: { file: string; clientX?: number; clientY?: number } | null;
+  setMenuFor: (m: { file: string; clientX?: number; clientY?: number } | null) => void;
   onDatasetRefresh: (manifest: DatasetHouse) => void;
 }) {
   const navigate = useNavigate();
@@ -1295,14 +1306,14 @@ function PageCanvas({
               (matching menuFor) renders LAST so it sits on top of any
               overlapping siblings — SVG z-order is document order. */}
           {[...extracted].sort((a, b) => {
-            const aSel = menuFor === a.file ? 1 : 0;
-            const bSel = menuFor === b.file ? 1 : 0;
+            const aSel = menuFor?.file === a.file ? 1 : 0;
+            const bSel = menuFor?.file === b.file ? 1 : 0;
             return aSel - bSel;
           }).map((d) => {
             const cf = d.crop_from as { bbox_pdf_units?: [number, number, number, number] } | undefined;
             if (!cf?.bbox_pdf_units) return null;
             const [x0, y0, x1, y1] = cf.bbox_pdf_units;
-            const isMenu = menuFor === d.file;
+            const isMenu = menuFor?.file === d.file;
             return (
               <g key={d.file}>
                 <rect
@@ -1314,24 +1325,20 @@ function PageCanvas({
                   style={{ pointerEvents: 'auto', cursor: 'pointer' }}
                   data-bbox-handle="extracted"
                   onPointerDown={(e) => {
-                    // pointerdown only stops propagation so the page's
-                    // drag-to-create gesture never starts. The actual
-                    // open-menu vs navigate decision happens in onClick /
-                    // onDoubleClick below.
                     e.stopPropagation();
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (e.button !== 0) return;
-                    // Delay the menu open so a double-click can win. If
-                    // the user double-clicks within ~280 ms, onDoubleClick
-                    // clears the pending open and navigates instead. The
-                    // single-click case still feels instant.
+                    // L4 D3 — capture click coords so the popover opens at
+                    // the gesture, not at the bbox centroid.
+                    const cx = e.clientX;
+                    const cy = e.clientY;
                     const pending = clickTimers.current.get(d.file);
                     if (pending) clearTimeout(pending);
                     const t = setTimeout(() => {
                       clickTimers.current.delete(d.file);
-                      setMenuFor(menuFor === d.file ? null : d.file);
+                      setMenuFor(menuFor?.file === d.file ? null : { file: d.file, clientX: cx, clientY: cy });
                     }, 280);
                     clickTimers.current.set(d.file, t);
                   }}
@@ -1352,16 +1359,44 @@ function PageCanvas({
           {draftBboxes.map((b) => {
             const [x0, y0, x1, y1] = b.bbox_pdf;
             const sel = b.id === selectedId;
+            const extracting = extractingIds.has(b.id);
             return (
-              <BboxOverlay
-                key={b.id}
-                bbox={[x0, y0, x1, y1]}
-                pageWidthPt={pageWidthPt}
-                pageHeightPt={pageHeightPt}
-                selected={sel}
-                onSelect={() => onSelect(b.id)}
-                onUpdate={(nx) => onUpdate(b.id, { bbox_pdf: nx })}
-              />
+              <g key={b.id}>
+                <BboxOverlay
+                  bbox={[x0, y0, x1, y1]}
+                  pageWidthPt={pageWidthPt}
+                  pageHeightPt={pageHeightPt}
+                  selected={sel}
+                  onSelect={() => onSelect(b.id)}
+                  onUpdate={(nx) => onUpdate(b.id, { bbox_pdf: nx })}
+                />
+                {/* L9 — in-flight extract decoration: pulsing emerald
+                    fill on top of the orange draft, plus a ↻ glyph in
+                    the centre. */}
+                {extracting && (
+                  <g pointerEvents="none">
+                    <rect
+                      x={x0} y={y0} width={x1 - x0} height={y1 - y0}
+                      fill="rgba(16, 185, 129, 0.18)"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                      className="animate-pulse"
+                    />
+                    <text
+                      x={(x0 + x1) / 2}
+                      y={(y0 + y1) / 2}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize={Math.max(12, Math.min(x1 - x0, y1 - y0) * 0.10)}
+                      fill="#047857"
+                      style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}
+                    >
+                      ↻ extrahiere…
+                    </text>
+                  </g>
+                )}
+              </g>
             );
           })}
           {/* In-flight drag preview. */}
@@ -1409,18 +1444,32 @@ function PageCanvas({
             the bbox's top edge; flips below for bboxes near y=0 so it's
             never clipped. */}
         {menuFor && (() => {
-          const d = extracted.find((x) => x.file === menuFor);
+          const d = extracted.find((x) => x.file === menuFor.file);
           const cf = d?.crop_from as { bbox_pdf_units?: [number, number, number, number] } | undefined;
           if (!d || !cf?.bbox_pdf_units) return null;
+          // L4 D3 — anchor at the click coords (viewport space) if we
+          // have them; fall back to the bbox-centroid model otherwise
+          // (e.g. when the menu was opened from a chip click).
+          if (menuFor.clientX != null && menuFor.clientY != null) {
+            return (
+              <ExtractedSceneMenu
+                anchor={{ kind: 'viewport', x: menuFor.clientX, y: menuFor.clientY }}
+                houseKey={houseKey}
+                drawing={d}
+                onClose={() => setMenuFor(null)}
+                onDelete={() => { setMenuFor(null); onDeleteExtracted(d.file); }}
+                onAdjust={() => { setMenuFor(null); onAdjustExtracted(d.file); }}
+                onUpdated={onDatasetRefresh}
+              />
+            );
+          }
           const [x0, y0, x1] = cf.bbox_pdf_units;
           const leftPct = (((x0 + x1) / 2) / pageWidthPt) * 100;
           const topPct = (y0 / pageHeightPt) * 100;
           const placement: 'above' | 'below' = topPct < 12 ? 'below' : 'above';
           return (
             <ExtractedSceneMenu
-              leftPct={leftPct}
-              topPct={topPct}
-              placement={placement}
+              anchor={{ kind: 'centroid', leftPct, topPct, placement }}
               houseKey={houseKey}
               drawing={d}
               onClose={() => setMenuFor(null)}
@@ -1615,16 +1664,18 @@ function HouseMenu({
   );
 }
 
-// U9 — Floating details popover anchored to an already-extracted
-// scene's bbox on the PDF page. Shows the scene's known attributes
-// (kind / floor / view / title / status / readiness), inline-editable,
-// plus the three actions (Annotieren / Bbox anpassen / Löschen).
+type MenuAnchor =
+  | { kind: 'viewport'; x: number; y: number }
+  | { kind: 'centroid'; leftPct: number; topPct: number; placement: 'above' | 'below' };
+
+// U9 + L4 D3 — Floating details popover for an already-extracted scene.
+// Anchored to the user's click coordinate when available (viewport
+// anchor); falls back to the bbox centroid (chip-click cases) so the
+// chip-strip flow still works without a click coord.
 function ExtractedSceneMenu({
-  leftPct, topPct, placement, houseKey, drawing, onClose, onDelete, onAdjust, onUpdated,
+  anchor, houseKey, drawing, onClose, onDelete, onAdjust, onUpdated,
 }: {
-  leftPct: number;
-  topPct: number;
-  placement: 'above' | 'below';
+  anchor: MenuAnchor;
   houseKey: string;
   drawing: DatasetHouse['drawings'][number];
   onClose: () => void;
@@ -1637,30 +1688,31 @@ function ExtractedSceneMenu({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
+  const positionStyle: React.CSSProperties = anchor.kind === 'viewport'
+    ? { position: 'fixed', left: anchor.x, top: anchor.y, transform: 'translate(-50%, 8px)' }
+    : {
+        position: 'absolute',
+        left: `${anchor.leftPct}%`,
+        top: `${anchor.topPct}%`,
+        transform: anchor.placement === 'above'
+          ? 'translate(-50%, calc(-100% - 8px))'
+          : 'translate(-50%, 8px)',
+      };
   return (
     <>
-      {/* Click-away backdrop. data-bbox-handle prevents the page div's
-          pointerdown handler from running setPointerCapture, which would
-          eat the menu's onClick events. */}
       <button
         type="button"
         onClick={onClose}
         onPointerDown={(e) => e.stopPropagation()}
-        className="absolute inset-0 z-20 cursor-default"
+        className={anchor.kind === 'viewport' ? 'fixed inset-0 z-30 cursor-default' : 'absolute inset-0 z-20 cursor-default'}
         aria-label="Menü schließen"
         data-bbox-handle="menu"
       />
       <div
-        className="absolute z-30 -translate-x-1/2 bg-white border border-zinc-300 rounded-md shadow-xl text-[0.78rem] min-w-[16rem]"
+        className={`${anchor.kind === 'viewport' ? 'z-40' : 'z-30'} bg-white border border-zinc-300 rounded-md shadow-xl text-[0.78rem] min-w-[16rem]`}
         data-bbox-handle="menu"
         onPointerDown={(e) => e.stopPropagation()}
-        style={{
-          left: `${leftPct}%`,
-          top: `${topPct}%`,
-          transform: placement === 'above'
-            ? 'translate(-50%, calc(-100% - 8px))'
-            : 'translate(-50%, 8px)',
-        }}
+        style={positionStyle}
       >
         <SceneDetailsCard
           houseKey={houseKey}
