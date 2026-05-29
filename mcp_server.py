@@ -136,6 +136,28 @@ async def _api_put(path: str, json_body: Any) -> tuple[int, Any]:
     return r.status_code, body
 
 
+async def _api_patch(path: str, json_body: dict, started: float) -> dict | None:
+    """PATCH wrapper that returns an MCP error envelope on failure, or None
+    on success. Use in tools where the response body isn't needed and the
+    caller just wants to know if the change landed."""
+    try:
+        r = await _client().patch(path, json=json_body)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        try:
+            r = await _client().patch(path, json=json_body)
+        except (httpx.HTTPError, httpx.RequestError):
+            return _api_unreachable_error(started)
+    if r.status_code >= 400:
+        try:
+            body = r.json()
+        except (json.JSONDecodeError, ValueError):
+            body = r.text
+        return _http_status_to_error(r.status_code, body, started)
+    return None
+
+
 async def _wait_for_api(timeout_s: float = HEALTH_PROBE_TIMEOUT_S) -> bool:
     """Poll the API's healthish root for up to timeout_s. Used by the
     transport-error handler in tool wrappers."""
@@ -299,7 +321,24 @@ async def get_workflow_state(key: str) -> dict:
         return _http_status_to_error(status, body, started)
     facts_status, facts = await _api_get(f"/datasets/{key}/house_facts")
     facts = facts if facts_status == 200 else {}
-    state = _derive_workflow_state(body or {}, facts or {})
+    # Load each scene's labels JSON so we see the workflow-vocabulary
+    # scene_tag / scene_orientation / scene_level (which live there, not
+    # on the manifest's `kind` / `view` / `floor` extraction fields).
+    scene_meta_by_file: dict[str, dict] = {}
+    for d in (body.get("drawings") or []):
+        f = d.get("file")
+        if not f:
+            continue
+        lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{f}")
+        if lbl_status == 200 and isinstance(lbl, dict):
+            scene_meta_by_file[f] = {
+                "scene_tag": lbl.get("scene_tag"),
+                "scene_orientation": lbl.get("scene_orientation"),
+                "scene_level": lbl.get("scene_level"),
+            }
+        else:
+            scene_meta_by_file[f] = {"scene_tag": None}
+    state = _derive_workflow_state(body or {}, facts or {}, scene_meta_by_file)
     next_tool = None
     if not state.get("exportable") and state.get("next_phase"):
         next_tool = {
@@ -310,30 +349,41 @@ async def get_workflow_state(key: str) -> dict:
     return _ok(state, next_tool=next_tool, started_at=started, status_code=status)
 
 
-def _derive_workflow_state(dataset: dict, facts: dict) -> dict:
+def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dict]) -> dict:
     """Server-side approximation of ui/src/lib/workflow.ts predicates.
 
     Keep deliberately conservative: when in doubt, return `pending` and
     let the skill's actual labeling behavior drive the SPA to fill in
     the gaps. The status flips only on clear, observable conditions.
+
+    Args:
+      dataset: dataset manifest (drawings list).
+      facts: HouseFacts (heights, extent, wall_thickness, orientation,
+             calibration_per_scene, workflow).
+      scene_meta: per-file labels-JSON projection {file: {scene_tag,
+                  scene_orientation, scene_level}}. Reading the
+                  workflow-vocabulary values from labels JSON, not from
+                  the manifest's extraction-time kind/view/floor.
     """
     drawings = dataset.get("drawings") or []
     scenes_by_file = {d.get("file"): d for d in drawings}
 
-    # W0: every scene categorized + Ansicht/Schnitt have orientation,
-    # Grundriss have level.
+    # W0: every scene has a non-null scene_tag + Ansicht/Schnitt have
+    # scene_orientation + Grundriss have scene_level.
     w0_blockers: list[str] = []
     if not drawings:
         w0_blockers.append("no scenes extracted yet")
     for d in drawings:
-        tag = d.get("kind") or d.get("scene_tag")
+        f = d.get("file")
+        meta = scene_meta.get(f, {})
+        tag = meta.get("scene_tag")
         if tag in (None, "nicht_klassifiziert"):
-            w0_blockers.append(f"{d.get('file')}: untagged")
+            w0_blockers.append(f"{f}: untagged")
             continue
-        if tag in ("ansicht", "schnitt") and not d.get("view"):
-            w0_blockers.append(f"{d.get('file')}: missing orientation")
-        if tag == "grundriss" and not d.get("floor"):
-            w0_blockers.append(f"{d.get('file')}: missing level")
+        if tag in ("ansicht", "schnitt") and not meta.get("scene_orientation"):
+            w0_blockers.append(f"{f}: missing orientation")
+        if tag == "grundriss" and not meta.get("scene_level"):
+            w0_blockers.append(f"{f}: missing level")
     w0_status = "done" if drawings and not w0_blockers else "pending"
 
     # W1: bezug_mm == 0 AND first_mm != None
@@ -349,15 +399,18 @@ def _derive_workflow_state(dataset: dict, facts: dict) -> dict:
     orient = facts.get("orientation") or {}
     w3_status = "done" if orient.get("north_edge_label_id") or orient.get("north_angle_deg") is not None else "pending"
 
-    # W4: every non-detail Ansicht/Schnitt has facts.calibration_per_scene[file]
+    # W4: every Ansicht/Schnitt has facts.calibration_per_scene[file].
     cps = facts.get("calibration_per_scene") or {}
     w4_blockers: list[str] = []
+    has_calibration_targets = False
     for d in drawings:
-        tag = d.get("kind") or d.get("scene_tag")
-        if tag in ("ansicht", "schnitt") and d.get("kind") != "detail":
-            if d.get("file") not in cps:
-                w4_blockers.append(f"{d.get('file')}: not calibrated")
-    w4_status = "done" if not w4_blockers and any(t in ("ansicht", "schnitt") for t in (d.get("kind") for d in drawings)) else "pending"
+        f = d.get("file")
+        tag = scene_meta.get(f, {}).get("scene_tag")
+        if tag in ("ansicht", "schnitt"):
+            has_calibration_targets = True
+            if f not in cps:
+                w4_blockers.append(f"{f}: not calibrated")
+    w4_status = "done" if has_calibration_targets and not w4_blockers else "pending"
 
     # W5: manual; user_skipped or phase_completed_at.detail
     wf = (facts.get("workflow") or {})
@@ -548,6 +601,1024 @@ async def get_pdf_page_view(
 
 def _wrap_text(envelope: dict) -> list[TextContent]:
     return [TextContent(type="text", text=json.dumps(envelope, indent=2))]
+
+
+# ── §5.1 Discovery (cont.) ────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def get_recommended_next_action(key: str) -> dict:
+    """Convenience wrapper: derives the next thing the agent should do
+    from the workflow state, returning a tool call template.
+
+    USE when:
+      - You're starting an iteration loop and want a single source of
+        truth for "what now?".
+
+    DON'T USE when:
+      - You're already mid-phase — re-call your own playbook step. This
+        tool is for orientation, not constant lookup.
+
+    Returns: `data` = {phase, suggested_tool, suggested_args, reason}
+    or {done: true} when the house exports cleanly.
+    """
+    started = time.time()
+    state_env = await get_workflow_state(key=key)
+    if not state_env.get("ok"):
+        return state_env
+    state = state_env["data"]
+    if state.get("exportable") and not state.get("blockers_total"):
+        return _ok({"done": True, "reason": "all phases done; ready to export"}, started_at=started)
+    phase = state.get("next_phase") or "W0"
+    suggestions = {
+        "W0": ("get_house", {"key": key}, "list scenes + their current tags; then set_scene_tag for each untagged"),
+        "W1": ("get_house", {"key": key}, "pick an Ansicht with visible bezug + ridge; label height_marks; set_house_facts heights"),
+        "W2": ("get_house", {"key": key}, "pick EG-Grundriss; add_reference_dim horizontal + vertical; set_house_facts extent + wall_thickness"),
+        "W3": ("get_house", {"key": key}, "pick EG-Grundriss; identify north wall; set_house_facts orientation"),
+        "W4": ("get_house", {"key": key}, "for each uncalibrated Ansicht/Schnitt: add_reference_dim h+v, recompute_homography"),
+        "W5": ("get_workflow_state", {"key": key}, "W5 is opt-in; if --with-detail, label view_openings + component_lines"),
+    }
+    tool_name, tool_args, reason = suggestions[phase]
+    return _ok({
+        "phase": phase,
+        "suggested_tool": tool_name,
+        "suggested_args": tool_args,
+        "reason": reason,
+        "blockers_in_phase": state["phases"][phase].get("blockers", []),
+    }, started_at=started)
+
+
+# ── §5.2 Intake ──────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def list_pdfs() -> dict:
+    """Every incoming PDF bundle (data/pdfs/incoming/<key>/).
+
+    USE when:
+      - About to call extract_scenes — need to know which house has a
+        consolidated PDF ready.
+
+    Returns: `data.pdfs` = [{key, consolidated_pdf, source_filenames,
+                             page_count, state, user_notes}]
+    """
+    started = time.time()
+    try:
+        status, body = await _api_get("/pdfs/incoming")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get("/pdfs/incoming")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok({"pdfs": body or []}, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_pdf_info(key: str) -> dict:
+    """Page count + per-page width_pt/height_pt for the consolidated PDF.
+
+    USE when:
+      - You're about to render PDF pages for scene identification — the
+        page count tells you how many `get_pdf_page_view` calls to make.
+      - Sanity-checking a `bbox_pixels` is within the page.
+
+    Args:
+      key: house key.
+
+    Returns: `data` = {key, page_count, pages: [{page, width_pt, height_pt}]}
+    """
+    started = time.time()
+    try:
+        status, body = await _api_get(f"/pdfs/{key}/info")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(f"/pdfs/{key}/info")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def extract_scenes(
+    key: str,
+    items: list[dict],
+    idempotency_key: str | None = None,
+) -> dict:
+    """Crop one or more scenes out of the consolidated PDF.
+
+    USE when:
+      - The agent has identified scene bboxes from `get_pdf_page_view`
+        renders (W0/extract phase).
+      - Re-extracting after adjusting a bbox (idempotent on (page, slug);
+        re-extract overwrites the JPG and updates the manifest entry but
+        preserves any existing labels.json).
+
+    DON'T USE when:
+      - The bundle has no consolidated PDF — `extract_scenes` returns
+        409. Check via `get_pdf_info` first.
+
+    Args:
+      key: house key.
+      items: list of crop specs. Each item:
+        {
+          "page": 1,                 // 1-indexed page in the PDF
+          "bbox_pixels": [x0,y0,x1,y1],  // pixel coords AT THE DPI YOU SAW
+          "dpi": 144,                 // the DPI of the get_pdf_page_view render
+          "kind": "floorplan",        // floorplan|elevation|section|detail
+          "view": "north",            // optional — for elevations/sections
+          "floor": "eg",              // optional — for floorplans
+          "title": "EG-Grundriss",    // optional human title
+          "slug_override": null       // optional slug
+        }
+      idempotency_key: optional driver-supplied key for crash-replay safety.
+
+    Returns: `data` = {extracted: [...new manifest entries...], intake_state: ...}
+
+    Pixel→PDF conversion is handled here: the API takes bbox_pdf_units,
+    so this tool multiplies by (72 / dpi) before posting.
+    """
+    started = time.time()
+    if not items:
+        return _err("schema_invalid", "items must be a non-empty list",
+                    hint="pass at least one crop spec", started_at=started)
+    api_items: list[dict] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            return _err("schema_invalid", f"items must be objects, got {type(raw).__name__}",
+                        started_at=started)
+        bbox_px = raw.get("bbox_pixels") or raw.get("bbox_pdf_units")
+        if not (isinstance(bbox_px, (list, tuple)) and len(bbox_px) == 4):
+            return _err("bbox_zero_area", "bbox_pixels must be [x0,y0,x1,y1]",
+                        started_at=started)
+        dpi = int(raw.get("dpi", 144))
+        if dpi <= 0:
+            return _err("schema_invalid", "dpi must be > 0", started_at=started)
+        x0, y0, x1, y1 = (float(v) for v in bbox_px)
+        if not (x1 > x0 and y1 > y0):
+            return _err("bbox_zero_area", f"bbox has non-positive area: {bbox_px}",
+                        started_at=started)
+        factor = 72.0 / dpi if "bbox_pixels" in raw else 1.0
+        api_items.append({
+            "page": int(raw.get("page", 0)),
+            "bbox_pdf_units": [x0 * factor, y0 * factor, x1 * factor, y1 * factor],
+            "kind": raw.get("kind", "detail"),
+            "view": raw.get("view"),
+            "floor": raw.get("floor"),
+            "title": raw.get("title"),
+            "slug_override": raw.get("slug_override"),
+            "dpi": int(raw.get("crop_dpi", 300)),
+        })
+    try:
+        status, body = await _api_post(f"/pdfs/{key}/extract", json_body={"items": api_items})
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_post(f"/pdfs/{key}/extract", json_body={"items": api_items})
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body, started_at=started, status_code=status,
+               next_tool={
+                   "name": "get_workflow_state",
+                   "args": {"key": key},
+                   "reason": "see what W0 needs next now that scenes exist",
+               })
+
+
+# ── §5.3 Scene inspection (cont.) ────────────────────────────────────────
+
+
+@mcp.tool()
+async def get_scene_meta(key: str, file: str) -> dict:
+    """Compact metadata for one scene.
+
+    USE when:
+      - Checking the current scene_tag / view / floor / labeled status
+        without pulling the whole house manifest.
+
+    Returns: `data` = {file, scene_tag, view, floor, title, image_size_px,
+                       labeled, label_count, calibration_status}
+    """
+    started = time.time()
+    try:
+        status, ds = await _api_get(f"/datasets/{key}")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, ds = await _api_get(f"/datasets/{key}")
+    if status >= 400:
+        return _http_status_to_error(status, ds, started)
+    target = next((d for d in (ds.get("drawings") or []) if d.get("file") == file), None)
+    if target is None:
+        return _err("scene_not_found", f"no scene {file!r} in {key!r}", started_at=started)
+    # Labels JSON carries the workflow-time scene_tag + orientation + level +
+    # image_size_px. The manifest carries the extraction-time `kind` (a
+    # separate vocabulary: floorplan/elevation/section/detail).
+    lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{file}")
+    if lbl_status == 200 and isinstance(lbl, dict):
+        scene_tag = lbl.get("scene_tag")
+        scene_orientation = lbl.get("scene_orientation")
+        scene_level = lbl.get("scene_level")
+        image_size = lbl.get("image_size_px")
+    else:
+        scene_tag = scene_orientation = scene_level = image_size = None
+    facts_status, facts = await _api_get(f"/datasets/{key}/house_facts")
+    calibration = (facts.get("calibration_per_scene") or {}).get(file) if facts_status == 200 else None
+    return _ok({
+        "file": file,
+        "scene_tag": scene_tag,                # workflow discriminator
+        "extraction_kind": target.get("kind"), # extraction-time category
+        "view": target.get("view"),
+        "floor": target.get("floor"),
+        "scene_orientation": scene_orientation,
+        "scene_level": scene_level,
+        "title": target.get("title"),
+        "image_size_px": image_size,
+        "labeled": bool(target.get("labeled")),
+        "label_count": target.get("label_count", 0),
+        "calibration_status": "calibrated" if calibration else "not_calibrated",
+    }, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def list_scene_labels(key: str, file: str) -> dict:
+    """Compact list of labels on one scene — id, type, status, summary.
+
+    USE when:
+      - You want to see what's already on a scene without the full
+        geometry payload. Cheap; ≤ 200 bytes per label.
+
+    DON'T USE when:
+      - You need the actual coordinates — use `get_label`.
+
+    Returns: `data.labels` = [{id, type, status, summary}]
+    """
+    started = time.time()
+    try:
+        status, body = await _api_get(f"/labels/dataset/{key}/{file}")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(f"/labels/dataset/{key}/{file}")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    summaries = []
+    for lab in (body.get("labels") or []):
+        summaries.append({
+            "id": lab.get("id"),
+            "type": lab.get("type"),
+            "status": lab.get("status"),
+            "summary": _label_summary(lab),
+        })
+    return _ok({
+        "scene_tag": body.get("scene_tag"),
+        "scene_orientation": body.get("scene_orientation"),
+        "scene_level": body.get("scene_level"),
+        "image_size_px": body.get("image_size_px"),
+        "labels": summaries,
+    }, started_at=started, status_code=status)
+
+
+def _label_summary(label: dict) -> str:
+    """One-line human description for the summary view."""
+    t = label.get("type")
+    attrs = label.get("attributes") or {}
+    geom = label.get("geometry") or {}
+    if t == "wall":
+        return f"thickness={attrs.get('thickness_mm')}mm"
+    if t in ("floorplan_opening", "view_opening"):
+        kind = attrs.get("opening_kind")
+        return f"{kind} width={attrs.get('width_mm', '?')}mm"
+    if t == "component_line":
+        n = len(geom.get("points") or [])
+        return f"{attrs.get('line_kind', 'unknown')} ({n} pts)"
+    if t == "height_mark":
+        return f"value={attrs.get('value_mm')}mm datum={attrs.get('datum')}"
+    if t == "dimensioned_distance":
+        ref = " (REF)" if attrs.get("is_reference") else ""
+        return f"value={attrs.get('value_mm')}mm{ref}"
+    if t == "dimension_number":
+        return f"text={attrs.get('text')!r}"
+    return ""
+
+
+@mcp.tool()
+async def get_label(key: str, file: str, label_id: str) -> dict:
+    """Full label object — geometry + attributes + relations + notes.
+
+    USE when:
+      - About to delete or update a label — confirm the id refers to
+        what you think.
+
+    Returns: `data` = the full Label per scene_labels.schema.json.
+    """
+    started = time.time()
+    try:
+        status, body = await _api_get(f"/labels/dataset/{key}/{file}")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(f"/labels/dataset/{key}/{file}")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    target = next((l for l in (body.get("labels") or []) if l.get("id") == label_id), None)
+    if target is None:
+        return _err("label_not_found", f"no label {label_id!r} on {file!r}", started_at=started)
+    return _ok(target, started_at=started, status_code=status)
+
+
+# ── §5.4 Tagging ──────────────────────────────────────────────────────────
+
+_VALID_TAGS = {"grundriss", "ansicht", "schnitt", "sonstiges", "nicht_klassifiziert"}
+_VALID_ORIENTATIONS = {"north", "south", "east", "west", None}
+_VALID_LEVELS = {"kg", "ug", "eg", "og", "dg", "spitzboden", None}
+
+
+@mcp.tool()
+async def set_scene_tag(
+    key: str,
+    file: str,
+    tag: str,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Set the scene discriminator tag for one scene.
+
+    USE when:
+      - The scene's tag is still 'nicht_klassifiziert' after extraction.
+      - Earlier tagging was wrong and the human hasn't touched labels.
+
+    DON'T USE when:
+      - The scene has labels of types the new tag can't render — call
+        `delete_label` for those first.
+
+    Args:
+      key: house key.
+      file: scene filename.
+      tag: one of 'grundriss', 'ansicht', 'schnitt', 'sonstiges',
+           'nicht_klassifiziert'.
+      idempotency_key: optional driver-supplied key.
+
+    Returns: `data` = {file, scene_tag} from the labels-JSON update.
+
+    Writes ONLY to data/dataset/<key>/labels/<file>.json `scene_tag` —
+    that is the workflow predicate's source of truth. The manifest's
+    separate `kind` field (floorplan/elevation/section/detail; set by
+    extraction) is left alone; use the SPA's edit-attrs popover to
+    change it when needed.
+    """
+    started = time.time()
+    if tag not in _VALID_TAGS:
+        return _err("schema_invalid", f"unknown tag {tag!r}",
+                    hint=f"use one of {sorted(_VALID_TAGS)}", started_at=started)
+    payload, err = await _read_labels(key, file, started)
+    if err is not None:
+        return err
+    payload["scene_tag"] = tag
+    put_status, put_body = await _api_put(f"/labels/dataset/{key}/{file}", payload)
+    if put_status >= 400:
+        return _http_status_to_error(put_status, put_body, started)
+    return _ok({"file": file, "scene_tag": tag},
+               started_at=started, status_code=put_status)
+
+
+@mcp.tool()
+async def set_scene_orientation(
+    key: str,
+    file: str,
+    orientation: str | None,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Set scene_orientation on one scene's labels JSON.
+
+    USE when:
+      - The scene_tag is 'ansicht' or 'schnitt' and you can determine
+        the cardinal direction.
+      - Pass null to clear.
+
+    Args:
+      orientation: 'north' | 'south' | 'east' | 'west' | null
+    """
+    started = time.time()
+    if orientation not in _VALID_ORIENTATIONS:
+        return _err("schema_invalid", f"unknown orientation {orientation!r}",
+                    hint="use 'north', 'south', 'east', 'west', or null", started_at=started)
+    payload, err = await _read_labels(key, file, started)
+    if err is not None:
+        return err
+    payload["scene_orientation"] = orientation
+    put_status, put_body = await _api_put(f"/labels/dataset/{key}/{file}", payload)
+    if put_status >= 400:
+        return _http_status_to_error(put_status, put_body, started)
+    return _ok({"file": file, "scene_orientation": orientation},
+               started_at=started, status_code=put_status)
+
+
+@mcp.tool()
+async def set_scene_level(
+    key: str,
+    file: str,
+    level: str | None,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Set scene_level on a Grundriss scene.
+
+    USE when:
+      - scene_tag is 'grundriss' — determine which floor.
+      - Pass null to clear.
+
+    Args:
+      level: 'kg' | 'ug' | 'eg' | 'og' | 'dg' | 'spitzboden' | null
+    """
+    started = time.time()
+    if level not in _VALID_LEVELS:
+        return _err("schema_invalid", f"unknown level {level!r}",
+                    hint=f"use one of {sorted({lv for lv in _VALID_LEVELS if lv})} or null",
+                    started_at=started)
+    payload, err = await _read_labels(key, file, started)
+    if err is not None:
+        return err
+    payload["scene_level"] = level
+    put_status, put_body = await _api_put(f"/labels/dataset/{key}/{file}", payload)
+    if put_status >= 400:
+        return _http_status_to_error(put_status, put_body, started)
+    return _ok({"file": file, "scene_level": level},
+               started_at=started, status_code=put_status)
+
+
+# ── §5.5 Label CRUD ──────────────────────────────────────────────────────
+
+
+def _new_label_id() -> str:
+    return f"lab-{hashlib.sha256(str(time.time_ns()).encode()).hexdigest()[:10]}"
+
+
+async def _read_labels(key: str, file: str, started: float) -> tuple[dict | None, dict | None]:
+    """Helper: fetch labels payload; return (payload, error_envelope) tuple
+    where exactly one is None."""
+    try:
+        status, body = await _api_get(f"/labels/dataset/{key}/{file}")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return None, _api_unreachable_error(started)
+        status, body = await _api_get(f"/labels/dataset/{key}/{file}")
+    if status >= 400:
+        return None, _http_status_to_error(status, body, started)
+    return body, None
+
+
+async def _write_labels(key: str, file: str, payload: dict, started: float) -> dict:
+    """Helper: PUT labels payload; return envelope (ok or err)."""
+    put_status, put_body = await _api_put(f"/labels/dataset/{key}/{file}", payload)
+    if put_status >= 400:
+        return _http_status_to_error(put_status, put_body, started)
+    return _ok({"file": file, "label_count": len(payload.get("labels") or [])},
+               started_at=started, status_code=put_status)
+
+
+@mcp.tool()
+async def upsert_label(
+    key: str,
+    file: str,
+    label: dict,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Create or replace a label by id.
+
+    USE when:
+      - Adding a new label (omit `label.id` — server allocates one).
+      - Replacing an existing label by its id.
+
+    DON'T USE when:
+      - You only want to change attributes — use `update_label_attrs`
+        (avoids re-sending geometry; less error-prone).
+
+    Args:
+      key: house key.
+      file: scene filename.
+      label: a Label dict per scene_labels.schema.json. Required:
+             `type`, `geometry`. The tool defaults `status='readable'`
+             and `attributes={}` if absent.
+
+             Geometry uses [x, y] ARRAYS, not {x, y} objects:
+               wall:                 {start: [x,y], end: [x,y]}
+               floorplan_opening:    {quad: [[x,y],[x,y],[x,y],[x,y]]}
+               view_opening:         one of
+                                       {top_edge: [[x,y],...], bottom_edge: [[x,y],...]}
+                                       {circle: {center: [x,y], radius_px: N}}
+                                       {polygon: [[x,y],...]}
+               component_line:       {points: [[x,y],...]}
+               height_mark:          {anchor: [x,y]}
+               dimensioned_distance: {start: [x,y], end: [x,y]}
+               dimension_number:     {anchor: [x,y]} XOR {bbox: [[x,y]*4]}
+      idempotency_key: optional driver-supplied key.
+
+    Returns: `data.label_id` = the (new or existing) label id.
+    """
+    started = time.time()
+    if not isinstance(label, dict) or "type" not in label:
+        return _err("schema_invalid", "label must be an object with at least 'type'",
+                    hint="see bim-db://schema/scene_labels resource", started_at=started)
+    payload, err = await _read_labels(key, file, started)
+    if err is not None:
+        return err
+    labels = payload.setdefault("labels", [])
+    label_id = label.get("id") or _new_label_id()
+    label["id"] = label_id
+    # Default required schema fields the agent often forgets.
+    label.setdefault("status", "readable")
+    label.setdefault("attributes", {})
+    existing_idx = next((i for i, l in enumerate(labels) if l.get("id") == label_id), None)
+    if existing_idx is not None:
+        labels[existing_idx] = label
+        action = "replaced"
+    else:
+        labels.append(label)
+        action = "created"
+    result = await _write_labels(key, file, payload, started)
+    if not result.get("ok"):
+        return result
+    result["data"]["label_id"] = label_id
+    result["data"]["action"] = action
+    return result
+
+
+@mcp.tool()
+async def delete_label(
+    key: str,
+    file: str,
+    label_id: str,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Delete a label by id.
+
+    USE when:
+      - The agent decided a label was wrong and wants a clean slate.
+      - You're about to re-tag a scene and the existing labels would
+        violate the new tag's tool palette.
+    """
+    started = time.time()
+    payload, err = await _read_labels(key, file, started)
+    if err is not None:
+        return err
+    labels = payload.get("labels") or []
+    before = len(labels)
+    payload["labels"] = [l for l in labels if l.get("id") != label_id]
+    if len(payload["labels"]) == before:
+        return _err("label_not_found", f"no label {label_id!r} on {file!r}",
+                    started_at=started)
+    return await _write_labels(key, file, payload, started)
+
+
+@mcp.tool()
+async def update_label_attrs(
+    key: str,
+    file: str,
+    label_id: str,
+    attrs_patch: dict,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Partial update on a label's `attributes` dict.
+
+    USE when:
+      - Changing a `dimensioned_distance.attributes.value_mm` after
+        re-reading the dim text.
+      - Flipping `is_reference` after deciding a stroke is/isn't an
+        anchor.
+      - Tightening `attributes.opening_kind` from default 'window' to
+        e.g. 'door'.
+
+    Args:
+      attrs_patch: dict of attributes to merge in. Existing attributes
+                   not mentioned are preserved.
+    """
+    started = time.time()
+    if not isinstance(attrs_patch, dict) or not attrs_patch:
+        return _err("schema_invalid", "attrs_patch must be a non-empty dict",
+                    started_at=started)
+    payload, err = await _read_labels(key, file, started)
+    if err is not None:
+        return err
+    target = next((l for l in (payload.get("labels") or []) if l.get("id") == label_id), None)
+    if target is None:
+        return _err("label_not_found", f"no label {label_id!r} on {file!r}",
+                    started_at=started)
+    target.setdefault("attributes", {}).update(attrs_patch)
+    return await _write_labels(key, file, payload, started)
+
+
+_VALID_LABEL_STATUS = {"readable", "not_readable", "missing", "uncertain"}
+
+
+@mcp.tool()
+async def set_label_status(
+    key: str,
+    file: str,
+    label_id: str,
+    status: str,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Set the honesty axis on a label.
+
+    USE when:
+      - You labelled a dim but can't read the value confidently — set
+        `status='uncertain'` so a human reviewer is alerted.
+      - A label is for a feature that's missing in the drawing entirely
+        — set `status='missing'`.
+
+    Args:
+      status: 'readable' | 'not_readable' | 'missing' | 'uncertain'
+    """
+    started = time.time()
+    if status not in _VALID_LABEL_STATUS:
+        return _err("schema_invalid", f"unknown status {status!r}",
+                    hint=f"use one of {sorted(_VALID_LABEL_STATUS)}", started_at=started)
+    payload, err = await _read_labels(key, file, started)
+    if err is not None:
+        return err
+    target = next((l for l in (payload.get("labels") or []) if l.get("id") == label_id), None)
+    if target is None:
+        return _err("label_not_found", f"no label {label_id!r}", started_at=started)
+    target["status"] = status
+    return await _write_labels(key, file, payload, started)
+
+
+# ── §5.6 Reference / homography ──────────────────────────────────────────
+
+
+@mcp.tool()
+async def add_reference_dim(
+    key: str,
+    file: str,
+    orientation: str,
+    start: list[float],
+    end: list[float],
+    value_mm: float,
+    dimension_text: str | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Sugar tool: create a `dimensioned_distance` with `is_reference=true`
+    AND a paired `dimension_number` at the midpoint.
+
+    USE when:
+      - W4 calibration: every Ansicht/Schnitt needs ≥1 horizontal +
+        ≥1 vertical reference dim.
+      - W2 footprint: horizontal + vertical reference dims along the
+        outer edges of EG-Grundriss.
+
+    Args:
+      key: house key.
+      file: scene filename.
+      orientation: 'horizontal' | 'vertical' (controls
+                   target_orientation on the distance).
+      start, end: pixel coordinates [x, y] in the SOURCE image frame
+                  (read off the grid overlay).
+      value_mm: numeric value in millimeters (e.g. 11200 for "11.20 m").
+      dimension_text: optional as-written text, e.g. "11,20 m".
+
+    Returns: `data` = {distance_id, dim_number_id, recompute_homography:
+                       {status, rms_residual_px, ...}}
+    The tool calls recompute_homography immediately so the agent
+    knows whether the new ref dim is good without a second round-trip.
+    """
+    started = time.time()
+    if orientation not in {"horizontal", "vertical"}:
+        return _err("schema_invalid", f"orientation must be 'horizontal' or 'vertical'",
+                    started_at=started)
+    if not (isinstance(start, (list, tuple)) and len(start) == 2 and
+            isinstance(end, (list, tuple)) and len(end) == 2):
+        return _err("schema_invalid", "start/end must be [x, y] pairs",
+                    started_at=started)
+    payload, err = await _read_labels(key, file, started)
+    if err is not None:
+        return err
+    distance_id = _new_label_id()
+    midpoint = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2]
+    # Offset the dim number 14 px perpendicular to the stroke so it
+    # doesn't render on top.
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = max((dx * dx + dy * dy) ** 0.5, 1.0)
+    perp_x, perp_y = -dy / length, dx / length
+    text_anchor = [midpoint[0] + perp_x * 14, midpoint[1] + perp_y * 14]
+    dim_number_id = _new_label_id()
+    distance_label = {
+        "id": distance_id,
+        "type": "dimensioned_distance",
+        "geometry": {"start": [float(start[0]), float(start[1])],
+                     "end": [float(end[0]), float(end[1])]},
+        "attributes": {
+            "value_mm": float(value_mm),
+            "is_reference": True,
+            "target_orientation": orientation,
+        },
+        "status": "readable",
+    }
+    dim_number_label = {
+        "id": dim_number_id,
+        "type": "dimension_number",
+        "geometry": {"anchor": [float(text_anchor[0]), float(text_anchor[1])]},
+        "attributes": {
+            "text": dimension_text or f"{value_mm / 1000:.2f} m",
+            "parsed_value_mm": float(value_mm),
+        },
+        "relations": [{"kind": "labels", "other_id": distance_id}],
+        "status": "readable",
+    }
+    payload.setdefault("labels", []).extend([distance_label, dim_number_label])
+    result = await _write_labels(key, file, payload, started)
+    if not result.get("ok"):
+        return result
+    # Compute homography (best-effort).
+    homo = await recompute_homography(key=key, file=file)
+    result["data"]["distance_id"] = distance_id
+    result["data"]["dim_number_id"] = dim_number_id
+    result["data"]["homography"] = homo.get("data") if homo.get("ok") else None
+    result["data"]["homography_error"] = homo.get("error") if not homo.get("ok") else None
+    return result
+
+
+@mcp.tool()
+async def recompute_homography(key: str, file: str) -> dict:
+    """Run the rectification compute over the scene's reference dims.
+
+    USE when:
+      - After adding/removing/changing a reference dim, to confirm the
+        transform converges.
+
+    DON'T USE proactively — it's a derived value, the export pipeline
+    runs it for you. Call it only when you need to verify a calibration
+    landed cleanly.
+
+    Returns: `data` = {status: 'ok'|'degenerate', rms_residual_px?,
+                       matrix?, computed_from?, reason?}
+
+    Backend lives in api/homography.py + the export preview endpoint.
+    We use the per-scene export preview as the cheapest way to trigger
+    a recompute; it returns the homography snapshot.
+    """
+    started = time.time()
+    try:
+        status, body = await _api_post(f"/exports/{key}/{file}/preview")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_post(f"/exports/{key}/{file}/preview")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    homo = body.get("homography") or {}
+    state = body.get("status") or "unknown"
+    if state == "ok":
+        rms = homo.get("rms_residual_px")
+        if rms is not None and rms > 10:
+            return _err("homography_high_residual",
+                        f"RMS {rms:.1f}px exceeds 10px quality bar",
+                        hint="delete one of the reference dims and pick a more-orthogonal pair",
+                        retry=True,
+                        details={"rms_residual_px": rms, "matrix": homo.get("matrix"),
+                                 "used_label_ids": homo.get("computed_from", [])},
+                        started_at=started)
+        return _ok({
+            "status": "ok",
+            "rms_residual_px": rms,
+            "matrix": homo.get("matrix"),
+            "computed_from": homo.get("computed_from"),
+            "rectified_size_px": homo.get("rectified_size_px"),
+        }, started_at=started, status_code=status)
+    return _err("homography_degenerate",
+                body.get("reason") or "rectification could not produce a valid transform",
+                hint="add or replace a reference dim so the horizontal + vertical pair is more orthogonal",
+                retry=True,
+                details={"computed_from": body.get("computed_from")},
+                started_at=started)
+
+
+# ── §5.7 Facts ────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def get_house_facts(key: str) -> dict:
+    """Full HouseFacts for a house. Returns null `data` if not yet
+    populated (no `data/dataset/<key>/house_facts.json` on disk)."""
+    started = time.time()
+    try:
+        status, body = await _api_get(f"/datasets/{key}/house_facts")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(f"/datasets/{key}/house_facts")
+    if status == 404:
+        return _ok(None, started_at=started, status_code=status)
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def set_house_facts(
+    key: str,
+    patch: dict,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Deep-merge patch into HouseFacts (server-side replace by default;
+    this tool reads-merges-writes to give patch semantics on top).
+
+    USE when:
+      - W1: set `heights = {bezug_mm, first_mm}`.
+      - W2: set `extent = {width_mm, depth_mm}`, `wall_thickness = {outer_mm}`.
+      - W3: set `orientation = {north_edge_label_id} or {north_angle_deg}`.
+      - W4: the per-scene `calibration_per_scene[file]` is auto-populated
+        by `add_reference_dim` + `recompute_homography`; do not set it
+        manually.
+
+    Args:
+      patch: partial HouseFacts. Top-level keys merge (other keys
+             preserved); nested objects deep-merge one level. Lists are
+             replaced atomically.
+    """
+    started = time.time()
+    if not isinstance(patch, dict) or not patch:
+        return _err("schema_invalid", "patch must be a non-empty dict",
+                    started_at=started)
+    # Read current
+    cur_status, current = await _api_get(f"/datasets/{key}/house_facts")
+    if cur_status == 404:
+        current = {"schema_version": "1.0"}
+    elif cur_status >= 400:
+        return _http_status_to_error(cur_status, current, started)
+    merged = _deep_merge(current or {}, patch)
+    merged.setdefault("schema_version", "1.0")
+    put_status, put_body = await _api_put(f"/datasets/{key}/house_facts", merged)
+    if put_status >= 400:
+        return _http_status_to_error(put_status, put_body, started)
+    return _ok(merged, started_at=started, status_code=put_status)
+
+
+def _deep_merge(base: dict, patch: dict) -> dict:
+    out = dict(base)
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+# ── §5.8 Export ──────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def validate_export_readiness(key: str) -> dict:
+    """Server-side sanity check: would `export_house` succeed?
+
+    USE when:
+      - Before calling export_house, to surface blockers without
+        committing to the (expensive) export pipeline.
+
+    Returns: `data` = {ready: bool, blockers: [str, …]}
+    """
+    started = time.time()
+    try:
+        status, body = await _api_get(f"/datasets/{key}")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(f"/datasets/{key}")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    drawings = body.get("drawings") or []
+    blockers = []
+    if not drawings:
+        blockers.append("house has zero drawings")
+    elif not any(d.get("labeled") for d in drawings):
+        blockers.append("no annotated scenes")
+    return _ok({
+        "ready": not blockers,
+        "blockers": blockers,
+        "scenes_total": len(drawings),
+        "labeled_scenes": sum(1 for d in drawings if d.get("labeled")),
+    }, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def export_house(
+    key: str,
+    force: bool = False,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Render the Set A / Set B export for one house.
+
+    USE when:
+      - Workflow is complete (all required phases done, ≥1 labeled
+        scene). This is the "done" signal of an agent run.
+
+    DON'T USE when:
+      - `validate_export_readiness` returns ready=false — fix the
+        blockers first.
+
+    Args:
+      key: house key.
+      force: if True, bypass the sanity gate. Default false.
+    """
+    started = time.time()
+    try:
+        status, body = await _api_post(
+            f"/exports/{key}",
+            params={"force": "true" if force else "false"},
+        )
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_post(
+            f"/exports/{key}",
+            params={"force": "true" if force else "false"},
+        )
+    if status == 409:
+        detail = body.get("detail") if isinstance(body, dict) else body
+        anomalies = (detail or {}).get("anomalies") if isinstance(detail, dict) else None
+        return _err("export_blocked",
+                    "sanity gate blocked the export",
+                    hint="see error.details.blockers; pass force=true to bypass",
+                    retry=True,
+                    details={"blockers": anomalies or []},
+                    started_at=started, status_code=status)
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body, started_at=started, status_code=status)
+
+
+# ── §5.9 Audit ───────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def list_anomalies(key: str) -> dict:
+    """List validator-flagged issues for a house.
+
+    v0.1: surfaces the workflow blockers + the export gate blockers.
+    Future: pulls from a dedicated /datasets/{key}/anomalies endpoint
+    when that exists.
+    """
+    started = time.time()
+    wf = await get_workflow_state(key=key)
+    if not wf.get("ok"):
+        return wf
+    state = wf["data"]
+    anomalies = []
+    for phase, ph in state["phases"].items():
+        for b in ph.get("blockers", []):
+            anomalies.append({"phase": phase, "kind": "phase_blocker", "message": b})
+    if not state.get("exportable"):
+        anomalies.append({"phase": "export", "kind": "export_blocker",
+                          "message": "no labeled scenes yet"})
+    return _ok({"anomalies": anomalies, "count": len(anomalies)},
+               started_at=started)
+
+
+@mcp.tool()
+async def dump_run_summary(key: str, run_id: str, notes: str = "") -> dict:
+    """Write a Markdown run summary to tmp/agent-runs/<run-id>/<key>.md.
+
+    USE when:
+      - Driver finishes a phase or a whole run and wants to capture a
+        human-readable record.
+
+    Args:
+      key: house key.
+      run_id: any short string. Driver convention:
+              `YYYYMMDD-HHMM-<key>` (e.g. `20260530-1142-house-22`).
+      notes: optional free-text to append after the auto-generated body.
+    """
+    started = time.time()
+    safe_run = "".join(c for c in run_id if c.isalnum() or c in "-_")
+    if not safe_run:
+        return _err("schema_invalid", "run_id must be non-empty alphanumeric",
+                    started_at=started)
+    wf_env = await get_workflow_state(key=key)
+    if not wf_env.get("ok"):
+        return wf_env
+    state = wf_env["data"]
+    out_dir = Path(__file__).parent / "tmp" / "agent-runs" / safe_run
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{key}.md"
+    body = ["# Run summary",
+            f"- house: `{key}`",
+            f"- run_id: `{safe_run}`",
+            f"- generated: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}",
+            f"- exportable: {state.get('exportable')}",
+            f"- next_phase: {state.get('next_phase')}",
+            f"- scenes_total: {state.get('scenes_total')}",
+            f"- labeled_scenes: {state.get('labeled_scenes')}",
+            "",
+            "## Phases"]
+    for p, ph in state["phases"].items():
+        body.append(f"- **{p}** — {ph['status']}")
+        for b in ph.get("blockers", []):
+            body.append(f"    - blocker: {b}")
+    if notes:
+        body.extend(["", "## Notes", notes])
+    out_path.write_text("\n".join(body) + "\n")
+    return _ok({"path": str(out_path.relative_to(Path(__file__).parent)),
+                "bytes": out_path.stat().st_size},
+               started_at=started)
 
 
 # ── §5.10 MCP resources (read-only context) ──────────────────────────────
