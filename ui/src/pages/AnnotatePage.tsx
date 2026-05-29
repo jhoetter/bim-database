@@ -780,15 +780,12 @@ export function AnnotatePage() {
       window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), ttl);
     }
   }, []);
-  // Auto-save (ON by default — 30 s debounce while dirty). User can flip
-  // it off in the sidebar; the explicit setting wins, otherwise true.
-  const [autosave, setAutosave] = useState<boolean>(() => {
-    try {
-      const v = window.localStorage.getItem('bim-db:annotate:autosave');
-      if (v === null) return true;
-      return v === 'true';
-    } catch { return true; }
-  });
+  // A2 — Auto-save is always on, no user toggle. The Speichern button
+  // and dirty pill are gone. saveState drives the tiny status dot near
+  // the breadcrumb: 'idle' (clean, hidden), 'saving' (amber), 'error'
+  // (red, hover for retry).
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
 
   // Image display tweaks — opacity slider (helps verify wall placement
   // against busy/colored drawings) and color/grayscale toggle. Both
@@ -2229,20 +2226,14 @@ export function AnnotatePage() {
   // path in goToScene can call it even though save is defined below.
   const saveRef = useRef<(() => Promise<void>) | null>(null);
   const goToScene = useCallback(async (targetFile: string) => {
-    if (dirty && autosave && saveRef.current) {
-      try { await saveRef.current(); } catch { /* fall through to confirm */ }
-    }
-    if (dirty && !autosave) {
-      const ok = window.confirm(
-        'Ungespeicherte Änderungen.\n\n' +
-        'OK = trotzdem weiter (Änderungen gehen verloren),\n' +
-        'Abbrechen = hier bleiben (Cmd+S um zu speichern).',
-      );
-      if (!ok) return;
+    // A2 — auto-save is always on; flush any pending dirty state before
+    // navigating away so the next scene's mount sees disk truth.
+    if (dirty && saveRef.current) {
+      try { await saveRef.current(); } catch { /* swallow — error toast already up */ }
     }
     const path = `/${key}/scene/${encodeURIComponent(targetFile)}/annotate`;
     navigate(path);
-  }, [dirty, autosave, key, navigate]);
+  }, [dirty, key, navigate]);
 
   // ── save ──────────────────────────────────────────────────────────────────
   const save = useCallback(async () => {
@@ -2365,13 +2356,25 @@ export function AnnotatePage() {
   // Keep the goToScene autosave bridge pointed at the latest save closure.
   useEffect(() => { saveRef.current = save; }, [save]);
 
-  // M12 auto-save: when enabled + dirty, schedule a save after 30 s of
-  // inactivity. Any new edit resets the timer.
+  // A2 — auto-save on a 400 ms debounce. Any dirty change schedules a
+  // save; subsequent changes within the window replace the pending
+  // save. Errors flip saveState='error' until the next successful save.
   useEffect(() => {
-    if (!autosave || !dirty || saving) return;
-    const t = window.setTimeout(() => save(), 30_000);
+    if (!dirty || saving) return;
+    const t = window.setTimeout(() => {
+      void (async () => {
+        setSaveState('saving');
+        try {
+          await save();
+          setSaveState('idle');
+          setLastSavedAt(Date.now());
+        } catch {
+          setSaveState('error');
+        }
+      })();
+    }, 400);
     return () => window.clearTimeout(t);
-  }, [autosave, dirty, saving, save]);
+  }, [dirty, saving, save]);
 
   // Anomaly extractor — currently only the dim_number ↔ dim_distance
   // value-mismatch check. Other rules can pile in here later.
@@ -2733,23 +2736,11 @@ export function AnnotatePage() {
             </span>
           )}
           <BezugStatus labels={labels} />
-          {dirty && (
-            <span className="text-[0.7rem] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-              ● ungespeichert
-            </span>
-          )}
-          <button
-            type="button"
-            disabled={!dirty || saving}
-            onClick={save}
-            className={`text-[0.75rem] px-3 py-1 rounded-md font-medium ${
-              dirty
-                ? 'bg-accent text-white hover:opacity-90'
-                : 'bg-zinc-200 text-zinc-500 cursor-not-allowed'
-            }`}
-          >
-            {saving ? 'Speichern…' : 'Speichern (Cmd+S)'}
-          </button>
+          <SaveStateDot
+            state={saveState}
+            lastSavedAt={lastSavedAt}
+            onRetry={() => { setSaveState('idle'); setDirty(true); }}
+          />
           <button
             type="button"
             onClick={() => setCheatsheetOpen(true)}
@@ -2826,15 +2817,6 @@ export function AnnotatePage() {
           onUndo={undo}
           undoDepth={undoStackRef.current.length}
           onResetView={resetView}
-          autosave={autosave}
-          onToggleAutosave={() => {
-            setAutosave((v) => {
-              const next = !v;
-              try { window.localStorage.setItem('bim-db:annotate:autosave', String(next)); } catch { /* no-op */ }
-              addToast(next ? 'Auto-Save aktiviert (30 s)' : 'Auto-Save deaktiviert', 'info');
-              return next;
-            });
-          }}
           onResetDefaults={() => {
             clearDefaults(scope, key, sceneTag);
             addToast(`Defaults für "${sceneTag}" zurückgesetzt`, 'info');
@@ -4766,6 +4748,49 @@ function WorkflowGuideOrientation({
 // it visually conflicted with everything else and the user called it
 // out as weird. The popover shows the same controls without sitting on
 // top of the drawing.
+// A2 — tiny status dot replacing the dirty pill and Speichern button.
+// 6×6 px circle near the breadcrumb area: amber while saving, red on
+// failure, hidden when clean. Tooltip carries the last-save time or
+// the retry hint. Clicking it on error attempts a retry.
+function SaveStateDot({
+  state, lastSavedAt, onRetry,
+}: {
+  state: 'idle' | 'saving' | 'error';
+  lastSavedAt: number | null;
+  onRetry: () => void;
+}) {
+  if (state === 'idle') {
+    if (lastSavedAt == null) return null;
+    return (
+      <span
+        className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 opacity-0"
+        title={`Zuletzt gespeichert: ${new Date(lastSavedAt).toLocaleTimeString('de-DE')}`}
+        aria-label="gespeichert"
+      />
+    );
+  }
+  if (state === 'saving') {
+    return (
+      <span
+        className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"
+        title="↻ wird gespeichert"
+        aria-label="speichert"
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      className="inline-flex items-center gap-1 text-[0.65rem] text-red-700 hover:underline"
+      title="Speichern fehlgeschlagen — Klick = erneut versuchen"
+    >
+      <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-600" />
+      Fehler
+    </button>
+  );
+}
+
 function CanvasDisplayPalette({
   imgOpacity, setImgOpacity, imgGrayscale, setImgGrayscale,
   onZoomIn, onZoomOut, onFit,
@@ -5022,8 +5047,6 @@ function ToolPalette({
   onUndo,
   undoDepth,
   onResetView,
-  autosave,
-  onToggleAutosave,
   onResetDefaults,
   onResetLabels,
   allTools,
@@ -5062,8 +5085,6 @@ function ToolPalette({
   onUndo: () => void;
   undoDepth: number;
   onResetView: () => void;
-  autosave: boolean;
-  onToggleAutosave: () => void;
   onResetDefaults: () => void;
   onResetLabels: () => void;
   allTools: boolean;
@@ -5267,10 +5288,9 @@ function ToolPalette({
         )}
       </section>
       {/* Settings live in a gear popover at the very bottom — out of the
-          primary path. Auto-save, all-tools toggle, default-reset all here. */}
+          primary path. All-tools toggle, default-reset live here.
+          (Auto-save was removed in A2 — it's always on now.) */}
       <SettingsMenu
-        autosave={autosave}
-        onToggleAutosave={onToggleAutosave}
         allTools={allTools}
         onToggleAllTools={onToggleAllTools}
         onResetDefaults={onResetDefaults}
@@ -5472,12 +5492,9 @@ function HouseHeightsPanel({
 // path so the main column stays focused on Szenen-Tag → Werkzeuge → Labels →
 // Checklist. Auto-save, all-tools, reset-defaults all live here.
 function SettingsMenu({
-  autosave, onToggleAutosave,
   allTools, onToggleAllTools,
   onResetDefaults, onResetLabels, sceneTag,
 }: {
-  autosave: boolean;
-  onToggleAutosave: () => void;
   allTools: boolean;
   onToggleAllTools: () => void;
   onResetDefaults: () => void;
@@ -5497,10 +5514,6 @@ function SettingsMenu({
       </button>
       {open && (
         <div className="mt-1.5 space-y-2 pl-3 text-[0.72rem]">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={autosave} onChange={onToggleAutosave} className="accent-accent" />
-            <span>Auto-Save (30 s)</span>
-          </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={allTools} onChange={onToggleAllTools} className="accent-accent" />
             <span>Alle Werkzeuge zeigen</span>
