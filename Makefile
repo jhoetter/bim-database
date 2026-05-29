@@ -33,24 +33,41 @@ install:
 # Runs FastAPI + Vite side-by-side under `concurrently`. Logs are prefixed
 # [api] / [web]; Ctrl-C kills both.
 # - API serves /datasets, /labels, /static, /pdfs and the built bundle at /.
-# - Vite serves the React app with HMR and proxies API paths back to FastAPI.
-# Open http://127.0.0.1:$(WEB_PORT) — Vite is the day-to-day entry.
+# - Vite (HMR) serves the React app on :$(WEB_PORT) for fast iteration.
+# - A third process keeps ui/dist/ in sync via `vite build --watch` so the
+#   FastAPI port also serves a fresh SPA — either URL works during dev.
+# Open http://127.0.0.1:$(WEB_PORT) for HMR, or :$(PORT) for the built path.
 dev: kill-ports
-	@echo "→ API   http://127.0.0.1:$(PORT)"
-	@echo "→ Web   http://127.0.0.1:$(WEB_PORT)  (proxies /datasets, /labels, /static, /pdfs)"
+	@echo "→ API   http://127.0.0.1:$(PORT)        (serves built ui/dist/, kept fresh by vite build --watch)"
+	@echo "→ Web   http://127.0.0.1:$(WEB_PORT)  (Vite HMR, proxies API paths back to :$(PORT))"
 	@test -x $(CONCURRENTLY) || (echo "missing ui/node_modules — run 'make install' first" && exit 1)
-	API_PORT=$(PORT) WEB_PORT=$(WEB_PORT) $(CONCURRENTLY) -k -n api,web -c blue,magenta \
+	@# One-shot build before launching uvicorn so the /assets StaticFiles mount
+	@# exists at app-load time (StaticFiles binds the directory at mount, the
+	@# directory must be present already). After this the watcher keeps it fresh.
+	@test -d ui/dist/assets || (echo "→ Pre-building ui/dist/ so the /assets mount comes up populated…"; cd ui && ./node_modules/.bin/vite build --logLevel error)
+	API_PORT=$(PORT) WEB_PORT=$(WEB_PORT) $(CONCURRENTLY) -k -n api,web,build -c blue,magenta,gray \
 	  "$(MAKE) dev-api PORT=$(PORT)" \
-	  "$(MAKE) dev-web WEB_PORT=$(WEB_PORT) PORT=$(PORT)"
+	  "$(MAKE) dev-web WEB_PORT=$(WEB_PORT) PORT=$(PORT)" \
+	  "$(MAKE) dev-web-build-watch"
 
 dev-forwarded:
 	$(MAKE) dev PORT=$(FORWARDED_PORT) WEB_PORT=$(FORWARDED_WEB_PORT)
 
 dev-api:
-	$(UV) api.main:app --reload --host 127.0.0.1 --port $(PORT)
+	$(UV) api.main:app --reload --host 127.0.0.1 --port $(PORT) \
+	  --reload-dir api --reload-dir form_api --reload-dir ingestion \
+	  --reload-exclude '*/ui/dist/*' --reload-exclude '*/tmp/*' \
+	  --reload-exclude '*/data/*' --reload-exclude '*/.venv/*'
 
 dev-web:
 	cd ui && API_PORT=$(PORT) WEB_PORT=$(WEB_PORT) npm run dev
+
+# Keep ui/dist/ in sync so http://127.0.0.1:$(PORT) (the FastAPI mount) shows
+# the latest SPA without a manual `make build`. tsc -b is skipped — esbuild
+# still catches real errors; co-agent WIPs with stray unused locals don't
+# block the watcher.
+dev-web-build-watch:
+	cd ui && ./node_modules/.bin/vite build --watch --logLevel warn
 
 kill-ports:
 	@for p in $(PORT) $(WEB_PORT) $(FORM_PORT) $(FORM_WEB_PORT); do \

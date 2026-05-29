@@ -62,10 +62,13 @@ EXPORT_CACHE_STATIC.mkdir(parents=True, exist_ok=True)
 app.mount("/static/exports-cache", StaticFiles(directory=str(EXPORT_CACHE_STATIC)),
           name="exports-cache-static")
 
-# Built React bundle. Hashed asset files live in ui/dist/assets/.
-if (UI_DIST / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=str(UI_DIST / "assets")),
-              name="ui-assets")
+# Built React bundle. Hashed asset files live in ui/dist/assets/. Mount
+# unconditionally so `vite build --watch` (which empties+rebuilds the dir
+# at startup) can't race the uvicorn boot — if the dir doesn't exist when
+# a request lands StaticFiles just returns 404, which is what we want.
+(UI_DIST / "assets").mkdir(parents=True, exist_ok=True)
+app.mount("/assets", StaticFiles(directory=str(UI_DIST / "assets")),
+          name="ui-assets")
 
 
 # ── meta / SPA fallback ────────────────────────────────────────────────────
