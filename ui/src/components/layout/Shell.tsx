@@ -210,7 +210,7 @@ export function Shell({
       >
         <div className="h-full flex flex-col">
           <div className="h-11 flex-shrink-0 px-4 border-b border-border flex items-center gap-2">
-            <Link to="/dataset" className="text-[0.95rem] font-semibold tracking-tight">
+            <Link to="/" className="text-[0.95rem] font-semibold tracking-tight">
               BIM Datensatz
             </Link>
           </div>

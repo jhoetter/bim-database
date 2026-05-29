@@ -73,8 +73,8 @@ export function Preview3DPage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: 'Datensatz', to: '/dataset' },
-            { label: key, to: `/dataset/${key}` },
+            { label: 'Datensatz', to: '/' },
+            { label: key, to: `/${key}` },
             { label: '3D Vorschau' },
           ]}
         />

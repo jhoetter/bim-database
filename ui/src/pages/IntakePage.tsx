@@ -28,7 +28,7 @@ export function IntakePage() {
   return (
     <Shell
       breadcrumb={
-        <Breadcrumb items={[{ label: 'Datensatz', to: '/dataset' }, { label: 'Hochladen' }]} />
+        <Breadcrumb items={[{ label: 'Datensatz', to: '/' }, { label: 'Hochladen' }]} />
       }
       leftSidebar={<IntakeSidebar bundles={data ?? []} />}
     >
@@ -105,7 +105,7 @@ function IntakeSidebar({ bundles }: { bundles: IncomingPdf[] }) {
       </section>
       <section>
         <Link
-          to="/dataset"
+          to="/"
           className="block text-[0.72rem] text-accent hover:underline"
         >
           ← Zurück zum Datensatz
@@ -307,7 +307,7 @@ function BundleRow({ bundle, onChange }: { bundle: IncomingPdf; onChange: () => 
           </a>
         )}
         <Link
-          to={`/dataset/${bundle.key}/extract`}
+          to={`/${bundle.key}/extract`}
           className="text-[0.72rem] px-2.5 py-1 rounded bg-accent text-white"
         >
           → Szenen extrahieren

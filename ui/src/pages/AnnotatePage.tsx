@@ -2198,7 +2198,7 @@ export function AnnotatePage() {
       if (!ok) return;
     }
     const path = scope === 'dataset'
-      ? `/dataset/${key}/scene/${encodeURIComponent(targetFile)}/annotate`
+      ? `/${key}/scene/${encodeURIComponent(targetFile)}/annotate`
       : `/house/${key}/scene/${encodeURIComponent(targetFile)}/annotate`;
     navigate(path);
   }, [dirty, autosave, scope, key, navigate]);
@@ -2641,8 +2641,8 @@ export function AnnotatePage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: 'Datensatz', to: '/dataset' },
-            { label: key, to: `/dataset/${key}` },
+            { label: 'Datensatz', to: '/' },
+            { label: key, to: `/${key}` },
             { label: `Annotieren: ${decodedFile}` },
           ]}
         />

@@ -58,7 +58,7 @@ export function DatasetPage() {
         <div className="flex items-center gap-3">
           <Breadcrumb items={[{ label: 'Datensatz' }]} />
           <Link
-            to="/dataset/intake"
+            to="/intake"
             className="text-[0.72rem] px-2.5 py-1 rounded-md bg-accent text-white font-medium"
           >
             + PDFs hochladen
@@ -298,12 +298,12 @@ function HouseCard({ house }: { house: DatasetHouse }) {
     !intakeOnly && hero && last && house.drawings.some((d) => d.file === last) ? last : hero?.file;
   const lastStep = getLastStep(house.key);
   const targetHref = intakeOnly
-    ? `/dataset/${house.key}/extract`
+    ? `/${house.key}/extract`
     : lastStep === 'extract'
-      ? `/dataset/${house.key}/extract`
+      ? `/${house.key}/extract`
       : lastStep === 'export'
-        ? `/dataset/${house.key}/export`
-        : `/dataset/${house.key}/scene/${encodeURIComponent(targetFile!)}/annotate`;
+        ? `/${house.key}/export`
+        : `/${house.key}/scene/${encodeURIComponent(targetFile!)}/annotate`;
   const pages = (house as unknown as { intake_page_count?: number }).intake_page_count;
   return (
     <Link
@@ -407,7 +407,7 @@ function DrawingTile({
 
   return (
     <Link
-      to={`/dataset/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`}
+      to={`/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`}
       className="relative block mb-3 break-inside-avoid rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
     >
       <img
@@ -457,7 +457,7 @@ function EmptyState() {
         einzelnen Szenen via Bounding-Boxen aus und annotiere sie dann.
       </p>
       <Link
-        to="/dataset/intake"
+        to="/intake"
         className="inline-block px-3 py-1.5 rounded-md bg-accent text-white font-medium"
       >
         → Eingangsstapel öffnen

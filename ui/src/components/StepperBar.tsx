@@ -47,9 +47,9 @@ export function StepperBar({
   // When houseKey is empty (e.g. on /dataset/intake before a bundle is
   // selected) the per-house links collapse to /dataset so the user picks
   // a house first.
-  const houseHref = (rest: string) => houseKey ? `/dataset/${houseKey}${rest}` : '/dataset';
+  const houseHref = (rest: string) => houseKey ? `/${houseKey}${rest}` : '/';
   const steps: StepState[] = [
-    { id: 'intake',   label: 'Hochladen',     done: intakeDone,   href: '/dataset/intake' },
+    { id: 'intake',   label: 'Hochladen',     done: intakeDone,   href: '/intake' },
     { id: 'extract',  label: 'Extrahieren',   done: extractDone,  href: houseHref('/extract') },
     { id: 'annotate', label: 'Annotieren',    done: annotateDone, href: annotateHref ?? houseHref('') },
     { id: 'export',   label: 'Export',        done: exportDone,   href: houseHref('/export') },

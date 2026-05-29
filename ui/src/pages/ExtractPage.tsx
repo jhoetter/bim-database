@@ -236,9 +236,9 @@ export function ExtractPage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: 'Datensatz', to: '/dataset' },
-            { label: 'Hochladen', to: '/dataset/intake' },
-            { label: key, to: `/dataset/${key}` },
+            { label: 'Datensatz', to: '/' },
+            { label: 'Hochladen', to: '/intake' },
+            { label: key, to: `/${key}` },
             { label: 'Szenen extrahieren' },
           ]}
         />
@@ -382,10 +382,10 @@ function ExtractSidebar({
         </ul>
       </section>
       <section>
-        <Link to="/dataset/intake" className="block text-[0.72rem] text-accent hover:underline">
+        <Link to="/intake" className="block text-[0.72rem] text-accent hover:underline">
           ← Eingangsstapel
         </Link>
-        <Link to={`/dataset/${intake?.key ?? ''}`} className="block text-[0.72rem] text-accent hover:underline mt-1">
+        <Link to={`/${intake?.key ?? ''}`} className="block text-[0.72rem] text-accent hover:underline mt-1">
           → Annotieren
         </Link>
       </section>

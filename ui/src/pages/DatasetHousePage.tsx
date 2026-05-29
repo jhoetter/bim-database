@@ -37,7 +37,7 @@ export function DatasetHousePage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: 'Datensatz', to: '/dataset' },
+            { label: 'Datensatz', to: '/' },
             { label: data?.model ?? key },
             ...(activeDrawing ? [{ label: activeDrawing.title ?? activeDrawing.file }] : []),
           ]}
@@ -68,7 +68,7 @@ export function DatasetHousePage() {
       }
       rightRail={activeDrawing ? <DrawingDetail d={activeDrawing} /> : null}
       rightRailLabel={activeDrawing ? 'Zeichnung' : undefined}
-      onCloseRightRail={() => navigate(`/dataset/${key}`)}
+      onCloseRightRail={() => navigate(`/${key}`)}
     >
       <StepperBar
         houseKey={key}
@@ -81,14 +81,14 @@ export function DatasetHousePage() {
       <div className="px-6 py-5">
         <div className="mb-4 flex gap-2 flex-wrap items-center">
           <Link
-            to={`/dataset/${key}/extract`}
+            to={`/${key}/extract`}
             className="text-[0.78rem] px-2.5 py-1.5 rounded-md bg-accent text-white font-medium hover:opacity-90"
             title="PDF-Seiten laden, Bounding-Boxen um Szenen ziehen"
           >
             ✂ Szenen extrahieren
           </Link>
           <Link
-            to={`/dataset/${key}/3d`}
+            to={`/${key}/3d`}
             className="text-[0.78rem] px-2.5 py-1.5 rounded-md bg-zinc-900 text-white hover:opacity-90"
             title="3D-Vorschau der annotierten Geometrie"
           >
@@ -108,7 +108,7 @@ export function DatasetHousePage() {
             <p className="font-semibold mb-1">Noch keine Szenen extrahiert.</p>
             <p>
               Öffne den{' '}
-              <Link to={`/dataset/${key}/extract`} className="underline font-medium">
+              <Link to={`/${key}/extract`} className="underline font-medium">
                 Extract-Editor
               </Link>{' '}
               und zieh Bounding-Boxen um die einzelnen Zeichnungen in der PDF.
@@ -288,7 +288,7 @@ function CompositeSection({
                 return (
                   <Link
                     key={s.file}
-                    to={`/dataset/${houseKey}/scene/${encodeURIComponent(s.file)}`}
+                    to={`/${houseKey}/scene/${encodeURIComponent(s.file)}`}
                   >
                     <rect
                       x={x}
@@ -343,7 +343,7 @@ function DrawingTile({ houseKey, d }: { houseKey: string; d: DatasetDrawing }) {
       : 'bg-zinc-700/85';
   return (
     <Link
-      to={`/dataset/${houseKey}/scene/${encodeURIComponent(d.file)}`}
+      to={`/${houseKey}/scene/${encodeURIComponent(d.file)}`}
       className="relative block mb-3 break-inside-avoid rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
     >
       <img
@@ -459,7 +459,7 @@ function DrawingDetail({ d }: { d: DatasetDrawing }) {
 
         <div className="flex gap-2 flex-wrap">
           <Link
-            to={`/dataset/${key}/scene/${encodeURIComponent(d.file)}/annotate`}
+            to={`/${key}/scene/${encodeURIComponent(d.file)}/annotate`}
             className="inline-block px-3 py-1.5 rounded-md text-[0.78rem] font-medium bg-accent text-white hover:opacity-90"
           >
             Annotieren →

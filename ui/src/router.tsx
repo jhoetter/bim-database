@@ -28,16 +28,18 @@ export const router = createBrowserRouter([
     path: '/',
     Component: App,
     children: [
-      // R0.1 — root redirects to the dataset list.
-      { index: true, element: <Navigate to="/dataset" replace /> },
-      { path: 'dataset', Component: DatasetPage },
-      { path: 'dataset/intake', Component: IntakePage },
-      { path: 'dataset/:key/extract', Component: ExtractPage },
-      { path: 'dataset/:key/scene/:file/export-preview', Component: ExportPreviewPage },
-      { path: 'dataset/:key/3d', Component: Preview3DSuspense },
-      { path: 'dataset/:key', Component: DatasetHousePage },
-      { path: 'dataset/:key/scene/:file', Component: DatasetHousePage },
-      { path: 'dataset/:key/scene/:file/annotate', Component: AnnotatePage },
+      // Root = the dataset list itself. The `dataset/` URL prefix was
+      // dropped since this app only does one thing now.
+      { index: true, Component: DatasetPage },
+      { path: 'intake', Component: IntakePage },
+      { path: ':key/extract', Component: ExtractPage },
+      { path: ':key/scene/:file/export-preview', Component: ExportPreviewPage },
+      { path: ':key/3d', Component: Preview3DSuspense },
+      { path: ':key', Component: DatasetHousePage },
+      { path: ':key/scene/:file', Component: DatasetHousePage },
+      { path: ':key/scene/:file/annotate', Component: AnnotatePage },
+      // Back-compat: /dataset/* URLs from before the rename still resolve.
+      { path: 'dataset', element: <Navigate to="/" replace /> },
     ],
   },
 ]);

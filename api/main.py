@@ -87,15 +87,18 @@ def root():
     return FileResponse(str(index))
 
 
-# Client-side router fallback: any non-API path under /dataset loads
-# index.html so react-router can pick up the URL.
-@app.get("/dataset", tags=["meta"], response_class=FileResponse)
-def _spa_dataset_root():
+# Client-side router fallback. The SPA now lives at the root — any path
+# that isn't claimed by a JSON API route or a static mount serves
+# index.html so react-router can resolve it. Specific routes register
+# above this catchall so /datasets, /labels, /pdfs, /exports etc. still
+# hit their handlers.
+@app.get("/dataset", tags=["meta"], response_class=FileResponse, include_in_schema=False)
+def _spa_legacy_dataset_root():
     return root()
 
 
-@app.get("/dataset/{rest:path}", tags=["meta"], response_class=FileResponse)
-def _spa_dataset(rest: str):
+@app.get("/dataset/{rest:path}", tags=["meta"], response_class=FileResponse, include_in_schema=False)
+def _spa_legacy_dataset(rest: str):
     del rest
     return root()
 
@@ -1046,3 +1049,18 @@ def delete_extracted_scene(key: str, file: str):
         intake["state"] = _bundle_state(key, intake)
         _write_manifest(key, intake)
     return None
+
+
+# ── SPA catchall ────────────────────────────────────────────────────────
+# MUST be registered last. Any GET path that wasn't claimed by a JSON
+# route or a static mount above falls through to index.html so
+# react-router's BrowserRouter can resolve it (e.g. /house-21,
+# /house-21/extract, /intake, /house-21/3d). Known API prefixes are
+# rejected with 404 so genuine wrong calls still surface.
+@app.get("/{rest:path}", response_class=FileResponse, include_in_schema=False)
+def _spa_root_catchall(rest: str):
+    head = rest.split("/", 1)[0]
+    if head in {"datasets", "labels", "pdfs", "exports", "static", "assets",
+                "docs", "redoc", "openapi.json"}:
+        raise HTTPException(status_code=404, detail=f"{rest!r} not found")
+    return root()
