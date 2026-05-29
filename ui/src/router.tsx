@@ -19,6 +19,7 @@ import { IntakePage } from './pages/IntakePage';
 import { ExtractPage } from './pages/ExtractPage';
 import { ExportPreviewPage } from './pages/ExportPreviewPage';
 import { ExportPage } from './pages/ExportPage';
+import { SubmitPage } from './pages/SubmitPage';
 
 // R5 — the 3D preview drags in three + react-three-fiber + drei (~950 KB).
 // Split it so the rest of the app stays well under the bundle budget.
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
       // dropped since this app only does one thing now.
       { index: true, Component: DatasetPage },
       { path: 'intake', Component: IntakePage },
+      { path: 'submit', Component: SubmitPage },
       // The house IS the PDF + scene extraction. /:key opens the
       // extract view directly; the deeper level is per-scene annotation.
       { path: ':key', Component: ExtractPage },

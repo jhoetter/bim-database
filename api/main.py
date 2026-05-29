@@ -325,10 +325,115 @@ def get_incoming_pdf(key: str):
 
 
 # ── Customer submission review + promote (developer surface) ──────────────
-# Submissions land in data/pdfs/submissions/<id>/ via the separate
-# form_api process. The developer reviews them here and promotes the
-# clean ones into data/pdfs/incoming/house-NN/ for the existing R2 scene
-# extractor to pick up.
+# Submissions land in data/pdfs/submissions/<id>/ via either:
+#   * the hardened standalone form_api/ process (production), or
+#   * POST /submit on THIS dev API (single-user-localhost convenience).
+# The developer reviews them here and promotes the clean ones into
+# data/pdfs/incoming/house-NN/ for the existing R2 scene extractor.
+
+
+@app.post("/submit", tags=["pdfs"], status_code=201)
+async def submit_localhost(
+    files: list[UploadFile] = File(..., description="Drawings to submit"),
+    contact_email: str | None = None,
+    contact_name: str | None = None,
+    license: str = "permission-granted",
+    license_notes: str | None = None,
+    training_use: bool = True,
+    user_notes: str | None = None,
+):
+    """Local-only customer-form endpoint. Mirrors form_api/main.py's
+    /submit but without the API-key + rate limit since this whole API
+    is single-user-localhost. Production deployments should use the
+    standalone form_api process behind real auth — this route is
+    purely a developer convenience so the form lives on :2500 too.
+
+    Same output shape as the standalone endpoint: per-page decision +
+    reasons so the SPA can re-prompt on a borderline submission.
+    """
+    import datetime as _dt2
+    import secrets
+
+    from ingestion.bundle import IngestProvenance, ingest_to_bundle
+    from ingestion.config import load_profile
+    from ingestion.normalize import sniff_kind
+
+    if not files:
+        raise HTTPException(status_code=400, detail="no files provided")
+    if not training_use:
+        raise HTTPException(status_code=400, detail="training_use consent is required")
+    if license not in {"cc0", "cc-by", "cc-by-sa", "permission-granted", "other"}:
+        raise HTTPException(status_code=400, detail=f"unknown license {license!r}")
+
+    accepted = {"pdf", "jpeg", "png", "tiff", "heif"}
+    submission_id = secrets.token_urlsafe(16)
+    SUBMISSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    staging = SUBMISSIONS_DIR / submission_id / "_staging"
+    staging.mkdir(parents=True, exist_ok=True)
+
+    staged: list[Path] = []
+    for upload in files:
+        raw = await upload.read()
+        kind = sniff_kind(raw)
+        if kind not in accepted:
+            import shutil as _sh
+            _sh.rmtree(staging.parent, ignore_errors=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"{upload.filename!r}: unsupported file type",
+            )
+        safe_name = Path(upload.filename or f"upload-{len(staged)}").name
+        out_path = staging / safe_name
+        if out_path.exists():
+            out_path = staging / f"{len(staged)}-{safe_name}"
+        out_path.write_bytes(raw)
+        staged.append(out_path)
+
+    provenance = IngestProvenance(
+        source_type="form",
+        submitter={
+            "submission_id": submission_id,
+            "contact_email": contact_email,
+            "contact_name": contact_name,
+            "client_ip_hash": None,
+            "user_agent": None,
+        },
+        consent={
+            "training_use": training_use,
+            "license": license,
+            "license_notes": license_notes or "",
+            "consented_at": _dt2.datetime.now(_dt2.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        },
+        user_notes=user_notes or "",
+    )
+    result = ingest_to_bundle(
+        input_files=staged,
+        bundle_root=SUBMISSIONS_DIR,
+        bundle_key=submission_id,
+        provenance=provenance,
+        cfg=load_profile("strict-form"),
+    )
+    import shutil as _sh
+    _sh.rmtree(staging, ignore_errors=True)
+
+    return {
+        "submission_id": submission_id,
+        "page_count": result.manifest["page_count"],
+        "pages": [
+            {
+                "page": p["page"],
+                "decision": p["decision"],
+                "reasons": p["decision_reasons"],
+                "human_qa_required": p["human_qa_required"],
+            }
+            for p in result.manifest["pages"]
+        ],
+        "pass": result.pages_pass,
+        "warn": result.pages_warn,
+        "reject": result.pages_reject,
+        "promoted": False,
+    }
+
 
 
 @app.get("/pdfs/submissions", tags=["pdfs"])
