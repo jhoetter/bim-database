@@ -1186,7 +1186,9 @@ async def extract_scenes(
           "floor": "eg",              // optional — for floorplans
           "title": "EG-Grundriss",    // optional human title
           "slug_override": null,      // optional slug
-          "allow_blank": false        // optional; bypass the blank-render guard
+          "allow_blank": false,       // optional; bypass the blank-render guard
+          "no_clip_expand": false     // optional; bypass clip-detection bbox
+                                      //   auto-expansion (issue #25)
         }
       idempotency_key: optional driver-supplied key for crash-replay safety.
 
@@ -1194,6 +1196,13 @@ async def extract_scenes(
     corrupt content stream in the merged PDF), extraction returns an error
     instead of writing an empty scene that would still report as
     `labeled`. Fix the merge / bbox, or pass `allow_blank: true` to force.
+
+    Issue #25: the segmentation bbox can under-shoot a tall drawing
+    (cutting the roof apex so the ridge/Firsthöhe is never captured). The
+    API auto-expands the bbox toward any border the drawing's ink touches
+    and re-crops until the drawing no longer hits an edge. To re-capture a
+    clipped scene, re-extract it (idempotent on slug) — pass a wider bbox or
+    just let the auto-expansion grow it. Set `no_clip_expand: true` to off.
 
     Returns: `data` = {extracted: [...new manifest entries...], intake_state: ...}
 
@@ -1231,6 +1240,7 @@ async def extract_scenes(
             "slug_override": raw.get("slug_override"),
             "dpi": int(raw.get("crop_dpi", 300)),
             "allow_blank": bool(raw.get("allow_blank", False)),
+            "no_clip_expand": bool(raw.get("no_clip_expand", False)),
         })
     try:
         status, body = await _api_post(f"/pdfs/{key}/extract", json_body={"items": api_items})

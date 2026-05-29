@@ -1404,6 +1404,148 @@ def _image_is_blank(img) -> bool:
     return bool(int(a.min()) >= 250 and int(a.max()) - int(a.min()) <= 2)
 
 
+# ── issue #25: clip detection + bbox auto-expansion ───────────────────────
+#
+# The auto-segmentation bbox (from the vision-LLM region detection) can
+# under-shoot a drawing's true extent — most often vertically on a tall
+# section/elevation, cutting the roof apex so the Firsthöhe (ridge) never
+# lands in any extracted raster. We detect that at extract time: if
+# significant ink touches a crop border, the drawing was cut there, so we
+# grow the bbox toward that border (clamped to the page) and re-crop, then
+# add a small breathing margin. General — not house-specific — and it keeps
+# the crop_from / (dpi/72) coordinate semantics intact (the bbox we record
+# is always the final, expanded PDF-unit rect actually rendered).
+
+CLIP_BORDER_FRAC = 0.012      # border strip thickness as a fraction of the
+                              # crop's short side (min 2 px)
+CLIP_INK_FRAC = 0.015         # ≥1.5% of border positions carrying ink ⇒ a
+                              # stroke crosses the edge → content is cut
+CLIP_INK_THRESHOLD = 200      # grayscale < this counts as ink
+CLIP_GROW_FRAC = 0.10         # grow a clipped side by 10% of that span/iter
+CLIP_MAX_ITERS = 6
+CLIP_MARGIN_FRAC = 0.02       # final breathing margin once unclipped
+
+
+def _clipped_borders(img, ink_threshold: int = CLIP_INK_THRESHOLD,
+                     ink_frac: float = CLIP_INK_FRAC) -> dict[str, bool]:
+    """Which borders of a rendered crop have a drawing stroke *crossing* them.
+
+    Returns {'left','right','top','bottom': bool}. A True means a stroke
+    runs through that edge — the drawing is almost certainly cut there.
+
+    The signal distinguishes a clipped stroke from a drawing's own frame
+    line: a clip is a stroke that hits the very edge AND continues inward,
+    so we count the fraction of border positions (columns for top/bottom,
+    rows for left/right) where the outermost edge pixels are ink *and* that
+    ink continues into an inner band just past the edge. A frame line runs
+    parallel to and only at the edge — its ink does not penetrate inward, so
+    it doesn't trip the detector and the crop won't over-expand. Works on a
+    grayscale PIL.Image.
+    """
+    import numpy as np
+    a = np.asarray(img.convert("L"), dtype=np.uint8)
+    h, w = a.shape
+    if h == 0 or w == 0:
+        return {"left": False, "right": False, "top": False, "bottom": False}
+    strip = max(2, int(round(min(h, w) * CLIP_BORDER_FRAC)))
+    edge = max(1, strip // 2)            # outermost band that must be inked
+    sh = min(strip, max(1, h - 1))
+    sw = min(strip, max(1, w - 1))
+    eh = min(edge, sh)
+    ew = min(edge, sw)
+    ink = a < ink_threshold
+
+    def crossing_frac(edge_band, inner_band, axis: int) -> float:
+        # positions inked at the very edge that also continue inward
+        if edge_band.size == 0 or inner_band.size == 0:
+            return 0.0
+        crossing = edge_band.any(axis=axis) & inner_band.any(axis=axis)
+        return float(crossing.mean())
+
+    return {
+        "top": crossing_frac(ink[:eh, :], ink[eh:sh, :], 0) >= ink_frac,
+        "bottom": crossing_frac(ink[h - eh:, :], ink[h - sh:h - eh, :], 0) >= ink_frac,
+        "left": crossing_frac(ink[:, :ew], ink[:, ew:sw], 1) >= ink_frac,
+        "right": crossing_frac(ink[:, w - ew:], ink[:, w - sw:w - ew], 1) >= ink_frac,
+    }
+
+
+def _grow_bbox(bbox, borders, page_w: float, page_h: float,
+               grow_frac: float = CLIP_GROW_FRAC) -> list[float]:
+    """Grow `bbox` (PDF units, top-left origin) toward each clipped border,
+    clamped to the page [0,0,page_w,page_h]. Returns the new bbox."""
+    x0, y0, x1, y1 = (float(v) for v in bbox)
+    dw = (x1 - x0) * grow_frac
+    dh = (y1 - y0) * grow_frac
+    if borders.get("left"):
+        x0 = max(0.0, x0 - dw)
+    if borders.get("right"):
+        x1 = min(page_w, x1 + dw)
+    if borders.get("top"):
+        y0 = max(0.0, y0 - dh)
+    if borders.get("bottom"):
+        y1 = min(page_h, y1 + dh)
+    return [x0, y0, x1, y1]
+
+
+def _render_crop(page, bbox, dpi: int):
+    """Render `bbox` (PDF units) of a fitz page at `dpi` to a PIL.Image."""
+    import fitz
+    scale = dpi / 72.0
+    x0, y0, x1, y1 = (float(v) for v in bbox)
+    pix = page.get_pixmap(
+        matrix=fitz.Matrix(scale, scale),
+        clip=fitz.Rect(x0, y0, x1, y1), alpha=False,
+    )
+    return pix.pil_image() if hasattr(pix, "pil_image") else _pix_to_pil(pix)
+
+
+def _pix_to_pil(pix):
+    from PIL import Image as PILImage
+    mode = "RGB" if pix.n >= 3 else "L"
+    return PILImage.frombytes(mode, (pix.width, pix.height), pix.samples)
+
+
+def _expand_bbox_for_clip(page, bbox, dpi: int, page_w: float, page_h: float):
+    """If the crop at `bbox` cuts the drawing at a border, grow the bbox
+    toward the clipped border(s) and re-crop, iterating until no border is
+    clipped (or we hit the page edge / iteration cap). Adds a final small
+    margin so the unclipped drawing has a little breathing room.
+
+    Returns (final_bbox, expanded: bool, history: list[dict]) — `history`
+    records the clipped borders seen at each iteration for diagnostics.
+    """
+    cur = [float(v) for v in bbox]
+    history: list[dict] = []
+    expanded = False
+    for _ in range(CLIP_MAX_ITERS):
+        img = _render_crop(page, cur, dpi)
+        borders = _clipped_borders(img)
+        # Only borders that aren't already pinned to the page edge can grow.
+        x0, y0, x1, y1 = cur
+        growable = {
+            "left": borders["left"] and x0 > 0,
+            "right": borders["right"] and x1 < page_w,
+            "top": borders["top"] and y0 > 0,
+            "bottom": borders["bottom"] and y1 < page_h,
+        }
+        history.append({k: v for k, v in borders.items()})
+        if not any(growable.values()):
+            break
+        cur = _grow_bbox(cur, growable, page_w, page_h)
+        expanded = True
+    if expanded:
+        # Breathing margin once the drawing no longer touches a border, so
+        # the previously-cut feature (e.g. the ridge) isn't flush to the edge.
+        mx = (cur[2] - cur[0]) * CLIP_MARGIN_FRAC
+        my = (cur[3] - cur[1]) * CLIP_MARGIN_FRAC
+        cur = [
+            max(0.0, cur[0] - mx), max(0.0, cur[1] - my),
+            min(page_w, cur[2] + mx), min(page_h, cur[3] + my),
+        ]
+    return cur, expanded, history
+
+
 def _render_page_poppler(pdf, n: int, dpi: int, clip_pdf_units=None):
     """Render PDF page `n` (1-indexed) at `dpi` via poppler's `pdftoppm`
     and return a PIL.Image (issue #24).
@@ -1474,8 +1616,20 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
       "title": str,                  # optional
       "slug_override": str,          # optional, used as the slug if set
       "dpi": 300,                    # optional, default 300
-      "allow_blank": false           # optional; bypass the blank-render guard
+      "allow_blank": false,          # optional; bypass the blank-render guard
+      "no_clip_expand": false        # optional; bypass clip-detection bbox
+                                     #   auto-expansion (issue #25)
     }]}
+
+    Per issue #25: the segmentation bbox can under-shoot a tall drawing
+    (cutting the roof apex so the Firsthöhe/ridge never lands in any
+    raster). Before rendering, if significant ink touches a crop border the
+    bbox is grown toward that border and re-cropped until the drawing no
+    longer touches an edge (clamped to the page). Expansion only grows the
+    rect within the page — an explicit bbox re-extract is still honoured, it
+    just can't be clipped. The recorded crop_from bbox is the final rect, so
+    a single clipped scene can be re-captured by re-extracting with the same
+    slug_override. Set `no_clip_expand: true` to disable.
 
     Per issue #12: a crop that renders to a blank/uniform canvas (a failed
     rasterization — e.g. a corrupt content stream in the merged PDF) is
@@ -1552,6 +1706,28 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
             out_path = ds_dir / file_name
 
             page = doc.load_page(page_n - 1)
+
+            # Issue #25: clip detection + bbox auto-expansion. The
+            # segmentation bbox can under-shoot a tall drawing (cutting the
+            # roof apex → ridge/Firsthöhe never captured). If significant
+            # ink touches a crop border, grow the bbox toward that border
+            # and re-crop until the drawing no longer touches an edge (or we
+            # hit the page extent). `no_clip_expand: true` opts out, and an
+            # explicit re-extract with the desired bbox is still honoured —
+            # expansion only ever *grows* the rect within the page, never
+            # shrinks it. The recorded crop_from bbox is the final rect.
+            page_rect = page.rect
+            page_w, page_h = float(page_rect.width), float(page_rect.height)
+            clip_diag: dict | None = None
+            if not bool(raw.get("no_clip_expand")):
+                grown, expanded, history = _expand_bbox_for_clip(
+                    page, [x0, y0, x1, y1], dpi, page_w, page_h
+                )
+                if expanded:
+                    x0, y0, x1, y1 = grown
+                    clip_diag = {"expanded": True, "iters": len(history),
+                                 "history": history}
+
             # The PDF rect uses top-left origin. fitz.Matrix scales; clip
             # restricts the rendered region to the bbox.
             scale = dpi / 72.0
@@ -1604,6 +1780,7 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
                     "page": page_n,
                     "bbox_pdf_units": [x0, y0, x1, y1],
                     "dpi": dpi,
+                    **({"clip_expand": clip_diag} if clip_diag else {}),
                 },
             }
             # Replace existing entry with same file name (re-extract) else append.

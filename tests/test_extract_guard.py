@@ -21,8 +21,11 @@ if str(REPO_ROOT) not in sys.path:
 
 import api.main as api_main  # noqa: E402
 from api.main import (  # noqa: E402
+    _clipped_borders,
+    _expand_bbox_for_clip,
     _image_is_blank,
     _pixmap_is_blank,
+    _render_crop,
     _render_page_poppler,
 )
 
@@ -201,3 +204,118 @@ def test_extract_422_when_both_renderers_blank(
     }]})
     assert r.status_code == 422, r.text
     assert "blank" in r.text.lower()
+
+
+# ── issue #25: clip detection + bbox auto-expansion ───────────────────────
+
+
+def _tall_section_page():
+    """A tall 'section' page: walls + a gable roof whose apex sits high
+    near the top (y=60). A bbox that tops out at the eaves (y≈180) clips the
+    roof — the issue's house-23 Schnitt A-A symptom."""
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+    page.draw_line(fitz.Point(150, 700), fitz.Point(150, 200), color=(0, 0, 0), width=4)
+    page.draw_line(fitz.Point(450, 700), fitz.Point(450, 200), color=(0, 0, 0), width=4)
+    page.draw_line(fitz.Point(150, 200), fitz.Point(300, 60), color=(0, 0, 0), width=4)
+    page.draw_line(fitz.Point(450, 200), fitz.Point(300, 60), color=(0, 0, 0), width=4)
+    page.draw_line(fitz.Point(150, 700), fitz.Point(450, 700), color=(0, 0, 0), width=4)
+    return doc, page
+
+
+def test_clipped_borders_detects_stroke_crossing_top():
+    """A crop whose top edge cuts the roof rafters reads as top-clipped."""
+    _doc, page = _tall_section_page()
+    img = _render_crop(page, [100, 180, 500, 740], 150)  # tops out at eaves
+    borders = _clipped_borders(img)
+    assert borders["top"] is True
+    assert borders["bottom"] is False
+
+
+def test_clipped_borders_ignores_parallel_frame_line():
+    """A drawing's own frame line (parallel to and only at the edge) must
+    NOT read as clipped — otherwise every framed drawing over-expands."""
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+    page.draw_rect(fitz.Rect(60, 60, 540, 740), color=(0, 0, 0), width=3)
+    page.draw_line(fitz.Point(200, 700), fitz.Point(200, 200), color=(0, 0, 0), width=2)
+    borders = _clipped_borders(_render_crop(page, [60, 60, 540, 740], 150))
+    assert not any(borders.values()), borders
+
+
+def test_expand_bbox_grows_to_capture_roof_apex():
+    """The under-shot bbox is grown upward until the roof apex (y=60) is
+    inside the crop and no border is clipped — the ridge is now captured."""
+    _doc, page = _tall_section_page()
+    bbox = [100, 180, 500, 740]
+    grown, expanded, history = _expand_bbox_for_clip(page, bbox, 150, 600.0, 800.0)
+    assert expanded is True
+    # top grew up past the apex (y=60).
+    assert grown[1] <= 60, grown
+    # the final crop no longer cuts the drawing at any edge.
+    assert not any(_clipped_borders(_render_crop(page, grown, 150)).values())
+
+
+def test_expand_bbox_noop_when_unclipped():
+    """A bbox that already comfortably contains the drawing is left alone
+    (and not grown to the page edges)."""
+    _doc, page = _tall_section_page()
+    bbox = [60, 30, 540, 760]  # already above the apex, below the floor
+    grown, expanded, _h = _expand_bbox_for_clip(page, bbox, 150, 600.0, 800.0)
+    assert expanded is False
+    assert grown == [60.0, 30.0, 540.0, 760.0]
+
+
+@pytest.fixture
+def clipped_section_house():
+    """A throwaway house whose page 1 is a tall section with a gable roof
+    apex near the top, so an under-shot extract bbox clips the ridge."""
+    key = "house-zzclip25"
+    incoming = api_main.INCOMING_DIR / key
+    dataset = api_main.DATASET_DIR / key
+    incoming.mkdir(parents=True, exist_ok=True)
+    doc, _page = _tall_section_page()
+    pdf_name = f"{key}.pdf"
+    doc.save(str(incoming / pdf_name))
+    doc.close()
+    (incoming / "manifest.json").write_text(json.dumps({
+        "key": key, "consolidated_pdf": pdf_name, "state": "ready",
+        "extracted_scenes": [],
+    }))
+    try:
+        yield key
+    finally:
+        shutil.rmtree(incoming, ignore_errors=True)
+        shutil.rmtree(dataset, ignore_errors=True)
+
+
+def test_extract_auto_expands_clipped_bbox(clipped_section_house):
+    """End-to-end: extracting with a bbox that tops out at the eaves grows
+    the recorded crop_from bbox up to capture the roof apex, and flags the
+    expansion in crop_from.clip_expand."""
+    key = clipped_section_house
+    client = TestClient(api_main.app)
+    r = client.post(f"/pdfs/{key}/extract", json={"items": [{
+        "page": 1, "bbox_pdf_units": [100, 180, 500, 740], "kind": "section",
+        "view": "aa", "dpi": 150,
+    }]})
+    assert r.status_code == 201, r.text
+    entry = r.json()["extracted"][0]
+    final_bbox = entry["crop_from"]["bbox_pdf_units"]
+    # top edge grew up past the apex (y=60); recorded bbox is the final rect.
+    assert final_bbox[1] <= 60, final_bbox
+    assert entry["crop_from"].get("clip_expand", {}).get("expanded") is True
+
+
+def test_extract_no_clip_expand_opts_out(clipped_section_house):
+    """`no_clip_expand: true` leaves the bbox exactly as requested."""
+    key = clipped_section_house
+    client = TestClient(api_main.app)
+    r = client.post(f"/pdfs/{key}/extract", json={"items": [{
+        "page": 1, "bbox_pdf_units": [100, 180, 500, 740], "kind": "section",
+        "view": "bb", "dpi": 150, "no_clip_expand": True,
+    }]})
+    assert r.status_code == 201, r.text
+    entry = r.json()["extracted"][0]
+    assert entry["crop_from"]["bbox_pdf_units"] == [100.0, 180.0, 500.0, 740.0]
+    assert "clip_expand" not in entry["crop_from"]
