@@ -98,6 +98,48 @@ def test_get_workflow_state_smoke():
     assert "exportable" in r["data"]
 
 
+def test_workflow_state_no_scenes_all_phases_pending():
+    """Issue #20: with zero scenes (and possibly stale/orphaned facts),
+    NO substantive phase may report `done` — geometry is read from labels
+    on scenes, so without scenes any heights/extent/orientation facts are
+    orphaned. Previously a leftover heights={bezug_mm:0,first_mm:...} made
+    W1 falsely `done` (and null facts is likewise mishandled)."""
+    # Stale facts that, with scenes, WOULD complete W1/W2/W3 — but there
+    # are no scenes, so every substantive phase must be pending.
+    stale = {
+        "heights": {"bezug_mm": 0, "first_mm": 7210},
+        "extent": {"width_mm": 9000, "depth_mm": 9000},
+        "wall_thickness": {"outer_mm": 300},
+        "orientation": {"north_angle_deg": 30},
+    }
+    for facts in ({}, stale):
+        state = mcp_server._derive_workflow_state({"drawings": []}, facts, {})
+        for p in ("W0", "W1", "W2", "W3", "W4", "W5"):
+            assert state["phases"][p]["status"] == "pending", (
+                f"{p} should be pending with no scenes (facts={facts!r}), "
+                f"got {state['phases'][p]}"
+            )
+        # The substantive phases should blame the missing scenes, not a field.
+        for p in ("W1", "W2", "W3"):
+            assert state["phases"][p]["blockers"], f"{p} needs a blocker"
+
+
+def test_workflow_state_full_geometry_with_scene_is_done():
+    """Guard the happy path: a scene plus complete geometry still flips
+    W1/W2/W3 to done (the issue #20 fix must not over-block)."""
+    facts = {
+        "heights": {"bezug_mm": 0, "first_mm": 7210},
+        "extent": {"width_mm": 9000, "depth_mm": 9000},
+        "wall_thickness": {"outer_mm": 300},
+        "orientation": {"north_angle_deg": 30},
+    }
+    state = mcp_server._derive_workflow_state(
+        {"drawings": [{"file": "a.jpg"}]}, facts, {"a.jpg": {"scene_tag": "ansicht"}},
+    )
+    for p in ("W1", "W2", "W3"):
+        assert state["phases"][p]["status"] == "done", f"{p} should be done"
+
+
 def test_get_recommended_next_action_smoke():
     rs = _run(mcp_server.list_houses())
     if not rs["data"]["houses"]:

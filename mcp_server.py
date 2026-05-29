@@ -408,18 +408,38 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
             w0_blockers.append(f"{f}: missing level")
     w0_status = "done" if drawings and not w0_blockers else "pending"
 
+    # Issue #20: no scenes means no labels, so any heights/extent/
+    # orientation facts on disk are orphaned/stale (e.g. left behind by a
+    # reset, or a workflow-only stub on a brand-new house). The
+    # substantive phases can only be `done` when scenes actually exist —
+    # otherwise a house with `scenes_total: 0` (and possibly null
+    # house_facts) falsely reports W1/W2/W3 complete and the SPA progress
+    # bar lights up green before any work is done.
+    has_scenes = bool(drawings)
+
     # W1: bezug_mm == 0 AND first_mm != None
     heights = (facts.get("heights") or {})
-    w1_status = "done" if heights.get("bezug_mm") == 0 and heights.get("first_mm") not in (None, "") else "pending"
+    w1_status = "done" if (
+        has_scenes and heights.get("bezug_mm") == 0
+        and heights.get("first_mm") not in (None, "")
+    ) else "pending"
 
     # W2: extent.width_mm + depth_mm + wall_thickness.outer_mm
     extent = facts.get("extent") or {}
     wt = facts.get("wall_thickness") or {}
-    w2_status = "done" if extent.get("width_mm") and extent.get("depth_mm") and wt.get("outer_mm") else "pending"
+    w2_status = "done" if (
+        has_scenes and extent.get("width_mm") and extent.get("depth_mm")
+        and wt.get("outer_mm")
+    ) else "pending"
 
     # W3: orientation set (either north_edge_label_id or north_angle_deg)
     orient = facts.get("orientation") or {}
-    w3_status = "done" if orient.get("north_edge_label_id") or orient.get("north_angle_deg") is not None else "pending"
+    w3_status = "done" if (
+        has_scenes and (
+            orient.get("north_edge_label_id")
+            or orient.get("north_angle_deg") is not None
+        )
+    ) else "pending"
 
     # W4: every Ansicht/Schnitt has facts.calibration_per_scene[file].
     cps = facts.get("calibration_per_scene") or {}
@@ -436,13 +456,22 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
 
     # W5: manual; user_skipped or phase_completed_at.detail
     wf = (facts.get("workflow") or {})
-    w5_status = "done" if (wf.get("phase_completed_at") or {}).get("detail") or (wf.get("user_skipped") or {}).get("detail") else "pending"
+    w5_status = "done" if has_scenes and (
+        (wf.get("phase_completed_at") or {}).get("detail")
+        or (wf.get("user_skipped") or {}).get("detail")
+    ) else "pending"
 
+    # Issue #20: when there are no scenes, the substantive phases are
+    # blocked on that, not on a missing field — say so plainly.
+    no_scenes_blocker = "no scenes extracted yet"
     phases = {
         "W0": {"status": w0_status, "blockers": w0_blockers},
-        "W1": {"status": w1_status, "blockers": [] if w1_status == "done" else ["heights.bezug_mm or first_mm missing"]},
-        "W2": {"status": w2_status, "blockers": [] if w2_status == "done" else ["extent or wall_thickness missing"]},
-        "W3": {"status": w3_status, "blockers": [] if w3_status == "done" else ["orientation not set"]},
+        "W1": {"status": w1_status, "blockers": [] if w1_status == "done"
+               else ([no_scenes_blocker] if not has_scenes else ["heights.bezug_mm or first_mm missing"])},
+        "W2": {"status": w2_status, "blockers": [] if w2_status == "done"
+               else ([no_scenes_blocker] if not has_scenes else ["extent or wall_thickness missing"])},
+        "W3": {"status": w3_status, "blockers": [] if w3_status == "done"
+               else ([no_scenes_blocker] if not has_scenes else ["orientation not set"])},
         "W4": {"status": w4_status, "blockers": w4_blockers},
         "W5": {"status": w5_status, "blockers": ["W5 not marked complete"] if w5_status != "done" else []},
     }
