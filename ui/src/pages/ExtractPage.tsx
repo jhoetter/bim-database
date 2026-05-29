@@ -10,7 +10,7 @@
 // we keep the client bundle small by NOT shipping PDF.js.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import {
   extractScenes,
   fetchDataset,
@@ -1019,6 +1019,7 @@ function PageCanvas({
   setMenuFor: (file: string | null) => void;
   onDatasetRefresh: (manifest: DatasetHouse) => void;
 }) {
+  const navigate = useNavigate();
   // The pageRef tracks the WHITE PAGE DIV (not the outer dark scroll
   // container) — its bbox is what we measure against for pointer-to-PDF
   // unit conversion. Otherwise the coords are off by however much
@@ -1150,8 +1151,18 @@ function PageCanvas({
                     if (e.button !== 0) return;
                     setMenuFor(menuFor === d.file ? null : d.file);
                   }}
+                  onDoubleClick={(e) => {
+                    // Double-click on a green bbox jumps straight to its
+                    // annotation. stopPropagation prevents the page-level
+                    // double-click (which makes a full-page bbox) from
+                    // firing — the user explicitly does NOT want that
+                    // here.
+                    e.stopPropagation();
+                    setMenuFor(null);
+                    navigate(`/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`);
+                  }}
                 >
-                  <title>{`${d.file} — Klick für Aktionen`}</title>
+                  <title>{`${d.file} — Klick = Aktionen · Doppelklick = Annotieren`}</title>
                 </rect>
               </g>
             );

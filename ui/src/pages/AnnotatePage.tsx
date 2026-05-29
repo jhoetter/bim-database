@@ -4127,12 +4127,22 @@ function WorkflowGuide({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[0.7rem] uppercase tracking-wider text-zinc-700 font-semibold"
+        className="w-full flex items-start gap-1.5 px-2 py-1.5 text-left"
+        title={`Phase ${phaseIdx + 1} / 6 — ${workflowPhaseLabelDe(phase)}`}
       >
-        <span className="w-3 text-center">{open ? '▾' : '▸'}</span>
-        <span>Arbeitsablauf</span>
-        <span className="ml-auto text-zinc-500 font-normal">
-          Phase {phaseIdx + 1} / 6 — {workflowPhaseLabelDe(phase)}
+        <span className="w-3 text-center text-[0.7rem] text-zinc-700 font-semibold leading-tight pt-px">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="flex items-center gap-1.5 text-[0.7rem] uppercase tracking-wider text-zinc-700 font-semibold">
+            <span className="truncate">Arbeitsablauf</span>
+            <span className="ml-auto shrink-0 text-[0.6rem] px-1.5 py-0.5 rounded-full bg-zinc-200 text-zinc-700 tabular-nums">
+              {phaseIdx + 1} / 6
+            </span>
+          </span>
+          <span className="block text-[0.7rem] text-zinc-500 font-normal truncate mt-0.5">
+            {workflowPhaseLabelDe(phase)}
+          </span>
         </span>
       </button>
       {open && (
