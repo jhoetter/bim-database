@@ -91,6 +91,15 @@ The intake manifest schema is in
 [`schema/intake_manifest.schema.json`](schema/intake_manifest.schema.json)
 (v2.0 — backwards-compatible with v1.0).
 
+> **Agentic labeling** (planned, not yet built): the design for an
+> MCP server + skill that lets an agent drive the full annotation
+> workflow end-to-end lives in
+> [bim-agent/spec/trackers/agentic-labeling-tracker.md][lbl]. The MCP
+> server will land at `mcp_server.py` in this repo (Phase A of the
+> tracker).
+>
+> [lbl]: https://github.com/jhoetter/bim-agent/blob/main/spec/trackers/agentic-labeling-tracker.md
+
 ---
 
 ## What's in the box
