@@ -1,7 +1,9 @@
 # Auto-persist + propagation (A) tracker
 
-**Status:** 2026-05-29. **A0–A3 shipped.** All Q1–Q7 ★
-recommendations applied. Known follow-ups in §8.
+**Status:** 2026-05-29. **A0–A3 + all §8 follow-ups shipped.** Wave
+includes classify-undo (popover delta), Adjust-undo (recycle
+roundtrip), off-canvas save toast, house-scoped action stack
+(ExtractUndoProvider).
 
 **Owner:** jhoetter
 **Predecessor:** [`spec/ux-consistency.md`](ux-consistency.md) — U0–U13.

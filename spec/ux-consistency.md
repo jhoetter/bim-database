@@ -1,7 +1,9 @@
 # UX Consistency (U) tracker
 
-**Status:** 2026-05-29. **U0–U13 shipped.** U14+ are open questions.
-The U9–U13 group operationalises principles 4–6 (disclosure).
+**Status:** 2026-05-29. **U0–U17 shipped.** Future / open-question
+items U14 (EmptyState), U15 (toast provider), U16 (semantic
+status tokens), U17 (sidebar auto-collapse on narrow viewports) all
+landed in the auto-persist follow-up wave.
 
 **Owner:** jhoetter
 **Predecessor:** [`spec/keyboard.md`](keyboard.md) — keyboard / modifier

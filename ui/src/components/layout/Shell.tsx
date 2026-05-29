@@ -78,7 +78,16 @@ export function Shell({
   onCloseRightRail,
   rightRailMode = 'reserved',
 }: ShellProps) {
-  const [leftOpen, setLeftOpen] = useState(() => readBool(LEFT_OPEN_KEY, true));
+  // U17 — on narrow viewports the sidebar defaults to collapsed so the
+  // tiny content area on a 1024-wide screen doesn't lose another 280
+  // px to chrome. Above that the previous default (open) holds. The
+  // user's explicit toggle is still respected via LEFT_OPEN_KEY.
+  const initialLeftOpen = (() => {
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem(LEFT_OPEN_KEY) : null;
+    if (stored != null) return stored === 'true';
+    return typeof window !== 'undefined' ? window.innerWidth >= 1100 : true;
+  })();
+  const [leftOpen, setLeftOpen] = useState(initialLeftOpen);
   const [leftWidth, setLeftWidth] = useState(() =>
     readNumber(LEFT_WIDTH_KEY, LEFT_DEFAULT, LEFT_MIN, LEFT_MAX),
   );
