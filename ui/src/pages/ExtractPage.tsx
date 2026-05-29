@@ -30,6 +30,7 @@ import { Breadcrumb } from '../components/layout/Breadcrumb';
 import { PHASE_IDS, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT } from '../components/Cheatsheet';
+import { useToast } from '../lib/toast';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
 const KIND_LABEL: Record<ExtractItem['kind'], string> = {
@@ -203,14 +204,9 @@ export function ExtractPage() {
     setDataset(d);
     return a;
   }, [key]);
-  // L8 — small toast pip so undo/redo feedback isn't silent. Stack of
-  // {id, text, ttl}; auto-dismisses.
-  const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([]);
-  const showToast = useCallback((text: string) => {
-    const id = Math.random().toString(36).slice(2, 8);
-    setToasts((ts) => [...ts, { id, text }]);
-    window.setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 1800);
-  }, []);
+  // L8 / U15 — undo/redo feedback via the shared toast provider.
+  const { addToast } = useToast();
+  const showToast = useCallback((text: string) => addToast(text, 'info', 1800), [addToast]);
   const describeAction = (a: ExtractAction, reverse: boolean): string => {
     if (a.kind === 'extract')  return reverse ? '↶ Szene zurück in Entwurf' : '↷ Erneut extrahiert';
     if (a.kind === 'delete')   return reverse ? '↶ Szene wiederhergestellt' : '↷ Erneut gelöscht';
@@ -619,19 +615,7 @@ export function ExtractPage() {
           onClose={() => setCheatsheetOpen(false)}
         />
       )}
-      {/* L8 — undo/redo toast pip (bottom-right, auto-fades). */}
-      {toasts.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-1.5 pointer-events-none">
-          {toasts.map((t) => (
-            <div
-              key={t.id}
-              className="bg-zinc-900 text-white text-[0.75rem] px-3 py-1.5 rounded-md shadow-lg"
-            >
-              {t.text}
-            </div>
-          ))}
-        </div>
-      )}
+      {/* L8 toasts now use the shared ToastProvider at the app root. */}
       <div className="flex flex-col h-full">
         <SceneStrip
           scenes={dataset?.drawings ?? []}

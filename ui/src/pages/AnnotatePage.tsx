@@ -59,6 +59,7 @@ import { autoTSplit } from '../lib/auto_split';
 import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT, type CheatsheetSection } from '../components/Cheatsheet';
+import { useToast } from '../lib/toast';
 import {
   advanceWorkflow,
   currentPhase as workflowCurrentPhase,
@@ -773,15 +774,8 @@ export function AnnotatePage() {
   } | null>(null);
   // M13: keyboard cheatsheet overlay.
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
-  // M12 toasts.
-  const [toasts, setToasts] = useState<Array<{ id: string; message: string; tone: 'info' | 'success' | 'warn' | 'error' }>>([]);
-  const addToast = useCallback((message: string, tone: 'info' | 'success' | 'warn' | 'error' = 'info', ttl: number = 2500) => {
-    const id = Math.random().toString(36).slice(2);
-    setToasts((prev) => [...prev, { id, message, tone }]);
-    if (ttl > 0) {
-      window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), ttl);
-    }
-  }, []);
+  // U15 — toasts lifted to the shared provider at the app root.
+  const { addToast } = useToast();
   // A2 — Auto-save is always on, no user toggle. The Speichern button
   // and dirty pill are gone. saveState drives the tiny status dot near
   // the breadcrumb: 'idle' (clean, hidden), 'saving' (amber), 'error'
@@ -3839,8 +3833,7 @@ export function AnnotatePage() {
           pendingPolyline={pendingPolyline}
           adaptiveAxisEnabled={adaptiveAxisEnabled}
         />
-        {/* M12 toast stack — bottom-center over the canvas */}
-        <ToastStack toasts={toasts} />
+        {/* U15 — toasts use the shared ToastProvider at the app root. */}
         {/* W4 — compass widget on Ansicht/Schnitt + north arrow on Grundriss.
             Renders only when Phase 3 orientation is set (so it actually has
             meaningful data to show). */}
@@ -7489,29 +7482,6 @@ function InlineEditInput({
       }}
       onBlur={(e) => onCommit(e.currentTarget.value)}
     />
-  );
-}
-
-// M12 toast stack — bottom-center, fades in/out, doesn't block the canvas.
-function ToastStack({ toasts }: { toasts: Array<{ id: string; message: string; tone: string }> }) {
-  return (
-    <div className="absolute bottom-20 left-1/2 -translate-x-1/2 flex flex-col gap-1.5 pointer-events-none z-30">
-      {toasts.map((t) => {
-        const cls =
-          t.tone === 'success' ? 'bg-emerald-700 text-white' :
-          t.tone === 'warn' ? 'bg-amber-600 text-white' :
-          t.tone === 'error' ? 'bg-red-700 text-white' :
-                              'bg-zinc-800 text-white';
-        return (
-          <div
-            key={t.id}
-            className={`px-3 py-1.5 rounded shadow-lg text-[0.78rem] leading-snug max-w-[80vw] whitespace-pre-line break-words ${cls}`}
-          >
-            {t.message}
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { router } from './router';
+import { ToastProvider } from './lib/toast';
 import './index.css';
 
 // One-time localStorage migrations.
@@ -49,6 +50,8 @@ if (!root) throw new Error('Missing #root');
 
 createRoot(root).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <ToastProvider>
+      <RouterProvider router={router} />
+    </ToastProvider>
   </StrictMode>
 );
