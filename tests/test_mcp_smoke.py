@@ -124,6 +124,35 @@ def test_workflow_state_no_scenes_all_phases_pending():
             assert state["phases"][p]["blockers"], f"{p} needs a blocker"
 
 
+def test_workflow_state_issue23_null_facts_w1_w3_pending():
+    """Issue #23 (completes #20): a purged house (0 scenes, null/empty
+    house_facts) must report W1–W4 ALL pending with a blocker — not just
+    W2. Previously W1 (heights) and W3 (orientation) leaked `done` with
+    empty blockers, so a labeling agent skipped the height anchor and
+    orientation entirely."""
+    # null facts == empty dict after the loader's `facts or {}` normalize.
+    state = mcp_server._derive_workflow_state({"drawings": []}, {}, {})
+    for p in ("W1", "W2", "W3", "W4"):
+        ph = state["phases"][p]
+        assert ph["status"] == "pending", f"{p} must be pending, got {ph}"
+    # W1 & W3 specifically must carry the no-scenes blocker, not be empty.
+    assert state["phases"]["W1"]["blockers"] == ["no scenes extracted yet"]
+    assert state["phases"]["W3"]["blockers"] == ["no scenes extracted yet"]
+
+
+def test_workflow_state_w1_height_mark_label_satisfies():
+    """Issue #23: W1 is `done` when a height_mark label exists on a scene,
+    even if heights facts are not yet written back. Requires scenes."""
+    meta = {"a.jpg": {"scene_tag": "ansicht", "has_height_mark": True}}
+    state = mcp_server._derive_workflow_state(
+        {"drawings": [{"file": "a.jpg"}]}, {}, meta,
+    )
+    assert state["phases"]["W1"]["status"] == "done"
+    # But with NO scenes, the height_mark presence cannot apply.
+    state_no_scenes = mcp_server._derive_workflow_state({"drawings": []}, {}, {})
+    assert state_no_scenes["phases"]["W1"]["status"] == "pending"
+
+
 def test_workflow_state_full_geometry_with_scene_is_done():
     """Guard the happy path: a scene plus complete geometry still flips
     W1/W2/W3 to done (the issue #20 fix must not over-block)."""
