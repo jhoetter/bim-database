@@ -30,6 +30,7 @@ BASE = Path(__file__).parent.parent
 DATASET_DIR = BASE / "data" / "dataset"
 PDFS_DIR = BASE / "data" / "pdfs"
 INCOMING_DIR = PDFS_DIR / "incoming"
+SUBMISSIONS_DIR = PDFS_DIR / "submissions"
 UI_DIST = BASE / "ui" / "dist"
 
 app = FastAPI(
@@ -321,6 +322,206 @@ def get_incoming_pdf(key: str):
     if m.get("consolidated_pdf"):
         m["consolidated_url"] = f"/static/pdfs/incoming/{key}/{m['consolidated_pdf']}"
     return m
+
+
+# ── Customer submission review + promote (developer surface) ──────────────
+# Submissions land in data/pdfs/submissions/<id>/ via the separate
+# form_api process. The developer reviews them here and promotes the
+# clean ones into data/pdfs/incoming/house-NN/ for the existing R2 scene
+# extractor to pick up.
+
+
+@app.get("/pdfs/submissions", tags=["pdfs"])
+def list_submissions():
+    """Every quarantined customer submission, newest-first. Each entry
+    is the on-disk manifest augmented with consolidated_url + a derived
+    `summary` describing pass/warn/reject counts so the SPA can render
+    a queue at a glance."""
+    if not SUBMISSIONS_DIR.exists():
+        return []
+    out = []
+    for d in sorted(SUBMISSIONS_DIR.iterdir(), reverse=True):
+        if not d.is_dir():
+            continue
+        manifest_path = d / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            m = json.loads(manifest_path.read_text())
+        except json.JSONDecodeError:
+            continue
+        m["submission_id"] = d.name
+        if m.get("consolidated_pdf"):
+            m["consolidated_url"] = f"/static/pdfs/submissions/{d.name}/{m['consolidated_pdf']}"
+        pages = m.get("pages") or []
+        m["summary"] = {
+            "pass": sum(1 for p in pages if p.get("decision") == "pass"),
+            "warn": sum(1 for p in pages if p.get("decision") == "warn"),
+            "reject": sum(1 for p in pages if p.get("decision") == "reject"),
+            "title_blocks_suspected": sum(
+                1 for p in pages if (p.get("pii_flag") or {}).get("title_block_suspected")
+            ),
+        }
+        out.append(m)
+    return out
+
+
+@app.get("/pdfs/submissions/{submission_id}", tags=["pdfs"])
+def get_submission(submission_id: str):
+    _safe_submission_id(submission_id)
+    mp = SUBMISSIONS_DIR / submission_id / "manifest.json"
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail=f"No submission {submission_id!r}")
+    m = json.loads(mp.read_text())
+    m["submission_id"] = submission_id
+    if m.get("consolidated_pdf"):
+        m["consolidated_url"] = (
+            f"/static/pdfs/submissions/{submission_id}/{m['consolidated_pdf']}"
+        )
+    return m
+
+
+@app.post("/pdfs/submissions/{submission_id}/promote", tags=["pdfs"], status_code=201)
+def promote_submission(
+    submission_id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+):
+    """Promote a quarantined submission into the corpus.
+
+    Body (all optional):
+      house_key:        target key — defaults to the next free house-NN
+      redact_title_block: if true, re-runs ingestion with the redaction
+                          hook applied (only meaningful when the
+                          submission was flagged)
+      user_notes:       supersedes the submission's notes on the new bundle
+
+    The submission directory is NOT deleted; we copy the rectified PDF +
+    originals into the new incoming bundle and stamp the submission
+    manifest with `promoted_to: <house_key>`. Round-trip stays auditable.
+    """
+    _safe_submission_id(submission_id)
+    src = SUBMISSIONS_DIR / submission_id
+    src_manifest_path = src / "manifest.json"
+    if not src_manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"No submission {submission_id!r}")
+    submission_manifest = json.loads(src_manifest_path.read_text())
+
+    if submission_manifest.get("promoted_to"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"already promoted to {submission_manifest['promoted_to']!r}",
+        )
+
+    house_key = payload.get("house_key") or _next_free_house_key()
+    _safe_key(house_key)
+
+    target = INCOMING_DIR / house_key
+    if target.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"target bundle {house_key!r} already exists",
+        )
+
+    redact = bool(payload.get("redact_title_block"))
+    if redact:
+        # Re-run ingestion on the originals so the redaction is applied
+        # to the rectified PDF — never edit the quarantined artifact in
+        # place; we want a clean provenance trail.
+        from ingestion.bundle import IngestProvenance, ingest_to_bundle
+        from ingestion.config import load_profile
+
+        source_dir = src / "source"
+        originals = sorted(source_dir.iterdir()) if source_dir.exists() else []
+        if not originals:
+            raise HTTPException(
+                status_code=409,
+                detail="cannot redact: submission has no preserved source originals",
+            )
+        provenance = IngestProvenance(
+            source_type="form",
+            submitter=submission_manifest.get("submitter"),
+            consent=submission_manifest.get("consent"),
+            user_notes=payload.get("user_notes")
+                       or submission_manifest.get("user_notes", ""),
+        )
+        cfg = load_profile()  # re-render uses the dev profile by default
+        result = ingest_to_bundle(
+            input_files=originals,
+            bundle_root=INCOMING_DIR,
+            bundle_key=house_key,
+            provenance=provenance,
+            cfg=cfg,
+            redact_title_blocks=True,
+        )
+        new_manifest = result.manifest
+    else:
+        # Cheap path: copy the rectified PDF + source/ verbatim, rewrite
+        # the manifest's house_key + state.
+        import shutil
+        target.mkdir(parents=True, exist_ok=True)
+        consolidated_name = submission_manifest.get("consolidated_pdf")
+        if consolidated_name:
+            shutil.copyfile(src / consolidated_name, target / consolidated_name)
+        if (src / "source").exists():
+            shutil.copytree(src / "source", target / "source")
+        new_manifest = dict(submission_manifest)
+        new_manifest["house_key"] = house_key
+        new_manifest["state"] = "partial"
+        new_manifest["extracted_scenes"] = []
+        if payload.get("user_notes"):
+            new_manifest["user_notes"] = payload["user_notes"]
+        (target / "manifest.json").write_text(
+            json.dumps(new_manifest, indent=2, ensure_ascii=False)
+        )
+
+    # Stamp the source submission so the audit trail is durable.
+    submission_manifest["promoted_to"] = house_key
+    submission_manifest["promoted_at"] = _now_iso()
+    src_manifest_path.write_text(
+        json.dumps(submission_manifest, indent=2, ensure_ascii=False)
+    )
+
+    return {
+        "promoted_to": house_key,
+        "consolidated_url": (
+            f"/static/pdfs/incoming/{house_key}/{new_manifest.get('consolidated_pdf')}"
+            if new_manifest.get("consolidated_pdf") else None
+        ),
+        "redacted": redact,
+    }
+
+
+@app.delete("/pdfs/submissions/{submission_id}", tags=["pdfs"], status_code=204)
+def delete_submission(submission_id: str):
+    """Drop a quarantined submission outright. Use for clear-spam / GDPR
+    erasure. Refuses if the submission has already been promoted —
+    delete the resulting incoming bundle separately if needed."""
+    _safe_submission_id(submission_id)
+    src = SUBMISSIONS_DIR / submission_id
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"No submission {submission_id!r}")
+    manifest_path = src / "manifest.json"
+    if manifest_path.exists():
+        try:
+            m = json.loads(manifest_path.read_text())
+            if m.get("promoted_to"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "submission has already been promoted to "
+                        f"{m['promoted_to']!r}; delete that bundle separately"
+                    ),
+                )
+        except json.JSONDecodeError:
+            pass
+    import shutil
+    shutil.rmtree(src)
+    return None
+
+
+def _safe_submission_id(submission_id: str) -> None:
+    if not submission_id or "/" in submission_id or ".." in submission_id or "\\" in submission_id:
+        raise HTTPException(status_code=400, detail=f"bad submission_id {submission_id!r}")
 
 
 def _safe_key(key: str) -> None:

@@ -3,7 +3,13 @@
 //
 // R0 — catalog ("houses") endpoints removed. Only the dataset path remains.
 import { useEffect, useState } from 'react';
-import type { LabelScope, SceneLabels, DatasetHouse, IncomingPdf } from './types';
+import type {
+  LabelScope,
+  SceneLabels,
+  DatasetHouse,
+  IncomingPdf,
+  IncomingSubmission,
+} from './types';
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -44,6 +50,40 @@ export async function uploadPdfs(
     throw new Error(`${r.status} ${r.statusText}: ${detail}`);
   }
   return r.json();
+}
+
+// Customer submission queue (developer review).
+
+export function listSubmissions(): Promise<IncomingSubmission[]> {
+  return get<IncomingSubmission[]>('/pdfs/submissions');
+}
+
+export function getSubmission(id: string): Promise<IncomingSubmission> {
+  return get<IncomingSubmission>(`/pdfs/submissions/${encodeURIComponent(id)}`);
+}
+
+export async function promoteSubmission(
+  id: string,
+  body: { house_key?: string; redact_title_block?: boolean; user_notes?: string } = {},
+): Promise<{ promoted_to: string; consolidated_url: string | null; redacted: boolean }> {
+  const r = await fetch(`/pdfs/submissions/${encodeURIComponent(id)}/promote`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
+}
+
+export async function deleteSubmission(id: string): Promise<void> {
+  const r = await fetch(`/pdfs/submissions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!r.ok && r.status !== 204) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
 }
 
 export async function updateIncomingNotes(

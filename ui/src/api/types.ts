@@ -179,8 +179,10 @@ export interface DatasetDrawing {
 
 // R1 — PDF intake bundle. One per house under data/pdfs/incoming/<key>/.
 // The consolidated_url points at the merged PDF used by R2's scene extractor.
+// schema_version 2.0 adds the ingestion-pipeline provenance fields below; the
+// UI keeps reading both 1.0 and 2.0 manifests since the server upgrades on read.
 export interface IncomingPdf {
-  schema_version: '1.0';
+  schema_version: '1.0' | '2.0';
   key: string;
   house_key: string;
   consolidated_pdf: string | null;
@@ -195,6 +197,42 @@ export interface IncomingPdf {
     bbox_pdf_units: [number, number, number, number];
     scene_file: string;
   }>;
+  // v2.0 only — additive.
+  source_type?: 'batch' | 'scrape' | 'form';
+  pages?: Array<{
+    page: number;
+    decision: 'pass' | 'warn' | 'reject';
+    decision_reasons?: string[];
+    pii_flag?: {
+      title_block_suspected: boolean;
+      title_block_bbox_px: [number, number, number, number] | null;
+      redacted: boolean;
+    };
+    human_qa_required?: boolean;
+  }>;
+}
+
+// Customer submission queue entry (developer review surface).
+export interface IncomingSubmission extends IncomingPdf {
+  submission_id: string;
+  submitter?: {
+    submission_id: string;
+    contact_email?: string | null;
+    contact_name?: string | null;
+  } | null;
+  consent?: {
+    training_use: boolean;
+    license: string;
+    consented_at: string;
+  } | null;
+  summary?: {
+    pass: number;
+    warn: number;
+    reject: number;
+    title_blocks_suspected: number;
+  };
+  promoted_to?: string;
+  promoted_at?: string;
 }
 
 export interface DatasetHouse {

@@ -9,23 +9,16 @@ in, draw bounding boxes around each scene (elevation / floorplan / section
 raw and rectified ground-truth pairs.
 
 ```
-   ┌──────────────┐       ┌────────────────┐       ┌────────────────┐
-   │  PDF intake  │ ─→    │   Scene        │ ─→    │   Annotation   │
-   │   (R1)       │       │   extraction   │       │   (W0-W9 +     │
-   │              │       │   (R2)         │       │    V0-V3 +     │
-   └──────────────┘       └────────────────┘       │    M / K / N)  │
-                                                   └────────┬───────┘
-                          ┌────────────────┐                │
-                          │  Export        │ ◀──────────────┘
-                          │  preview (R4)  │
-                          └────────────────┘
-                                  │
-                                  ▼
-                          ┌────────────────┐
-                          │  3D preview    │
-                          │  (R5)          │
-                          └────────────────┘
+   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+   │ Ingestion    │ ─→ │   Scene      │ ─→ │ Annotation   │ ─→ │ Export       │
+   │ (batch CLI │      │ extraction   │    │ (W / V / M)  │    │ Set A + B    │
+   │  + form)   │      │ (R2)         │    │              │    │              │
+   └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
+
+Ingestion + scene extraction produce raw-PDF + rectified-PDF pairs in
+`data/pdfs/incoming/<house-key>/`; annotation labels in `data/dataset/`
+combine to give the corpus its raw↔rectified ground truth.
 
 See [`spec/keyboard.md`](spec/keyboard.md) for the live keyboard and
 modifier model used by the annotation editor.
@@ -43,10 +36,60 @@ make web         # vite dev server on :5173 (proxies API requests to :2500)
 Open <http://localhost:2500> — single-page UI, dataset list with per-house
 workflow phase badges.
 
-> **Security note.** The server is single-user-on-localhost by default.
-> `POST /pdfs*`, `POST /exports*` and `DELETE /pdfs/incoming/*` are
-> un-authenticated. Do not expose this server on a LAN or VPN without
-> fronting it with auth.
+> **Security note.** The developer server (`api/main.py`) is
+> single-user-on-localhost by default. `POST /pdfs*`, `POST /exports*`
+> and `DELETE /pdfs/incoming/*` are un-authenticated. The
+> customer-facing submission API (`form_api/main.py`) is a SEPARATE
+> process with its own auth + rate-limit — never co-host it with the
+> dev server. Do not expose `api/main.py` on a LAN/VPN without fronting
+> it with auth.
+
+---
+
+## Ingestion (batch + customer submissions)
+
+A single source-agnostic pipeline (`ingestion/`) feeds both entry points
+and emits the canonical R1 intake bundle shape (`manifest.json` +
+consolidated PDF + `source/`). Downstream R2 scene extraction is
+untouched.
+
+Stages: **normalize** (HEIC/JPEG/PNG/TIFF/PDF → page images, EXIF) →
+**quality gate** (resolution / blur / exposure / glare / skew /
+document-present, pass / warn / reject) → **rectify** (perspective
+contour + deskew fallback; pluggable for a learned dewarp model) →
+**restore** (`NoopEnhancer` default; Replicate as the first real
+backend, hard-blocked on dimension-text pages so a generative model
+never hallucinates digits) → **persist** (consolidated PDF +
+`source/` + manifest v2.0 with full pipeline provenance).
+
+**Batch (developer) path:**
+
+```bash
+make ingest INPUTS="some/folder/*.pdf some/photos/*.heic"
+make ingest INPUTS=scrape/foo.pdf SRC_TYPE=scrape PROFILE=lenient-scrape
+```
+
+Failed gates **flag** but do not block — the bundle still lands.
+
+**Customer submission path:**
+
+```bash
+export FORM_API_KEY=…           # required — refuses to start without
+export FORM_IP_SALT=…
+make form-api                   # public FastAPI on :2600
+make form-ui-install
+make form-ui-dev                # customer SPA on :5174
+```
+
+The form ingests into `data/pdfs/submissions/<id>/` (quarantine), never
+into `data/pdfs/incoming/`. A developer review queue lives under the
+existing `/intake` page (Tab "Kunden-Einreichungen") and can promote
+clean submissions into `data/pdfs/incoming/house-NN/` after an optional
+title-block redaction.
+
+The intake manifest schema is in
+[`schema/intake_manifest.schema.json`](schema/intake_manifest.schema.json)
+(v2.0 — backwards-compatible with v1.0).
 
 ---
 
@@ -54,38 +97,34 @@ workflow phase badges.
 
 ```
 data/
-  pdfs/incoming/                # R1: per-house PDF intake bundles
-    house-21/
-      manifest.json             # source filenames + state + notes
-      house-21.pdf              # consolidated PDF (per R1.3)
-      source/                   # original uploads (preserved)
-  dataset/                      # R2 output: scene crops + label JSONs
-    house-21/
-      manifest.json
-      house-21-floorplan-eg.jpg
-      labels/
-        house-21-floorplan-eg.json
+  pdfs/
+    incoming/                   # per-house intake bundles (R1 contract)
+      house-21/
+        manifest.json           # v2.0 — source filenames + state + per-page quality + pipeline
+        house-21.pdf            # consolidated, rectified PDF
+        source/                 # original uploads (preserved, SHA-dedup'd)
+    submissions/                # customer submissions — quarantined
+      <submission-id>/          # same bundle shape; promote → incoming/
+  dataset/                      # scene crops + label JSONs (R2 output)
 
-api/
-  main.py                       # FastAPI app
+ingestion/                      # source-agnostic preprocessing pipeline
+  normalize.py / gate.py / rectify.py / restore.py
+  bundle.py / manifest.py / pii.py / config.py / cli.py
 
-ui/src/
-  pages/                        # DatasetPage / DatasetHousePage / AnnotatePage
-  lib/                          # workflow, house_facts, region_kind, …
+api/main.py                     # developer FastAPI (:2500) — localhost-only
+form_api/main.py                # customer-facing FastAPI (:2600) — API key + rate limit
+
+ui/                             # annotation SPA (Vite, :5173)
+form-ui/                        # customer submission SPA (Vite, :5174)
 
 schema/
-  scene_labels.schema.json      # source of truth for label JSON shape
+  scene_labels.schema.json
+  intake_manifest.schema.json   # intake bundle shape (v2.0)
 
-scripts/
-  cleanup_houses_legacy.py      # R0.6: drops obsolete data/houses/
+tests/                          # ingestion package tests
 
 spec/
-  annotation-tool.md            # data model, M0–M6, two-stage training
-  annotation-ux.md              # M7–M13 + X1–X11
-  annotation-visualisation.md   # V0–V3
-  annotation-workflow.md        # W0–W9
-  end-to-end-readiness.md       # R0–R6 (this tracker)
-  keyboard.md                   # K1–K12
+  keyboard.md                   # K1–K12 — annotation editor key model
 ```
 
 ---
@@ -93,7 +132,8 @@ spec/
 ## Status (2026-05-29)
 
 - Catalog ("houses") path removed in R0.
-- PDF intake (R1) + scene extraction (R2) + cross-step navigation
-  (R3) + export preview (R4) + 3D preview (R5) + bulk export (R6)
-  in progress per the R tracker.
+- PDF intake / scene extraction / annotation / export preview /
+  3D preview / bulk export — shipped.
+- Ingestion package + customer submission form — shipped; manifest
+  upgraded to v2.0 backwards-compatibly.
 - Seed PDFs for houses 21 / 22 / 23 preserved at `data/pdfs/incoming/`.

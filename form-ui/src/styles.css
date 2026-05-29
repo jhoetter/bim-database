@@ -1,0 +1,146 @@
+/* Stripped-down stylesheet — no framework. Designed to render usefully
+   on a 360px phone and feel calm on a 1200px desktop. */
+
+:root {
+  --fg: #1d1d20;
+  --muted: #6b6b73;
+  --accent: #145fcb;
+  --border: #d6d6dc;
+  --pass: #1e7d2c;
+  --warn: #b56500;
+  --reject: #b3261e;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--fg);
+}
+
+body {
+  margin: 0;
+  background: #fafafb;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 18px 80px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 1.6rem;
+}
+
+p.intro {
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 24px;
+}
+
+.card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin: 16px 0;
+}
+
+.card h2 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+label {
+  display: block;
+  font-size: 0.92rem;
+  margin: 10px 0 4px;
+}
+
+input[type="text"],
+input[type="email"],
+textarea,
+select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  color: var(--muted);
+  background: white;
+  cursor: pointer;
+}
+
+.dropzone.dragover {
+  border-color: var(--accent);
+  background: #f0f6ff;
+}
+
+button.primary {
+  background: var(--accent);
+  color: white;
+  border: 0;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button.primary:disabled {
+  background: #b3c3dc;
+  cursor: not-allowed;
+}
+
+ul.file-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+
+ul.file-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+.tag.pass   { background: #e6f4ea; color: var(--pass); }
+.tag.warn   { background: #fff3e0; color: var(--warn); }
+.tag.reject { background: #fce8e6; color: var(--reject); }
+
+.hint {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.consent {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.consent input { margin-top: 4px; }

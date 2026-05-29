@@ -5,25 +5,33 @@
 // PDF that the R2 scene extractor renders. Lists every existing intake
 // bundle with a "→ Szenen extrahieren" button.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import {
   deleteIncomingPdf,
+  deleteSubmission,
   listIncomingPdfs,
+  listSubmissions,
+  promoteSubmission,
   updateIncomingNotes,
   uploadPdfs,
   useResource,
 } from '../api/client';
-import type { IncomingPdf } from '../api/types';
+import type { IncomingPdf, IncomingSubmission } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+
+type Tab = 'upload' | 'submissions';
 
 export function IntakePage() {
   // Refresh hook so list mutations bring new data without a full page
   // reload; bumped after every upload / delete / patch.
   const [rev, setRev] = useState(0);
+  const [tab, setTab] = useState<Tab>('upload');
   const { data, error, loading } = useResource(listIncomingPdfs, [rev]);
+  const submissionsRes = useResource(listSubmissions, [rev, tab]);
   const bumpRev = () => setRev((r) => r + 1);
+  const pendingSubmissions = (submissionsRes.data ?? []).filter((s) => !s.promoted_to).length;
   return (
     <Shell
       breadcrumb={
@@ -32,39 +40,295 @@ export function IntakePage() {
       leftSidebar={<IntakeSidebar bundles={data ?? []} />}
     >
       <div className="px-6 py-5 space-y-6 max-w-5xl">
-        <section>
-          <h1 className="text-[1.05rem] font-semibold mb-2">PDFs hochladen</h1>
-          <p className="text-[0.78rem] text-muted leading-snug mb-3">
-            Zieh eine oder mehrere PDFs in das Feld unten. Wenn du einen
-            <em> House-Key</em> setzt, landen die Dateien direkt im richtigen
-            Bündel; sonst wird der nächste freie Key vergeben. Mehrere Files
-            unter demselben Key werden zu <em>einer </em> konsolidierten PDF
-            zusammengeführt.
-          </p>
-          <DropZone onUploaded={bumpRev} />
-        </section>
+        <div className="flex gap-1 border-b border-border">
+          <TabButton active={tab === 'upload'} onClick={() => setTab('upload')}>
+            Eigene Uploads
+          </TabButton>
+          <TabButton active={tab === 'submissions'} onClick={() => setTab('submissions')}>
+            Kunden-Einreichungen
+            {pendingSubmissions > 0 && (
+              <span className="ml-1.5 text-[0.62rem] px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-semibold">
+                {pendingSubmissions}
+              </span>
+            )}
+          </TabButton>
+        </div>
 
-        <section>
-          <h2 className="text-[0.95rem] font-semibold mb-2">Eingangsstapel</h2>
-          {loading && <p className="text-[0.78rem] text-muted">Lade…</p>}
-          {error && <p className="text-[0.78rem] text-red-700">Fehler: {error.message}</p>}
-          {!loading && !error && (data ?? []).length === 0 && (
-            <p className="text-[0.78rem] text-muted italic">
-              Noch nichts hochgeladen. Drop a PDF above.
-            </p>
-          )}
-          {!loading && !error && (data ?? []).length > 0 && (
-            <ul className="space-y-2">
-              {(data ?? []).map((b) => (
-                <li key={b.key}>
-                  <BundleRow bundle={b} onChange={bumpRev} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        {tab === 'upload' && (
+          <>
+            <section>
+              <h1 className="text-[1.05rem] font-semibold mb-2">PDFs hochladen</h1>
+              <p className="text-[0.78rem] text-muted leading-snug mb-3">
+                Zieh eine oder mehrere PDFs in das Feld unten. Wenn du einen
+                <em> House-Key</em> setzt, landen die Dateien direkt im richtigen
+                Bündel; sonst wird der nächste freie Key vergeben. Mehrere Files
+                unter demselben Key werden zu <em>einer </em> konsolidierten PDF
+                zusammengeführt.
+              </p>
+              <DropZone onUploaded={bumpRev} />
+            </section>
+
+            <section>
+              <h2 className="text-[0.95rem] font-semibold mb-2">Eingangsstapel</h2>
+              {loading && <p className="text-[0.78rem] text-muted">Lade…</p>}
+              {error && <p className="text-[0.78rem] text-red-700">Fehler: {error.message}</p>}
+              {!loading && !error && (data ?? []).length === 0 && (
+                <p className="text-[0.78rem] text-muted italic">
+                  Noch nichts hochgeladen. Drop a PDF above.
+                </p>
+              )}
+              {!loading && !error && (data ?? []).length > 0 && (
+                <ul className="space-y-2">
+                  {(data ?? []).map((b) => (
+                    <li key={b.key}>
+                      <BundleRow bundle={b} onChange={bumpRev} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
+        )}
+
+        {tab === 'submissions' && (
+          <SubmissionQueue
+            data={submissionsRes.data ?? []}
+            loading={submissionsRes.loading}
+            error={submissionsRes.error}
+            onChange={bumpRev}
+          />
+        )}
       </div>
     </Shell>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 text-[0.85rem] border-b-2 -mb-px ${
+        active
+          ? 'border-accent text-zinc-900 font-medium'
+          : 'border-transparent text-muted hover:text-zinc-700'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SubmissionQueue({
+  data,
+  loading,
+  error,
+  onChange,
+}: {
+  data: IncomingSubmission[];
+  loading: boolean;
+  error: Error | null;
+  onChange: () => void;
+}) {
+  return (
+    <section>
+      <h1 className="text-[1.05rem] font-semibold mb-2">Kunden-Einreichungen</h1>
+      <p className="text-[0.78rem] text-muted leading-snug mb-3">
+        Eingereichte Dateien liegen in Quarantäne unter
+        <code> data/pdfs/submissions/&lt;id&gt;/</code>. Vor der Übernahme in
+        den Korpus jede Einreichung kurz prüfen: Titelblock auf
+        personenbezogene Daten checken, ggf. redigieren, dann „Übernehmen".
+      </p>
+      {loading && <p className="text-[0.78rem] text-muted">Lade…</p>}
+      {error && <p className="text-[0.78rem] text-red-700">Fehler: {error.message}</p>}
+      {!loading && !error && data.length === 0 && (
+        <p className="text-[0.78rem] text-muted italic">Keine offenen Einreichungen.</p>
+      )}
+      {!loading && !error && data.length > 0 && (
+        <ul className="space-y-2">
+          {data.map((s) => (
+            <li key={s.submission_id}>
+              <SubmissionRow submission={s} onChange={onChange} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SubmissionRow({
+  submission,
+  onChange,
+}: {
+  submission: IncomingSubmission;
+  onChange: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const redactDefault = (submission.summary?.title_blocks_suspected ?? 0) > 0;
+  const [redact, setRedact] = useState(redactDefault);
+  const promoted = !!submission.promoted_to;
+
+  const promote = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await promoteSubmission(submission.submission_id, {
+        redact_title_block: redact,
+      });
+      window.alert(`✓ Übernommen als ${res.promoted_to}`);
+      onChange();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const drop = async () => {
+    if (busy) return;
+    if (!window.confirm(`Einreichung ${submission.submission_id} verwerfen?`)) return;
+    setBusy(true);
+    try {
+      await deleteSubmission(submission.submission_id);
+      onChange();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border border-border rounded-lg bg-white px-3 py-2.5 flex flex-col gap-2">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <span className="font-mono text-[0.75rem] font-semibold truncate max-w-[20ch]">
+              {submission.submission_id}
+            </span>
+            <span className="text-[0.65rem] text-muted">·</span>
+            <span className="text-[0.7rem] text-muted">{submission.page_count ?? '?'} Seiten</span>
+            {submission.summary && (
+              <>
+                <span className="text-[0.65rem] text-muted">·</span>
+                <SummaryChips summary={submission.summary} />
+              </>
+            )}
+            {promoted && (
+              <span className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-medium">
+                übernommen → {submission.promoted_to}
+              </span>
+            )}
+          </div>
+          <div className="text-[0.72rem] text-muted mt-0.5">
+            {submission.submitter?.contact_name ?? 'anonym'} ·{' '}
+            {submission.submitter?.contact_email ?? '—'} ·{' '}
+            {submission.consent?.license ?? '?'} · eingegangen {submission.uploaded_at}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5 items-end shrink-0">
+          {submission.consolidated_url && (
+            <a
+              href={submission.consolidated_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[0.72rem] px-2.5 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-800"
+            >
+              PDF ansehen
+            </a>
+          )}
+          {!promoted && (
+            <>
+              <label className="flex items-center gap-1 text-[0.7rem]">
+                <input
+                  type="checkbox"
+                  checked={redact}
+                  onChange={(e) => setRedact(e.target.checked)}
+                />
+                Titelblock schwärzen
+              </label>
+              <button
+                type="button"
+                onClick={promote}
+                disabled={busy}
+                className="text-[0.72rem] px-2.5 py-1 rounded bg-accent text-white disabled:opacity-50"
+              >
+                Übernehmen
+              </button>
+              <button
+                type="button"
+                onClick={drop}
+                disabled={busy}
+                className="text-[0.62rem] text-red-700 hover:underline"
+              >
+                Verwerfen
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      {error && <p className="text-[0.72rem] text-red-700">{error}</p>}
+      {(submission.pages ?? []).some((p) => p.decision !== 'pass') && (
+        <ul className="text-[0.72rem] space-y-0.5">
+          {(submission.pages ?? [])
+            .filter((p) => p.decision !== 'pass')
+            .map((p) => (
+              <li key={p.page} className="flex items-baseline gap-1.5">
+                <span className="font-mono">S. {p.page}</span>
+                <span className={p.decision === 'reject' ? 'text-red-700' : 'text-amber-700'}>
+                  {p.decision}
+                </span>
+                <span className="text-muted">{(p.decision_reasons ?? []).join(' · ')}</span>
+              </li>
+            ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function SummaryChips({
+  summary,
+}: {
+  summary: NonNullable<IncomingSubmission['summary']>;
+}) {
+  return (
+    <span className="inline-flex gap-1.5">
+      {summary.pass > 0 && (
+        <span className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-medium">
+          {summary.pass} pass
+        </span>
+      )}
+      {summary.warn > 0 && (
+        <span className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-medium">
+          {summary.warn} warn
+        </span>
+      )}
+      {summary.reject > 0 && (
+        <span className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-red-100 text-red-900 font-medium">
+          {summary.reject} reject
+        </span>
+      )}
+      {summary.title_blocks_suspected > 0 && (
+        <span
+          className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-900 font-medium"
+          title="PII-Verdacht — Titelblock vor Übernahme prüfen"
+        >
+          {summary.title_blocks_suspected} PII?
+        </span>
+      )}
+    </span>
   );
 }
 

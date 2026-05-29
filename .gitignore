@@ -32,3 +32,12 @@ tmp/pdf-cache/
 
 # R6 exports — regeneratable from data/dataset/ + house_facts in localStorage.
 data/exports/
+
+# Customer submissions — quarantine area populated by form_api/. May
+# contain PII before promotion; never commit.
+data/pdfs/submissions/
+
+# pytest + form-ui artifacts
+.pytest_cache/
+form-ui/node_modules/
+form-ui/dist/
