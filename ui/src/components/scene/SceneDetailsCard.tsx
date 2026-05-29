@@ -25,8 +25,13 @@ export interface SceneDetailsCardProps {
   drawing: DatasetDrawing;
   /** Optional readiness derived from a labels summary fetch. */
   readiness?: { hasH: boolean; hasV: boolean };
-  /** Called after a successful PATCH so the parent can refresh. */
-  onUpdated?: (manifest: DatasetHouse) => void;
+  /** Called after a successful PATCH so the parent can refresh. The
+   *  second argument carries the before/after delta so the host can
+   *  push an A3 'classify' undo entry. */
+  onUpdated?: (manifest: DatasetHouse, change?: {
+    before: { kind: string | null; floor: string | null; view: string | null; title: string | null };
+    after:  { kind: string | null; floor: string | null; view: string | null; title: string | null };
+  }) => void;
   /** Annotation / Adjust / Delete callbacks supplied by the host. The
    *  Annotieren link is rendered as a Link if provided. */
   onAnnotateHref?: string;
@@ -66,14 +71,28 @@ export function SceneDetailsCard({
     setSaving(true);
     setError(null);
     try {
+      // auto-persist follow-up — capture before/after so the host
+      // can push a classify undo entry.
+      const before = {
+        kind:  drawing.kind ?? null,
+        floor: drawing.floor ?? null,
+        view:  drawing.view ?? null,
+        title: drawing.title ?? null,
+      };
       const payload: Record<string, string | null> = {
         kind: draft.kind || null,
         title: draft.title || null,
       };
       payload.floor = draft.kind === 'floorplan' ? (draft.floor || null) : null;
       payload.view = (draft.kind === 'elevation' || draft.kind === 'section') ? (draft.view || null) : null;
+      const after = {
+        kind:  payload.kind  ?? null,
+        floor: payload.floor ?? null,
+        view:  payload.view  ?? null,
+        title: payload.title ?? null,
+      };
       const fresh = await patchSceneAttrs(houseKey, drawing.file, payload);
-      onUpdated?.(fresh);
+      onUpdated?.(fresh, { before, after });
       setEditing(false);
     } catch (e) {
       setError((e as Error).message);

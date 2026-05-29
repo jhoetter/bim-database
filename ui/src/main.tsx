@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { router } from './router';
 import { ToastProvider } from './lib/toast';
+import { ExtractUndoProvider } from './lib/extract_undo';
 import './index.css';
 
 // One-time localStorage migrations.
@@ -51,7 +52,9 @@ if (!root) throw new Error('Missing #root');
 createRoot(root).render(
   <StrictMode>
     <ToastProvider>
-      <RouterProvider router={router} />
+      <ExtractUndoProvider>
+        <RouterProvider router={router} />
+      </ExtractUndoProvider>
     </ToastProvider>
   </StrictMode>
 );

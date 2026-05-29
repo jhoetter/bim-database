@@ -24,13 +24,14 @@ import {
   type ExtractItem,
   type PdfInfo,
 } from '../api/client';
-import type { DatasetDrawing, DatasetHouse, IncomingPdf } from '../api/types';
+import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 import { PHASE_IDS, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT } from '../components/Cheatsheet';
 import { useToast } from '../lib/toast';
+import { useExtractUndo } from '../lib/extract_undo';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
 const KIND_LABEL: Record<ExtractItem['kind'], string> = {
@@ -155,14 +156,16 @@ export function ExtractPage() {
   type ExtractAction =
     | { kind: 'extract'; file: string; previousDraft: DraftBbox }
     | { kind: 'delete'; file: string }
-    | { kind: 'classify'; file: string; before: Partial<DatasetDrawing>; after: Partial<DatasetDrawing> };
-  const undoRef = useRef<ExtractAction[]>([]);
-  const redoRef = useRef<ExtractAction[]>([]);
-  const pushUndo = useCallback((a: ExtractAction) => {
-    undoRef.current.push(a);
-    if (undoRef.current.length > 200) undoRef.current.shift();
-    redoRef.current = [];
-  }, []);
+    | { kind: 'adjust'; file: string; newDraftId: string }
+    | { kind: 'classify'; file: string;
+        before: { kind: string | null; floor: string | null; view: string | null; title: string | null };
+        after:  { kind: string | null; floor: string | null; view: string | null; title: string | null };
+      };
+  // auto-persist follow-up — the action log is now house-scoped via
+  // ExtractUndoProvider, so the stack survives navigation to / from
+  // the annotation editor and back.
+  const undoCtx = useExtractUndo();
+  const pushUndo = useCallback((a: ExtractAction) => undoCtx.push(key, a), [undoCtx, key]);
   const applyAction = useCallback(async (a: ExtractAction, reverse: boolean): Promise<ExtractAction | null> => {
     if (a.kind === 'extract') {
       if (reverse) {
@@ -198,6 +201,43 @@ export function ExtractPage() {
       setDataset(d);
       return a;
     }
+    if (a.kind === 'adjust') {
+      if (reverse) {
+        // Undo adjust = restore the original extracted scene AND drop
+        // the new draft we created.
+        const d = await restoreExtractedScene(key, a.file);
+        setDataset(d);
+        setDraft((curr) => ({ ...curr, bboxes: curr.bboxes.filter((b) => b.id !== a.newDraftId) }));
+        return a;
+      }
+      // Redo adjust = re-trigger onAdjustExtracted's effect. The
+      // simpler reach: delete the scene again (it'll re-enter the
+      // recycle bin) and re-create the draft.
+      const target = (await fetchDataset(key)).drawings.find((d) => d.file === a.file);
+      const cf = target?.crop_from;
+      if (!target || !cf?.bbox_pdf_units) return null;
+      await deleteExtractedScene(key, a.file);
+      const fresh = await fetchDataset(key);
+      setDataset(fresh);
+      const draftKind: ExtractItem['kind'] | null =
+        target.kind === 'floorplan' || target.kind === 'elevation' ||
+        target.kind === 'section'   || target.kind === 'detail'
+          ? target.kind
+          : null;
+      setDraft((curr) => ({
+        ...curr,
+        bboxes: [...curr.bboxes, {
+          id: a.newDraftId,
+          page: cf.page,
+          bbox_pdf: cf.bbox_pdf_units,
+          kind: draftKind,
+          view: target.view ?? undefined,
+          floor: target.floor ?? undefined,
+          title: target.title ?? undefined,
+        }],
+      }));
+      return a;
+    }
     // classify
     await patchSceneAttrs(key, a.file, reverse ? (a.before as Parameters<typeof patchSceneAttrs>[2]) : (a.after as Parameters<typeof patchSceneAttrs>[2]));
     const d = await fetchDataset(key);
@@ -210,30 +250,31 @@ export function ExtractPage() {
   const describeAction = (a: ExtractAction, reverse: boolean): string => {
     if (a.kind === 'extract')  return reverse ? '↶ Szene zurück in Entwurf' : '↷ Erneut extrahiert';
     if (a.kind === 'delete')   return reverse ? '↶ Szene wiederhergestellt' : '↷ Erneut gelöscht';
+    if (a.kind === 'adjust')   return reverse ? '↶ Anpassung zurückgesetzt' : '↷ Erneut zum Entwurf gemacht';
     return reverse ? '↶ Klassifikation zurückgesetzt' : '↷ Klassifikation erneut geändert';
   };
   const runUndo = useCallback(async () => {
-    const a = undoRef.current.pop();
+    const a = undoCtx.popUndo(key) as ExtractAction | undefined;
     if (!a) return;
     try {
       const applied = await applyAction(a, true);
-      if (applied) { redoRef.current.push(applied); showToast(describeAction(applied, true)); }
+      if (applied) { undoCtx.pushRedo(key, applied); showToast(describeAction(applied, true)); }
     } catch (e) {
-      undoRef.current.push(a); // restore on failure
+      undoCtx.push(key, a);
       setError(`Undo fehlgeschlagen: ${(e as Error).message}`);
     }
-  }, [applyAction, showToast]);
+  }, [applyAction, showToast, undoCtx, key]);
   const runRedo = useCallback(async () => {
-    const a = redoRef.current.pop();
+    const a = undoCtx.popRedo(key) as ExtractAction | undefined;
     if (!a) return;
     try {
       const applied = await applyAction(a, false);
-      if (applied) { undoRef.current.push(applied); showToast(describeAction(applied, false)); }
+      if (applied) { undoCtx.push(key, applied); showToast(describeAction(applied, false)); }
     } catch (e) {
-      redoRef.current.push(a);
+      undoCtx.pushRedo(key, a);
       setError(`Redo fehlgeschlagen: ${(e as Error).message}`);
     }
-  }, [applyAction, showToast]);
+  }, [applyAction, showToast, undoCtx, key]);
 
   // Persist draft on every change with a small debounce.
   useEffect(() => {
@@ -462,20 +503,15 @@ export function ExtractPage() {
   // so they can reshape it and re-extract. The dataset entry is removed
   // in the same step so we don't end up with a duplicate file.
   const onAdjustExtracted = useCallback(async (file: string) => {
+    // auto-persist follow-up — Adjust drops the window.confirm; Cmd+Z
+    // restores the scene from the recycle bin AND drops the new draft.
     const target = (dataset?.drawings ?? []).find((d) => d.file === file);
     const cf = target?.crop_from;
     if (!target || !cf?.bbox_pdf_units) return;
-    if (!window.confirm(
-      `Szene ${file} wieder zum Entwurf machen?\n\n` +
-      `Die Bbox wandert zurück in die Entwürfe, du kannst sie anpassen ` +
-      `und erneut extrahieren. Bisherige Annotationen für diese Szene ` +
-      `gehen verloren.`,
-    )) return;
     try {
       await deleteExtractedScene(key, file);
       const fresh = await fetchDataset(key);
       setDataset(fresh);
-      // Restore as a draft bbox so the user can drag handles to refine.
       const draftKind: ExtractItem['kind'] | null =
         target.kind === 'floorplan' || target.kind === 'elevation' ||
         target.kind === 'section'   || target.kind === 'detail'
@@ -494,10 +530,11 @@ export function ExtractPage() {
       setDraft((d) => ({ ...d, bboxes: [...d.bboxes, newDraft], updated_at: new Date().toISOString() }));
       setSelectedId(id);
       setPage(cf.page);
+      pushUndo({ kind: 'adjust', file, newDraftId: id });
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [key, dataset]);
+  }, [key, dataset, pushUndo]);
 
   const pageBboxes = draft.bboxes.filter((b) => b.page === currentPage);
   const extractedOnPage = useMemo(
@@ -704,6 +741,9 @@ export function ExtractPage() {
             menuFor={menuForExtracted}
             setMenuFor={setMenuForExtracted}
             onDatasetRefresh={setDataset}
+            onClassifyAction={(file, before, after) => {
+              pushUndo({ kind: 'classify', file, before, after });
+            }}
           />
         )}
         </div>
@@ -1171,7 +1211,7 @@ function PageCanvas({
   draftBboxes, extracted, selectedId, onSelect, onCommit, onUpdate,
   postDraw, onPostDrawPick, onPostDrawDismiss, extractBusy, extractingIds,
   houseKey, onDeleteExtracted, onAdjustExtracted,
-  menuFor, setMenuFor, onDatasetRefresh,
+  menuFor, setMenuFor, onDatasetRefresh, onClassifyAction,
 }: {
   pdfKey: string;
   page: number;
@@ -1194,6 +1234,11 @@ function PageCanvas({
   menuFor: { file: string; clientX?: number; clientY?: number } | null;
   setMenuFor: (m: { file: string; clientX?: number; clientY?: number } | null) => void;
   onDatasetRefresh: (manifest: DatasetHouse) => void;
+  onClassifyAction: (
+    file: string,
+    before: { kind: string | null; floor: string | null; view: string | null; title: string | null },
+    after:  { kind: string | null; floor: string | null; view: string | null; title: string | null },
+  ) => void;
 }) {
   const navigate = useNavigate();
   // Per-bbox single-click timers used to discriminate single click (open
@@ -1458,7 +1503,10 @@ function PageCanvas({
                 onClose={() => setMenuFor(null)}
                 onDelete={() => { setMenuFor(null); onDeleteExtracted(d.file); }}
                 onAdjust={() => { setMenuFor(null); onAdjustExtracted(d.file); }}
-                onUpdated={onDatasetRefresh}
+                onUpdated={(manifest, change) => {
+                  onDatasetRefresh(manifest);
+                  if (change) onClassifyAction(d.file, change.before, change.after);
+                }}
               />
             );
           }
@@ -1680,7 +1728,10 @@ function ExtractedSceneMenu({
   onClose: () => void;
   onDelete: () => void;
   onAdjust: () => void;
-  onUpdated: (manifest: DatasetHouse) => void;
+  onUpdated: (manifest: DatasetHouse, change?: {
+    before: { kind: string | null; floor: string | null; view: string | null; title: string | null };
+    after:  { kind: string | null; floor: string | null; view: string | null; title: string | null };
+  }) => void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

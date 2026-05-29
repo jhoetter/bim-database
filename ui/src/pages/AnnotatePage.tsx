@@ -2366,11 +2366,16 @@ export function AnnotatePage() {
           setLastSavedAt(Date.now());
         } catch {
           setSaveState('error');
+          // auto-persist follow-up — when the user is heads-down in
+          // the WorkflowGuide popover (or anywhere off the topbar), the
+          // SaveStateDot may be off-screen. Surface a toast on every
+          // save failure so the user sees it even with focus elsewhere.
+          addToast('✕ Speichern fehlgeschlagen — wird automatisch erneut versucht', 'error', 3500);
         }
       })();
     }, 400);
     return () => window.clearTimeout(t);
-  }, [dirty, saving, save]);
+  }, [dirty, saving, save, addToast]);
 
   // Anomaly extractor — currently only the dim_number ↔ dim_distance
   // value-mismatch check. Other rules can pile in here later.
