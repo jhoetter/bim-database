@@ -577,19 +577,10 @@ function SceneStrip({
       </div>
     );
   }
-  const onPageCount = items.filter((it) => it.page === currentPage).length;
   let firstHereMarked = false;
   return (
     <div className="border-b border-border bg-zinc-50">
       <div ref={scrollRef} className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
-        <span className="text-[0.62rem] uppercase tracking-wider text-muted shrink-0">
-          {scenes.length} extrahiert{drafts.length > 0 ? ` · ${drafts.length} Entwurf` : ''}
-          {onPageCount > 0 && (
-            <span className="ml-1.5 text-accent font-semibold">
-              · {onPageCount} auf S{currentPage}
-            </span>
-          )}
-        </span>
         {items.map((it) => {
           const isHere = it.page === currentPage;
           // ref only on the first chip whose source is the current page,
@@ -1323,15 +1314,21 @@ function ExtractedSceneMenu({
   }, [onClose]);
   return (
     <>
-      {/* Click-away backdrop. */}
+      {/* Click-away backdrop. data-bbox-handle prevents the page div's
+          pointerdown handler from running setPointerCapture, which would
+          eat the menu's onClick events. */}
       <button
         type="button"
         onClick={onClose}
+        onPointerDown={(e) => e.stopPropagation()}
         className="absolute inset-0 z-20 cursor-default"
         aria-label="Menü schließen"
+        data-bbox-handle="menu"
       />
       <div
         className="absolute z-30 -translate-x-1/2 bg-white border border-zinc-300 rounded-md shadow-xl text-[0.78rem] min-w-[12rem]"
+        data-bbox-handle="menu"
+        onPointerDown={(e) => e.stopPropagation()}
         style={{
           left: `${leftPct}%`,
           top: `${topPct}%`,

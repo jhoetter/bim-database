@@ -2512,17 +2512,22 @@ export function AnnotatePage() {
         return;
       }
       // Wall-only: ← / → adjusts thickness (10 mm step, 50 with Shift).
-      // For other types these will fall through to drawing-tool hotkeys
-      // (none of which currently use bare arrow keys).
-      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && selectedId) {
-        const sel = labels.find((l) => l.id === selectedId);
+      // When NO wall is selected the same keys walk scenes — same axis
+      // as the strip below the topbar, mirrors the , and . shortcuts.
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const sel = selectedId ? labels.find((l) => l.id === selectedId) : null;
         if (sel?.type === 'wall') {
           e.preventDefault();
           const step = e.shiftKey ? 50 : 10;
           const delta = e.key === 'ArrowRight' ? step : -step;
           const next = Math.max(50, Math.min(800, (sel.attributes.thickness_mm ?? 365) + delta));
           updateLabel(sel.id, { attributes: { thickness_mm: next } } as Partial<Label>);
+          return;
         }
+        e.preventDefault();
+        const target = e.key === 'ArrowLeft' ? prevScene : nextScene;
+        if (target) goToScene(target.file);
+        return;
       }
       // K3 context-aware letter dispatch.
       // BEFORE the tool letter check below: if a single label is selected
