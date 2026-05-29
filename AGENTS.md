@@ -170,8 +170,6 @@ To re-render after a JSON edit: `scripts/render_scene.py --key house-N` or
 
 The full data-standardization workflow that produces these `source_ref`
 entries lives in [`bim-agent`'s house-data-standardization skill][skill].
-See also [`spec/scene-image-storage.md`](spec/scene-image-storage.md) for
-the storage strategy and what was deferred (history rewrite, AVIF cache).
 
 [skill]: https://github.com/jhoetter/bim-agent/blob/main/claude-skills/house-data-standardization/SKILL.md
 

@@ -5,7 +5,7 @@
 // First-cut: affine-only. A horizontal reference stroke + a vertical
 // reference stroke pin scale, rotation, and a uniform shear. Full
 // perspective rectification (8-DOF homography) needs 4 corner-region
-// strokes — accepted as a future upgrade in spec/annotation-tool.md §7.2.
+// strokes — accepted as a future upgrade.
 //
 // All inputs/outputs are in raw pixel coordinates; mm values are the
 // real-world lengths the user labeled.

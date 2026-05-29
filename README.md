@@ -27,9 +27,8 @@ raw and rectified ground-truth pairs.
                           └────────────────┘
 ```
 
-See [`spec/end-to-end-readiness.md`](spec/end-to-end-readiness.md) for the
-pipeline design and [`spec/annotation-workflow.md`](spec/annotation-workflow.md)
-for the in-editor labeling workflow.
+See [`spec/keyboard.md`](spec/keyboard.md) for the live keyboard and
+modifier model used by the annotation editor.
 
 ---
 

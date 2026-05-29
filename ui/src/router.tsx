@@ -33,7 +33,7 @@ const Preview3DSuspense = () => (
 
 // R0 — the catalog ("houses") side of the app has been stripped. Only the
 // dataset path remains: PDF intake → bbox scene extraction → annotation →
-// export. See spec/end-to-end-readiness.md.
+// export.
 
 export const router = createBrowserRouter([
   {

@@ -78,18 +78,15 @@ import {
   SectionViewIcon, SelectIcon, SpotElevationIcon, WallIcon,
 } from '../lib/icons';
 
-const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel — see spec/annotation-ux.md §4
+const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel
 
-// M2+M3 — Scene editor. All 7 label types implemented; tool palette is
-// gated by scene_tag (Grundriss vs Ansicht/Schnitt vs Sonstiges).
-//
-// Pan with right-mouse-drag or shift+drag; zoom with mouse wheel. Tag chip
-// in the left sidebar locks the scene's scene_tag. Right rail = inspector
-// for the selected label. Save persists to disk via PUT /labels/{scope}/...
-// Dirty indicator + Cmd/Ctrl+S + N=50 undo stack (see
-// spec/annotation-tool.md §11).
+// Scene editor. All 7 label types implemented; tool palette is gated by
+// scene_tag (Grundriss vs Ansicht/Schnitt vs Sonstiges). Pan with
+// right-mouse-drag or shift+drag; zoom with mouse wheel. Tag chip in the
+// left sidebar locks the scene's scene_tag. Save persists to disk via PUT
+// /labels/{scope}/...
 
-const UNDO_LIMIT = 200;                    // raised from 50 per spec §17 M9
+const UNDO_LIMIT = 200;
 const WALL_PX_PER_MM = 0.05;               // visual scale for wall band; pragmatic for h-1's ~10 m × 1024 px
 const STANDARD_THICKNESS_MM = [115, 175, 240, 300, 365] as const;
 const TAGS: SceneTag[] = ['grundriss', 'ansicht', 'schnitt', 'sonstiges', 'nicht_klassifiziert'];

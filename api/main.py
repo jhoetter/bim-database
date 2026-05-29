@@ -36,8 +36,7 @@ app = FastAPI(
     title="BIM Dataset API",
     description=(
         "REST API for the supervised-learning corpus of architectural drawings. "
-        "PDF intake → scene extraction → annotation → export. See "
-        "spec/end-to-end-readiness.md for the full pipeline."
+        "PDF intake → scene extraction → annotation → export."
     ),
     version="4.0.0",
 )
@@ -916,9 +915,8 @@ def export_all(force: bool = False):
 
 EXPORT_CACHE = BASE / "tmp" / "exports-cache"
 
-# Label types that go into Set A (the "Model 1 must detect" subset per
-# spec/annotation-tool.md §2 — dimensioned strokes only, plus their
-# paired dim_numbers when present).
+# Label types that go into Set A (the "Model 1 must detect" subset —
+# dimensioned strokes only, plus their paired dim_numbers when present).
 SET_A_TYPES = {"dimensioned_distance", "dimension_number"}
 
 
