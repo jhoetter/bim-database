@@ -12,7 +12,11 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
+    // false so `vite build --watch` (used by `make dev`) doesn't wipe the
+    // previous good bundle when a rebuild fails — keeps :2500 serving a
+    // usable SPA even if the source tree is mid-refactor. Old hashed assets
+    // accumulate as orphans (~few stale files); negligible cost.
+    emptyOutDir: false,
   },
   server: {
     port: webPort,
