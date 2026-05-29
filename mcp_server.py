@@ -312,10 +312,17 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
             continue
         lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{f}")
         if lbl_status == 200 and isinstance(lbl, dict):
+            labels = lbl.get("labels") or []
             scene_meta_by_file[f] = {
                 "scene_tag": lbl.get("scene_tag"),
                 "scene_orientation": lbl.get("scene_orientation"),
                 "scene_level": lbl.get("scene_level"),
+                # Issue #23: W1 may also be satisfied by the presence of a
+                # height_mark label, not only by heights facts on disk.
+                "has_height_mark": any(
+                    isinstance(la, dict) and la.get("type") == "height_mark"
+                    for la in labels
+                ),
             }
         else:
             scene_meta_by_file[f] = {"scene_tag": None}
@@ -408,20 +415,25 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
             w0_blockers.append(f"{f}: missing level")
     w0_status = "done" if drawings and not w0_blockers else "pending"
 
-    # Issue #20: no scenes means no labels, so any heights/extent/
+    # Issue #20 + #23: no scenes means no labels, so any heights/extent/
     # orientation facts on disk are orphaned/stale (e.g. left behind by a
     # reset, or a workflow-only stub on a brand-new house). The
-    # substantive phases can only be `done` when scenes actually exist —
-    # otherwise a house with `scenes_total: 0` (and possibly null
-    # house_facts) falsely reports W1/W2/W3 complete and the SPA progress
-    # bar lights up green before any work is done.
+    # substantive phases W1–W4 (and W5) can only be `done` when scenes
+    # actually exist — otherwise a house with `scenes_total: 0` (and
+    # possibly null house_facts) falsely reports them complete, the SPA
+    # progress bar lights up green before any work is done, and a labeling
+    # agent reading get_workflow_state SKIPS the height anchor (W1) and
+    # orientation (W3). The `has_scenes` short-circuit below is applied
+    # UNIFORMLY to W1–W4 (and W5), not just W2.
     has_scenes = bool(drawings)
+    has_height_mark = any(m.get("has_height_mark") for m in scene_meta.values())
 
-    # W1: bezug_mm == 0 AND first_mm != None
+    # W1: heights anchored — bezug_mm == 0 AND first_mm set, OR (issue #23)
+    # at least one height_mark label has been placed on a scene.
     heights = (facts.get("heights") or {})
-    w1_status = "done" if (
-        has_scenes and heights.get("bezug_mm") == 0
-        and heights.get("first_mm") not in (None, "")
+    w1_status = "done" if has_scenes and (
+        (heights.get("bezug_mm") == 0 and heights.get("first_mm") not in (None, ""))
+        or has_height_mark
     ) else "pending"
 
     # W2: extent.width_mm + depth_mm + wall_thickness.outer_mm
