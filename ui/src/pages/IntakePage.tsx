@@ -27,7 +27,7 @@ export function IntakePage() {
   return (
     <Shell
       breadcrumb={
-        <Breadcrumb items={[{ label: 'Hochladen' }]} />
+        <Breadcrumb items={[{ label: 'Datensatz', to: '/' }, { label: 'Hochladen' }]} />
       }
       leftSidebar={<IntakeSidebar bundles={data ?? []} />}
     >

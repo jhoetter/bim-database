@@ -2647,6 +2647,7 @@ export function AnnotatePage() {
       breadcrumb={
         <Breadcrumb
           items={[
+            { label: 'Datensatz', to: '/' },
             { label: key, to: `/${key}` },
             { label: decodedFile },
           ]}

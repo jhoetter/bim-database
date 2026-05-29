@@ -304,7 +304,7 @@ export function ExtractPage() {
   return (
     <Shell
       breadcrumb={
-        <Breadcrumb items={[{ label: key }]} />
+        <Breadcrumb items={[{ label: 'Datensatz', to: '/' }, { label: key }]} />
       }
       topbarTrailing={
         <div className="flex items-center gap-1.5">

@@ -285,19 +285,22 @@ function HouseCard({ house }: { house: DatasetHouse }) {
     house.drawings.find((d) => d.kind === 'floorplan') ??
     house.drawings[0];
   // Intake-only houses (no extracted scenes yet) still get a card —
-  // routing straight to /extract so the user can start cutting bboxes.
+  // routing straight to the extract view (`/:key`) so the user can start
+  // cutting bboxes.
   const intakeOnly = !hero || (house as unknown as { intake_only?: boolean }).intake_only;
   const last = getLastVisitedScene('dataset', house.key);
   const targetFile =
     !intakeOnly && hero && last && house.drawings.some((d) => d.file === last) ? last : hero?.file;
+  // Once the house has any extracted scenes, clicking the card jumps
+  // straight into annotation — the breadcrumb gets the user back to the
+  // extract view if they need to cut more bboxes. Export wins only if
+  // that was explicitly the last visited step.
   const lastStep = getLastStep(house.key);
   const targetHref = intakeOnly
-    ? `/${house.key}/extract`
-    : lastStep === 'extract'
-      ? `/${house.key}/extract`
-      : lastStep === 'export'
-        ? `/${house.key}/export`
-        : `/${house.key}/scene/${encodeURIComponent(targetFile!)}/annotate`;
+    ? `/${house.key}`
+    : lastStep === 'export'
+      ? `/${house.key}/export`
+      : `/${house.key}/scene/${encodeURIComponent(targetFile!)}/annotate`;
   const pages = (house as unknown as { intake_page_count?: number }).intake_page_count;
   return (
     <Link
