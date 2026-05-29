@@ -290,6 +290,48 @@ export function ExtractPage() {
     }
   }, [key]);
 
+  // Convert an already-extracted scene back into an editable draft bbox.
+  // The user gets the same bbox geometry + classification back as a draft
+  // so they can reshape it and re-extract. The dataset entry is removed
+  // in the same step so we don't end up with a duplicate file.
+  const onAdjustExtracted = useCallback(async (file: string) => {
+    const target = (dataset?.drawings ?? []).find((d) => d.file === file);
+    const cf = target?.crop_from;
+    if (!target || !cf?.bbox_pdf_units) return;
+    if (!window.confirm(
+      `Szene ${file} wieder zum Entwurf machen?\n\n` +
+      `Die Bbox wandert zurück in die Entwürfe, du kannst sie anpassen ` +
+      `und erneut extrahieren. Bisherige Annotationen für diese Szene ` +
+      `gehen verloren.`,
+    )) return;
+    try {
+      await deleteExtractedScene(key, file);
+      const fresh = await fetchDataset(key);
+      setDataset(fresh);
+      // Restore as a draft bbox so the user can drag handles to refine.
+      const draftKind: ExtractItem['kind'] | null =
+        target.kind === 'floorplan' || target.kind === 'elevation' ||
+        target.kind === 'section'   || target.kind === 'detail'
+          ? target.kind
+          : null;
+      const id = `b-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      const newDraft: DraftBbox = {
+        id,
+        page: cf.page,
+        bbox_pdf: cf.bbox_pdf_units,
+        kind: draftKind,
+        view: target.view ?? undefined,
+        floor: target.floor ?? undefined,
+        title: target.title ?? undefined,
+      };
+      setDraft((d) => ({ ...d, bboxes: [...d.bboxes, newDraft], updated_at: new Date().toISOString() }));
+      setSelectedId(id);
+      setPage(cf.page);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [key, dataset]);
+
   // The house IS the extract view now; mark it as the user's
   // "last step" so /dataset list cards resume here.
   useEffect(() => { rememberLastStep(key, 'extract'); }, [key]);
@@ -400,9 +442,17 @@ export function ExtractPage() {
         <SceneStrip
           houseKey={key}
           scenes={dataset?.drawings ?? []}
+          drafts={draft.bboxes}
+          selectedDraftId={selectedId}
           currentPage={currentPage}
           onJumpToPage={setPage}
+          onSelectDraft={(id) => {
+            const d = draft.bboxes.find((b) => b.id === id);
+            if (d && d.page !== currentPage) setPage(d.page);
+            setSelectedId(id);
+          }}
           onDeleteScene={onDeleteScene}
+          onDeleteDraft={onDeleteBbox}
         />
         <div className="px-4 py-3 flex flex-col flex-1 min-h-0">
         <PageNav
@@ -445,6 +495,9 @@ export function ExtractPage() {
               else setPostDraw(null);
             }}
             onPostDrawDismiss={() => setPostDraw(null)}
+            houseKey={key}
+            onDeleteExtracted={onDeleteScene}
+            onAdjustExtracted={onAdjustExtracted}
           />
         )}
         </div>
@@ -453,20 +506,30 @@ export function ExtractPage() {
   );
 }
 
-// Horizontal strip of every extracted scene in this house. Clicking a
-// pill opens that scene's annotation; clicking the page-link beside the
-// pill jumps the bbox view to the source page. Empty state nudges the
-// user toward the first bbox.
+// Horizontal strip of every scene in this house. Two kinds of chip:
+//   - Extracted scene → thumbnail + KIND label, click → annotate.
+//   - Draft bbox (not extracted yet) → amber chip without thumbnail,
+//     click → jump to source page + select bbox so the user can refine
+//     the geometry or classify it before extraction.
+// The "active" outline only fires for the selected draft so the user
+// can't misread "this scene's source is on the page you're viewing" as
+// "this chip is selected".
 function SceneStrip({
-  houseKey, scenes, currentPage, onJumpToPage, onDeleteScene,
+  houseKey, scenes, drafts, selectedDraftId, currentPage,
+  onJumpToPage, onSelectDraft, onDeleteScene, onDeleteDraft,
 }: {
   houseKey: string;
   scenes: DatasetHouse['drawings'];
+  drafts: DraftBbox[];
+  selectedDraftId: string | null;
   currentPage: number;
   onJumpToPage: (n: number) => void;
+  onSelectDraft: (id: string) => void;
   onDeleteScene: (file: string) => void;
+  onDeleteDraft: (id: string) => void;
 }) {
-  if (scenes.length === 0) {
+  const total = scenes.length + drafts.length;
+  if (total === 0) {
     return (
       <div className="px-3 py-1.5 border-b border-border bg-zinc-50 text-[0.72rem] text-zinc-500">
         Noch keine Szenen extrahiert — zieh eine Bbox auf die Seite oder klick „Ganze Seite als Szene".
@@ -477,7 +540,7 @@ function SceneStrip({
     <div className="border-b border-border bg-zinc-50">
       <div className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
         <span className="text-[0.62rem] uppercase tracking-wider text-muted shrink-0">
-          {scenes.length} Szene{scenes.length === 1 ? '' : 'n'}
+          {scenes.length} extrahiert{drafts.length > 0 ? ` · ${drafts.length} Entwurf` : ''}
         </span>
         {scenes.map((d) => {
           const cf = d.crop_from as { page?: number } | undefined;
@@ -494,7 +557,6 @@ function SceneStrip({
               url={d.url}
               shortLabel={label}
               title={`${d.file} — Klick öffnet Annotation${pageN != null ? ` · von Seite ${pageN}` : ''}`}
-              active={isOnPage}
               labeled={d.labeled}
               size="md"
               trailing={
@@ -503,8 +565,10 @@ function SceneStrip({
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); onJumpToPage(pageN); }}
-                      className="text-[0.6rem] text-zinc-500 hover:text-accent px-1 py-0.5 rounded hover:bg-zinc-100"
-                      title={`Bbox auf Seite ${pageN} zeigen`}
+                      className={`text-[0.6rem] px-1 py-0.5 rounded hover:bg-zinc-100 ${
+                        isOnPage ? 'text-accent font-semibold' : 'text-zinc-500 hover:text-accent'
+                      }`}
+                      title={isOnPage ? `Quelle: Seite ${pageN} (aktuell)` : `Bbox auf Seite ${pageN} zeigen`}
                     >
                       S{pageN}
                     </button>
@@ -520,6 +584,50 @@ function SceneStrip({
                 </span>
               }
             />
+          );
+        })}
+        {drafts.map((b) => {
+          const kindLabel = b.kind == null
+            ? 'Entwurf · ?'
+            : `Entwurf · ${KIND_LABEL[b.kind]}${b.floor ? ` ${(FLOOR_LABEL as Record<string, string>)[b.floor] ?? b.floor}` : ''}${b.view ? ` ${(VIEW_LABEL as Record<string, string>)[b.view] ?? b.view}` : ''}`;
+          const sel = b.id === selectedDraftId;
+          const isOnPage = b.page === currentPage;
+          return (
+            <span key={b.id} className="relative inline-flex shrink-0">
+              <button
+                type="button"
+                onClick={() => onSelectDraft(b.id)}
+                title={`Entwurf auf Seite ${b.page}${b.kind == null ? ' — Typ noch nicht gewählt' : ''}`}
+                className={`inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-md border-2 border-dashed transition ${
+                  sel
+                    ? 'bg-amber-100 border-amber-500 text-amber-900'
+                    : 'bg-amber-50 border-amber-300 text-amber-900 hover:border-amber-500'
+                }`}
+              >
+                <span className="w-10 h-10 shrink-0 rounded bg-amber-100 border border-amber-300 inline-flex items-center justify-center text-[0.7rem] font-bold text-amber-700">
+                  {b.kind ? KIND_LABEL[b.kind].slice(0, 2) : '?'}
+                </span>
+                <span className="text-[0.72rem] font-medium whitespace-nowrap">{kindLabel}</span>
+                <span className="flex items-center gap-0.5 ml-0.5">
+                  <span
+                    className={`text-[0.6rem] px-1 py-0.5 rounded ${
+                      isOnPage ? 'text-accent font-semibold' : 'text-zinc-500'
+                    }`}
+                    title={isOnPage ? `Seite ${b.page} (aktuell)` : `Seite ${b.page}`}
+                  >
+                    S{b.page}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDeleteDraft(b.id); }}
+                    className="text-[0.6rem] text-zinc-400 hover:text-red-700 px-1 py-0.5 rounded hover:bg-red-50"
+                    title="Entwurf verwerfen"
+                  >
+                    ✕
+                  </button>
+                </span>
+              </button>
+            </span>
           );
         })}
       </div>
@@ -817,6 +925,7 @@ function PageCanvas({
   pdfKey, page, pageWidthPt, pageHeightPt,
   draftBboxes, extracted, selectedId, onSelect, onCommit, onUpdate,
   postDraw, onPostDrawPick, onPostDrawDismiss,
+  houseKey, onDeleteExtracted, onAdjustExtracted,
 }: {
   pdfKey: string;
   page: number;
@@ -831,7 +940,11 @@ function PageCanvas({
   postDraw: { id: string; step: 'kind' | 'floor' | 'view' } | null;
   onPostDrawPick: (patch: Partial<DraftBbox>) => void;
   onPostDrawDismiss: () => void;
+  houseKey: string;
+  onDeleteExtracted: (file: string) => void;
+  onAdjustExtracted: (file: string) => void;
 }) {
+  const [menuFor, setMenuFor] = useState<string | null>(null);
   // The pageRef tracks the WHITE PAGE DIV (not the outer dark scroll
   // container) — its bbox is what we measure against for pointer-to-PDF
   // unit conversion. Otherwise the coords are off by however much
@@ -931,20 +1044,30 @@ function PageCanvas({
           viewBox={`0 0 ${pageWidthPt} ${pageHeightPt}`}
           preserveAspectRatio="none"
         >
-          {/* Already-extracted scenes — gray semi-transparent. */}
+          {/* Already-extracted scenes — emerald semi-transparent. Click
+              opens the contextual action menu (go to annotation / convert
+              back to a draft for re-cropping / delete). */}
           {extracted.map((d) => {
             const cf = d.crop_from as { bbox_pdf_units?: [number, number, number, number] } | undefined;
             if (!cf?.bbox_pdf_units) return null;
             const [x0, y0, x1, y1] = cf.bbox_pdf_units;
+            const isMenu = menuFor === d.file;
             return (
-              <g key={d.file} pointerEvents="none">
+              <g key={d.file}>
                 <rect
                   x={x0} y={y0} width={x1 - x0} height={y1 - y0}
-                  fill="rgba(16, 185, 129, 0.10)"
+                  fill={isMenu ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.10)'}
                   stroke="#059669"
-                  strokeWidth={1.5}
+                  strokeWidth={isMenu ? 2 : 1.5}
                   strokeDasharray="4 3"
-                />
+                  style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuFor((m) => m === d.file ? null : d.file);
+                  }}
+                >
+                  <title>{`${d.file} — Klick für Aktionen`}</title>
+                </rect>
               </g>
             );
           })}
@@ -1001,6 +1124,30 @@ function PageCanvas({
               placement={placement}
               onPick={onPostDrawPick}
               onDismiss={onPostDrawDismiss}
+            />
+          );
+        })()}
+        {/* Action menu for a clicked extracted-scene overlay. Anchored to
+            the bbox's top edge; flips below for bboxes near y=0 so it's
+            never clipped. */}
+        {menuFor && (() => {
+          const d = extracted.find((x) => x.file === menuFor);
+          const cf = d?.crop_from as { bbox_pdf_units?: [number, number, number, number] } | undefined;
+          if (!d || !cf?.bbox_pdf_units) return null;
+          const [x0, y0, x1] = cf.bbox_pdf_units;
+          const leftPct = (((x0 + x1) / 2) / pageWidthPt) * 100;
+          const topPct = (y0 / pageHeightPt) * 100;
+          const placement: 'above' | 'below' = topPct < 12 ? 'below' : 'above';
+          return (
+            <ExtractedSceneMenu
+              leftPct={leftPct}
+              topPct={topPct}
+              placement={placement}
+              houseKey={houseKey}
+              file={d.file}
+              onClose={() => setMenuFor(null)}
+              onDelete={() => { setMenuFor(null); onDeleteExtracted(d.file); }}
+              onAdjust={() => { setMenuFor(null); onAdjustExtracted(d.file); }}
             />
           );
         })()}
@@ -1067,6 +1214,75 @@ function HouseMenu({
         </>
       )}
     </div>
+  );
+}
+
+// Floating action menu anchored to an already-extracted scene's bbox on
+// the PDF page. Tightly mirrors PostDrawChip's positioning model so the
+// visual rhythm is consistent. Esc closes; clicking the backdrop closes.
+function ExtractedSceneMenu({
+  leftPct, topPct, placement, houseKey, file, onClose, onDelete, onAdjust,
+}: {
+  leftPct: number;
+  topPct: number;
+  placement: 'above' | 'below';
+  houseKey: string;
+  file: string;
+  onClose: () => void;
+  onDelete: () => void;
+  onAdjust: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <>
+      {/* Click-away backdrop. */}
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute inset-0 z-20 cursor-default"
+        aria-label="Menü schließen"
+      />
+      <div
+        className="absolute z-30 -translate-x-1/2 bg-white border border-zinc-300 rounded-md shadow-xl text-[0.78rem] min-w-[12rem]"
+        style={{
+          left: `${leftPct}%`,
+          top: `${topPct}%`,
+          transform: placement === 'above'
+            ? 'translate(-50%, calc(-100% - 8px))'
+            : 'translate(-50%, 8px)',
+        }}
+      >
+        <div className="px-3 py-1.5 text-[0.62rem] uppercase tracking-wider text-muted border-b border-border truncate" title={file}>
+          {file}
+        </div>
+        <Link
+          to={`/${houseKey}/scene/${encodeURIComponent(file)}/annotate`}
+          className="block px-3 py-1.5 hover:bg-zinc-100 text-zinc-800"
+          onClick={onClose}
+        >
+          ↗ Annotieren
+        </Link>
+        <button
+          type="button"
+          onClick={onAdjust}
+          className="block w-full text-left px-3 py-1.5 hover:bg-zinc-100 text-zinc-800"
+        >
+          ↔ Bbox anpassen
+          <div className="text-[0.62rem] text-zinc-500">Wird zum Entwurf — danach erneut extrahieren.</div>
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="block w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-700"
+        >
+          ✕ Szene löschen
+        </button>
+      </div>
+    </>
   );
 }
 
