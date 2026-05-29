@@ -237,7 +237,6 @@ export function ExtractPage() {
         <Breadcrumb
           items={[
             { label: 'Datensatz', to: '/' },
-            { label: 'Hochladen', to: '/intake' },
             { label: key, to: `/${key}` },
             { label: 'Szenen extrahieren' },
           ]}
@@ -263,6 +262,12 @@ export function ExtractPage() {
           extractedOnPage={extractedOnPage}
           onDeleteScene={onDeleteScene}
           onExtract={onExtract}
+          onDiscardDraft={() => {
+            if (!window.confirm(`Alle ${draft.bboxes.length} Bbox-Entwürfe verwerfen?`)) return;
+            clearDraft(key);
+            setDraft(emptyDraft());
+            setSelectedId(null);
+          }}
           busy={busy}
           totalDraft={draft.bboxes.length}
         />
@@ -279,7 +284,15 @@ export function ExtractPage() {
           exportDone={stepState.exportDone}
         />
         <div className="px-4 py-3 flex flex-col flex-1 min-h-0">
-        <PageNav info={info} page={currentPage} onPage={setPage} />
+        <PageNav
+          info={info}
+          page={currentPage}
+          onPage={setPage}
+          draftCount={pageBboxes.length}
+          extractedOnPage={extractedOnPage.length}
+          totalDraft={draft.bboxes.length}
+          lastSaved={new Date(draft.updated_at).toLocaleTimeString('de-DE')}
+        />
         {error && <p className="text-[0.78rem] text-red-700 my-2">{error}</p>}
         {info && pageInfo && (
           <PageCanvas
@@ -303,27 +316,64 @@ export function ExtractPage() {
 }
 
 function PageNav({
-  info, page, onPage,
+  info, page, onPage, draftCount, extractedOnPage, totalDraft, lastSaved,
 }: {
-  info: PdfInfo | null; page: number; onPage: (n: number) => void;
+  info: PdfInfo | null;
+  page: number;
+  onPage: (n: number) => void;
+  draftCount: number;
+  extractedOnPage: number;
+  totalDraft: number;
+  lastSaved: string;
 }) {
   if (!info) return <p className="text-[0.78rem] text-muted">Lade PDF…</p>;
   return (
-    <div className="flex items-center gap-2 text-[0.78rem] mb-2">
+    <div className="flex items-center gap-2 text-[0.78rem] mb-2 flex-wrap">
       <button
         type="button"
         onClick={() => onPage(page - 1)}
         disabled={page <= 1}
         className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 disabled:opacity-40"
-      >← prev</button>
-      <span className="tabular-nums">Seite {page} / {info.page_count}</span>
+        title="Vorherige Seite (←)"
+      >←</button>
+      <input
+        type="number"
+        min={1}
+        max={info.page_count}
+        value={page}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10);
+          if (!Number.isNaN(n)) onPage(n);
+        }}
+        className="w-12 px-1 py-0.5 text-center font-mono border border-zinc-300 rounded"
+      />
+      <span className="tabular-nums text-zinc-500">/ {info.page_count}</span>
       <button
         type="button"
         onClick={() => onPage(page + 1)}
         disabled={page >= info.page_count}
         className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 disabled:opacity-40"
-      >next →</button>
-      <span className="text-muted ml-3">Click-drag = neue Bbox · Esc = Auswahl aufheben · Del = Bbox entfernen</span>
+        title="Nächste Seite (→)"
+      >→</button>
+      <span className="ml-3 inline-flex items-center gap-1">
+        {extractedOnPage > 0 && (
+          <span className="text-[0.7rem] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-semibold">
+            ✓ {extractedOnPage} extrahiert
+          </span>
+        )}
+        {draftCount > 0 && (
+          <span className="text-[0.7rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-semibold">
+            ● {draftCount} Entwurf
+          </span>
+        )}
+      </span>
+      <span className="text-muted ml-auto text-[0.7rem]">
+        {totalDraft > 0 ? (
+          <>Auto-gespeichert · {lastSaved}</>
+        ) : (
+          <>Click-drag = neue Bbox · ← → Seiten · Esc deselect · Del löschen</>
+        )}
+      </span>
     </div>
   );
 }
@@ -395,7 +445,7 @@ function ExtractSidebar({
 
 function ExtractInspector({
   bboxes, selectedId, onSelect, onUpdate, onDelete,
-  extractedOnPage, onDeleteScene, onExtract, busy, totalDraft,
+  extractedOnPage, onDeleteScene, onExtract, onDiscardDraft, busy, totalDraft,
 }: {
   bboxes: DraftBbox[];
   selectedId: string | null;
@@ -405,6 +455,7 @@ function ExtractInspector({
   extractedOnPage: DatasetHouse['drawings'];
   onDeleteScene: (file: string) => void;
   onExtract: () => void;
+  onDiscardDraft: () => void;
   busy: boolean;
   totalDraft: number;
 }) {
@@ -522,22 +573,36 @@ function ExtractInspector({
         </section>
       )}
 
-      <section>
+      <section className="space-y-1.5">
         <button
           type="button"
           onClick={onExtract}
           disabled={busy || totalDraft === 0}
-          className="w-full text-[0.8rem] px-3 py-2 rounded-md bg-emerald-600 text-white font-semibold hover:opacity-90 disabled:opacity-40"
+          className="w-full text-[0.85rem] px-3 py-2 rounded-md bg-emerald-600 text-white font-semibold hover:opacity-90 disabled:opacity-40"
         >
-          {busy ? 'Extrahiere…' : `→ ${totalDraft} Szenen extrahieren`}
+          {busy ? 'Extrahiere…' : totalDraft === 0
+            ? 'Bbox zeichnen, dann extrahieren'
+            : `→ ${totalDraft} Szenen extrahieren`}
         </button>
+        {totalDraft > 0 && !busy && (
+          <button
+            type="button"
+            onClick={onDiscardDraft}
+            className="w-full text-[0.7rem] text-zinc-500 hover:text-red-700"
+          >
+            Entwurf verwerfen
+          </button>
+        )}
       </section>
     </div>
   );
 }
 
 // The actual page canvas. SVG overlay tracks bboxes in PDF-unit coords;
-// pointer interactions translate to PDF units via the page's true size.
+// pointer interactions translate to PDF units via the INNER page div's
+// bounding rect (NOT the outer scroll container — the inner div is
+// centred via mx-auto, so its left edge is offset from the container's
+// left edge by the centering margin).
 function PageCanvas({
   pdfKey, page, pageWidthPt, pageHeightPt,
   draftBboxes, extracted, selectedId, onSelect, onCommit, onUpdate,
@@ -553,14 +618,18 @@ function PageCanvas({
   onCommit: (bbox: [number, number, number, number]) => void;
   onUpdate: (id: string, patch: Partial<DraftBbox>) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  // The pageRef tracks the WHITE PAGE DIV (not the outer dark scroll
+  // container) — its bbox is what we measure against for pointer-to-PDF
+  // unit conversion. Otherwise the coords are off by however much
+  // horizontal margin the centering (mx-auto) introduces.
+  const pageRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ start: [number, number]; end: [number, number] } | null>(null);
 
-  const ptToPdf = (xPx: number, yPx: number): [number, number] => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return [0, 0];
-    const rx = (xPx - rect.left) / rect.width;
-    const ry = (yPx - rect.top)  / rect.height;
+  const ptToPdf = (clientX: number, clientY: number): [number, number] => {
+    const rect = pageRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return [0, 0];
+    const rx = (clientX - rect.left) / rect.width;
+    const ry = (clientY - rect.top)  / rect.height;
     return [
       Math.max(0, Math.min(1, rx)) * pageWidthPt,
       Math.max(0, Math.min(1, ry)) * pageHeightPt,
@@ -573,7 +642,7 @@ function PageCanvas({
     onSelect(null);
     const pt = ptToPdf(e.clientX, e.clientY);
     setDrag({ start: pt, end: pt });
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drag) return;
@@ -591,19 +660,34 @@ function PageCanvas({
     }
   };
 
+  // Natural rendered width in CSS pixels — capped at the parent so a
+  // tall PDF doesn't overflow when the sidebar takes most of the width.
+  const naturalWidthPx = pageWidthPt * (PAGE_DPI / 72) / (window.devicePixelRatio || 1);
+
   return (
     <div
-      ref={containerRef}
-      className="relative bg-zinc-900 flex-1 overflow-auto select-none"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      className="relative bg-zinc-800 flex-1 overflow-auto select-none flex items-start justify-center"
       style={{ touchAction: 'none' }}
     >
       <div
-        className="relative mx-auto my-2 bg-white shadow"
-        style={{ width: `${pageWidthPt * (PAGE_DPI / 72) / window.devicePixelRatio}px`, aspectRatio: `${pageWidthPt}/${pageHeightPt}` }}
+        ref={pageRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        className="relative my-3 bg-white shadow-lg cursor-crosshair ring-1 ring-zinc-700"
+        style={{
+          width: `min(${naturalWidthPx}px, calc(100% - 24px))`,
+          aspectRatio: `${pageWidthPt}/${pageHeightPt}`,
+        }}
       >
+        {/* First-use hint, fades to opacity-0 once a draft bbox exists. */}
+        {draftBboxes.length === 0 && extracted.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-zinc-400">
+            <div className="bg-white/85 px-4 py-2 rounded-md text-[0.75rem] shadow-sm">
+              🖱 Click-drag um eine Szene zu ziehen
+            </div>
+          </div>
+        )}
         <img
           src={pdfPageUrl(pdfKey, page, PAGE_DPI)}
           alt={`Seite ${page}`}
