@@ -33,6 +33,7 @@ import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT } from '../components/Cheatsheet';
 import { useToast } from '../lib/toast';
 import { useExtractUndo } from '../lib/extract_undo';
+import { UndoRedoControls } from '../components/UndoRedoControls';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
 const KIND_LABEL: Record<ExtractItem['kind'], string> = {
@@ -560,7 +561,17 @@ export function ExtractPage() {
   return (
     <Shell
       breadcrumb={
-        <Breadcrumb items={[{ label: 'Datensatz', to: '/' }, { label: key }]} />
+        <div className="flex items-center gap-2 min-w-0">
+          <Breadcrumb items={[{ label: 'Datensatz', to: '/' }, { label: key }]} />
+          {/* Undo / redo state — reactive via the ExtractUndoProvider. */}
+          <UndoRedoControls
+            undoDepth={undoCtx.undoDepth(key)}
+            redoDepth={undoCtx.redoDepth(key)}
+            onUndo={runUndo}
+            onRedo={runRedo}
+            what="Szene"
+          />
+        </div>
       }
       topbarTrailing={
         <div className="flex items-center gap-1.5">

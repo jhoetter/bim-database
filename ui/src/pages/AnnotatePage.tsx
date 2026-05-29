@@ -59,6 +59,7 @@ import { autoTSplit } from '../lib/auto_split';
 import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT, type CheatsheetSection } from '../components/Cheatsheet';
+import { UndoRedoControls } from '../components/UndoRedoControls';
 import { useToast } from '../lib/toast';
 import {
   advanceWorkflow,
@@ -712,6 +713,10 @@ export function AnnotatePage() {
   const [saving, setSaving] = useState(false);
   const undoStackRef = useRef<Snapshot[]>([]);
   const redoStackRef = useRef<Snapshot[]>([]);
+  // Stack-depth tick so the UndoRedoControls re-render when push/pop
+  // happen. Bumped in pushUndo / undo / redo / reset-on-mount paths.
+  const [stackTick, setStackTick] = useState(0);
+  const bumpStack = useCallback(() => setStackTick((t) => t + 1), []);
 
   // Drawing state.
   // - pendingStart: first click of a 2-click tool (wall, dim-distance,
@@ -1174,7 +1179,8 @@ export function AnnotatePage() {
       undoStackRef.current.shift();
     }
     redoStackRef.current = [];
-  }, [labels, sceneTag]);
+    bumpStack();
+  }, [labels, sceneTag, bumpStack]);
 
   const undo = useCallback(() => {
     const snap = undoStackRef.current.pop();
@@ -1185,8 +1191,9 @@ export function AnnotatePage() {
     setDirty(true);
     setSelectedId(null);
     setPendingStart(null);
+    bumpStack();
     addToast('↶ Rückgängig', 'info', 1500);
-  }, [labels, sceneTag, setSelectedId, addToast]);
+  }, [labels, sceneTag, setSelectedId, addToast, bumpStack]);
 
   const redo = useCallback(() => {
     const snap = redoStackRef.current.pop();
@@ -1197,8 +1204,9 @@ export function AnnotatePage() {
     setDirty(true);
     setSelectedId(null);
     setPendingStart(null);
+    bumpStack();
     addToast('↷ Wiederherstellen', 'info', 1500);
-  }, [labels, sceneTag, setSelectedId, addToast]);
+  }, [labels, sceneTag, setSelectedId, addToast, bumpStack]);
 
   // ── coordinate helpers ────────────────────────────────────────────────────
   const eventToSvgPoint = useCallback((e: ReactPointerEvent<SVGSVGElement> | PointerEvent): Point | null => {
@@ -2718,6 +2726,16 @@ export function AnnotatePage() {
             state={saveState}
             lastSavedAt={lastSavedAt}
             onRetry={() => { setSaveState('idle'); setDirty(true); }}
+          />
+          {/* Undo / redo state lives here too so the user can see
+              the stack depth at a glance + click to undo without
+              hunting in the sidebar. Reactive via stackTick. */}
+          <UndoRedoControls
+            undoDepth={(void stackTick, undoStackRef.current.length)}
+            redoDepth={(void stackTick, redoStackRef.current.length)}
+            onUndo={undo}
+            onRedo={redo}
+            what="Label"
           />
         </div>
       }
