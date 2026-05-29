@@ -691,6 +691,53 @@ def test_h6_add_reference_dim_rejects_axis_mismatch():
     assert r["error"]["code"] == "orientation_mismatch"
 
 
+def test_get_scene_view_format_png8_is_smaller():
+    """Issue #3: the default palette PNG (png8) should carry fewer bytes
+    than the full RGBA PNG for the same scene, while staying a valid PNG
+    of identical dimensions. Smaller bytes == fewer base64 tokens."""
+    import json as _json
+    import base64 as _b64
+    import io as _io
+    from PIL import Image as _PILImage
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+
+    def fetch(fmt):
+        res = _run(mcp_server.get_scene_view(
+            key=key, file=file, tiers="broad,finer", max_dim=1200, format=fmt,
+        ))
+        img, text = res
+        env = _json.loads(text.text)
+        assert env["ok"], env.get("error")
+        assert env["data"]["format"] == fmt
+        raw = _b64.b64decode(img.data)
+        pil = _PILImage.open(_io.BytesIO(raw))
+        pil.load()
+        return raw, pil, env["data"]["image_bytes"]
+
+    raw8, pil8, bytes8 = fetch("png8")
+    raw_full, pil_full, bytes_full = fetch("png")
+    assert bytes8 == len(raw8)  # envelope byte count matches payload
+    assert pil8.size == pil_full.size, "palette must not change dimensions"
+    assert bytes8 <= bytes_full, (
+        f"png8 ({bytes8}) should not exceed png ({bytes_full})"
+    )
+
+
+def test_get_scene_view_rejects_bad_format():
+    """Issue #3: an unknown format is a 400 surfaced as an error envelope."""
+    import json as _json
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    res = _run(mcp_server.get_scene_view(
+        key=key, file=file, tiers="broad", max_dim=400, format="webp",
+    ))
+    env = _json.loads(res[0].text)
+    assert not env["ok"]
+
+
 def test_h5_get_scene_view_with_labels_renders_labels():
     """H5-1/H5-2: the verify view must DIFFER from a clean-grid render
     when a label has been placed (proving the label render actually
