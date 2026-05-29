@@ -152,6 +152,19 @@ export async function deleteExtractedScene(key: string, file: string): Promise<v
   }
 }
 
+// A3 — restore a soft-deleted scene from the 1 h recycle bin.
+// 410 Gone if the bundle has expired.
+export async function restoreExtractedScene(key: string, file: string): Promise<DatasetHouse> {
+  const r = await fetch(`/pdfs/${encodeURIComponent(key)}/extract/${encodeURIComponent(file)}/restore`, {
+    method: 'POST',
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
+}
+
 // R4 — per-scene export preview.
 
 export interface ExportPreview {

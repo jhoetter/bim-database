@@ -1421,11 +1421,45 @@ def reset_house(key: str):
     return None
 
 
+RECYCLE_DIR = BASE / "tmp" / "recycle"
+RECYCLE_TTL_SEC = 3600  # A3 Q5 ★ — 1 h
+
+
+def _purge_old_recycle() -> int:
+    """Sweep recycle/* older than RECYCLE_TTL_SEC. Called opportunistically
+    on every recycle write/read. Returns the count of pruned bundles."""
+    if not RECYCLE_DIR.exists():
+        return 0
+    import time
+    cutoff = time.time() - RECYCLE_TTL_SEC
+    pruned = 0
+    for d in list(RECYCLE_DIR.rglob("*")):
+        if not d.is_dir() or d == RECYCLE_DIR:
+            continue
+        try:
+            if d.stat().st_mtime < cutoff:
+                for f in d.iterdir():
+                    f.unlink(missing_ok=True)
+                d.rmdir()
+                pruned += 1
+        except OSError:
+            pass
+    return pruned
+
+
+def _safe_recycle_path(key: str, file: str) -> Path:
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    return RECYCLE_DIR / key / file
+
+
 @app.delete("/pdfs/{key}/extract/{file}", tags=["pdfs"], status_code=204)
 def delete_extracted_scene(key: str, file: str):
     """R2 — drop one extracted scene (image + dataset manifest entry +
-    intake record). Does NOT remove the labels JSON; the user has to
-    confirm that separately."""
+    intake record). The deleted scene goes into a 1-hour recycle bin
+    at tmp/recycle/<key>/<file>/ so A3 undo can restore it. The labels
+    JSON moves with it so the restore is round-trip clean."""
     _safe_key(key)
     if "/" in file or ".." in file:
         raise HTTPException(status_code=400, detail="bad file")
@@ -1435,26 +1469,95 @@ def delete_extracted_scene(key: str, file: str):
         raise HTTPException(status_code=404, detail=f"no dataset manifest for {key!r}")
     ds_manifest = json.loads(ds_manifest_path.read_text())
     drawings = ds_manifest.get("drawings", [])
-    before = len(drawings)
-    drawings = [d for d in drawings if d.get("file") != file]
-    if len(drawings) == before:
+    target_entry = next((d for d in drawings if d.get("file") == file), None)
+    if target_entry is None:
         raise HTTPException(status_code=404, detail=f"scene {file!r} not in dataset manifest")
+    drawings = [d for d in drawings if d.get("file") != file]
     ds_manifest["drawings"] = drawings
     ds_manifest_path.write_text(json.dumps(ds_manifest, indent=2, ensure_ascii=False))
-    # Image
+
+    # A3 recycle bin
+    _purge_old_recycle()
+    recycle_dir = _safe_recycle_path(key, file)
+    recycle_dir.mkdir(parents=True, exist_ok=True)
+    (recycle_dir / "manifest_entry.json").write_text(
+        json.dumps(target_entry, indent=2, ensure_ascii=False)
+    )
+    import shutil
     img = ds_dir / file
     if img.exists():
-        img.unlink()
+        shutil.move(str(img), str(recycle_dir / file))
+    labels_file = ds_dir / "labels" / f"{Path(file).stem}.json"
+    if labels_file.exists():
+        shutil.move(str(labels_file), str(recycle_dir / "labels.json"))
+
     # Intake record
     intake = _read_manifest(key)
+    intake_record = None
     if intake is not None:
+        intake_record = next(
+            (s for s in intake.get("extracted_scenes", []) if s.get("scene_file") == file),
+            None,
+        )
         intake["extracted_scenes"] = [
             s for s in intake.get("extracted_scenes", [])
             if s.get("scene_file") != file
         ]
         intake["state"] = _bundle_state(key, intake)
         _write_manifest(key, intake)
+    if intake_record is not None:
+        (recycle_dir / "intake_record.json").write_text(
+            json.dumps(intake_record, indent=2, ensure_ascii=False)
+        )
     return None
+
+
+@app.post("/pdfs/{key}/extract/{file}/restore", tags=["pdfs"])
+def restore_extracted_scene(key: str, file: str):
+    """A3 — restore a soft-deleted scene from the recycle bin. Looks for
+    tmp/recycle/<key>/<file>/ and moves the contents back into the
+    dataset + intake. 410 Gone if the bundle has been pruned."""
+    _purge_old_recycle()
+    recycle_dir = _safe_recycle_path(key, file)
+    entry_path = recycle_dir / "manifest_entry.json"
+    if not entry_path.exists():
+        raise HTTPException(status_code=410, detail=f"recycle window expired for {file!r}")
+    entry = json.loads(entry_path.read_text())
+    ds_dir = DATASET_DIR / key
+    ds_manifest_path = ds_dir / "manifest.json"
+    if not ds_manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"no dataset manifest for {key!r}")
+    ds_manifest = json.loads(ds_manifest_path.read_text())
+    drawings = ds_manifest.get("drawings", [])
+    # Avoid duplicates if the user managed to extract a same-named scene
+    # in between delete and restore.
+    if any(d.get("file") == file for d in drawings):
+        raise HTTPException(status_code=409, detail=f"scene {file!r} already exists")
+    drawings.append(entry)
+    ds_manifest["drawings"] = drawings
+    ds_manifest_path.write_text(json.dumps(ds_manifest, indent=2, ensure_ascii=False))
+    import shutil
+    bundled_img = recycle_dir / file
+    if bundled_img.exists():
+        shutil.move(str(bundled_img), str(ds_dir / file))
+    bundled_labels = recycle_dir / "labels.json"
+    if bundled_labels.exists():
+        (ds_dir / "labels").mkdir(parents=True, exist_ok=True)
+        shutil.move(str(bundled_labels), str(ds_dir / "labels" / f"{Path(file).stem}.json"))
+    bundled_intake = recycle_dir / "intake_record.json"
+    if bundled_intake.exists():
+        intake = _read_manifest(key)
+        if intake is not None:
+            intake.setdefault("extracted_scenes", []).append(json.loads(bundled_intake.read_text()))
+            intake["state"] = _bundle_state(key, intake)
+            _write_manifest(key, intake)
+        bundled_intake.unlink()
+    entry_path.unlink()
+    try:
+        recycle_dir.rmdir()
+    except OSError:
+        pass
+    return _load_dataset_manifest(key)
 
 
 # ── SPA catchall ────────────────────────────────────────────────────────

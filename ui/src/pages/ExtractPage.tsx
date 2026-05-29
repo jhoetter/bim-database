@@ -18,11 +18,13 @@ import {
   getPdfInfo,
   pdfPageUrl,
   deleteExtractedScene,
+  restoreExtractedScene,
+  patchSceneAttrs,
   resetHouse,
   type ExtractItem,
   type PdfInfo,
 } from '../api/client';
-import type { DatasetHouse, IncomingPdf } from '../api/types';
+import type { DatasetDrawing, DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 import { PHASE_IDS, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
@@ -130,6 +132,91 @@ export function ExtractPage() {
   const draftRef = useRef(draft);
   draftRef.current = draft;
 
+  // A3 — undo/redo for extract-side mutations. House-scoped (Q6 ★) but
+  // stays in memory only; the user can undo within their session, not
+  // after navigating away from the house. Action kinds:
+  //   - extract  : a draft became a green scene. Undo deletes the
+  //                scene (server moves it to recycle) and restores the
+  //                draft. Redo extracts again.
+  //   - delete   : a green scene moved to recycle. Undo calls restore;
+  //                redo re-deletes.
+  //   - classify : a PATCH on the drawing's kind/floor/view/title.
+  //                Undo PATCHes back; redo re-applies.
+  type ExtractAction =
+    | { kind: 'extract'; file: string; previousDraft: DraftBbox }
+    | { kind: 'delete'; file: string }
+    | { kind: 'classify'; file: string; before: Partial<DatasetDrawing>; after: Partial<DatasetDrawing> };
+  const undoRef = useRef<ExtractAction[]>([]);
+  const redoRef = useRef<ExtractAction[]>([]);
+  const pushUndo = useCallback((a: ExtractAction) => {
+    undoRef.current.push(a);
+    if (undoRef.current.length > 200) undoRef.current.shift();
+    redoRef.current = [];
+  }, []);
+  const applyAction = useCallback(async (a: ExtractAction, reverse: boolean): Promise<ExtractAction | null> => {
+    if (a.kind === 'extract') {
+      if (reverse) {
+        // Undo extract = delete the scene + put the bbox back as a draft.
+        await deleteExtractedScene(key, a.file);
+        const d = await fetchDataset(key);
+        setDataset(d);
+        setDraft((curr) => ({ ...curr, bboxes: [...curr.bboxes, a.previousDraft] }));
+        return a;
+      }
+      // Redo extract = call extract again with the same draft.
+      await extractScenes(key, [{
+        page: a.previousDraft.page,
+        bbox_pdf_units: a.previousDraft.bbox_pdf,
+        kind: a.previousDraft.kind as ExtractItem['kind'],
+        view: a.previousDraft.view ?? null,
+        floor: a.previousDraft.floor ?? null,
+        title: a.previousDraft.title ?? null,
+      }]);
+      const d = await fetchDataset(key);
+      setDataset(d);
+      setDraft((curr) => ({ ...curr, bboxes: curr.bboxes.filter((b) => b.id !== a.previousDraft.id) }));
+      return a;
+    }
+    if (a.kind === 'delete') {
+      if (reverse) {
+        const d = await restoreExtractedScene(key, a.file);
+        setDataset(d);
+        return a;
+      }
+      await deleteExtractedScene(key, a.file);
+      const d = await fetchDataset(key);
+      setDataset(d);
+      return a;
+    }
+    // classify
+    await patchSceneAttrs(key, a.file, reverse ? (a.before as Parameters<typeof patchSceneAttrs>[2]) : (a.after as Parameters<typeof patchSceneAttrs>[2]));
+    const d = await fetchDataset(key);
+    setDataset(d);
+    return a;
+  }, [key]);
+  const runUndo = useCallback(async () => {
+    const a = undoRef.current.pop();
+    if (!a) return;
+    try {
+      const applied = await applyAction(a, true);
+      if (applied) redoRef.current.push(applied);
+    } catch (e) {
+      undoRef.current.push(a); // restore on failure
+      setError(`Undo fehlgeschlagen: ${(e as Error).message}`);
+    }
+  }, [applyAction]);
+  const runRedo = useCallback(async () => {
+    const a = redoRef.current.pop();
+    if (!a) return;
+    try {
+      const applied = await applyAction(a, false);
+      if (applied) undoRef.current.push(applied);
+    } catch (e) {
+      redoRef.current.push(a);
+      setError(`Redo fehlgeschlagen: ${(e as Error).message}`);
+    }
+  }, [applyAction]);
+
   // Persist draft on every change with a small debounce.
   useEffect(() => {
     const t = window.setTimeout(() => saveDraft(key, draftRef.current), 300);
@@ -175,15 +262,21 @@ export function ExtractPage() {
           const map: Record<string, ExtractItem['kind']> = { g: 'floorplan', a: 'elevation', s: 'section', d: 'detail' };
           if (k in map) {
             const kind = map[k];
+            const draftId = postDraw.id;
             setDraft((d) => ({
               ...d,
-              bboxes: d.bboxes.map((b) => b.id === postDraw.id ? { ...b, kind } : b),
+              bboxes: d.bboxes.map((b) => b.id === draftId ? { ...b, kind } : b),
             }));
             setPostDraw(
-              kind === 'floorplan' ? { id: postDraw.id, step: 'floor' }
-              : (kind === 'elevation' || kind === 'section') ? { id: postDraw.id, step: 'view' }
+              kind === 'floorplan' ? { id: draftId, step: 'floor' }
+              : (kind === 'elevation' || kind === 'section') ? { id: draftId, step: 'view' }
               : null,
             );
+            if (kind === 'detail') {
+              // A1 keyboard parity — Detail completes on kind. Defer
+              // one tick so the setDraft commits first.
+              setTimeout(() => { void extractDraftNow(draftId); }, 0);
+            }
             e.preventDefault();
             return;
           }
@@ -192,11 +285,13 @@ export function ExtractPage() {
           const map: Record<string, typeof FLOORS[number]> = { k: 'kg', u: 'ug', e: 'eg', o: 'og', d: 'dg', s: 'spitzboden' };
           if (k in map) {
             const floor = map[k];
+            const draftId = postDraw.id;
             setDraft((d) => ({
               ...d,
-              bboxes: d.bboxes.map((b) => b.id === postDraw.id ? { ...b, floor } : b),
+              bboxes: d.bboxes.map((b) => b.id === draftId ? { ...b, floor } : b),
             }));
             setPostDraw(null);
+            setTimeout(() => { void extractDraftNow(draftId); }, 0);
             e.preventDefault();
             return;
           }
@@ -205,15 +300,29 @@ export function ExtractPage() {
           const map: Record<string, typeof VIEWS[number]> = { n: 'north', s: 'south', o: 'east', w: 'west' };
           if (k in map) {
             const view = map[k];
+            const draftId = postDraw.id;
             setDraft((d) => ({
               ...d,
-              bboxes: d.bboxes.map((b) => b.id === postDraw.id ? { ...b, view } : b),
+              bboxes: d.bboxes.map((b) => b.id === draftId ? { ...b, view } : b),
             }));
             setPostDraw(null);
+            setTimeout(() => { void extractDraftNow(draftId); }, 0);
             e.preventDefault();
             return;
           }
         }
+      }
+      // A3 — Cmd/Ctrl+Z undoes the latest extract / delete / classify;
+      // Shift+Z (or Y on Windows) redoes.
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) { void runRedo(); } else { void runUndo(); }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        void runRedo();
+        return;
       }
       if (e.key === 'ArrowLeft')  setPage(currentPage - 1);
       if (e.key === 'ArrowRight') setPage(currentPage + 1);
@@ -280,6 +389,17 @@ export function ExtractPage() {
       ]);
       setDataset(d);
       setIntake(b);
+      // A3 — record the action so Cmd+Z can reverse it. Locate the
+      // freshly-created scene file via the new manifest entries.
+      const newFile = d.drawings.find((dr) =>
+        (dr.crop_from as { page?: number } | undefined)?.page === draftSnap.page
+        && dr.kind === draftSnap.kind
+        && (dr.floor ?? null) === (draftSnap.floor ?? null)
+        && (dr.view ?? null) === (draftSnap.view ?? null),
+      )?.file;
+      if (newFile) {
+        pushUndo({ kind: 'extract', file: newFile, previousDraft: draftSnap });
+      }
       setDraft((curr) => {
         const next = { ...curr, bboxes: curr.bboxes.filter((b2) => b2.id !== draftId) };
         if (next.bboxes.length === 0) clearDraft(key);
@@ -291,18 +411,20 @@ export function ExtractPage() {
     } finally {
       setBusy(false);
     }
-  }, [draft, key]);
+  }, [draft, key, pushUndo]);
 
   const onDeleteScene = useCallback(async (file: string) => {
-    if (!window.confirm(`Szene ${file} aus dem Datensatz entfernen?`)) return;
+    // A3 — auto-persist + recycle means we don't need the confirm
+    // dialog; Cmd+Z is the safety net.
     try {
       await deleteExtractedScene(key, file);
+      pushUndo({ kind: 'delete', file });
       const d = await fetchDataset(key);
       setDataset(d);
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [key]);
+  }, [key, pushUndo]);
 
   // Convert an already-extracted scene back into an editable draft bbox.
   // The user gets the same bbox geometry + classification back as a draft
