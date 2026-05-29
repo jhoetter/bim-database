@@ -2690,13 +2690,23 @@ export function AnnotatePage() {
   return (
     <Shell
       breadcrumb={
-        <Breadcrumb
-          items={[
-            { label: 'Datensatz', to: '/' },
-            { label: key, to: `/${key}` },
-            { label: decodedFile },
-          ]}
-        />
+        <div className="flex items-center gap-2 min-w-0">
+          <Breadcrumb
+            items={[
+              { label: 'Datensatz', to: '/' },
+              { label: key, to: `/${key}` },
+              { label: decodedFile },
+            ]}
+          />
+          {/* L12 — save state anchored next to the breadcrumb (left side)
+              so the user always knows where to look. Conventionally
+              where save state lives in modern editors. */}
+          <SaveStateDot
+            state={saveState}
+            lastSavedAt={lastSavedAt}
+            onRetry={() => { setSaveState('idle'); setDirty(true); }}
+          />
+        </div>
       }
       topbarTrailing={
         <div className="flex items-center gap-2">
@@ -2736,11 +2746,6 @@ export function AnnotatePage() {
             </span>
           )}
           <BezugStatus labels={labels} />
-          <SaveStateDot
-            state={saveState}
-            lastSavedAt={lastSavedAt}
-            onRetry={() => { setSaveState('idle'); setDirty(true); }}
-          />
           <button
             type="button"
             onClick={() => setCheatsheetOpen(true)}
@@ -3001,8 +3006,6 @@ export function AnnotatePage() {
           currentFile={decodedFile}
           labels={labels}
           sceneSummaries={sceneSummaries}
-          prevScene={prevScene}
-          nextScene={nextScene}
           onSelect={goToScene}
         />
       <div className="flex-1 min-h-0 bg-white relative overflow-hidden">
@@ -4898,14 +4901,12 @@ function CanvasDisplayPalette({
 }
 
 function AnnotateSceneStrip({
-  scenes, currentFile, labels, sceneSummaries, prevScene, nextScene, onSelect,
+  scenes, currentFile, labels, sceneSummaries, onSelect,
 }: {
   scenes: Array<{ file: string; title: string; url: string; labeled: boolean }>;
   currentFile: string;
   labels: Label[];
   sceneSummaries: Map<string, { count: number; hasH: boolean; hasV: boolean }> | null | undefined;
-  prevScene: { file: string } | null;
-  nextScene: { file: string } | null;
   onSelect: (file: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -4923,17 +4924,8 @@ function AnnotateSceneStrip({
         <span className="text-[0.62rem] uppercase tracking-wider text-muted shrink-0">
           {scenes.length} Szene{scenes.length === 1 ? '' : 'n'}
         </span>
-        <button
-          type="button"
-          onClick={() => prevScene && onSelect(prevScene.file)}
-          disabled={!prevScene}
-          aria-label="Vorige Szene (,)"
-          className={`w-6 h-6 inline-flex items-center justify-center rounded shrink-0 ${
-            prevScene ? 'hover:bg-zinc-200 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
-          }`}
-        >
-          ‹
-        </button>
+        {/* L6 — prev/next ‹› buttons dropped. , . and ← → cover the
+            same navigation; the buttons caused the row to wrap. */}
         {scenes.map((s) => {
           const isCurrent = s.file === currentFile;
           const summary = isCurrent
@@ -5006,17 +4998,6 @@ function AnnotateSceneStrip({
             </span>
           );
         })}
-        <button
-          type="button"
-          onClick={() => nextScene && onSelect(nextScene.file)}
-          disabled={!nextScene}
-          aria-label="Nächste Szene (.)"
-          className={`w-6 h-6 inline-flex items-center justify-center rounded shrink-0 ${
-            nextScene ? 'hover:bg-zinc-200 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
-          }`}
-        >
-          ›
-        </button>
       </div>
     </div>
   );

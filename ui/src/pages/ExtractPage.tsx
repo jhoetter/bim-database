@@ -114,6 +114,11 @@ export function ExtractPage() {
   const [dataset, setDataset] = useState<DatasetHouse | null>(null);
   const [draft, setDraft] = useState<DraftState>(() => loadDraft(key) ?? emptyDraft());
   const [busy, setBusy] = useState(false);
+  // L5 — opens the shared Cheatsheet (L10 lift) via ?. The Cheatsheet
+  // component renders in L10's wave; for now the state hides the keyboard
+  // event from the wider page when toggled.
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
+  void cheatsheetOpen;
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // The extracted-scene action menu (Annotieren / Bbox anpassen /
@@ -194,28 +199,41 @@ export function ExtractPage() {
     setDataset(d);
     return a;
   }, [key]);
+  // L8 — small toast pip so undo/redo feedback isn't silent. Stack of
+  // {id, text, ttl}; auto-dismisses.
+  const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([]);
+  const showToast = useCallback((text: string) => {
+    const id = Math.random().toString(36).slice(2, 8);
+    setToasts((ts) => [...ts, { id, text }]);
+    window.setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 1800);
+  }, []);
+  const describeAction = (a: ExtractAction, reverse: boolean): string => {
+    if (a.kind === 'extract')  return reverse ? '↶ Szene zurück in Entwurf' : '↷ Erneut extrahiert';
+    if (a.kind === 'delete')   return reverse ? '↶ Szene wiederhergestellt' : '↷ Erneut gelöscht';
+    return reverse ? '↶ Klassifikation zurückgesetzt' : '↷ Klassifikation erneut geändert';
+  };
   const runUndo = useCallback(async () => {
     const a = undoRef.current.pop();
     if (!a) return;
     try {
       const applied = await applyAction(a, true);
-      if (applied) redoRef.current.push(applied);
+      if (applied) { redoRef.current.push(applied); showToast(describeAction(applied, true)); }
     } catch (e) {
       undoRef.current.push(a); // restore on failure
       setError(`Undo fehlgeschlagen: ${(e as Error).message}`);
     }
-  }, [applyAction]);
+  }, [applyAction, showToast]);
   const runRedo = useCallback(async () => {
     const a = redoRef.current.pop();
     if (!a) return;
     try {
       const applied = await applyAction(a, false);
-      if (applied) undoRef.current.push(applied);
+      if (applied) { undoRef.current.push(applied); showToast(describeAction(applied, false)); }
     } catch (e) {
       redoRef.current.push(a);
       setError(`Redo fehlgeschlagen: ${(e as Error).message}`);
     }
-  }, [applyAction]);
+  }, [applyAction, showToast]);
 
   // Persist draft on every change with a small debounce.
   useEffect(() => {
@@ -324,9 +342,18 @@ export function ExtractPage() {
         void runRedo();
         return;
       }
-      if (e.key === 'ArrowLeft')  setPage(currentPage - 1);
-      if (e.key === 'ArrowRight') setPage(currentPage + 1);
-      if (e.key === 'Escape')     setSelectedId(null);
+      // L5 — page nav on both axes plus Home/End/Page Up/Down.
+      if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp'   || e.key === 'PageUp')   setPage(currentPage - 1);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') setPage(currentPage + 1);
+      if (e.key === 'Home') setPage(1);
+      if (e.key === 'End')  setPage(info?.page_count ?? 1);
+      // L5 — open the shared cheatsheet from this page too.
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        setCheatsheetOpen((v) => !v);
+        return;
+      }
+      if (e.key === 'Escape')     { setSelectedId(null); setCheatsheetOpen(false); }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedId) {
           setDraft((d) => ({ ...d, bboxes: d.bboxes.filter((b) => b.id !== selectedId) }));
@@ -336,7 +363,8 @@ export function ExtractPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [currentPage, setPage, selectedId, postDraw]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, setPage, selectedId, postDraw, runUndo, runRedo, info]);
 
   const onCommitBbox = useCallback((bbox: [number, number, number, number]) => {
     const id = uuid();
@@ -568,6 +596,19 @@ export function ExtractPage() {
         />
       }
     >
+      {/* L8 — undo/redo toast pip (bottom-right, auto-fades). */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-1.5 pointer-events-none">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className="bg-zinc-900 text-white text-[0.75rem] px-3 py-1.5 rounded-md shadow-lg"
+            >
+              {t.text}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex flex-col h-full">
         <SceneStrip
           scenes={dataset?.drawings ?? []}
@@ -597,8 +638,6 @@ export function ExtractPage() {
           onPage={setPage}
           draftCount={pageBboxes.length}
           extractedOnPage={extractedOnPage.length}
-          totalDraft={draft.bboxes.length}
-          lastSaved={new Date(draft.updated_at).toLocaleTimeString('de-DE')}
           pageInfo={pageInfo}
           onFullPage={() => {
             if (!pageInfo) return;
@@ -845,7 +884,7 @@ function SceneStrip({
 }
 
 function PageNav({
-  info, page, onPage, draftCount, extractedOnPage, totalDraft, lastSaved,
+  info, page, onPage, draftCount, extractedOnPage,
   pageInfo, onFullPage,
 }: {
   info: PdfInfo | null;
@@ -853,8 +892,6 @@ function PageNav({
   onPage: (n: number) => void;
   draftCount: number;
   extractedOnPage: number;
-  totalDraft: number;
-  lastSaved: string;
   pageInfo: PdfInfo['pages'][number] | null;
   onFullPage: () => void;
 }) {
@@ -908,13 +945,9 @@ function PageNav({
           </span>
         )}
       </span>
-      <span className="text-muted ml-auto text-[0.7rem]">
-        {totalDraft > 0 ? (
-          <>Auto-gespeichert · {lastSaved}</>
-        ) : (
-          <>Drag = Bbox · Doppelklick = ganze Seite · ← → Seiten · Esc deselect · Del löschen</>
-        )}
-      </span>
+      {/* L1 D6 — keyboard/pointer hints folded into the shared cheatsheet
+          (open with ?); auto-gespeichert timestamp dropped since A1 makes
+          drafts transient. */}
     </div>
   );
 }
