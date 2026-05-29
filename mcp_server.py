@@ -1670,6 +1670,387 @@ un-cropped scene without any translation.
 """
 
 
+# ── §5.11 MCP prompts (canonical phase playbooks) ────────────────────────
+# Per tracker §8 decision 7: prompts are the single source of truth for
+# how an agent works the workflow. The house-labeling skill in bim-agent
+# is a thin pointer that says "for phase X, follow this prompt".
+
+
+@mcp.prompt(name="label-house")
+def prompt_label_house(key: str) -> str:
+    return f"""# Label house `{key}` end-to-end
+
+You are driving the bim-database annotation workflow for one house. Your
+goal: produce an export-ready labeled house. Open the bim-database SPA
+at http://localhost:12500/{key} alongside this session — your writes
+appear there immediately.
+
+## Tools you'll use (from the bim-database MCP server)
+
+| Phase | Primary tools                                                                |
+|-------|------------------------------------------------------------------------------|
+| W0    | get_house, get_scene_view, set_scene_tag, set_scene_orientation, set_scene_level |
+| W1    | get_scene_view, upsert_label (height_mark), set_house_facts                  |
+| W2    | get_scene_view, add_reference_dim, upsert_label (wall), set_house_facts      |
+| W3    | get_scene_view, set_house_facts                                              |
+| W4    | get_scene_view, add_reference_dim, recompute_homography                      |
+| any   | get_workflow_state, get_recommended_next_action, validate_export_readiness, export_house |
+
+## Resources to read first
+
+- `bim-db://schema/scene_labels` — Label types + geometry shapes ([x,y] arrays)
+- `bim-db://docs/grid-coordinates` — How to read the grid overlay
+
+## Operating loop
+
+```
+state = get_workflow_state(key="{key}")
+while not state.exportable:
+    phase = state.next_phase
+    follow the prompt named  bim-database.<phase>-playbook
+    state = get_workflow_state(key="{key}")
+validate_export_readiness then export_house
+```
+
+## Core principles (DO NOT SKIP)
+
+1. **Always look at the grid before naming coordinates.** Call
+   `get_scene_view` (with `region=` zoom for precision) before EVERY
+   label. The labels in the overlay show source pixels — feed them
+   directly into tool calls.
+2. **Honest values.** If you can't read a dim number confidently, set
+   `status="uncertain"` on the label. Never invent.
+3. **One reference dim at a time.** Add → call `recompute_homography`.
+   If RMS > 8 px, delete it and try a more-orthogonal candidate.
+4. **Never edit existing human work.** Check
+   `get_house_facts.workflow.touched_by` before overwriting; if a human
+   has touched the house, halt.
+5. **Honest reporting.** When you halt or finish, call `dump_run_summary`
+   so the developer sees what you did.
+
+Start now: call `get_workflow_state(key="{key}")` and follow the
+appropriate phase playbook.
+"""
+
+
+@mcp.prompt(name="W0-inventory")
+def prompt_w0_inventory(key: str) -> str:
+    return f"""# W0 · Inventory — categorise every scene of `{key}`
+
+Goal: every scene has a non-null `scene_tag`, Ansicht/Schnitt have
+`scene_orientation`, Grundriss have `scene_level`.
+
+## Steps
+
+For each scene returned by `get_house(key="{key}").drawings`:
+
+1. `get_scene_view(key="{key}", file=<file>, tiers="broad")` — overview only.
+2. Decide the scene_tag based on what you see:
+   - **Grundriss** = top-down plan view, room labels, door swings, often
+     dimension chains around the perimeter.
+   - **Ansicht** = side view of the building, roof + windows in
+     elevation, no cutaway hatching.
+   - **Schnitt** = cutaway with floor heights, hatched walls, roof
+     pitch annotations.
+   - **Sonstiges** = isolated detail (Anschluss, Putzdetail, Treppe).
+   - **nicht_klassifiziert** — only when truly unrecognisable.
+3. Look for the title-block text (usually bottom-right): "EG-Grundriss",
+   "Süd-Ansicht", "Schnitt A-A" — best ground truth for the tag.
+4. `set_scene_tag(key="{key}", file=<file>, tag=<tag>)`.
+5. If Ansicht/Schnitt: identify orientation (north/south/east/west) from
+   compass marks or the title text. If unclear, leave null. Call
+   `set_scene_orientation(...)`.
+6. If Grundriss: identify the floor level (kg/ug/eg/og/dg/spitzboden)
+   from the title text or by elimination (count the floors). Call
+   `set_scene_level(...)`.
+
+## Heuristics for ambiguous cases
+
+- A drawing with both plan and section (split sheet) → tag as the
+  dominant element; flag with `dump_run_summary` for human review.
+- "EG" is the ground floor (Erdgeschoss), "OG" upper, "DG" attic,
+  "KG" basement (Kellergeschoss).
+- Cardinal directions in German labels: Nord/Süd/Ost/West.
+
+## Exit
+
+`get_workflow_state(key="{key}")["phases"]["W0"]["status"] == "done"`
+
+If W0 still has blockers after one full pass, re-call `get_scene_view`
+on the blocked scene with `region=` zoom to inspect the title block.
+"""
+
+
+@mcp.prompt(name="W1-height-anchor")
+def prompt_w1_height_anchor(key: str) -> str:
+    return f"""# W1 · Height anchor — establish ±0.00 + Firsthöhe for `{key}`
+
+Goal: `facts.heights.bezug_mm == 0` and `facts.heights.first_mm != null`.
+
+## Steps
+
+1. `get_house(key="{key}")` — pick an Ansicht with the most visible
+   vertical dimension lines (usually the one labeled "Süd-Ansicht" or
+   "Hauptansicht").
+2. `get_scene_view(key="{key}", file=<ansicht>, tiers="broad,finer")`
+   — find the `±0,00` reference line at the ground floor and the
+   Firsthöhe (ridge) line at the top.
+3. For the bezug (±0.00) line:
+   `get_scene_view(file=<ansicht>, region="<tight crop around the ±0 mark>")`
+   to identify its exact pixel position. Then:
+   ```
+   upsert_label(key="{key}", file=<ansicht>, label={{
+     "type": "height_mark",
+     "geometry": {{"anchor": [x, y]}},
+     "attributes": {{"value_mm": 0, "datum": "ok_ffb"}}
+   }})
+   ```
+4. For the Firsthöhe: same workflow. Read the value from the drawing
+   (e.g. "8,50 m" → 8500 mm). Then:
+   ```
+   upsert_label(key="{key}", file=<ansicht>, label={{
+     "type": "height_mark",
+     "geometry": {{"anchor": [x, y]}},
+     "attributes": {{"value_mm": 8500, "datum": "first"}}
+   }})
+   ```
+5. `set_house_facts(key="{key}", patch={{"heights": {{"bezug_mm": 0, "first_mm": 8500}}}})`.
+
+## Exit
+
+`get_workflow_state[...]["W1"]["status"] == "done"`
+"""
+
+
+@mcp.prompt(name="W2-footprint")
+def prompt_w2_footprint(key: str) -> str:
+    return f"""# W2 · Footprint — width + depth + outer wall thickness for `{key}`
+
+Goal: `facts.extent.width_mm`, `facts.extent.depth_mm`, and
+`facts.wall_thickness.outer_mm` all set.
+
+## Steps
+
+1. Pick EG-Grundriss (the one with `scene_level == "eg"`).
+2. `get_scene_view(key="{key}", file=<eg-grundriss>, tiers="broad,finer")`
+   — find a horizontal dim along the outer edge (full façade length;
+   typically the longest dim on the sheet) and a vertical one along
+   the depth.
+3. Read both dim values from the drawing (e.g. "12,40 m" → 12400 mm).
+4. For each, call:
+   ```
+   add_reference_dim(key="{key}", file=<eg>, orientation="horizontal",
+                     start=[x1, y1], end=[x2, y2],
+                     value_mm=12400, dimension_text="12,40 m")
+   ```
+   The tool returns `homography.rms_residual_px`. **Reject if > 8 px**
+   — delete the dim and try a more-clearly-outer edge. (Use
+   `delete_label(label_id=data.distance_id)` and the partner dim_number.)
+5. Once both pass: identify an outer wall on the drawing — typically
+   30-40 cm thick (drawn as a thick double line). Read its thickness:
+   ```
+   upsert_label(key="{key}", file=<eg>, label={{
+     "type": "wall",
+     "geometry": {{"start": [x1,y1], "end": [x2,y2]}},
+     "attributes": {{"thickness_mm": 365}}
+   }})
+   ```
+6. `set_house_facts(key="{key}", patch={{
+     "extent": {{"width_mm": 12400, "depth_mm": 9800}},
+     "wall_thickness": {{"outer_mm": 365}}
+   }})`.
+
+## Exit
+
+`get_workflow_state[...]["W2"]["status"] == "done"` AND the auto-derived
+`facts.extent` matches the dim values within 2 %.
+"""
+
+
+@mcp.prompt(name="W3-orientation")
+def prompt_w3_orientation(key: str) -> str:
+    return f"""# W3 · Orientation — pick the north edge for `{key}`
+
+Goal: `facts.orientation.north_edge_label_id` set (or
+`north_angle_deg` as fallback).
+
+## Steps
+
+1. EG-Grundriss again. `get_scene_view(tiers="broad")`.
+2. Look for a compass mark (often labeled "N" or shown as an arrow in
+   a corner) OR an explicit "Norden" label.
+3. Identify the wall that aligns with north (the wall the compass
+   arrow points along, or the wall labeled with "N"). Take its label_id
+   from `list_scene_labels`.
+4. If no compass visible: estimate from the building's likely
+   orientation (most catalog houses face the street, which is often
+   south). `set_house_facts(patch={{"orientation": {{"north_angle_deg": 0,
+                                                      "assumed": true}}}})`
+   and add `anomalies = ["manual_assumed_north"]` so a human reviewer
+   sees the assumption.
+5. Otherwise:
+   `set_house_facts(patch={{"orientation": {{"north_edge_label_id": <wall_id>}}}})`.
+
+## Exit
+
+`get_workflow_state[...]["W3"]["status"] == "done"`
+"""
+
+
+@mcp.prompt(name="W4-calibration")
+def prompt_w4_calibration(key: str) -> str:
+    return f"""# W4 · Calibration — per-scene reference dims for `{key}`
+
+Goal: every Ansicht/Schnitt has `facts.calibration_per_scene[file]`
+populated (one horizontal + one vertical reference dim, homography
+RMS ≤ 8 px).
+
+## Steps per scene
+
+For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
+`get_house_facts.calibration_per_scene[file]` is absent:
+
+1. `get_scene_view(key="{key}", file=<scene>, tiers="broad,finer")`
+   — full image.
+2. Apply the **is_reference selection ladder**
+   (per tracker §8 decision 3):
+   a. Identify the title-block bbox (usually bottom-right; it's the
+      densest-text region). Exclude this half of the image.
+   b. Find the **longest clearly-labeled horizontal** dim line in the
+      remaining area — typically along the eaves or the foundation. The
+      grid overlay's broad tier (~100-200 px cells) tells you the gross
+      length.
+   c. Find the **longest clearly-labeled vertical** dim — typically
+      ground-to-eaves or ground-to-ridge.
+3. For each, zoom in for precision:
+   `get_scene_view(file=<scene>, region="<tight crop around the dim
+   text + endpoints>", tiers="finer,detail")`. Read off the endpoint
+   coords (in source pixels — the grid labels are honest) and the
+   numeric value.
+4. ```
+   add_reference_dim(key="{key}", file=<scene>, orientation="horizontal",
+                     start=[x1,y1], end=[x2,y2],
+                     value_mm=<value>, dimension_text="<as written>")
+   ```
+   Check `homography.rms_residual_px` in the response:
+     - ≤ 8: keep going.
+     - > 8: delete this dim + its partner dim_number, try the
+       second-best candidate. Repeat up to 3 times.
+5. Repeat for vertical.
+6. Confirm `get_house_facts.calibration_per_scene` now has the file.
+
+## Hard caps (per scene budget)
+
+- 6 tool calls including all `get_scene_view`s.
+- If still failing after 3 ref-dim attempts: `set_label_status(...,
+  "uncertain")` on whichever dim came closest, then call
+  `dump_run_summary` with `notes="W4 calibration failed on <scene>;
+  human review needed"` and move to the next scene.
+
+## Exit
+
+`get_workflow_state[...]["W4"]["status"] == "done"`
+"""
+
+
+@mcp.prompt(name="W5-detail")
+def prompt_w5_detail(key: str) -> str:
+    return f"""# W5 · Detail (OPT-IN) — labels for `{key}`
+
+W5 is off by default; the driver invokes this playbook only when
+`--with-detail` is set. The export gate passes without it.
+
+Goal: per scene, label what's visible:
+- Grundriss: walls + openings (doors, windows, garage_doors).
+- Ansicht: view_openings (windows, doors), height_marks at floor
+  divisions, component_lines at roof edges (first/traufe/dachschraege).
+- Schnitt: component_lines at floor slabs + roof edges, height_marks.
+
+## Per-scene budget
+
+20 tool calls. The agent stops on budget exhaustion and moves on; the
+SKILL never blocks on perfect W5.
+
+## Steps per scene
+
+For each scene:
+
+1. `get_scene_view(key="{key}", file=<scene>, tiers="broad,finer")`.
+2. Enumerate visible features the scene_tag supports (see
+   `bim-db://ontology/scene_tags` for the tool palette).
+3. For each: zoom (`region=`), draw with `upsert_label`, mark
+   `status="uncertain"` if you can't read the type / dimension
+   confidently.
+4. Run `recompute_homography` periodically (every ~5 labels) so the
+   per-scene calibration stays valid.
+
+## Exit
+
+`set_house_facts(patch={{"workflow": {{"phase_completed_at":
+                                       {{"detail": "<ISO timestamp>"}}}}}})`
+to mark W5 manually complete.
+"""
+
+
+@mcp.prompt(name="diagnose-failed-export")
+def prompt_diagnose_failed_export(key: str) -> str:
+    return f"""# Diagnose why `{key}` won't export
+
+The agent exited W4 but `export_house` returned 409. Find what's blocking.
+
+## Steps
+
+1. `validate_export_readiness(key="{key}")` — read the blockers list.
+2. Common causes + fixes:
+   - **"no annotated scenes"** → no scene has labels. Re-run W4 (it
+     adds dim labels) or run a W5 pass.
+   - **"house has zero drawings"** → re-run extract_scenes via the W0
+     bootstrap.
+   - **homography degenerate on Scene X** → call `recompute_homography`
+     on that scene; the error tells you which ref dims are degenerate.
+     Delete + retry.
+3. After fixing, re-call `export_house(key="{key}")` — should return 201
+   with the export manifest.
+
+## When to give up
+
+If the same blocker survives 2 fix attempts: `dump_run_summary` with
+notes, exit non-zero so the driver records the failure for human
+review.
+"""
+
+
+@mcp.prompt(name="diagnose-degenerate-homography")
+def prompt_diagnose_degenerate_homography(key: str, file: str) -> str:
+    return f"""# Diagnose degenerate homography on `{key}` / `{file}`
+
+`recompute_homography` returned `status="degenerate"` or
+`rms_residual_px > 10`. Recover.
+
+## Steps
+
+1. `list_scene_labels(key="{key}", file="{file}")` — find every
+   `dimensioned_distance` with `is_reference=true`.
+2. For each, `get_label(label_id=<id>)` and check:
+   - Is `target_orientation` set ("horizontal" / "vertical")? If not,
+     the rectifier can't tell which axis it anchors. `update_label_attrs`
+     to set it.
+   - Are the start/end endpoints actually horizontal / vertical in the
+     image? Compute angle; if > 10° off-axis, the dim is mis-drawn.
+     Delete it.
+3. If only one ref dim survives: add a new one in the missing
+   orientation per the W4 playbook.
+4. `recompute_homography(key="{key}", file="{file}")` — confirm
+   `status="ok"` with `rms_residual_px ≤ 8`.
+
+## When the drawing truly has no orthogonal dim pair
+
+(e.g. a perspective sketch or a detail with only one dim line)
+`set_label_status(label_id=<best dim>, status="uncertain")` and
+`dump_run_summary` flagging the scene for human review.
+"""
+
+
 # ── entry point ──────────────────────────────────────────────────────────
 
 
