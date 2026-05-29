@@ -10,6 +10,8 @@ FORM_WEB_PORT ?= 5174
 #       -L $(FORWARDED_PORT):127.0.0.1:$(PORT) <host>
 FORWARDED_PORT     ?= 12500
 FORWARDED_WEB_PORT ?= 15173
+FORWARDED_FORM_PORT     ?= 12600
+FORWARDED_FORM_WEB_PORT ?= 15174
 
 VENV   := .venv
 PYTHON := $(VENV)/bin/python
@@ -18,7 +20,8 @@ UV     := $(VENV)/bin/uvicorn
 CONCURRENTLY := ./ui/node_modules/.bin/concurrently
 
 .PHONY: install dev dev-forwarded dev-api dev-web kill-ports build cleanup-houses \
-        ingest form-api form-ui-install form-ui-dev form-ui-build test
+        ingest form-api form-ui-install form-ui-dev form-ui-build form-dev \
+        form-dev-forwarded test
 
 install:
 	python3 -m venv $(VENV)
@@ -96,10 +99,32 @@ form-ui-install:
 	cd form-ui && npm install
 
 form-ui-dev:
-	cd form-ui && FORM_UI_PORT=$(FORM_WEB_PORT) npm run dev
+	cd form-ui && FORM_UI_PORT=$(FORM_WEB_PORT) \
+	  VITE_FORM_API_BASE=$${VITE_FORM_API_BASE:-http://127.0.0.1:$(FORM_PORT)} \
+	  VITE_FORM_API_KEY=$${VITE_FORM_API_KEY:-$$FORM_API_KEY} \
+	  npm run dev
 
 form-ui-build:
 	cd form-ui && npm run build
+
+# Run form-api + form-ui-dev side-by-side under `concurrently`. Same pattern
+# as `make dev`. Requires FORM_API_KEY in the env; the form API refuses to
+# start without one.
+form-dev: kill-ports
+	@test -n "$$FORM_API_KEY" || (echo "set FORM_API_KEY=… first — refusing to start an un-auth'd public surface" && exit 1)
+	@test -x $(CONCURRENTLY) || (echo "missing ui/node_modules — run 'make install' first" && exit 1)
+	@test -d form-ui/node_modules || (echo "missing form-ui/node_modules — run 'make form-ui-install' first" && exit 1)
+	@echo "→ Form API   http://127.0.0.1:$(FORM_PORT)"
+	@echo "→ Form Web   http://127.0.0.1:$(FORM_WEB_PORT)"
+	$(CONCURRENTLY) -k -n form-api,form-web -c green,yellow \
+	  "$(MAKE) form-api FORM_PORT=$(FORM_PORT)" \
+	  "$(MAKE) form-ui-dev FORM_PORT=$(FORM_PORT) FORM_WEB_PORT=$(FORM_WEB_PORT)"
+
+# Forwarded variant for the SSH-tunneled dev box. Mirrors dev-forwarded.
+#   ssh -L $(FORWARDED_FORM_WEB_PORT):127.0.0.1:$(FORM_WEB_PORT) \
+#       -L $(FORWARDED_FORM_PORT):127.0.0.1:$(FORM_PORT) <host>
+form-dev-forwarded:
+	$(MAKE) form-dev FORM_PORT=$(FORWARDED_FORM_PORT) FORM_WEB_PORT=$(FORWARDED_FORM_WEB_PORT)
 
 # Test suite. Runs the ingestion package tests (CPU-only, no API keys).
 test:
