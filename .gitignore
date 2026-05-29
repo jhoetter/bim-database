@@ -26,3 +26,6 @@ data/houses/house-*/house-*.jpg
 
 # Stale agent worktrees (created by Agent harness)
 .claude/worktrees/
+
+# R2 PDF-page render cache (api/main.py /pdfs/{key}/page/{n}).
+tmp/pdf-cache/
