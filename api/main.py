@@ -1224,6 +1224,24 @@ def _slug_token(s: str | None, fallback: str) -> str:
     return s or fallback
 
 
+def _pixmap_is_blank(pix) -> bool:
+    """True when a rendered pixmap is a uniform bright canvas — i.e. the
+    render produced no drawing content (issue #12).
+
+    PyMuPDF can fail to rasterize a page (e.g. a corrupt content stream in
+    a merged PDF logs 'object is not a stream' to stderr) and silently
+    return an all-white pixmap. Saving that yields a blank 'labeled' scene
+    the vision-LLM can't read. We treat a near-uniform bright region as a
+    failed render: even a faint pencil scan leaves non-uniform pixels, so
+    this won't false-positive on real (if sparse) content.
+    """
+    import numpy as np
+    a = np.frombuffer(pix.samples, dtype=np.uint8)
+    if a.size == 0:
+        return True
+    return bool(int(a.min()) >= 250 and int(a.max()) - int(a.min()) <= 2)
+
+
 @app.post("/pdfs/{key}/extract", tags=["pdfs"], status_code=201)
 def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
     """R2 — crop scenes out of the consolidated PDF.
@@ -1236,8 +1254,14 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
       "floor": "kg"|"ug"|...,        # optional
       "title": str,                  # optional
       "slug_override": str,          # optional, used as the slug if set
-      "dpi": 300                     # optional, default 300
+      "dpi": 300,                    # optional, default 300
+      "allow_blank": false           # optional; bypass the blank-render guard
     }]}
+
+    Per issue #12: a crop that renders to a blank/uniform canvas (a failed
+    rasterization — e.g. a corrupt content stream in the merged PDF) is
+    rejected with 422 rather than silently written, so a blank scene never
+    masquerades as a labeled one. Set `allow_blank: true` to force.
 
     For each item, crops the PDF page at the bbox, writes the JPG into
     data/dataset/<key>/, and appends a DatasetDrawing entry to the
@@ -1314,6 +1338,23 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
             scale = dpi / 72.0
             clip = fitz.Rect(x0, y0, x1, y1)
             pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip, alpha=False)
+            # Issue #12: refuse to write a blank crop. A failed render
+            # (e.g. corrupt content stream in the merged PDF) yields an
+            # all-white pixmap; saving it produces a blank scene the agent
+            # can't label but that still reports as `labeled`. Fail loudly
+            # so the corruption is visible at extraction time. `allow_blank`
+            # opts out for the rare intentionally-empty region.
+            if not bool(raw.get("allow_blank")) and _pixmap_is_blank(pix):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"page {page_n} rendered blank for {file_name} — no "
+                        "content (the page's content stream may be corrupt in "
+                        "the merged PDF, or the bbox is empty). Crop not "
+                        "written. Re-merge the source PDF or fix the bbox; "
+                        "pass allow_blank=true to force."
+                    ),
+                )
             pix.pil_save(str(out_path), format="JPEG", quality=92)
 
             entry = {

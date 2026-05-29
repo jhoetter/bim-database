@@ -950,9 +950,15 @@ async def extract_scenes(
           "view": "north",            // optional — for elevations/sections
           "floor": "eg",              // optional — for floorplans
           "title": "EG-Grundriss",    // optional human title
-          "slug_override": null       // optional slug
+          "slug_override": null,      // optional slug
+          "allow_blank": false        // optional; bypass the blank-render guard
         }
       idempotency_key: optional driver-supplied key for crash-replay safety.
+
+    Issue #12: if a crop renders blank (a failed rasterization — e.g. a
+    corrupt content stream in the merged PDF), extraction returns an error
+    instead of writing an empty scene that would still report as
+    `labeled`. Fix the merge / bbox, or pass `allow_blank: true` to force.
 
     Returns: `data` = {extracted: [...new manifest entries...], intake_state: ...}
 
@@ -989,6 +995,7 @@ async def extract_scenes(
             "title": raw.get("title"),
             "slug_override": raw.get("slug_override"),
             "dpi": int(raw.get("crop_dpi", 300)),
+            "allow_blank": bool(raw.get("allow_blank", False)),
         })
     try:
         status, body = await _api_post(f"/pdfs/{key}/extract", json_body={"items": api_items})
