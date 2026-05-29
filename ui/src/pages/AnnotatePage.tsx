@@ -2665,6 +2665,15 @@ export function AnnotatePage() {
       }
       topbarTrailing={
         <div className="flex items-center gap-2">
+          <CanvasDisplayPalette
+            imgOpacity={imgOpacity}
+            setImgOpacity={setImgOpacity}
+            imgGrayscale={imgGrayscale}
+            setImgGrayscale={setImgGrayscale}
+            onZoomIn={() => zoomBy(0.7)}
+            onZoomOut={() => zoomBy(1.4)}
+            onFit={resetView}
+          />
           <Link
             to={`/${key}/scene/${encodeURIComponent(decodedFile)}/export`}
             className="text-[0.75rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
@@ -3639,65 +3648,10 @@ export function AnnotatePage() {
         {/* Removed: bottom-left hotkey legend. Hotkeys are visible on the
             sidebar tool buttons themselves; the full cheatsheet stays
             accessible via "?". */}
-        {/* Canvas-display controls — opacity slider + color/gray toggle +
-            zoom buttons in ONE horizontal palette at the bottom-right.
-            Both image settings persist across images and houses
-            (localStorage). Canvas background is white so lowering the
-            opacity correctly fades the image to WHITE (the previous
-            zinc-800 background made it fade to dark which read wrong). */}
-        <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-white/95 border border-zinc-300 rounded shadow-md px-2 py-1">
-          <button
-            type="button"
-            onClick={() => setImgGrayscale((v) => !v)}
-            className={`px-2 py-1 rounded text-[0.65rem] font-medium border transition ${
-              imgGrayscale
-                ? 'bg-zinc-800 text-white border-zinc-800'
-                : 'bg-white text-zinc-700 border-border hover:bg-zinc-50'
-            }`}
-            title="Bild in Graustufen oder Farbe anzeigen"
-          >
-            {imgGrayscale ? 'Grau' : 'Farbe'}
-          </button>
-          <label className="flex items-center gap-1.5 ml-1">
-            <span className="text-[0.6rem] text-zinc-500">Op</span>
-            <input
-              type="range"
-              min={0.1} max={1} step={0.05}
-              value={imgOpacity}
-              onChange={(e) => setImgOpacity(Number(e.target.value))}
-              className="w-24 accent-accent"
-              title="Bilddeckkraft — Bild auf Weiß ausblenden, um Labels gegen den weißen Canvas zu prüfen"
-            />
-            <span className="text-[0.6rem] tabular-nums text-zinc-500 w-8 text-right">
-              {Math.round(imgOpacity * 100)}%
-            </span>
-          </label>
-          <div className="mx-1 w-px h-5 bg-zinc-300" aria-hidden="true" />
-          <button
-            type="button"
-            onClick={() => zoomBy(1.4)}
-            className="w-7 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-800 text-lg leading-none"
-            title="Herauszoomen (−)"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomBy(0.7)}
-            className="w-7 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-800 text-lg leading-none"
-            title="Hereinzoomen (+)"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            onClick={resetView}
-            className="w-9 h-7 inline-flex items-center justify-center rounded hover:bg-zinc-100 text-zinc-700 text-[0.6rem] font-semibold leading-none"
-            title="Ansicht zurücksetzen (0/R)"
-          >
-            FIT
-          </button>
-        </div>
+        {/* U5 — canvas-display controls moved off the floating palette and
+            into the topbar (CanvasDisplayPalette). The legacy floating box
+            is gone; zoom is the wheel + +/-/0/R keys; FIT is in the
+            topbar. */}
         <DrawHUD tool={tool} pendingStart={pendingStart} hoverPt={hoverPt} pendingPolyline={pendingPolyline} snap={snap} lengthMatch={lengthMatch} />
         {/* M12 inline edit. <input> floats at the cursor; Enter commits, Esc
             cancels (and deletes the freshly-created label so the user can
@@ -4738,6 +4692,117 @@ function WorkflowGuideOrientation({
 // thumbnail + label) plus AnnotatePage-specific decoration: a readiness
 // dot derived from is_reference dim-distances (H+V → emerald, one of two
 // → amber, none → muted) and the saved label count.
+// U5 — single topbar control for the canvas's display state. The Farbe /
+// Op slider / Fit toggle used to float in the bottom-right of the canvas;
+// it visually conflicted with everything else and the user called it
+// out as weird. The popover shows the same controls without sitting on
+// top of the drawing.
+function CanvasDisplayPalette({
+  imgOpacity, setImgOpacity, imgGrayscale, setImgGrayscale,
+  onZoomIn, onZoomOut, onFit,
+}: {
+  imgOpacity: number;
+  setImgOpacity: (v: number) => void;
+  imgGrayscale: boolean;
+  setImgGrayscale: (v: boolean) => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onFit: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onZoomOut}
+        className="w-7 h-7 inline-flex items-center justify-center rounded-md text-muted hover:bg-zinc-100 hover:text-zinc-900 text-base leading-none"
+        title="Herauszoomen (−)"
+        aria-label="Herauszoomen"
+      >
+        −
+      </button>
+      <button
+        type="button"
+        onClick={onZoomIn}
+        className="w-7 h-7 inline-flex items-center justify-center rounded-md text-muted hover:bg-zinc-100 hover:text-zinc-900 text-base leading-none"
+        title="Hereinzoomen (+)"
+        aria-label="Hereinzoomen"
+      >
+        +
+      </button>
+      <button
+        type="button"
+        onClick={onFit}
+        className="text-[0.7rem] px-2 py-1 rounded-md text-zinc-700 hover:bg-zinc-100 font-semibold"
+        title="Ansicht zurücksetzen (0/R)"
+      >
+        FIT
+      </button>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className={`w-7 h-7 inline-flex items-center justify-center rounded-md ${
+            open ? 'bg-zinc-200 text-zinc-900' : 'text-muted hover:bg-zinc-100 hover:text-zinc-900'
+          }`}
+          title="Bildanzeige (Deckkraft + Graustufen)"
+          aria-label="Bildanzeige"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 1.5A6.5 6.5 0 0 0 1.5 8 6.5 6.5 0 0 0 8 14.5 6.5 6.5 0 0 0 14.5 8 6.5 6.5 0 0 0 8 1.5Zm0 1V13a5 5 0 0 1 0-10.5Z" />
+          </svg>
+        </button>
+        {open && (
+          <>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="fixed inset-0 z-30 cursor-default"
+              aria-label="Schließen"
+            />
+            <div className="absolute right-0 mt-1 z-40 bg-white border border-zinc-300 rounded-md shadow-xl min-w-[18rem] p-3 space-y-3 text-[0.78rem]">
+              <div className="text-[0.62rem] uppercase tracking-wider text-muted font-semibold">
+                Bildanzeige
+              </div>
+              <label className="flex items-center justify-between gap-3">
+                <span>Farbe / Graustufen</span>
+                <button
+                  type="button"
+                  onClick={() => setImgGrayscale(!imgGrayscale)}
+                  className={`text-[0.7rem] px-2 py-0.5 rounded-md border ${
+                    imgGrayscale
+                      ? 'bg-zinc-800 text-white border-zinc-800'
+                      : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                >
+                  {imgGrayscale ? 'Grau' : 'Farbe'}
+                </button>
+              </label>
+              <label className="block">
+                <div className="flex items-center justify-between mb-1">
+                  <span>Deckkraft</span>
+                  <span className="tabular-nums text-zinc-500">{Math.round(imgOpacity * 100)} %</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.1} max={1} step={0.05}
+                  value={imgOpacity}
+                  onChange={(e) => setImgOpacity(Number(e.target.value))}
+                  className="w-full accent-accent"
+                  title="Bild gegen den weißen Canvas ausblenden, um Labels zu prüfen"
+                />
+              </label>
+              <p className="text-[0.62rem] text-zinc-500 leading-snug">
+                Bild auf Weiß ausblenden, um Labels gegen den leeren Canvas zu prüfen.
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AnnotateSceneStrip({
   scenes, currentFile, labels, sceneSummaries, prevScene, nextScene, onSelect,
 }: {

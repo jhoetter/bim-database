@@ -127,6 +127,17 @@ export function ExportPage() {
           ]}
         />
       }
+      topbarTrailing={
+        <button
+          type="button"
+          onClick={onBulkExport}
+          disabled={exporting || rows.length === 0}
+          className="text-[0.75rem] px-3 py-1 rounded-md bg-accent text-white font-medium hover:opacity-90 disabled:opacity-40"
+          title="Alle Szenen exportieren (Set A + Set B + Diagnostics)"
+        >
+          {exporting ? 'Exportiere…' : '→ Bulk-Export'}
+        </button>
+      }
       leftSidebar={
         <div className="px-3 py-3 space-y-3 text-[0.78rem]">
           <header>
@@ -139,14 +150,6 @@ export function ExportPage() {
             <dt className="text-muted">Probleme</dt><dd className="font-mono">{flagCount}</dd>
             <dt className="text-muted">Offen</dt><dd className="font-mono">{pendingCount}</dd>
           </dl>
-          <button
-            type="button"
-            onClick={onBulkExport}
-            disabled={exporting || rows.length === 0}
-            className="w-full text-[0.8rem] px-3 py-2 rounded-md bg-emerald-600 text-white font-semibold hover:opacity-90 disabled:opacity-40"
-          >
-            {exporting ? 'Exportiere…' : '→ Bulk-Export starten'}
-          </button>
           {bulkResult && (
             <pre className="text-[0.62rem] bg-zinc-100 p-2 rounded max-h-44 overflow-auto whitespace-pre-wrap break-all">
               {bulkResult}

@@ -370,3 +370,41 @@ of them flips to `BIM-AI ✓` on the next `make refresh-issue-state`. If you
 notice a pattern recurring across catalog houses, prefer one good issue with
 all affected houses listed in the *Houses affected* section over many
 sibling issues.
+
+---
+
+## UI conventions
+
+These are project-specific guard-rails for the React app at `ui/`.
+
+### In-canvas overlays must escape the canvas's pointer capture (U8)
+
+`PageCanvas` (and similar SVG-canvas hosts) call `setPointerCapture` on
+their parent `<div>` during `onPointerDown` to start drag-to-create
+gestures. Once the pointer is captured, every subsequent `pointerup`
+and `click` event re-routes to the canvas — overlays rendered *inside*
+the canvas never see their own `click`.
+
+When you render any overlay inside such a canvas — context menu,
+popover, classifier chip, toast — both of these MUST hold:
+
+1. Each overlay element carries `data-bbox-handle="<role>"` (e.g.
+   `"menu"`, `"chip"`, `"popover"`). The canvas's `onPointerDown`
+   already bails out via `closest('[data-bbox-handle]')` before
+   capturing.
+2. The overlay also `stopPropagation()`s on `pointerdown` as a
+   belt-and-braces guard.
+
+Without both, the user's click on a menu link looks broken even though
+the link itself is fine. Documented after the U3 fix landed.
+
+### Topbar primary-action policy (U6)
+
+Every page exposes its primary action as the rightmost button in
+`topbarTrailing` (filled accent blue, `text-[0.75rem] px-3 py-1
+rounded-md bg-accent text-white font-medium`). Secondary actions are
+outline (`border border-zinc-300 text-zinc-700 hover:bg-zinc-100`).
+Icon-only buttons are `w-7 h-7 rounded-md text-muted hover:bg-zinc-100`.
+
+The breadcrumb slot is never used for action buttons — only the
+Breadcrumb component goes there.

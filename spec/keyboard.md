@@ -114,10 +114,13 @@ so pressing `D` with a `component_line` selected reclassifies to
 
 ## Navigation
 
-| Key | Effect |
-|---|---|
-| `,` | Previous scene of the same house |
-| `.` | Next scene of the same house |
+| Key | Effect | Scope |
+|---|---|---|
+| `,` / `<` | Previous scene of the same house | Annotate |
+| `.` / `>` | Next scene of the same house | Annotate |
+| `←` / `→` | Previous / next scene (when no wall is selected) | Annotate |
+| `←` / `→` | Previous / next PDF page | Extract |
+| `[` | Toggle left sidebar | Shell global |
 
 ## App-wide
 
