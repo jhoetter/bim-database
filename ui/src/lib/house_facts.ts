@@ -205,7 +205,21 @@ export function loadHouseFacts(scope: LabelScope, houseKey: string): HouseFacts 
     // W0 forward-compat: old caches may lack orientation/workflow/derived_facts.
     const facts = parsed as HouseFacts;
     if (facts.orientation === undefined) facts.orientation = null;
-    if (!facts.workflow) facts.workflow = defaultWorkflowState();
+    if (!facts.workflow) {
+      facts.workflow = defaultWorkflowState();
+    } else {
+      // Defensive: the workflow object may be partial (e.g. an agent's
+      // set_house_facts deep-merged only `driven_by` and friends and the
+      // server's merge dropped the other fields). Backfill the required
+      // bookkeeping sub-fields so readers don't crash on undefined.
+      const def = defaultWorkflowState();
+      const wf = facts.workflow;
+      if (!wf.schema_version) wf.schema_version = '1.1';
+      if (!wf.phase) wf.phase = def.phase;
+      if (!wf.phase_completed_at) wf.phase_completed_at = { ...def.phase_completed_at };
+      if (!wf.source_scene) wf.source_scene = { ...def.source_scene };
+      if (!wf.user_skipped) wf.user_skipped = {};
+    }
     if (!facts.derived_facts) facts.derived_facts = {};
     return _migrateV1_0(facts);
   } catch {

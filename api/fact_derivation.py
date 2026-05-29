@@ -336,6 +336,24 @@ def recompute_facts_after_label_write(
         facts = {}
     # G6: migrate v1.0 → v1.1 if needed (rename scene_metadata.kind → scene_tag).
     facts = _migrate_v1_0_facts(facts)
+    # Defensive: ensure workflow has the bookkeeping sub-fields even if
+    # the patch that created it (e.g. an agent's Step 0 driven_by stamp)
+    # only set a few keys. Readers in ui/src/lib/workflow.ts crash on
+    # undefined `phase_completed_at` / `user_skipped`.
+    facts.setdefault("workflow", {})
+    wf = facts["workflow"]
+    if isinstance(wf, dict):
+        wf.setdefault("schema_version", "1.1")
+        wf.setdefault("phase", "inventory")
+        wf.setdefault("phase_completed_at", {
+            "inventory": None, "height_anchor": None, "footprint": None,
+            "orientation": None, "bezugsmasse": None, "detail": None,
+        })
+        wf.setdefault("source_scene", {
+            "inventory": None, "height_anchor": None, "footprint": None,
+            "orientation": None, "bezugsmasse": None, "detail": None,
+        })
+        wf.setdefault("user_skipped", {})
 
     # Iterate scenes via the manifest (so deleted scenes are pruned).
     valid_files: set[str] = set()

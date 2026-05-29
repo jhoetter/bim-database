@@ -106,8 +106,12 @@ export function isBezugsmasseComplete(facts: HouseFacts, scenes: SceneSummary[])
 // ── Phase 5 — Detail (never auto-completes) ─────────────────────────────
 
 export function isDetailComplete(facts: HouseFacts): boolean {
-  return facts.workflow?.phase_completed_at.detail != null
-      || facts.workflow?.user_skipped.detail === true;
+  // Defensive optional chain — facts.workflow may be partial (e.g. an
+  // agent's set_house_facts patched only `workflow.driven_by` and the
+  // server's deep-merge dropped the other fields). Readers must
+  // tolerate any missing sub-fields.
+  return facts.workflow?.phase_completed_at?.detail != null
+      || facts.workflow?.user_skipped?.detail === true;
 }
 
 // ── Composition ─────────────────────────────────────────────────────────
@@ -131,8 +135,11 @@ export const PHASE_CONFIGS: PhaseConfig[] = [
 /** First phase whose predicate fails. 'detail' is the terminal state when
  *  every other phase is complete. Skipped phases count as complete. */
 export function currentPhase(facts: HouseFacts, scenes: SceneSummary[]): PhaseId {
+  // Defensive: facts.workflow.user_skipped may be undefined if an agent
+  // patched workflow with only driven_by + similar fields.
+  const skipped = facts.workflow?.user_skipped ?? {};
   for (const p of PHASE_CONFIGS) {
-    if (facts.workflow?.user_skipped[p.id]) continue;
+    if (skipped[p.id]) continue;
     if (!p.isComplete(facts, scenes)) return p.id;
   }
   return 'detail';
@@ -142,7 +149,7 @@ export function currentPhase(facts: HouseFacts, scenes: SceneSummary[]): PhaseId
 export function phaseStatusSnapshot(
   facts: HouseFacts, scenes: SceneSummary[],
 ): Record<PhaseId, { complete: boolean; skipped: boolean; completedAt: string | null }> {
-  const wf = facts.workflow ?? defaultWorkflowState();
+  const wf = _normalizeWorkflow(facts.workflow);
   const out = {} as Record<PhaseId, { complete: boolean; skipped: boolean; completedAt: string | null }>;
   for (const p of PHASE_CONFIGS) {
     const skipped = wf.user_skipped[p.id] === true;
@@ -153,6 +160,22 @@ export function phaseStatusSnapshot(
     };
   }
   return out;
+}
+
+/** Defensive normalization — fills in any missing sub-fields with the
+ *  defaults. Used by every reader that touches workflow.phase_completed_at
+ *  or workflow.user_skipped so a partial workflow (agent's driven_by-only
+ *  patch) can't crash the UI. */
+function _normalizeWorkflow(wf: HouseFacts['workflow']): WorkflowState {
+  const def = defaultWorkflowState();
+  if (!wf) return def;
+  return {
+    ...def,
+    ...wf,
+    phase_completed_at: { ...def.phase_completed_at, ...(wf.phase_completed_at ?? {}) },
+    source_scene: { ...def.source_scene, ...(wf.source_scene ?? {}) },
+    user_skipped: { ...(wf.user_skipped ?? {}) },
+  };
 }
 
 /** Compare phase-pointer before vs. after. Returns the id of the phase
@@ -176,11 +199,9 @@ export function advanceWorkflow(
   // be multiple phases in between if a single save completed several at
   // once (rare but possible — e.g. a Bezugsmaß save that also completes
   // height_anchor's predicate retroactively). Stamp them all.
-  const wf: WorkflowState = nextFacts.workflow
-    ? { ...nextFacts.workflow }
-    : defaultWorkflowState();
-  wf.phase_completed_at = { ...wf.phase_completed_at };
-  wf.source_scene = { ...wf.source_scene };
+  // Use the defensive normalizer so a partial workflow (e.g. agent's
+  // driven_by-only patch) gets the missing sub-fields back.
+  const wf: WorkflowState = _normalizeWorkflow(nextFacts.workflow);
   for (const id of PHASE_IDS) {
     const ord = PHASE_ORDER[id];
     if (ord >= beforeOrder && ord < afterOrder) {

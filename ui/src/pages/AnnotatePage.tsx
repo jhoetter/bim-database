@@ -4577,7 +4577,7 @@ function WorkflowGuideDetail({
   // scene calibrated AND has metadata" for Ansicht/Schnitt, "has level"
   // for Grundriss. Real per-scene label-count coverage would need a
   // server endpoint; this is the cheap version.
-  const done = facts.workflow?.phase_completed_at.detail != null;
+  const done = facts.workflow?.phase_completed_at?.detail != null;
   return (
     <div className="space-y-1.5">
       {!done && (

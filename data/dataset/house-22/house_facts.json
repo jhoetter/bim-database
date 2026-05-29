@@ -1,71 +1,31 @@
 {
   "schema_version": "1.1",
-  "extent": {
-    "sources": {
-      "height_mm": [
-        "house-22-detail-detail-2.jpg#dim:lab-13b2d6bd21",
-        "house-22-detail-detail.jpg#dim:lab-3cd55fcdeb",
-        "house-22-floorplan-eg.jpg#dim:lab-e75c39eaaf"
-      ],
-      "depth_mm": [
-        "house-22-detail-detail-2.jpg#dim:lab-44e6368d4c",
-        "house-22-detail-detail.jpg#dim:lab-845d5fd3fa"
-      ],
-      "width_mm": [
-        "house-22-elevation-north.jpg#dim:lab-71901fd77c",
-        "house-22-floorplan-eg.jpg#dim:lab-1329cfbb12"
-      ]
-    },
-    "height_mm": 10000.0,
-    "depth_mm": 9084.0,
-    "width_mm": 10000.0
-  },
-  "heights": {
-    "sources": {}
-  },
-  "wall_thickness": {
-    "outer_mm": 365
-  },
-  "openings_catalog": [],
-  "calibration_per_scene": {
-    "house-22-detail-detail-2.jpg": {
-      "px_per_mm": 0.06148148148148148,
-      "computed_from": "M1-both"
-    },
-    "house-22-detail-detail.jpg": {
-      "px_per_mm": 0.06221629409224797,
-      "computed_from": "M1-both"
-    },
-    "house-22-elevation-east.jpg": {
-      "px_per_mm": 0.0875,
-      "computed_from": "M1-V-Bezug"
-    },
-    "house-22-elevation-north.jpg": {
-      "px_per_mm": 0.08519269776876268,
-      "computed_from": "M1-H-Bezug"
-    },
-    "house-22-floorplan-eg.jpg": {
-      "px_per_mm": 0.07168115028690836,
-      "computed_from": "M1-both"
-    }
-  },
   "scene_metadata": {
-    "house-22-detail-detail-2.jpg": {
-      "scene_tag": "schnitt",
-      "orientation": "north",
-      "level": null,
+    "house-22-floorplan-eg.jpg": {
+      "scene_tag": "grundriss",
+      "orientation": null,
+      "level": "eg",
       "image_size_px": [
-        1698,
-        688
+        2550,
+        1723
       ]
     },
-    "house-22-detail-detail.jpg": {
-      "scene_tag": "schnitt",
-      "orientation": "north",
-      "level": null,
+    "house-22-floorplan-ug.jpg": {
+      "scene_tag": "grundriss",
+      "orientation": null,
+      "level": "ug",
       "image_size_px": [
-        2197,
-        1064
+        2550,
+        1682
+      ]
+    },
+    "house-22-floorplan-dg.jpg": {
+      "scene_tag": "grundriss",
+      "orientation": null,
+      "level": "dg",
+      "image_size_px": [
+        2550,
+        1717
       ]
     },
     "house-22-elevation-east.jpg": {
@@ -86,40 +46,94 @@
         741
       ]
     },
-    "house-22-floorplan-dg.jpg": {
-      "scene_tag": "grundriss",
-      "orientation": null,
-      "level": "dg",
+    "house-22-detail-detail.jpg": {
+      "scene_tag": "schnitt",
+      "orientation": "east",
+      "level": null,
       "image_size_px": [
-        2550,
-        1717
-      ]
+        2197,
+        1064
+      ],
+      "bezug_y_px": 720
     },
-    "house-22-floorplan-eg.jpg": {
-      "scene_tag": "grundriss",
-      "orientation": null,
-      "level": "eg",
+    "house-22-detail-detail-2.jpg": {
+      "scene_tag": "schnitt",
+      "orientation": "north",
+      "level": null,
       "image_size_px": [
-        2550,
-        1723
-      ]
-    },
-    "house-22-floorplan-ug.jpg": {
-      "scene_tag": "grundriss",
-      "orientation": null,
-      "level": "ug",
-      "image_size_px": [
-        2550,
-        1682
+        1698,
+        688
       ]
     }
   },
-  "orientation": {
-    "north_angle_deg": 0,
-    "assumed": false
+  "calibration_per_scene": {
+    "house-22-floorplan-eg.jpg": {
+      "px_per_mm": 0.0732236147370626,
+      "computed_from": "M1-both"
+    },
+    "house-22-elevation-east.jpg": {
+      "px_per_mm": 0.04652763314282035,
+      "computed_from": "M1-both"
+    },
+    "house-22-elevation-north.jpg": {
+      "px_per_mm": 0.07220785870424501,
+      "computed_from": "M1-both"
+    },
+    "house-22-detail-detail.jpg": {
+      "px_per_mm": 0.07958285467551733,
+      "computed_from": "M1-both"
+    },
+    "house-22-detail-detail-2.jpg": {
+      "px_per_mm": 0.0982327411820957,
+      "computed_from": "M1-both"
+    }
+  },
+  "openings_catalog": [],
+  "extent": {
+    "sources": {
+      "height_mm": [
+        "house-22-detail-detail-2.jpg#dim:lab-4250e86cf5",
+        "house-22-detail-detail.jpg#dim:lab-95a09febf7",
+        "house-22-elevation-east.jpg#dim:lab-d043879512",
+        "house-22-elevation-north.jpg#dim:lab-cede389d3c",
+        "house-22-floorplan-eg.jpg#dim:lab-1c36e9ec49"
+      ],
+      "depth_mm": [
+        "house-22-detail-detail-2.jpg#dim:lab-f049f855ef",
+        "house-22-detail-detail.jpg#dim:lab-f3f6c77e61"
+      ],
+      "width_mm": [
+        "house-22-elevation-east.jpg#dim:lab-bf5a08bbb9",
+        "house-22-elevation-north.jpg#dim:lab-1f74bda87e",
+        "house-22-floorplan-eg.jpg#dim:lab-83fb90d359",
+        "house-22-floorplan-eg.jpg#dim:lab-77b5205f65"
+      ]
+    },
+    "width_mm": 9860.0,
+    "height_mm": 8444.0,
+    "depth_mm": 9084.0
+  },
+  "heights": {
+    "sources": {
+      "bezug_mm": [
+        "house-22-detail-detail.jpg#hm:lab-b15a361716"
+      ],
+      "first_mm": [
+        "house-22-detail-detail.jpg#hm:lab-546b3bbd84"
+      ]
+    },
+    "ok_ffb_eg_mm": 0,
+    "first_mm": 7210,
+    "bezug_mm": 0
+  },
+  "wall_thickness": {
+    "outer_mm": 300
   },
   "workflow": {
-    "schema_version": "1.0",
+    "driven_by": "bim-agent",
+    "driven_by_run_id": "validation-run-1",
+    "driven_by_started_at": "2026-05-29T17:00:00Z",
+    "schema_version": "1.1",
     "phase": "inventory",
     "phase_completed_at": {
       "inventory": null,
@@ -139,5 +153,8 @@
     },
     "user_skipped": {}
   },
-  "derived_facts": {}
+  "orientation": {
+    "north_angle_deg": 30,
+    "assumed": true
+  }
 }
