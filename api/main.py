@@ -1027,6 +1027,41 @@ def _parse_enhance(enhance: str | None) -> str:
     return mode
 
 
+GRID_FORMATS = ("png", "png8")
+
+
+def _parse_format(fmt: str | None) -> str:
+    """Validate the grid output `format` query arg (issue #3). Returns a
+    normalized value; defaults to the cheaper palette PNG."""
+    f = (fmt or "png8").strip().lower()
+    if f not in GRID_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown format {f!r}; allowed {list(GRID_FORMATS)}",
+        )
+    return f
+
+
+def _save_grid_png(overlay, out_path, fmt: str) -> None:
+    """Save the rendered grid overlay as PNG (issue #3).
+
+    `png8` quantizes to a 256-color palette/indexed PNG. The grid lines,
+    line-art/scan, and the handful of label colors are few-coloured, so
+    256 colours is visually near-lossless yet typically 2-4x smaller than
+    full RGBA — which directly cuts the base64 token cost of every
+    verify-after-place read. Dithering is disabled to keep thin grid
+    lines crisp (and to compress better). `png` keeps full RGBA.
+    """
+    from PIL import Image as PILImage
+    if fmt == "png8":
+        flat = overlay.convert("RGB") if overlay.mode != "RGB" else overlay
+        flat.quantize(colors=256, dither=PILImage.Dither.NONE).save(
+            out_path, format="PNG", optimize=True,
+        )
+    else:
+        overlay.save(out_path, format="PNG", optimize=True)
+
+
 def _parse_region(region: str | None) -> tuple[int, int, int, int] | None:
     if not region:
         return None
@@ -1047,6 +1082,7 @@ def render_scene_grid(
     tiers: str = "broad,finer,detail",
     max_dim: int = 1600,
     enhance: str | None = None,
+    format: str | None = None,
 ):
     """Agent vision aid: scene image + coordinate-anchored grid overlay.
 
@@ -1057,6 +1093,10 @@ def render_scene_grid(
       enhance  contrast lift for faint scans (issue #2): none|auto|clahe|
                threshold. Default none. Changes pixel intensity only, so
                coordinates stay in the SOURCE-pixel frame.
+      format   png|png8 (issue #3). Default png8: a 256-colour palette
+               PNG, typically 2-4x smaller than RGBA at near-identical
+               legibility, to cut the token cost of each read. Pass
+               format=png for full-fidelity RGBA.
 
     Returns image/png; cached on disk under tmp/grid-cache/. The coordinate
     labels in the output reference SOURCE pixels, so the agent can take a
@@ -1074,6 +1114,7 @@ def render_scene_grid(
     parsed_tiers = _parse_tiers(tiers)
     parsed_region = _parse_region(region)
     parsed_enhance = _parse_enhance(enhance)
+    parsed_format = _parse_format(format)
 
     img_mtime = img_path.stat().st_mtime_ns
     cache_root = GRID_CACHE / "scene" / key
@@ -1083,7 +1124,8 @@ def render_scene_grid(
         f"-r{region or 'full'}"
         f"-t{'_'.join(parsed_tiers)}"
         f"-m{max_dim}"
-        f"-e{parsed_enhance}.png"
+        f"-e{parsed_enhance}"
+        f"-f{parsed_format}.png"
     )
     out = cache_root / cache_name
     sentinel = out.with_suffix(".mtime")
@@ -1098,7 +1140,7 @@ def render_scene_grid(
                 max_dim=max_dim,
                 enhance=parsed_enhance,
             )
-        overlay.save(out, format="PNG", optimize=True)
+        _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(str(img_mtime))
     return FileResponse(str(out), media_type="image/png")
 
@@ -1111,6 +1153,7 @@ def render_scene_grid_with_labels(
     tiers: str = "broad,finer",
     max_dim: int = 1600,
     enhance: str | None = None,
+    format: str | None = None,
 ):
     """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
     SAVED labels rendered on top. Used by `get_scene_view_with_labels`
@@ -1120,6 +1163,7 @@ def render_scene_grid_with_labels(
     output is identical to /grid. Cached on (image mtime, labels mtime).
     `enhance` (issue #2): none|auto|clahe|threshold, contrast lift for
     faint scans; coordinates stay source-pixel.
+    `format` (issue #3): png|png8, default png8 — the cheaper palette PNG.
     """
     _safe_key(key)
     if "/" in file or ".." in file:
@@ -1132,6 +1176,7 @@ def render_scene_grid_with_labels(
     parsed_tiers = _parse_tiers(tiers)
     parsed_region = _parse_region(region)
     parsed_enhance = _parse_enhance(enhance)
+    parsed_format = _parse_format(format)
 
     label_path = _safe_label_path("dataset", key, file)
     img_mtime = img_path.stat().st_mtime_ns
@@ -1144,7 +1189,8 @@ def render_scene_grid_with_labels(
         f"-r{region or 'full'}"
         f"-t{'_'.join(parsed_tiers)}"
         f"-m{max_dim}"
-        f"-e{parsed_enhance}.png"
+        f"-e{parsed_enhance}"
+        f"-f{parsed_format}.png"
     )
     out = cache_root / cache_name
     sentinel = out.with_suffix(".mtime")
@@ -1168,7 +1214,7 @@ def render_scene_grid_with_labels(
                 max_dim=max_dim,
                 enhance=parsed_enhance,
             )
-        overlay.save(out, format="PNG", optimize=True)
+        _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(cache_key)
     return FileResponse(str(out), media_type="image/png")
 

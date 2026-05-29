@@ -466,6 +466,7 @@ async def get_scene_view(
     tiers: str = "broad,finer,detail",
     max_dim: int = 1600,
     enhance: str | None = None,
+    format: str = "png8",
 ) -> list[ImageContent | TextContent]:
     """Scene image with the three-tier coordinate grid overlay.
 
@@ -491,19 +492,26 @@ async def get_scene_view(
                preprocessing for the vision-LLM reader, not OCR. Pixel
                positions are unchanged — coordinates stay SOURCE-pixel,
                so readings still map 1:1 to the un-cropped scene.
+      format:  png|png8 (issue #3). Default png8 — a 256-colour palette
+               PNG, typically 2-4x fewer bytes (and tokens) than RGBA at
+               near-identical legibility. The verify-after-place loop
+               reads one image per write, so this multiplies how much of
+               a drive fits in context. Pass format="png" only when you
+               need full-fidelity colour.
 
     Per H4 (followups-2 tracker): when `region` is given, the output
     keeps 1:1 native resolution up to `max_dim`. A 400×400 crop comes
     back as 400×400, NOT scaled up. Small rotated dim text stays
     readable. Full-image renders (no region) still cap at `max_dim`.
 
-    Returns: one ImageContent (PNG, RGBA) and one TextContent with the
-    image metadata (source dimensions, region applied, tier step sizes).
-    Grid labels show SOURCE pixels — use them directly in `upsert_label`
-    against the un-cropped scene.
+    Returns: one ImageContent (PNG) and one TextContent with the image
+    metadata (source dimensions, region applied, tier step sizes,
+    image_bytes so you can see the payload cost). Grid labels show
+    SOURCE pixels — use them directly in `upsert_label` against the
+    un-cropped scene.
     """
     started = time.time()
-    params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim}
+    params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim, "format": format}
     if region:
         params["region"] = region
     if enhance:
@@ -555,6 +563,7 @@ async def get_scene_view(
             "tiers": tiers.split(","),
             "max_dim": max_dim,
             "enhance": enhance or "none",
+            "format": format,
         }, started_at=started, status_code=status), indent=2),
     )
     return [image, text]
@@ -568,6 +577,7 @@ async def get_scene_view_with_labels(
     tiers: str = "broad,finer",
     max_dim: int = 1600,
     enhance: str | None = None,
+    format: str = "png8",
 ) -> list[ImageContent | TextContent]:
     """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
     on top. This is the agent's verify view — call it after every
@@ -598,8 +608,11 @@ async def get_scene_view_with_labels(
       enhance: contrast lift for faint scans (issue #2):
                none|auto|clahe|threshold (default none). Coordinates stay
                SOURCE-pixel; labels still render at their saved positions.
+      format:  png|png8 (issue #3). Default png8 — the cheaper palette
+               PNG. Use it for the verify-after-place loop to keep each
+               read affordable; pass format="png" for full-fidelity RGBA.
 
-    Returns: one ImageContent (PNG, RGBA) + one TextContent envelope.
+    Returns: one ImageContent (PNG) + one TextContent envelope.
 
     Render vocabulary:
       orange thick stroke      — wall
@@ -618,7 +631,7 @@ async def get_scene_view_with_labels(
     `status: uncertain` on the closest if it still misses.
     """
     started = time.time()
-    params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim}
+    params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim, "format": format}
     if region:
         params["region"] = region
     if enhance:
@@ -663,6 +676,7 @@ async def get_scene_view_with_labels(
         type="text",
         text=json.dumps(_ok({
             "image_format": "PNG",
+            "format": format,
             "image_bytes": len(content),
             "labels_in_view": label_summaries,
             "region": region,
@@ -687,6 +701,7 @@ async def verify_label_placement(
     tiers: str = "finer,detail",
     max_dim: int = 1600,
     enhance: str | None = None,
+    format: str = "png8",
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
     a single label so the agent doesn't have to compute the region.
@@ -714,6 +729,8 @@ async def verify_label_placement(
       max_dim:   max output dim; per H4 small crops stay 1:1.
       enhance:   contrast lift for faint scans (issue #2):
                  none|auto|clahe|threshold (default none).
+      format:    png|png8 (issue #3). Default png8 — the cheaper palette
+                 PNG; ideal for the verify-after-place loop.
 
     Returns: image + envelope with the same shape as
     `get_scene_view_with_labels`. The envelope's `labels_in_view` will
@@ -776,6 +793,7 @@ async def verify_label_placement(
     return await get_scene_view_with_labels(
         key=key, file=file, region=region, tiers=tiers, max_dim=max_dim,
         enhance=enhance,
+        format=format,
     )
 
 
