@@ -29,3 +29,6 @@ data/houses/house-*/house-*.jpg
 
 # R2 PDF-page render cache (api/main.py /pdfs/{key}/page/{n}).
 tmp/pdf-cache/
+
+# R6 exports — regeneratable from data/dataset/ + house_facts in localStorage.
+data/exports/
