@@ -5,6 +5,7 @@ import { WorkflowPhaseBadge } from '../components/WorkflowPhaseBadge';
 import type { DatasetDrawing, DatasetHouse } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import { EmptyState as SharedEmptyState } from '../components/EmptyState';
 
 // Two views: 'gallery' (flat Pinterest grid of all drawings across houses)
 // and 'by-house' (grouped, easier for spot-checking coverage). Filters in
@@ -450,19 +451,18 @@ function DrawingTile({
 
 function EmptyState() {
   return (
-    <div className="max-w-xl mx-auto py-12 text-center text-sm text-muted">
-      <p className="font-semibold text-zinc-900 mb-2">Datensatz noch leer</p>
-      <p className="mb-4">
-        Die Pipeline beginnt beim PDF-Upload. Lade Pläne hoch, schneide die
-        einzelnen Szenen via Bounding-Boxen aus und annotiere sie dann.
-      </p>
-      <Link
-        to="/intake"
-        className="inline-block px-3 py-1.5 rounded-md bg-accent text-white font-medium"
-      >
-        → Eingangsstapel öffnen
-      </Link>
-    </div>
+    <SharedEmptyState
+      size="page"
+      title="Datensatz noch leer"
+      body={
+        <>
+          Die Pipeline beginnt beim PDF-Upload. Lade Pläne hoch, schneide
+          die einzelnen Szenen via Bounding-Boxen aus und annotiere sie
+          dann.
+        </>
+      }
+      cta={{ label: '→ Eingangsstapel öffnen', to: '/intake' }}
+    />
   );
 }
 

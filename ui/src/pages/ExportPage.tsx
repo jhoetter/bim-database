@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
+import { EmptyState } from '../components/EmptyState';
 import { fetchDataset, fetchExportPreview, fetchLabels, getIncomingPdf } from '../api/client';
 import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
@@ -160,10 +161,12 @@ export function ExportPage() {
           {loading && <p className="text-[0.78rem] text-muted">Lade…</p>}
           {error && <p className="text-[0.78rem] text-red-700">{error}</p>}
           {!loading && rows.length === 0 && (
-            <p className="text-[0.78rem] text-muted">
-              Noch keine Szenen — gehe zurück zu{' '}
-              <Link to={`/${key}/extract`} className="underline">Szenen extrahieren</Link>.
-            </p>
+            <EmptyState
+              size="page"
+              title="Noch keine Szenen extrahiert."
+              body="Schneide zuerst Bounding-Boxen aus der PDF, dann kommen sie hier zum Export."
+              cta={{ label: '→ Szenen extrahieren', to: `/${key}` }}
+            />
           )}
           {rows.length > 0 && (
             <ul className="space-y-1.5 max-w-2xl">
