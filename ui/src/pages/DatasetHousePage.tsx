@@ -79,7 +79,14 @@ export function DatasetHousePage() {
         exportDone={steps.exportDone}
       />
       <div className="px-6 py-5">
-        <div className="mb-4 flex gap-2 flex-wrap">
+        <div className="mb-4 flex gap-2 flex-wrap items-center">
+          <Link
+            to={`/dataset/${key}/extract`}
+            className="text-[0.78rem] px-2.5 py-1.5 rounded-md bg-accent text-white font-medium hover:opacity-90"
+            title="PDF-Seiten laden, Bounding-Boxen um Szenen ziehen"
+          >
+            ✂ Szenen extrahieren
+          </Link>
           <Link
             to={`/dataset/${key}/3d`}
             className="text-[0.78rem] px-2.5 py-1.5 rounded-md bg-zinc-900 text-white hover:opacity-90"
@@ -87,12 +94,26 @@ export function DatasetHousePage() {
           >
             🧊 3D-Vorschau
           </Link>
+          {intake && (
+            <span className="text-[0.7rem] text-muted ml-auto">
+              PDF: {intake.consolidated_pdf ?? '–'} · {intake.page_count ?? '?'} Seiten · Status: {intake.state}
+            </span>
+          )}
         </div>
         {data?.composite && (
           <CompositeSection composite={data.composite} houseKey={key} />
         )}
         {data && data.drawings.length === 0 && (
-          <p className="text-muted text-sm">Noch keine Zeichnungen generiert.</p>
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[0.78rem] text-amber-900">
+            <p className="font-semibold mb-1">Noch keine Szenen extrahiert.</p>
+            <p>
+              Öffne den{' '}
+              <Link to={`/dataset/${key}/extract`} className="underline font-medium">
+                Extract-Editor
+              </Link>{' '}
+              und zieh Bounding-Boxen um die einzelnen Zeichnungen in der PDF.
+            </p>
+          </div>
         )}
         {data && data.drawings.length > 0 && <DrawingsGallery drawings={data.drawings} houseKey={key} />}
         {decodedFile && !activeDrawing && data && (

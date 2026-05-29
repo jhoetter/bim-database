@@ -2641,12 +2641,8 @@ export function AnnotatePage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: scope === 'dataset' ? 'Datensatz' : 'Alle Häuser', to: scope === 'dataset' ? '/dataset' : '/' },
-            // House name is plain text — the overview page is now the
-            // entry point and the click-through goes straight to
-            // annotation, so an intermediate "house detail" link doesn't
-            // belong here.
-            { label: key },
+            { label: 'Datensatz', to: '/dataset' },
+            { label: key, to: `/dataset/${key}` },
             { label: `Annotieren: ${decodedFile}` },
           ]}
         />

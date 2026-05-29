@@ -290,38 +290,52 @@ function HouseCard({ house }: { house: DatasetHouse }) {
     house.drawings.find((d) => d.kind === 'floorplan' && d.floor === 'EG') ??
     house.drawings.find((d) => d.kind === 'floorplan') ??
     house.drawings[0];
-  if (!hero) return null;
-  // Resume on last-visited if it still exists in this house's drawings.
+  // Intake-only houses (no extracted scenes yet) still get a card —
+  // routing straight to /extract so the user can start cutting bboxes.
+  const intakeOnly = !hero || (house as unknown as { intake_only?: boolean }).intake_only;
   const last = getLastVisitedScene('dataset', house.key);
   const targetFile =
-    last && house.drawings.some((d) => d.file === last) ? last : hero.file;
-  // R3 — also honor last-visited step. The card always goes to the
-  // annotation editor when the user has touched it at least once;
-  // otherwise it depends on extract progress.
+    !intakeOnly && hero && last && house.drawings.some((d) => d.file === last) ? last : hero?.file;
   const lastStep = getLastStep(house.key);
-  const targetHref =
-    lastStep === 'extract'
+  const targetHref = intakeOnly
+    ? `/dataset/${house.key}/extract`
+    : lastStep === 'extract'
       ? `/dataset/${house.key}/extract`
       : lastStep === 'export'
         ? `/dataset/${house.key}/export`
-        : `/dataset/${house.key}/scene/${encodeURIComponent(targetFile)}/annotate`;
+        : `/dataset/${house.key}/scene/${encodeURIComponent(targetFile!)}/annotate`;
+  const pages = (house as unknown as { intake_page_count?: number }).intake_page_count;
   return (
     <Link
       to={targetHref}
       className="block rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
       title={
-        targetFile === hero.file
-          ? `${total} Zeichnung(en) — Klick öffnet Annotation`
-          : `${total} Zeichnung(en) — fortsetzen bei zuletzt besuchter Szene`
+        intakeOnly
+          ? `Eingang ohne extrahierte Szenen — Klick öffnet den Extract-Editor`
+          : targetFile === hero?.file
+            ? `${total} Zeichnung(en) — Klick öffnet Annotation`
+            : `${total} Zeichnung(en) — fortsetzen bei zuletzt besuchter Szene`
       }
     >
       <div className="aspect-square bg-zinc-50 flex items-center justify-center overflow-hidden">
-        <img
-          src={hero.url}
-          alt={house.model ?? house.key}
-          loading="lazy"
-          className="max-w-full max-h-full object-contain"
-        />
+        {hero ? (
+          <img
+            src={hero.url}
+            alt={house.model ?? house.key}
+            loading="lazy"
+            className="max-w-full max-h-full object-contain"
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center text-center px-4 text-zinc-500">
+            <div className="text-3xl mb-1">📄</div>
+            <p className="text-[0.7rem] font-semibold text-zinc-700">
+              {pages ?? '?'} PDF-Seiten
+            </p>
+            <p className="text-[0.62rem] text-zinc-500 mt-0.5">
+              ✂ Bounding-Boxen ziehen
+            </p>
+          </div>
+        )}
       </div>
       <div className="p-2.5 space-y-1">
         <div className="flex items-baseline gap-1.5">
@@ -330,6 +344,11 @@ function HouseCard({ house }: { house: DatasetHouse }) {
         </div>
         <div className="flex items-center gap-1.5 text-[0.7rem] text-muted">
           <span>{total} {total === 1 ? 'Zeichnung' : 'Zeichnungen'}</span>
+          {intakeOnly && (
+            <span className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-semibold">
+              ausstehend
+            </span>
+          )}
           {labeled > 0 && (
             <span
               className={`text-[0.62rem] px-1.5 py-0.5 rounded-full font-semibold ${
@@ -433,16 +452,16 @@ function EmptyState() {
   return (
     <div className="max-w-xl mx-auto py-12 text-center text-sm text-muted">
       <p className="font-semibold text-zinc-900 mb-2">Datensatz noch leer</p>
-      <p>
-        KI-generieren mit{' '}
-        <code className="font-mono bg-zinc-100 px-1.5 py-0.5 rounded">
-          python scripts/generate_synthetic_drawings.py
-        </code>
-        {' '}(erfordert <code className="font-mono">OPENAI_API_KEY</code>) oder reale Pläne aus einem gestarrten Haus mit{' '}
-        <code className="font-mono bg-zinc-100 px-1.5 py-0.5 rounded">
-          python scripts/include_real_plans.py
-        </code>{' '}übernehmen.
+      <p className="mb-4">
+        Die Pipeline beginnt beim PDF-Upload. Lade Pläne hoch, schneide die
+        einzelnen Szenen via Bounding-Boxen aus und annotiere sie dann.
       </p>
+      <Link
+        to="/dataset/intake"
+        className="inline-block px-3 py-1.5 rounded-md bg-accent text-white font-medium"
+      >
+        → Eingangsstapel öffnen
+      </Link>
     </div>
   );
 }

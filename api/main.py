@@ -102,10 +102,36 @@ def _spa_dataset(rest: str):
 
 # ── dataset manifest ───────────────────────────────────────────────────────
 
+def _intake_stub_manifest(key: str) -> dict | None:
+    """Return a minimal dataset-manifest shape for a house that has only
+    an intake bundle (no extracted scenes yet). Lets the UI list +
+    open such houses so the user can navigate straight to /extract."""
+    intake_mp = INCOMING_DIR / key / "manifest.json"
+    if not intake_mp.exists():
+        return None
+    try:
+        m = json.loads(intake_mp.read_text())
+    except json.JSONDecodeError:
+        return None
+    return {
+        "schema_version": "1.0",
+        "key": key,
+        "linked_house": key,
+        "model": m.get("user_notes") or key,
+        "manufacturer": None,
+        "building_type": None,
+        "drawings": [],
+        "intake_only": True,
+        "intake_page_count": m.get("page_count"),
+    }
+
+
 def _load_dataset_manifest(key: str) -> dict | None:
     mp = DATASET_DIR / key / "manifest.json"
     if not mp.exists():
-        return None
+        # Fall back to an intake stub so houses with an upload but no
+        # extracted scenes still surface in the UI.
+        return _intake_stub_manifest(key)
     data = json.loads(mp.read_text())
     data["key"] = key
     labels_dir = DATASET_DIR / key / "labels"
@@ -138,14 +164,21 @@ def _load_dataset_manifest(key: str) -> dict | None:
 
 @app.get("/datasets", tags=["dataset"])
 def list_datasets():
-    """Every dataset manifest, with image URLs."""
-    if not DATASET_DIR.exists():
-        return []
+    """Every dataset house — both fully-extracted houses (with a manifest
+    under data/dataset/<key>/) AND intake-only houses (an upload landed in
+    data/pdfs/incoming/<key>/ but no scenes have been cut yet). The
+    second set surfaces as cards with drawings:[] + intake_only:true so
+    the UI can list them and route the click straight to /extract."""
+    keys: set[str] = set()
+    if DATASET_DIR.exists():
+        for d in DATASET_DIR.iterdir():
+            if d.is_dir(): keys.add(d.name)
+    if INCOMING_DIR.exists():
+        for d in INCOMING_DIR.iterdir():
+            if d.is_dir(): keys.add(d.name)
     out = []
-    for d in sorted(DATASET_DIR.iterdir()):
-        if not d.is_dir():
-            continue
-        manifest = _load_dataset_manifest(d.name)
+    for k in sorted(keys):
+        manifest = _load_dataset_manifest(k)
         if manifest:
             out.append(manifest)
     return out

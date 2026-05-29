@@ -238,7 +238,8 @@ export function ExtractPage() {
           items={[
             { label: 'Datensatz', to: '/dataset' },
             { label: 'Hochladen', to: '/dataset/intake' },
-            { label: `${key} · Szenen extrahieren` },
+            { label: key, to: `/dataset/${key}` },
+            { label: 'Szenen extrahieren' },
           ]}
         />
       }
