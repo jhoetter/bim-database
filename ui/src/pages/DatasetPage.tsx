@@ -13,7 +13,7 @@ import { getLastStep } from '../lib/step_state';
 // the sidebar restrict by kind + label status.
 
 type KindFilter = 'all' | 'elevation' | 'floorplan';
-type LabelFilter = 'all' | 'unlabeled' | 'labeled' | 'rejected';
+type LabelFilter = 'all' | 'unlabeled' | 'labeled';
 type ViewMode = 'gallery' | 'by-house';
 
 export function DatasetPage() {
@@ -140,16 +140,16 @@ function DatasetFilters({
           <span className="text-sm text-muted">Zeichnungen</span>
         </div>
         <p className="text-[0.72rem] text-muted leading-snug mt-1">
-          {housesWithDrawings} / {totalHouses} Häuser haben generierte Zeichnungen.
+          {housesWithDrawings} / {totalHouses} Häuser mit extrahierten Szenen.
         </p>
       </div>
 
-      <FilterGroup title="Ansicht">
+      <FilterGroup title="Darstellung">
         <FilterRow active={viewMode === 'by-house'} onClick={() => onView('by-house')}>
           nach Haus
         </FilterRow>
         <FilterRow active={viewMode === 'gallery'} onClick={() => onView('gallery')}>
-          flache Galerie
+          Galerie
         </FilterRow>
       </FilterGroup>
 
@@ -189,7 +189,7 @@ function DatasetFilters({
           count={labelCounts.unlabeled ?? 0}
           dotColor="#a1a1aa"
         >
-          unlabeled
+          unannotiert
         </FilterRow>
         <FilterRow
           active={labelFilter === 'labeled'}
@@ -197,22 +197,16 @@ function DatasetFilters({
           count={labelCounts.labeled ?? 0}
           dotColor="#16a34a"
         >
-          labeled
-        </FilterRow>
-        <FilterRow
-          active={labelFilter === 'rejected'}
-          onClick={() => onLabel('rejected')}
-          count={labelCounts.rejected ?? 0}
-          dotColor="#dc2626"
-        >
-          rejected
+          annotiert
         </FilterRow>
       </FilterGroup>
 
       <div className="text-[0.7rem] text-muted leading-snug border-t border-border pt-3">
-        <p>KI-generiert via <code className="font-mono">scripts/generate_synthetic_drawings.py</code>; reale Pläne via <code className="font-mono">scripts/include_real_plans.py</code> (gestarrtes Haus).</p>
-        <p className="mt-1">Style-Refs: h21/h22/h23 Pläne.</p>
-        <p className="mt-1">Content-Refs: Bilder des jeweiligen Hauses.</p>
+        <p>
+          Pläne via{' '}
+          <Link to="/intake" className="underline text-accent">PDF-Upload</Link>{' '}
+          hinzufügen, dann via Bounding-Boxen Szenen extrahieren und annotieren.
+        </p>
       </div>
     </div>
   );
