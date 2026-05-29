@@ -806,10 +806,40 @@ export function AnnotatePage() {
   // server's get_scene_view (image @ 0.5 opacity + 3-tier coordinate grid:
   // broad/finer/detail). Useful for sanity-checking what the agent
   // perceives when labels look off. Backed by GET /datasets/{key}/{file}/grid.
+  //
+  // Two pieces of state: which TIERS are active (persisted), and whether
+  // the overlay is CURRENTLY ON (also persisted). Per the followups
+  // tracker §G2-4 default = {broad, finer}, detail opt-in. The standalone
+  // topbar button toggles the whole set on/off without forgetting which
+  // tiers were selected (§G2-5).
+  const [gridTiers, setGridTiers] = useState<{broad: boolean; finer: boolean; detail: boolean}>(() => {
+    try {
+      const raw = window.localStorage.getItem('bim-db:annotate:grid-tiers');
+      if (raw) {
+        const parts = new Set(raw.split(','));
+        return { broad: parts.has('broad'), finer: parts.has('finer'), detail: parts.has('detail') };
+      }
+      // 1-time migration from the boolean key.
+      const legacy = window.localStorage.getItem('bim-db:annotate:show-grid');
+      if (legacy === 'true') return { broad: true, finer: true, detail: false };
+    } catch { /* no-op */ }
+    return { broad: true, finer: true, detail: false };
+  });
   const [showGrid, setShowGrid] = useState<boolean>(() => {
     try { return window.localStorage.getItem('bim-db:annotate:show-grid') === 'true'; }
     catch { return false; }
   });
+  // Derive the comma-list query param from the active tiers.
+  const gridTiersParam = (Object.entries(gridTiers)
+    .filter(([, on]) => on)
+    .map(([t]) => t)
+    .join(',')) || 'broad';  // never request an empty tiers list
+  useEffect(() => {
+    try {
+      const list = gridTiersParam;
+      window.localStorage.setItem('bim-db:annotate:grid-tiers', list);
+    } catch { /* no-op */ }
+  }, [gridTiersParam]);
   useEffect(() => {
     try { window.localStorage.setItem('bim-db:annotate:img-opacity', String(imgOpacity)); }
     catch { /* no-op */ }
@@ -2760,6 +2790,8 @@ export function AnnotatePage() {
             imgGrayscale={imgGrayscale}
             setImgGrayscale={setImgGrayscale}
             showGrid={showGrid}
+            gridTiers={gridTiers}
+            setGridTiers={setGridTiers}
             setShowGrid={setShowGrid}
             onZoomIn={() => zoomBy(0.7)}
             onZoomOut={() => zoomBy(1.4)}
@@ -3132,7 +3164,7 @@ export function AnnotatePage() {
           </defs>
           <image
             href={showGrid
-              ? `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?max_dim=${Math.max(imageSize[0], imageSize[1])}`
+              ? `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?tiers=${encodeURIComponent(gridTiersParam)}&max_dim=${Math.max(imageSize[0], imageSize[1])}`
               : imageUrl}
             x={0} y={0}
             width={imageSize[0]} height={imageSize[1]}
@@ -4846,9 +4878,12 @@ function SaveStateDot({
   );
 }
 
+type GridTiers = { broad: boolean; finer: boolean; detail: boolean };
+
 function CanvasDisplayPalette({
   imgOpacity, setImgOpacity, imgGrayscale, setImgGrayscale,
   showGrid, setShowGrid,
+  gridTiers, setGridTiers,
   onZoomIn, onZoomOut, onFit,
 }: {
   imgOpacity: number;
@@ -4857,6 +4892,8 @@ function CanvasDisplayPalette({
   setImgGrayscale: (v: boolean) => void;
   showGrid: boolean;
   setShowGrid: (v: boolean) => void;
+  gridTiers: GridTiers;
+  setGridTiers: (v: GridTiers) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
@@ -4948,8 +4985,8 @@ function CanvasDisplayPalette({
                 Bild auf Weiß ausblenden, um Labels gegen den leeren Canvas zu prüfen.
               </p>
               <hr className="border-zinc-200" />
-              <label className="flex items-center justify-between gap-3">
-                <span>Agenten-Raster</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium">Agenten-Raster</span>
                 <button
                   type="button"
                   onClick={() => setShowGrid(!showGrid)}
@@ -4962,12 +4999,28 @@ function CanvasDisplayPalette({
                 >
                   {showGrid ? '🤖 An' : 'Aus'}
                 </button>
-              </label>
+              </div>
+              <div className={`flex flex-col gap-1 ${showGrid ? '' : 'opacity-50 pointer-events-none'}`}>
+                {(['broad', 'finer', 'detail'] as const).map((tier) => (
+                  <label key={tier} className="flex items-center gap-2 text-[0.72rem]">
+                    <input
+                      type="checkbox"
+                      checked={gridTiers[tier]}
+                      onChange={(e) => setGridTiers({ ...gridTiers, [tier]: e.target.checked })}
+                    />
+                    <span className="capitalize">{tier}</span>
+                    <span className="text-zinc-400 ml-auto text-[0.65rem]">
+                      {tier === 'broad' && '≈ W/10 px · dicke schwarze Linien'}
+                      {tier === 'finer' && '≈ W/50 px · mittelgrau'}
+                      {tier === 'detail' && '≈ W/200 px · sehr fein (nur im Zoom nützlich)'}
+                    </span>
+                  </label>
+                ))}
+              </div>
               <p className="text-[0.62rem] text-zinc-500 leading-snug">
-                Zeigt das Bild mit dem 3-stufigen Pixelraster, das die
-                Labeling-Agenten zur Koordinaten-Lokalisierung verwenden
-                (broad / finer / detail). Hilft beim Spot-Check, was ein
-                Agent sieht, wenn seine Labels schief liegen.
+                Zeigt das Bild mit dem Pixelraster, das die Labeling-Agenten
+                zur Koordinaten-Lokalisierung verwenden. Hilft beim Spot-Check,
+                was ein Agent sieht, wenn seine Labels schief liegen.
               </p>
             </div>
           </>

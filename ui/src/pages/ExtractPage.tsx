@@ -126,14 +126,36 @@ export function ExtractPage() {
   // the bim-database MCP server returns to a labeling agent
   // (image @ 0.5 opacity + 3-tier coordinate grid). Useful for spot-
   // checking what the agent sees when its extracted bboxes look off.
+  //
+  // Per agentic-labeling-followups-tracker §G2-4: per-tier checkboxes,
+  // default {broad, finer}, detail opt-in.
   const [showGrid, setShowGrid] = useState<boolean>(() => {
     try { return window.localStorage.getItem('bim-db:extract:show-grid') === 'true'; }
     catch { return false; }
   });
+  const [gridTiers, setGridTiers] = useState<{broad: boolean; finer: boolean; detail: boolean}>(() => {
+    try {
+      const raw = window.localStorage.getItem('bim-db:extract:grid-tiers');
+      if (raw) {
+        const parts = new Set(raw.split(','));
+        return { broad: parts.has('broad'), finer: parts.has('finer'), detail: parts.has('detail') };
+      }
+    } catch { /* no-op */ }
+    return { broad: true, finer: true, detail: false };
+  });
+  const gridTiersParam = (Object.entries(gridTiers)
+    .filter(([, on]) => on)
+    .map(([t]) => t)
+    .join(',')) || 'broad';
+  const [gridMenuOpen, setGridMenuOpen] = useState(false);
   useEffect(() => {
     try { window.localStorage.setItem('bim-db:extract:show-grid', String(showGrid)); }
     catch { /* no-op */ }
   }, [showGrid]);
+  useEffect(() => {
+    try { window.localStorage.setItem('bim-db:extract:grid-tiers', gridTiersParam); }
+    catch { /* no-op */ }
+  }, [gridTiersParam]);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // The extracted-scene action menu (Annotieren / Bbox anpassen /
@@ -589,19 +611,67 @@ export function ExtractPage() {
           >
             3D ▸
           </Link>
-          <button
-            type="button"
-            onClick={() => setShowGrid(!showGrid)}
-            className={`text-[0.7rem] px-2 py-1 rounded-md border ${
-              showGrid
-                ? 'bg-purple-600 text-white border-purple-600'
-                : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
-            }`}
-            title="Agenten-Raster überlagern: zeigt das Bild, das ein Labeling-Agent über den MCP-Server sieht (3-stufiges Pixelraster)"
-            aria-label="Agenten-Raster umschalten"
-          >
-            {showGrid ? '🤖 Raster' : 'Raster'}
-          </button>
+          <div className="relative flex items-center">
+            <button
+              type="button"
+              onClick={() => setShowGrid(!showGrid)}
+              className={`text-[0.7rem] px-2 py-1 rounded-l-md border ${
+                showGrid
+                  ? 'bg-purple-600 text-white border-purple-600'
+                  : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+              }`}
+              title="Agenten-Raster umschalten (3-stufiges Pixelraster, broad/finer/detail)"
+              aria-label="Agenten-Raster umschalten"
+            >
+              {showGrid ? '🤖 Raster' : 'Raster'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setGridMenuOpen((v) => !v)}
+              className={`text-[0.7rem] px-1.5 py-1 rounded-r-md border-y border-r ${
+                showGrid
+                  ? 'bg-purple-700 text-white border-purple-700'
+                  : 'bg-white text-zinc-600 border-zinc-300 hover:bg-zinc-50'
+              }`}
+              title="Raster-Stufen auswählen"
+              aria-label="Raster-Stufen"
+            >
+              ▾
+            </button>
+            {gridMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setGridMenuOpen(false)}
+                  className="fixed inset-0 z-30 cursor-default"
+                  aria-label="Schließen"
+                />
+                <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-zinc-300 rounded-md shadow-xl min-w-[16rem] p-3 space-y-2 text-[0.78rem]">
+                  <div className="text-[0.62rem] uppercase tracking-wider text-muted font-semibold">
+                    Raster-Stufen
+                  </div>
+                  {(['broad', 'finer', 'detail'] as const).map((tier) => (
+                    <label key={tier} className="flex items-center gap-2 text-[0.72rem]">
+                      <input
+                        type="checkbox"
+                        checked={gridTiers[tier]}
+                        onChange={(e) => setGridTiers({ ...gridTiers, [tier]: e.target.checked })}
+                      />
+                      <span className="capitalize font-medium">{tier}</span>
+                      <span className="text-zinc-400 ml-auto text-[0.65rem]">
+                        {tier === 'broad' && '~W/10 px'}
+                        {tier === 'finer' && '~W/50 px'}
+                        {tier === 'detail' && '~W/200 px'}
+                      </span>
+                    </label>
+                  ))}
+                  <p className="text-[0.62rem] text-zinc-500 leading-snug">
+                    Default = broad + finer. Detail nur im Zoom nützlich.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setCheatsheetOpen((v) => !v)}
@@ -735,6 +805,7 @@ export function ExtractPage() {
             pageWidthPt={pageInfo.width_pt}
             pageHeightPt={pageInfo.height_pt}
             showGrid={showGrid}
+            gridTiers={gridTiersParam}
             draftBboxes={pageBboxes}
             extracted={extractedOnPage}
             selectedId={selectedId}
@@ -1250,13 +1321,14 @@ function PageCanvas({
   postDraw, onPostDrawPick, onPostDrawDismiss, extractBusy, extractingIds,
   houseKey, onDeleteExtracted, onAdjustExtracted,
   menuFor, setMenuFor, onDatasetRefresh, onClassifyAction,
-  showGrid,
+  showGrid, gridTiers,
 }: {
   pdfKey: string;
   page: number;
   pageWidthPt: number;
   pageHeightPt: number;
   showGrid: boolean;
+  gridTiers: string;
   draftBboxes: DraftBbox[];
   extracted: DatasetHouse['drawings'];
   selectedId: string | null;
@@ -1375,7 +1447,7 @@ function PageCanvas({
         )}
         <img
           src={showGrid
-            ? pdfPageGridUrl(pdfKey, page, PAGE_DPI)
+            ? pdfPageGridUrl(pdfKey, page, PAGE_DPI, gridTiers)
             : pdfPageUrl(pdfKey, page, PAGE_DPI)}
           alt={`Seite ${page}`}
           className="block w-full h-full select-none pointer-events-none"

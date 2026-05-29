@@ -1,20 +1,27 @@
 """Grid overlay rendering for the agentic-labeling path.
 
-Per the agentic-labeling tracker §C2: agent vision needs a
-coordinate-anchored grid so it can point at pixels precisely. We
-de-emphasise the original image (alpha=0.5 over white) and overlay
-three nested grid tiers:
+Per agentic-labeling-followups-tracker §G2 (rewritten 2026-05-29 to
+drop the outer margin):
 
-    broad  — every max(W,H)/10 px, bold black, every intersection labeled
-    finer  — every max(W,H)/50 px, medium grey, every 5th line labeled
+    broad  — every max(W,H)/10 px, bold black, every intersection
+             labelled inline with a white-chip background
+    finer  — every max(W,H)/50 px, medium grey, every 5th line
+             labelled inline
     detail — every max(W,H)/200 px, very faint stipple, no labels
 
-`render_grid_overlay(...)` is the single public function — pure, no
-I/O. HTTP endpoints in api/main.py wrap it with disk caching.
+OUTPUT DIMENSIONS == SOURCE DIMENSIONS (or the cropped region, when
+`region` is set). No 56-px padding. The SVG layer in AnnotatePage /
+ExtractPage swaps the image href without any layout shift, so the
+labels the agent reads off the grid map back to source pixels
+cleanly (no preserveAspectRatio scaling needed).
 
 Coordinate labels show SOURCE pixels even when the image was cropped,
-so an agent reading a zoom can call back into upsert_label against the
-un-cropped scene without any further translation.
+so an agent reading a zoom can call back into upsert_label against
+the un-cropped scene without any further translation.
+
+Default tier set: `("broad", "finer")` — detail is opt-in. Per §8
+decision 3 of the followups tracker: at full-image scale the detail
+tier is visual noise and only earns its keep on zoomed crops.
 """
 from __future__ import annotations
 
@@ -24,17 +31,22 @@ from typing import Sequence
 from PIL import Image, ImageDraw, ImageFont
 
 ALL_TIERS = ("broad", "finer", "detail")
-DEFAULT_TIERS = ALL_TIERS
+DEFAULT_TIERS = ("broad", "finer")  # detail is opt-in
 
+# Cell-size fraction of the long edge. 10 broad cells / 50 finer / 200 detail.
 _TIER_FRACTION = {"broad": 1 / 10, "finer": 1 / 50, "detail": 1 / 200}
 
+# Drawing weights.
 _BROAD_COLOR = (0, 0, 0, 220)
 _FINER_COLOR = (90, 90, 110, 160)
 _DETAIL_COLOR = (140, 140, 160, 60)
-_LABEL_BG = (255, 255, 255, 230)
-_LABEL_FG = (0, 0, 0, 255)
 
-_MARGIN_PX = 56  # room for coordinate labels on the broad tier
+_LABEL_BG = (255, 255, 255, 220)
+_LABEL_FG = (0, 0, 0, 255)
+_LABEL_PAD = 2
+
+_LEGEND_BG = (255, 255, 255, 200)
+_LEGEND_FG = (40, 40, 40, 255)
 
 
 @dataclass
@@ -79,7 +91,9 @@ def render_grid_overlay(
                             grid stays legible.
 
     Returns:
-        New RGBA image, dimensions ≤ max_dim+margin on each side.
+        New RGBA image. Dimensions == cropped source dims (possibly
+        downscaled to max_dim). NO outer margin — the entire output is
+        the image content, with grid + labels drawn over it.
     """
     if not tiers:
         raise ValueError("at least one tier required")
@@ -117,20 +131,13 @@ def render_grid_overlay(
         cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
     cw, ch = cropped.size
 
-    canvas = Image.new(
-        "RGBA",
-        (cw + _MARGIN_PX, ch + _MARGIN_PX),
-        (255, 255, 255, 255),
-    )
+    # Canvas == image dims; no margin. Grid + labels drawn ON the image.
+    canvas = Image.new("RGBA", (cw, ch), (255, 255, 255, 255))
     if cropped.mode != "RGBA":
         cropped = cropped.convert("RGBA")
     if background_opacity < 1.0:
         cropped = _blend_to_white(cropped, background_opacity)
-    canvas.paste(
-        cropped,
-        (_MARGIN_PX, _MARGIN_PX),
-        cropped if cropped.mode == "RGBA" else None,
-    )
+    canvas.paste(cropped, (0, 0), cropped if cropped.mode == "RGBA" else None)
 
     long_src = max(crop_src_w, crop_src_h)
     spec = _Spec(
@@ -146,17 +153,25 @@ def render_grid_overlay(
     )
 
     draw = ImageDraw.Draw(canvas, "RGBA")
-    font = _load_font(11)
+    label_font = _load_font(11)
+    legend_font = _load_font(10)
 
-    # Detail first so darker tiers overdraw it.
+    # Order: detail → finer → broad so darker tiers overdraw lighter ones.
+    # Labels go in a SECOND pass after all lines so they sit on top.
     if "detail" in tiers:
-        _draw_tier(draw, spec, "detail")
+        _draw_tier_lines(draw, spec, "detail")
     if "finer" in tiers:
-        _draw_tier(draw, spec, "finer", label_font=font)
+        _draw_tier_lines(draw, spec, "finer")
     if "broad" in tiers:
-        _draw_tier(draw, spec, "broad", label_font=font)
+        _draw_tier_lines(draw, spec, "broad")
 
-    _draw_corner_legend(draw, canvas.size, spec, font)
+    # Labels — broad first (one per intersection), finer second (every 5th).
+    if "broad" in tiers:
+        _draw_tier_labels(draw, label_font, spec, "broad")
+    if "finer" in tiers:
+        _draw_tier_labels(draw, label_font, spec, "finer")
+
+    _draw_top_right_legend(draw, canvas.size, spec, legend_font)
     return canvas
 
 
@@ -167,112 +182,161 @@ def _blend_to_white(img: Image.Image, alpha: float) -> Image.Image:
     return Image.blend(white, img, alpha)
 
 
-def _draw_tier(
-    draw: ImageDraw.ImageDraw,
-    spec: _Spec,
-    tier: str,
-    *,
-    label_font: ImageFont.ImageFont | None = None,
-) -> None:
+def _draw_tier_lines(draw: ImageDraw.ImageDraw, spec: _Spec, tier: str) -> None:
     if tier == "broad":
-        color, width, step_src, label_every = _BROAD_COLOR, 2, spec.broad_step, 1
+        color, width, step_src = _BROAD_COLOR, 2, spec.broad_step
     elif tier == "finer":
-        color, width, step_src, label_every = _FINER_COLOR, 1, spec.finer_step, 5
+        color, width, step_src = _FINER_COLOR, 1, spec.finer_step
     elif tier == "detail":
-        color, width, step_src, label_every = _DETAIL_COLOR, 1, spec.detail_step, 0
+        color, width, step_src = _DETAIL_COLOR, 1, spec.detail_step
     else:
         return
 
-    image_x0, image_y0 = _MARGIN_PX, _MARGIN_PX
-    image_x1 = _MARGIN_PX + spec.out_w
-    image_y1 = _MARGIN_PX + spec.out_h
-
-    # Vertical grid lines — iterate at step_src in source-frame.
-    src_x_start = ((spec.region_origin[0] + step_src - 1) // step_src) * step_src
-    src_x = src_x_start
-    line_idx = 0
+    # Vertical lines.
+    src_x = ((spec.region_origin[0] + step_src - 1) // step_src) * step_src
     src_x_end = spec.region_origin[0] + spec.crop_src_w
     while src_x <= src_x_end:
-        out_x = image_x0 + int((src_x - spec.region_origin[0]) * spec.px_per_src_x)
-        draw.line([(out_x, image_y0), (out_x, image_y1 - 1)], fill=color, width=width)
-        if label_font is not None and label_every and line_idx % label_every == 0:
-            _draw_axis_label(draw, label_font, str(src_x), (out_x, image_y0), "top")
+        out_x = int((src_x - spec.region_origin[0]) * spec.px_per_src_x)
+        if 0 <= out_x < spec.out_w:
+            draw.line([(out_x, 0), (out_x, spec.out_h - 1)], fill=color, width=width)
+        src_x += step_src
+
+    # Horizontal lines.
+    src_y = ((spec.region_origin[1] + step_src - 1) // step_src) * step_src
+    src_y_end = spec.region_origin[1] + spec.crop_src_h
+    while src_y <= src_y_end:
+        out_y = int((src_y - spec.region_origin[1]) * spec.px_per_src_y)
+        if 0 <= out_y < spec.out_h:
+            draw.line([(0, out_y), (spec.out_w - 1, out_y)], fill=color, width=width)
+        src_y += step_src
+
+
+def _draw_tier_labels(
+    draw: ImageDraw.ImageDraw,
+    font: ImageFont.ImageFont,
+    spec: _Spec,
+    tier: str,
+) -> None:
+    """Draw coordinate labels on tier intersections with a white-chip
+    background. Stays inside the image bounds; never spills outside."""
+    if tier == "broad":
+        step_src = spec.broad_step
+        label_every_line = 1   # every intersection
+    elif tier == "finer":
+        step_src = spec.finer_step
+        label_every_line = 5   # every 5th finer line
+    else:
+        return
+
+    # X positions to label (vertical grid lines).
+    src_xs: list[int] = []
+    src_x = ((spec.region_origin[0] + step_src - 1) // step_src) * step_src
+    src_x_end = spec.region_origin[0] + spec.crop_src_w
+    line_idx = 0
+    while src_x <= src_x_end:
+        if line_idx % label_every_line == 0:
+            src_xs.append(src_x)
         src_x += step_src
         line_idx += 1
 
-    # Horizontal grid lines.
-    src_y_start = ((spec.region_origin[1] + step_src - 1) // step_src) * step_src
-    src_y = src_y_start
-    line_idx = 0
+    # Y positions to label (horizontal grid lines).
+    src_ys: list[int] = []
+    src_y = ((spec.region_origin[1] + step_src - 1) // step_src) * step_src
     src_y_end = spec.region_origin[1] + spec.crop_src_h
+    line_idx = 0
     while src_y <= src_y_end:
-        out_y = image_y0 + int((src_y - spec.region_origin[1]) * spec.px_per_src_y)
-        draw.line([(image_x0, out_y), (image_x1 - 1, out_y)], fill=color, width=width)
-        if label_font is not None and label_every and line_idx % label_every == 0:
-            _draw_axis_label(draw, label_font, str(src_y), (image_x0, out_y), "left")
+        if line_idx % label_every_line == 0:
+            src_ys.append(src_y)
         src_y += step_src
         line_idx += 1
 
+    # X-axis labels along the TOP of the image (just below the top edge).
+    for sx in src_xs:
+        out_x = int((sx - spec.region_origin[0]) * spec.px_per_src_x)
+        _draw_label_chip(
+            draw, font, str(sx), (out_x, 0),
+            anchor="top-center", canvas_w=spec.out_w, canvas_h=spec.out_h,
+        )
 
-def _draw_axis_label(
+    # Y-axis labels along the LEFT of the image (just inside the left edge).
+    for sy in src_ys:
+        out_y = int((sy - spec.region_origin[1]) * spec.px_per_src_y)
+        _draw_label_chip(
+            draw, font, str(sy), (0, out_y),
+            anchor="left-middle", canvas_w=spec.out_w, canvas_h=spec.out_h,
+        )
+
+
+def _draw_label_chip(
     draw: ImageDraw.ImageDraw,
     font: ImageFont.ImageFont,
     text: str,
     pos: tuple[int, int],
-    side: str,
+    *,
+    anchor: str,
+    canvas_w: int,
+    canvas_h: int,
 ) -> None:
+    """Draw `text` at `pos` with a white-chip background. Clamps to the
+    canvas so labels along the edge are never cut off."""
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    pad = 2
-    if side == "top":
+    if anchor == "top-center":
+        # Label sits horizontally centered on `pos[0]`, just below the top.
         x = pos[0] - tw // 2
-        y = pos[1] - th - pad - 4
-    else:  # left
-        x = pos[0] - tw - pad - 4
+        y = 2
+    elif anchor == "left-middle":
+        # Label sits vertically centered on `pos[1]`, just inside the left.
+        x = 2
         y = pos[1] - th // 2
-    draw.rectangle(
-        [x - pad, y - pad, x + tw + pad, y + th + pad],
-        fill=_LABEL_BG,
-    )
+    else:
+        x, y = pos
+    # Clamp the chip rectangle to the canvas.
+    rx0 = max(0, x - _LABEL_PAD)
+    ry0 = max(0, y - _LABEL_PAD)
+    rx1 = min(canvas_w - 1, x + tw + _LABEL_PAD)
+    ry1 = min(canvas_h - 1, y + th + _LABEL_PAD)
+    # Shift the text inside the clamp if pinned to an edge.
+    x = rx0 + _LABEL_PAD
+    y = ry0 + _LABEL_PAD
+    draw.rectangle([rx0, ry0, rx1, ry1], fill=_LABEL_BG)
     draw.text((x, y), text, font=font, fill=_LABEL_FG)
 
 
-def _draw_corner_legend(
+def _draw_top_right_legend(
     draw: ImageDraw.ImageDraw,
     canvas_size: tuple[int, int],
     spec: _Spec,
     font: ImageFont.ImageFont,
 ) -> None:
+    """Tiny faint chip in the top-right corner. Smaller font than the
+    axis labels so it doesn't compete with content."""
+    cw, ch = canvas_size
     lines = [
-        f"grid: source pixels",
-        f"broad/finer/detail = {spec.broad_step}/{spec.finer_step}/{spec.detail_step}px",
+        f"grid (src px): b/f/d = {spec.broad_step}/{spec.finer_step}/{spec.detail_step}",
     ]
     if spec.source_size:
-        lines.insert(
-            0,
-            (
-                f"crop ({spec.region_origin[0]},{spec.region_origin[1]})"
-                f" of {spec.source_size[0]}x{spec.source_size[1]}"
-            ),
+        lines.append(
+            f"crop ({spec.region_origin[0]},{spec.region_origin[1]}) "
+            f"of {spec.source_size[0]}×{spec.source_size[1]}"
         )
-    cw, ch = canvas_size
-    pad = 6
-    line_h = 14
+    pad = 4
+    line_h = 12
+    bbox_widths = [draw.textbbox((0, 0), ln, font=font)[2] for ln in lines]
+    block_w = max(bbox_widths) + pad * 2
     block_h = line_h * len(lines) + pad * 2
-    block_w = max(draw.textbbox((0, 0), ln, font=font)[2] for ln in lines) + pad * 2
-    x0 = cw - block_w - 8
-    y0 = ch - block_h - 8
+    x0 = max(0, cw - block_w - 4)
+    y0 = 4
     draw.rectangle(
         [x0, y0, x0 + block_w, y0 + block_h],
-        fill=(255, 255, 255, 240),
-        outline=(0, 0, 0, 200),
+        fill=_LEGEND_BG,
     )
     for i, ln in enumerate(lines):
         draw.text(
             (x0 + pad, y0 + pad + i * line_h),
             ln,
             font=font,
-            fill=_LABEL_FG,
+            fill=_LEGEND_FG,
         )
 
 
