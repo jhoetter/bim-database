@@ -30,7 +30,6 @@ import type {
 } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { SceneThumb } from '../components/SceneThumb';
 import { rememberLastStep } from '../lib/step_state';
 import {
   handlesFor,
@@ -2668,98 +2667,6 @@ export function AnnotatePage() {
           >
             Export ▸
           </Link>
-          {sceneList.length > 1 && (
-            <div className="flex items-center gap-1 border border-border rounded-md p-0.5 bg-white max-w-[44vw] overflow-x-auto"
-                 title="Szene wechseln — , = vorige, . = nächste">
-              <button
-                type="button"
-                onClick={() => prevScene && goToScene(prevScene.file)}
-                disabled={!prevScene}
-                aria-label="Vorige Szene (,)"
-                className={`w-6 h-6 inline-flex items-center justify-center rounded shrink-0 ${
-                  prevScene ? 'hover:bg-zinc-100 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
-                }`}
-              >
-                ‹
-              </button>
-              {/* All scenes as small chips — gives the user an at-a-glance
-                  overview of the house's scenes plus quick jump-to. The
-                  active scene is the accent-coloured chip. */}
-              <div className="flex items-center gap-0.5 px-0.5">
-                {sceneList.map((s) => {
-                  const isCurrent = s.file === decodedFile;
-                  // For the active scene, prefer the live in-memory labels
-                  // over the (stale-until-save) sibling summary.
-                  const summary = isCurrent
-                    ? (() => {
-                        let hasH = false, hasV = false;
-                        for (const l of labels) {
-                          if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
-                          const dx = l.geometry.end[0] - l.geometry.start[0];
-                          const dy = l.geometry.end[1] - l.geometry.start[1];
-                          const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
-                          if (a < 15 || a > 165) hasH = true;
-                          else if (a > 75 && a < 105) hasV = true;
-                        }
-                        return { count: labels.length, hasH, hasV };
-                      })()
-                    : sceneSummaries?.get(s.file);
-                  const readinessColor = summary
-                    ? (summary.hasH && summary.hasV
-                        ? '#10b981'                       // emerald — ready
-                        : (summary.hasH || summary.hasV ? '#f59e0b' : '#d4d4d8'))  // amber half / zinc none
-                    : null;
-                  const readinessTitle = !summary
-                    ? ''
-                    : summary.hasH && summary.hasV
-                      ? ' · Bezug H+V gesetzt → Skalierung+Entzerrung bereit'
-                      : summary.hasH
-                        ? ' · nur horizontaler Bezug — vertikalen fehlt noch'
-                        : summary.hasV
-                          ? ' · nur vertikaler Bezug — horizontalen fehlt noch'
-                          : ' · keine Bezugsmaße — Skalierung+Entzerrung noch nicht möglich';
-                  return (
-                    <SceneThumb
-                      key={s.file}
-                      onClick={() => goToScene(s.file)}
-                      url={s.url}
-                      shortLabel={sceneShortLabel(s.file, s.title)}
-                      title={`${s.title}${summary ? ` · ${summary.count} Labels` : ''}${readinessTitle}`}
-                      active={isCurrent}
-                      labeled={s.labeled}
-                      size="sm"
-                      trailing={
-                        <span className="inline-flex items-center gap-0.5">
-                          {readinessColor && (
-                            <span
-                              className="inline-block w-1.5 h-1.5 rounded-full"
-                              style={{ backgroundColor: readinessColor }}
-                            />
-                          )}
-                          {summary && summary.count > 0 && (
-                            <span className={`text-[0.55rem] tabular-nums ${isCurrent ? 'text-zinc-700' : 'text-zinc-400'}`}>
-                              {summary.count}
-                            </span>
-                          )}
-                        </span>
-                      }
-                    />
-                  );
-                })}
-              </div>
-              <button
-                type="button"
-                onClick={() => nextScene && goToScene(nextScene.file)}
-                disabled={!nextScene}
-                aria-label="Nächste Szene (.)"
-                className={`w-6 h-6 inline-flex items-center justify-center rounded shrink-0 ${
-                  nextScene ? 'hover:bg-zinc-100 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
-                }`}
-              >
-                ›
-              </button>
-            </div>
-          )}
           {/* K5 modifier-held indicator. Tiny chip in the topbar so the user
               can see at a glance that Alt/Shift is active. Alt is the
               "ignore all smart helpers for this gesture" key (K2); Shift is
@@ -3033,7 +2940,17 @@ export function AnnotatePage() {
         />
       }
     >
-      <div className="h-full bg-white relative overflow-hidden">
+      <div className="flex flex-col h-full">
+        <AnnotateSceneStrip
+          scenes={sceneList}
+          currentFile={decodedFile}
+          labels={labels}
+          sceneSummaries={sceneSummaries}
+          prevScene={prevScene}
+          nextScene={nextScene}
+          onSelect={goToScene}
+        />
+      <div className="flex-1 min-h-0 bg-white relative overflow-hidden">
         {loading && <p className="absolute top-4 left-4 text-zinc-700 text-sm">Lade Labels…</p>}
         {error && <p className="absolute top-4 left-4 text-red-700 text-sm">Fehler: {error.message}</p>}
         <svg
@@ -4068,6 +3985,7 @@ export function AnnotatePage() {
           </div>
         )}
       </div>
+      </div>
     </Shell>
   );
 }
@@ -4806,6 +4724,136 @@ function WorkflowGuideOrientation({
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+// Full-width scene strip rendered immediately below the topbar so the
+// AnnotatePage matches ExtractPage's pattern. Same chip visual (small
+// thumbnail + label) plus AnnotatePage-specific decoration: a readiness
+// dot derived from is_reference dim-distances (H+V → emerald, one of two
+// → amber, none → muted) and the saved label count.
+function AnnotateSceneStrip({
+  scenes, currentFile, labels, sceneSummaries, prevScene, nextScene, onSelect,
+}: {
+  scenes: Array<{ file: string; title: string; url: string; labeled: boolean }>;
+  currentFile: string;
+  labels: Label[];
+  sceneSummaries: Map<string, { count: number; hasH: boolean; hasV: boolean }> | null | undefined;
+  prevScene: { file: string } | null;
+  nextScene: { file: string } | null;
+  onSelect: (file: string) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const currentRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const el = currentRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }, [currentFile, scenes.length]);
+  if (scenes.length <= 1) return null;
+  return (
+    <div className="border-b border-border bg-zinc-50">
+      <div ref={scrollRef} className="px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto"
+           title="Szene wechseln — , = vorige, . = nächste">
+        <span className="text-[0.62rem] uppercase tracking-wider text-muted shrink-0">
+          {scenes.length} Szene{scenes.length === 1 ? '' : 'n'}
+        </span>
+        <button
+          type="button"
+          onClick={() => prevScene && onSelect(prevScene.file)}
+          disabled={!prevScene}
+          aria-label="Vorige Szene (,)"
+          className={`w-6 h-6 inline-flex items-center justify-center rounded shrink-0 ${
+            prevScene ? 'hover:bg-zinc-200 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
+          }`}
+        >
+          ‹
+        </button>
+        {scenes.map((s) => {
+          const isCurrent = s.file === currentFile;
+          const summary = isCurrent
+            ? (() => {
+                let hasH = false, hasV = false;
+                for (const l of labels) {
+                  if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
+                  const dx = l.geometry.end[0] - l.geometry.start[0];
+                  const dy = l.geometry.end[1] - l.geometry.start[1];
+                  const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+                  if (a < 15 || a > 165) hasH = true;
+                  else if (a > 75 && a < 105) hasV = true;
+                }
+                return { count: labels.length, hasH, hasV };
+              })()
+            : sceneSummaries?.get(s.file);
+          const readinessColor = summary
+            ? (summary.hasH && summary.hasV
+                ? '#10b981'
+                : (summary.hasH || summary.hasV ? '#f59e0b' : '#d4d4d8'))
+            : null;
+          const readinessTitle = !summary
+            ? ''
+            : summary.hasH && summary.hasV
+              ? ' · Bezug H+V gesetzt → Skalierung+Entzerrung bereit'
+              : summary.hasH
+                ? ' · nur horizontaler Bezug — vertikalen fehlt noch'
+                : summary.hasV
+                  ? ' · nur vertikaler Bezug — horizontalen fehlt noch'
+                  : ' · keine Bezugsmaße — Skalierung+Entzerrung noch nicht möglich';
+          return (
+            <span ref={isCurrent ? currentRef : undefined} key={s.file} className="inline-flex shrink-0">
+              <button
+                type="button"
+                onClick={() => onSelect(s.file)}
+                title={`${s.title}${summary ? ` · ${summary.count} Labels` : ''}${readinessTitle}`}
+                className={`inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-md border transition ${
+                  isCurrent
+                    ? 'bg-accent/10 border-accent ring-1 ring-accent/30'
+                    : 'bg-white border-zinc-200 hover:border-zinc-400'
+                }`}
+              >
+                <span className={`relative w-10 h-10 shrink-0 rounded overflow-hidden bg-zinc-100 border ${isCurrent ? 'border-accent' : 'border-zinc-200'}`}>
+                  {s.url ? (
+                    <img src={s.url} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                  ) : (
+                    <span className="absolute inset-0 flex items-center justify-center text-zinc-400 text-[0.55rem] font-semibold">?</span>
+                  )}
+                  {s.labeled && (
+                    <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[0.5rem] leading-none px-0.5 py-0.5 rounded-tl">✓</span>
+                  )}
+                </span>
+                <span className="text-[0.72rem] font-medium whitespace-nowrap">
+                  {sceneShortLabel(s.file, s.title)}
+                </span>
+                <span className="inline-flex items-center gap-0.5 ml-0.5">
+                  {readinessColor && (
+                    <span
+                      className="inline-block w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: readinessColor }}
+                    />
+                  )}
+                  {summary && summary.count > 0 && (
+                    <span className={`text-[0.6rem] tabular-nums ${isCurrent ? 'text-accent font-semibold' : 'text-zinc-400'}`}>
+                      {summary.count}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </span>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => nextScene && onSelect(nextScene.file)}
+          disabled={!nextScene}
+          aria-label="Nächste Szene (.)"
+          className={`w-6 h-6 inline-flex items-center justify-center rounded shrink-0 ${
+            nextScene ? 'hover:bg-zinc-200 text-zinc-700' : 'text-zinc-300 cursor-not-allowed'
+          }`}
+        >
+          ›
+        </button>
+      </div>
     </div>
   );
 }
