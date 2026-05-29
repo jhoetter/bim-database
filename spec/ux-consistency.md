@@ -1,8 +1,9 @@
 # UX Consistency (U) tracker
 
-**Status:** Draft 2026-05-29. Implementation-ready for U0–U4 (the three
-small immediate fixes shipped 2026-05-29). U5+ requires user direction on
-trade-offs before code lands.
+**Status:** Draft 2026-05-29. U0–U4 shipped. U5–U13 are
+implementation-ready scoped batches; U14+ are open questions. The
+U9–U13 group operationalises principles 4–6 (disclosure) added on
+the user's request.
 
 **Owner:** jhoetter
 **Predecessor:** [`spec/keyboard.md`](keyboard.md) — keyboard / modifier
@@ -28,6 +29,27 @@ The three north-stars when judging any UI change:
    The user just told us they read identical-looking outlined buttons in
    the topbar as one component; one being blue and inline on the
    dataset page was strictly worse.
+
+And three **disclosure principles** that the user pulled out
+explicitly:
+
+4. **Show what's already known.** When the user interacts with
+   anything that represents a labeled object — a bbox, a chip, a
+   thumbnail — surface its existing attributes *before* offering more
+   actions. Don't make the user re-derive what we already know about
+   that thing.
+
+5. **Mirror information across views.** Any fact shown in one view
+   (e.g. a scene's floor/view/title set during extraction) must be
+   readable AND editable in every related view that addresses that
+   thing. Two reads of the same datum must always agree.
+
+6. **Hierarchical context.** At the **house** level, show
+   house-global facts (extent, heights, orientation, wall thickness).
+   At the **scene** level, show the scene's specific facts plus the
+   house facts that constrain or inform them. The user should never
+   have to leave the level they're working at to remember what was
+   already locked in one level up.
 
 ---
 
@@ -164,6 +186,64 @@ unlocks an action.
 
 ✓ Removed in U4.
 
+### I. Click-a-bbox reveals nothing about that scene (U9)
+
+`ExtractedSceneMenu` today shows only the file path and three actions
+(Annotieren / Bbox anpassen / Löschen). The user's question on
+opening it is *"what do I already know about this thing?"* — kind?
+floor? view? labeled? annotation-ready? Right now the answer is
+"open the chip below or go to the scene". That violates principle 4
+(show what's already known) and forces the user to triangulate.
+
+The data is right there on `DatasetDrawing`: `kind`, `floor`, `view`,
+`title`, `labeled`, `label_count`, plus the `crop_from.page` source
+reference. We just don't surface it. See U9 below.
+
+### J. Scene attributes are scattered across views (U10)
+
+| View | Where the scene's kind/floor/view shows up |
+|---|---|
+| ExtractPage SceneStrip chip | "Grundriss EG" inline label ✓ |
+| ExtractPage canvas bbox click (menu) | only filename ✗ |
+| AnnotatePage topbar breadcrumb | filename only ✗ |
+| AnnotatePage left sidebar | hidden inside `ToolPalette`'s `sceneTag` dropdown ✗ |
+| ExportPage scene table | filename + RMS ✗ |
+| HouseCard hero on DatasetPage | only the floorplan-EG thumbnail ✗ |
+
+Five out of six places that show a scene fail to show what kind of
+scene it is. Defining a canonical "scene chip" view (label + thumb +
+state) and using it everywhere fixes this. See U12.
+
+### K. House-global facts are invisible at the house level (U11)
+
+`house_facts` (extent, heights, wall_thickness, orientation, workflow)
+is computed and stored as the user labels, but lives only in
+`localStorage` and is only rendered inside AnnotatePage's
+`WorkflowGuide` panel. At the **house overview** (ExtractPage), the
+user can't see:
+- "this house is 9.76 m × 12.50 m"
+- "EG = 2.80 m, OG = 2.65 m, DG = 2.40 m"
+- "outer wall ~ 36 cm"
+- "north = east edge of EG Grundriss"
+- "workflow phase 3 / 5 — Footprint locked"
+
+Violates principle 6 (hierarchical context). The house overview must
+surface house-global facts; otherwise the user has to dive into a
+random scene to check what's already locked in. See U11.
+
+### L. house_facts has no server-side home (U13)
+
+Per-house facts live only in `localStorage`. Implications:
+- A second machine loses everything.
+- The server cannot validate the dataset against the house's own
+  spec at export time.
+- A new team member cannot review what someone else already locked
+  in without their laptop.
+
+This is the dataset's structural metadata; it deserves a server file
+(`data/dataset/<key>/house_facts.json`) and a tiny GET/PUT pair. See
+U13.
+
 ---
 
 ## 2. Immediate fixes (U0–U4, shipped 2026-05-29)
@@ -231,20 +311,159 @@ and stops `pointerdown` propagation.
 
 ---
 
-## 4. Future / open questions (U9+)
+## 4. Disclosure-driven batch (U9–U13)
 
-- **U9 — Empty-state copy** is page-specific German prose written ad
+These five items operationalise principles 4–6 (show what's known,
+mirror, hierarchical context). They are scoped small enough to ship
+incrementally; in dependency order.
+
+### U9 — Click bbox → show all known scene attributes
+
+**Problem.** ExtractedSceneMenu shows only the filename. The user
+opens it expecting to *see* the scene's attributes; we make them
+infer from the chip below or open the editor.
+
+**Proposal.** Promote the menu to a small details popover:
+
+```
+┌─────────────────────────────────────────┐
+│  HOUSE-22-FLOORPLAN-EG.JPG    Quelle S1 │
+│  ───────────────────────────────────────│
+│  Typ            Grundriss · EG          │
+│  Status         ✓ annotiert · 42 Labels │
+│  Bezug H/V      ◐ nur H — V fehlt       │
+│  Titel          (keine)                 │
+│  ───────────────────────────────────────│
+│  ↗ Annotieren                           │
+│  ↔ Bbox anpassen                        │
+│  ✏  Typ ändern                          │
+│  ✕ Szene löschen                        │
+└─────────────────────────────────────────┘
+```
+
+Every attribute is **inline-editable** (✏ pencil reveals the same
+kind / floor / view dropdowns used in the post-draw classifier
+chip). Edits PUT to the dataset manifest so the chip + AnnotatePage
+header pick them up immediately.
+
+Skeleton:
+- new component `SceneDetailsPopover` reused by U10 + U12
+- new endpoint `PATCH /datasets/{key}/drawings/{file}` for the
+  attribute set `{ kind, floor, view, title }`
+- chip-click and bbox-click both route to the same popover
+
+### U10 — Mirror scene attributes in the AnnotatePage header
+
+**Problem.** On AnnotatePage, the scene's classified kind/floor/view
+is buried inside `ToolPalette`'s `sceneTag` dropdown. The breadcrumb
+shows only the filename. The user doing detailed annotation work
+forgets what kind of scene they're labeling.
+
+**Proposal.** Add a thin attribute strip directly under the breadcrumb
+(or as a leading element in the AnnotateSceneStrip row): the same
+data the popover from U9 shows, rendered as read-only chips with
+✏ pencil affordances. Click ✏ → opens U9's popover inline.
+
+Single source of edit: the popover. Both the bbox-click on Extract and
+the ✏ in the Annotate header reach the same thing.
+
+### U11 — House-global facts panel on ExtractPage
+
+**Problem.** `house_facts` (extent / heights / wall_thickness /
+orientation / workflow) is the structural memory of the labeling
+session, but it only renders inside AnnotatePage's `WorkflowGuide`.
+The user reviewing the house can't see what's already locked in.
+
+**Proposal.** Add a "Haus-Fakten" card to the ExtractPage left
+sidebar, just above the page list:
+
+```
+HAUS-FAKTEN                                  ✏
+────────────────────────────────────────────────
+Ausdehnung    9,76 m × 12,50 m × 7,40 m
+Geschosse     EG 2,80 m · OG 2,65 m · DG 2,40 m
+Außenwand     ~ 36 cm
+Norden        Ostkante EG-Grundriss
+Phase         3 / 5 — Footprint
+```
+
+**Read-only on ExtractPage** (≤ 6 rows; collapsed by default if any
+field is unknown). ✏ opens AnnotatePage (`/:key/scene/.../annotate`)
+at the scene whose Workflow Phase owns that fact, scrolled to that
+phase's section.
+
+The same card can also render on `/:key/3d` and `/:key/export`,
+keeping principle 6 (hierarchical context) regardless of the user's
+view.
+
+### U12 — Canonical "scene chip" data shape
+
+**Problem.** Five views render a scene; only two of them speak the
+same visual language. New views (and there will be more) re-invent
+the wheel each time.
+
+**Proposal.** One TS type + one renderer:
+
+```ts
+// ui/src/components/scene/types.ts
+export interface SceneChipData {
+  file: string;
+  title: string;
+  url: string;
+  kind: 'floorplan' | 'elevation' | 'section' | 'detail' | null;
+  floor: string | null;     // 'EG' | 'OG' | … for floorplans
+  view: string | null;      // 'N' | 'S' | 'O' | 'W' for elevations
+  page?: number;            // source PDF page if known
+  labeled: boolean;
+  labelCount: number;
+  readiness?: { hasH: boolean; hasV: boolean };  // Bezug presence
+}
+
+// ui/src/components/scene/chipLabel.ts
+export function chipShortLabel(s: SceneChipData): string { … }
+export function chipLongLabel(s: SceneChipData): string { … }
+```
+
+The renderer is a small React component used by SceneStrip (both
+pages), HouseCard hero strip on Dataset, ExportPage scene table, and
+the U9 popover header. Indicators (✓ labeled, ● readiness dot, count
+badge) follow the same rules everywhere.
+
+### U13 — house_facts has a server home
+
+**Problem.** `house_facts` lives only in `localStorage`. Switching
+machines loses it; server can't validate the dataset against the
+house's own spec at export time; team reviewers can't see what's
+locked in.
+
+**Proposal.** Promote `data/dataset/<key>/house_facts.json` to a
+schema-versioned file with the same shape `loadHouseFacts` already
+emits. Add GET/PUT endpoints; `loadHouseFacts` becomes
+`fetchHouseFacts`. Migration: on first GET that returns 404, the UI
+PUTs whatever it has in localStorage; thereafter the server is
+source of truth.
+
+Schema: `schema/house_facts.schema.json` (new). Validate on PUT.
+
+This unblocks export-time validation (e.g. "Set B export requires
+extent + ≥ 2 storey heights") and any future cross-team review.
+
+---
+
+## 5. Future / open questions (U14+)
+
+- **U14 — Empty-state copy** is page-specific German prose written ad
   hoc. Promote three common empty states (no scenes / no labels / no
   exports) to a shared `EmptyState` component with consistent typography
   and a primary CTA.
-- **U10 — Toast policy.** AnnotatePage has rich toasts; ExtractPage uses
+- **U15 — Toast policy.** AnnotatePage has rich toasts; ExtractPage uses
   `window.alert` for errors. Lift toasts into a Shell-level provider
   and use them everywhere.
-- **U11 — Color tokens.** `bg-emerald-{50,100,600,700,900}` is used
+- **U16 — Color tokens.** `bg-emerald-{50,100,600,700,900}` is used
   ad-hoc to mean "labeled / extracted / ready". Define one semantic
   scale (`status-ready` / `status-warn` / `status-flag`) in
   `tailwind.config` and audit existing call sites.
-- **U12 — Mobile-ish breakpoints.** The pages assume ≥ 1280 px wide.
+- **U17 — Mobile-ish breakpoints.** The pages assume ≥ 1280 px wide.
   Not a priority for the labeling rig, but worth a single MQ pass so
   the homepage at least lists houses on a laptop screen.
 
