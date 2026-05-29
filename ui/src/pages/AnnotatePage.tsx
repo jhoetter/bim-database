@@ -30,6 +30,10 @@ import type {
 } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import { StepperBar } from '../components/StepperBar';
+import { computePerHouseSteps, rememberLastStep } from '../lib/step_state';
+import { getIncomingPdf as fetchIncomingPdf } from '../api/client';
+import type { IncomingPdf } from '../api/types';
 import {
   handlesFor,
   labelCentroid,
@@ -620,6 +624,25 @@ export function AnnotatePage() {
   );
   const sceneList = houseScenes ?? [];
   const sceneIndex = sceneList.findIndex((s) => s.file === decodedFile);
+
+  // P0.3 — fetch intake bundle for stepper state. Best-effort: a missing
+  // intake bundle (legacy houses that were never uploaded) doesn't block.
+  const { data: intakeBundle } = useResource<IncomingPdf | null>(
+    async () => {
+      try { return await fetchIncomingPdf(key); } catch { return null; }
+    },
+    [key],
+  );
+  const datasetForSteps = useMemo(() => (
+    houseScenes
+      ? { key, drawings: houseScenes.map((s) => ({ file: s.file, url: '', kind: '', labeled: true })) }
+      : null
+  ) as unknown as Parameters<typeof computePerHouseSteps>[2], [houseScenes, key]);
+  const stepState = useMemo(
+    () => computePerHouseSteps(key, intakeBundle, datasetForSteps),
+    [key, intakeBundle, datasetForSteps],
+  );
+  useEffect(() => { rememberLastStep(key, 'annotate'); }, [key]);
   const prevScene = sceneIndex > 0 ? sceneList[sceneIndex - 1] : null;
   const nextScene = sceneIndex >= 0 && sceneIndex < sceneList.length - 1 ? sceneList[sceneIndex + 1] : null;
 
@@ -2996,7 +3019,16 @@ export function AnnotatePage() {
         />
       }
     >
-      <div className="h-full bg-white relative overflow-hidden">
+      <div className="flex flex-col h-full">
+        <StepperBar
+          houseKey={key}
+          current="annotate"
+          intakeDone={stepState.intakeDone}
+          extractDone={stepState.extractDone}
+          annotateDone={stepState.annotateDone}
+          exportDone={stepState.exportDone}
+        />
+        <div className="flex-1 min-h-0 bg-white relative overflow-hidden">
         {loading && <p className="absolute top-4 left-4 text-zinc-700 text-sm">Lade Labels…</p>}
         {error && <p className="absolute top-4 left-4 text-red-700 text-sm">Fehler: {error.message}</p>}
         <svg
@@ -4030,6 +4062,7 @@ export function AnnotatePage() {
             </FloatingPopover>
           </div>
         )}
+        </div>
       </div>
     </Shell>
   );
@@ -4176,7 +4209,7 @@ function WorkflowGuide({
         <span className="w-3 text-center">{open ? '▾' : '▸'}</span>
         <span>Arbeitsablauf</span>
         <span className="ml-auto text-zinc-500 font-normal">
-          Schritt {phaseIdx + 1} / 6 — {workflowPhaseLabelDe(phase)}
+          Phase {phaseIdx + 1} / 6 — {workflowPhaseLabelDe(phase)}
         </span>
       </button>
       {open && (
@@ -4206,7 +4239,7 @@ function WorkflowGuide({
           {phase === 'inventory' && (
             <div className="space-y-1.5">
               <p className="text-[0.72rem] text-zinc-700 leading-snug">
-                <span className="font-semibold">Schritt 1: Szenen-Inventar.</span> Jede
+                <span className="font-semibold">Phase 1: Szenen-Inventar.</span> Jede
                 Szene braucht einen Tag + (für Ansicht/Schnitt) eine Himmelsrichtung,
                 (für Grundriss) ein Geschoss.
               </p>
@@ -4332,7 +4365,7 @@ function WorkflowGuideHeightAnchor({
   return (
     <div className="space-y-1.5">
       <p className="text-[0.72rem] text-zinc-700 leading-snug">
-        <span className="font-semibold">Schritt 2: Höhenkoten ankern.</span>{' '}
+        <span className="font-semibold">Phase 2: Höhenkoten ankern.</span>{' '}
         Bezugshöhe + First in einer Ansicht/Schnitt setzen. Weitere Höhen
         sind willkommen, aber optional.
       </p>
@@ -4356,7 +4389,7 @@ function WorkflowGuideHeightAnchor({
             <li
               key={key}
               className="flex items-center gap-1.5 text-[0.7rem]"
-              title={set ? `${label} = ${fmt(v)}` : (req ? 'Pflicht für Schritt 2' : 'optional')}
+              title={set ? `${label} = ${fmt(v)}` : (req ? 'Pflicht für Phase 2' : 'optional')}
             >
               <span className={set ? 'text-emerald-600' : (req ? 'text-amber-600' : 'text-zinc-400')}>
                 {set ? '✓' : (req ? '⚠' : '○')}
@@ -4408,7 +4441,7 @@ function WorkflowGuideFootprint({
   return (
     <div className="space-y-1.5">
       <p className="text-[0.72rem] text-zinc-700 leading-snug">
-        <span className="font-semibold">Schritt 3: Hausgrundriss vermessen.</span>{' '}
+        <span className="font-semibold">Phase 3: Hausgrundriss vermessen.</span>{' '}
         Außenwände zeichnen, Wandstärke setzen, horizontalen + vertikalen
         Bezugsmaß über die volle Gebäudebreite/-tiefe legen.
       </p>
@@ -4524,7 +4557,7 @@ function WorkflowGuideDetail({
     <div className="space-y-1.5">
       {!done && (
         <p className="text-[0.72rem] text-zinc-700 leading-snug">
-          <span className="font-semibold">Schritt 6: Detail-Beschriftung.</span>{' '}
+          <span className="font-semibold">Phase 6: Detail-Beschriftung.</span>{' '}
           Hausgerüst steht — geh die Szenen frei durch und ergänze
           Öffnungen, Wände, weitere Höhen, Maße. Wenn du fertig bist,
           klick „Haus fertig" unten.
@@ -4620,7 +4653,7 @@ function WorkflowGuideBezugsmasse({
   return (
     <div className="space-y-1.5">
       <p className="text-[0.72rem] text-zinc-700 leading-snug">
-        <span className="font-semibold">Schritt 5: Bezugsmaße pro Szene.</span>{' '}
+        <span className="font-semibold">Phase 5: Bezugsmaße pro Szene.</span>{' '}
         In jeder Ansicht/Schnitt eine Bezugshöhe (±0,00) setzen, dann
         einen horizontalen + vertikalen Bezugsmaß. Werte werden aus
         Haus-Maßen vorgeschlagen.
@@ -4713,7 +4746,7 @@ function WorkflowGuideOrientation({
   return (
     <div className="space-y-1.5">
       <p className="text-[0.72rem] text-zinc-700 leading-snug">
-        <span className="font-semibold">Schritt 4: Himmelsrichtung festlegen.</span>{' '}
+        <span className="font-semibold">Phase 4: Himmelsrichtung festlegen.</span>{' '}
         Auf dem Grundriss eine Außenwand als Nordkante markieren. Damit
         weiß jede Ansicht/Schnitt, welche Hausbreite sie zeigt.
       </p>
@@ -4738,7 +4771,7 @@ function WorkflowGuideOrientation({
       )}
       {onGrundriss && outerWalls.length === 0 && (
         <p className="text-[0.7rem] text-amber-700">
-          Noch keine Wände. Schritt 3 abschließen, dann hier weitermachen.
+          Noch keine Wände. Phase 3 abschließen, dann hier weitermachen.
         </p>
       )}
       {onGrundriss && outerWalls.length > 0 && (

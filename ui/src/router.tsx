@@ -7,6 +7,7 @@ import { AnnotatePage } from './pages/AnnotatePage';
 import { IntakePage } from './pages/IntakePage';
 import { ExtractPage } from './pages/ExtractPage';
 import { ExportPreviewPage } from './pages/ExportPreviewPage';
+import { ExportPage } from './pages/ExportPage';
 
 // R5 — the 3D preview drags in three + react-three-fiber + drei (~950 KB).
 // Split it so the rest of the app stays well under the bundle budget.
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { index: true, Component: DatasetPage },
       { path: 'intake', Component: IntakePage },
       { path: ':key/extract', Component: ExtractPage },
+      { path: ':key/export', Component: ExportPage },
       { path: ':key/scene/:file/export-preview', Component: ExportPreviewPage },
       { path: ':key/3d', Component: Preview3DSuspense },
       { path: ':key', Component: DatasetHousePage },

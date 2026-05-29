@@ -71,13 +71,18 @@ export function Preview3DPage() {
   return (
     <Shell
       breadcrumb={
-        <Breadcrumb
-          items={[
-            { label: 'Datensatz', to: '/' },
-            { label: key, to: `/${key}` },
-            { label: '3D Vorschau' },
-          ]}
-        />
+        <div className="flex items-center gap-2">
+          <Breadcrumb
+            items={[
+              { label: 'Datensatz', to: '/' },
+              { label: key, to: `/${key}` },
+              { label: 'Annotieren', to: `/${key}` },
+            ]}
+          />
+          <span className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-zinc-900 text-white font-semibold tracking-wider">
+            3D-VORSCHAU
+          </span>
+        </div>
       }
       leftSidebar={<SidePanel scene={scene3d} />}
     >
