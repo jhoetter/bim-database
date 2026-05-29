@@ -253,6 +253,87 @@ def test_facts_round_trip():
     _run(mcp_server.set_house_facts(key=key, patch=g["data"]))
 
 
+# ── §5.7b Building-global facts (issue #8) ───────────────────────────────
+
+
+def _snapshot_house_facts(key):
+    """Return (path, original_text_or_None) for restore in a finally."""
+    p = api_main.DATASET_DIR / key / "house_facts.json"
+    return p, (p.read_text() if p.exists() else None)
+
+
+def _restore_house_facts(p, original):
+    if original is not None:
+        p.write_text(original)
+    elif p.exists():
+        p.unlink()
+
+
+def test_building_global_fact_round_trip_with_provenance():
+    """Issue #8: set building-global heights with provenance, read them
+    back propagated to all scenes, and confirm the deterministic müNN
+    derivation (EG datum + relative FH)."""
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    p, original = _snapshot_house_facts(key)
+    try:
+        r1 = _run(mcp_server.set_building_global_fact(
+            key=key, fact="EG_munn_mm", value=843800, source_scene=file,
+            source_label_id="hm:lab-eg", confidence="high",
+        ))
+        assert r1["ok"], r1.get("error")
+        r2 = _run(mcp_server.set_building_global_fact(
+            key=key, fact="FH_mm", value=7210, source_scene=file,
+            source_label_id="hm:lab-fh", confidence="high",
+        ))
+        assert r2["ok"], r2.get("error")
+
+        g = _run(mcp_server.get_building_global_facts(key=key))
+        assert g["ok"], g.get("error")
+        facts = g["data"]["facts"]
+        assert facts["EG_munn_mm"]["value"] == 843800
+        assert facts["EG_munn_mm"]["source"]["scene"] == file
+        assert facts["FH_mm"]["source"]["label_id"] == "hm:lab-fh"
+        assert facts["FH_mm"]["confidence"] == "high"
+
+        derived = {d["name"]: d for d in g["data"]["derived"]}
+        assert derived["FH_munn_mm"]["value"] == 851010
+        assert derived["FH_munn_mm"]["needs_cross_check"] is True
+
+        # Propagation: building-wide, available on every scene.
+        assert file in g["data"]["propagation"]["applies_to_scenes"]
+    finally:
+        _restore_house_facts(p, original)
+
+
+def test_building_global_fact_rejects_unknown_name():
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    p, original = _snapshot_house_facts(key)
+    try:
+        r = _run(mcp_server.set_building_global_fact(
+            key=key, fact="NONSENSE_mm", value=1, source_scene=file,
+        ))
+        assert not r["ok"]
+        assert r["error"]["code"] == "unknown_fact"
+    finally:
+        _restore_house_facts(p, original)
+
+
+def test_building_global_fact_requires_provenance():
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    # Empty source_scene is rejected before any disk write.
+    r = _run(mcp_server.set_building_global_fact(
+        key=key, fact="FH_mm", value=7210, source_scene="",
+    ))
+    assert not r["ok"]
+    assert r["error"]["code"] == "missing_provenance"
+
+
 # ── §5.8 Export ──────────────────────────────────────────────────────────
 
 
@@ -736,6 +817,8 @@ def test_tool_descriptions_are_present():
         mcp_server.set_label_status, mcp_server.add_reference_dim,
         mcp_server.recompute_homography, mcp_server.get_house_facts,
         mcp_server.set_house_facts, mcp_server.validate_export_readiness,
+        mcp_server.set_building_global_fact,  # issue #8
+        mcp_server.get_building_global_facts,  # issue #8
         mcp_server.export_house, mcp_server.list_anomalies,
         mcp_server.dump_run_summary,
         mcp_server.get_scene_view_with_labels,  # H5-2
