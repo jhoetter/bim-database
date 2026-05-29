@@ -112,6 +112,37 @@ export async function deleteExtractedScene(key: string, file: string): Promise<v
   }
 }
 
+// R4 — per-scene export preview.
+
+export interface ExportPreview {
+  status: 'ok' | 'insufficient_references' | 'degenerate';
+  reason?: string | null;
+  homography: {
+    matrix: number[][];
+    computed_from: string[];
+    rectified_size_px: [number, number];
+    rms_residual_px: number;
+  } | null;
+  raw_url: string;
+  rectified_url: string | null;
+  set_a: unknown[];
+  set_b: unknown[];
+  computed_from: string[];
+  rms_residual_px: number;
+}
+
+export async function fetchExportPreview(key: string, file: string): Promise<ExportPreview> {
+  const r = await fetch(
+    `/exports/${encodeURIComponent(key)}/${encodeURIComponent(file)}/preview`,
+    { method: 'POST' },
+  );
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
+}
+
 export async function deleteIncomingPdf(key: string): Promise<void> {
   const r = await fetch(`/pdfs/incoming/${encodeURIComponent(key)}`, {
     method: 'DELETE',

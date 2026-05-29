@@ -57,6 +57,10 @@ if DATASET_DIR.exists():
 if PDFS_DIR.exists():
     app.mount("/static/pdfs", StaticFiles(directory=str(PDFS_DIR)),
               name="pdfs-static")
+EXPORT_CACHE_STATIC = BASE / "tmp" / "exports-cache"
+EXPORT_CACHE_STATIC.mkdir(parents=True, exist_ok=True)
+app.mount("/static/exports-cache", StaticFiles(directory=str(EXPORT_CACHE_STATIC)),
+          name="exports-cache-static")
 
 # Built React bundle. Hashed asset files live in ui/dist/assets/.
 if (UI_DIST / "assets").exists():
@@ -685,6 +689,112 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
     _write_manifest(key, intake)
 
     return {"extracted": out_entries, "intake_state": intake["state"]}
+
+
+# ── R4 — export preview (per-scene rectified + Set A / Set B labels) ─────
+
+EXPORT_CACHE = BASE / "tmp" / "exports-cache"
+
+# Label types that go into Set A (the "Model 1 must detect" subset per
+# spec/annotation-tool.md §2 — dimensioned strokes only, plus their
+# paired dim_numbers when present).
+SET_A_TYPES = {"dimensioned_distance", "dimension_number"}
+
+
+def _load_scene_labels(key: str, file: str) -> dict | None:
+    p = _safe_label_path("dataset", key, file)
+    if not p.exists():
+        return None
+    return json.loads(p.read_text())
+
+
+@app.post("/exports/{key}/{file}/preview", tags=["exports"])
+def export_preview(key: str, file: str):
+    """R4 — return the two ground-truth views for one scene:
+       Set A = raw image + dimensioned strokes only
+       Set B = rectified image + every label, geometry transformed through H
+
+    Both sets are computed on the fly. The rectified image is cached at
+    tmp/exports-cache/<key>/<file>/rectified.jpg keyed on (image mtime,
+    labels mtime); the response carries rectified_url pointing at the
+    static-mounted cache.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    src_img = _scene_image_path("dataset", key, file)
+    if not src_img.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    scene = _load_scene_labels(key, file)
+    if scene is None:
+        raise HTTPException(status_code=404, detail=f"no labels for {file}")
+    labels = scene.get("labels") or []
+    img_size = tuple(scene.get("image_size_px") or [0, 0])
+    if not img_size or img_size[0] <= 0 or img_size[1] <= 0:
+        # Fall back to PIL.
+        from PIL import Image as PILImage
+        with PILImage.open(src_img) as im:
+            img_size = im.size  # type: ignore[assignment]
+
+    from .homography import compute_rectification, rectify_image, transform_label
+
+    rect = compute_rectification(labels, img_size)
+
+    # Cache key based on (image mtime, labels mtime). Either dimension
+    # changing invalidates the rectified output.
+    img_mtime = src_img.stat().st_mtime_ns
+    lbl_mtime = _safe_label_path("dataset", key, file).stat().st_mtime_ns
+    cache_dir = EXPORT_CACHE / key / Path(file).stem
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    rectified_path = cache_dir / "rectified.jpg"
+    sentinel = cache_dir / "rectified.mtime"
+    sentinel_value = f"{img_mtime}/{lbl_mtime}/{rect.status}"
+    needs_render = (
+        rect.status == "ok"
+        and (not rectified_path.exists()
+             or not sentinel.exists()
+             or sentinel.read_text() != sentinel_value)
+    )
+    if needs_render:
+        try:
+            rectify_image(src_img, rectified_path, rect.affine, rect.rectified_size_px)
+            sentinel.write_text(sentinel_value)
+        except Exception as e:  # noqa: BLE001
+            return {
+                "status": "degenerate",
+                "reason": f"rectify failed: {e}",
+                "homography": None,
+                "raw_url": f"/static/dataset/{key}/{file}",
+                "rectified_url": None,
+                "set_a": [l for l in labels if l.get("type") in SET_A_TYPES],
+                "set_b": labels,
+                "computed_from": rect.computed_from,
+                "rms_residual_px": rect.rms_residual_px,
+            }
+    set_a = [l for l in labels if l.get("type") in SET_A_TYPES]
+    if rect.status == "ok":
+        set_b = [transform_label(rect.affine, l) for l in labels]
+    else:
+        set_b = labels
+    return {
+        "status": rect.status,
+        "reason": rect.reason,
+        "homography": {
+            "matrix": rect.matrix,
+            "computed_from": rect.computed_from,
+            "rectified_size_px": list(rect.rectified_size_px),
+            "rms_residual_px": rect.rms_residual_px,
+        },
+        "raw_url": f"/static/dataset/{key}/{file}",
+        "rectified_url": (
+            f"/static/exports-cache/{key}/{Path(file).stem}/rectified.jpg"
+            if rect.status == "ok" else None
+        ),
+        "set_a": set_a,
+        "set_b": set_b,
+        "computed_from": rect.computed_from,
+        "rms_residual_px": rect.rms_residual_px,
+    }
 
 
 @app.delete("/pdfs/{key}/extract/{file}", tags=["pdfs"], status_code=204)
