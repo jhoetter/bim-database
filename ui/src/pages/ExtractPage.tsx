@@ -24,6 +24,8 @@ import {
 import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import { StepperBar } from '../components/StepperBar';
+import { computePerHouseSteps, rememberLastStep } from '../lib/step_state';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
 const VIEWS = ['north', 'south', 'east', 'west'] as const;
@@ -212,6 +214,15 @@ export function ExtractPage() {
     }
   }, [key]);
 
+  // R3 — remember this house's last step + compute step flags for the
+  // top stepper. Re-runs on every state change cheaply (localStorage is
+  // synchronous + the inputs are already memoized).
+  useEffect(() => { rememberLastStep(key, 'extract'); }, [key]);
+  const stepState = useMemo(
+    () => computePerHouseSteps(key, intake, dataset),
+    [key, intake, dataset],
+  );
+
   const pageBboxes = draft.bboxes.filter((b) => b.page === currentPage);
   const extractedOnPage = useMemo(
     () => (dataset?.drawings ?? []).filter((d) =>
@@ -257,7 +268,16 @@ export function ExtractPage() {
       }
       rightRailLabel="Szenen"
     >
-      <div className="px-4 py-3 flex flex-col h-full">
+      <div className="flex flex-col h-full">
+        <StepperBar
+          houseKey={key}
+          current="extract"
+          intakeDone={stepState.intakeDone}
+          extractDone={stepState.extractDone}
+          annotateDone={stepState.annotateDone}
+          exportDone={stepState.exportDone}
+        />
+        <div className="px-4 py-3 flex flex-col flex-1 min-h-0">
         <PageNav info={info} page={currentPage} onPage={setPage} />
         {error && <p className="text-[0.78rem] text-red-700 my-2">{error}</p>}
         {info && pageInfo && (
@@ -275,6 +295,7 @@ export function ExtractPage() {
             onUpdate={onUpdateBbox}
           />
         )}
+        </div>
       </div>
     </Shell>
   );

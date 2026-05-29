@@ -17,6 +17,7 @@ import {
 import type { IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import { StepperBar } from '../components/StepperBar';
 
 export function IntakePage() {
   // Refresh hook so list mutations bring new data without a full page
@@ -31,6 +32,14 @@ export function IntakePage() {
       }
       leftSidebar={<IntakeSidebar bundles={data ?? []} />}
     >
+      <StepperBar
+        houseKey=""
+        current="intake"
+        intakeDone={(data ?? []).some((b) => b.state !== 'pending')}
+        extractDone={(data ?? []).some((b) => (b.extracted_scenes?.length ?? 0) > 0)}
+        annotateDone={false}
+        exportDone={false}
+      />
       <div className="px-6 py-5 space-y-6 max-w-5xl">
         <section>
           <h1 className="text-[1.05rem] font-semibold mb-2">PDFs hochladen</h1>

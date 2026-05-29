@@ -1,9 +1,11 @@
 import { Link, useNavigate, useParams } from 'react-router';
-import { useState } from 'react';
-import { fetchDataset, useResource } from '../api/client';
-import type { DatasetComposite, DatasetDrawing } from '../api/types';
+import { useEffect, useState } from 'react';
+import { fetchDataset, getIncomingPdf, useResource } from '../api/client';
+import type { DatasetComposite, DatasetDrawing, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import { StepperBar } from '../components/StepperBar';
+import { computePerHouseSteps, getLastStep, rememberLastStep } from '../lib/step_state';
 
 // Per-house view: left sidebar with manifest metadata + cross-link to the real
 // house record; main area shows all drawings as a Pinterest grid; clicking a
@@ -13,6 +15,17 @@ export function DatasetHousePage() {
   const { key = '', file } = useParams();
   const navigate = useNavigate();
   const { data, error, loading } = useResource(() => fetchDataset(key), [key]);
+  const [intake, setIntake] = useState<IncomingPdf | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getIncomingPdf(key).then((b) => { if (!cancelled) setIntake(b); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [key]);
+  useEffect(() => { rememberLastStep(key, 'annotate'); }, [key]);
+
+  const steps = computePerHouseSteps(key, intake, data);
+  void getLastStep;  // consumed by DatasetPage callers
 
   const decodedFile = file ? decodeURIComponent(file) : null;
   const activeDrawing = decodedFile
@@ -57,6 +70,14 @@ export function DatasetHousePage() {
       rightRailLabel={activeDrawing ? 'Zeichnung' : undefined}
       onCloseRightRail={() => navigate(`/dataset/${key}`)}
     >
+      <StepperBar
+        houseKey={key}
+        current="annotate"
+        intakeDone={steps.intakeDone}
+        extractDone={steps.extractDone}
+        annotateDone={steps.annotateDone}
+        exportDone={steps.exportDone}
+      />
       <div className="px-6 py-5">
         {data?.composite && (
           <CompositeSection composite={data.composite} houseKey={key} />

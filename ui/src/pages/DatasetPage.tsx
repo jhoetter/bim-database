@@ -6,6 +6,7 @@ import type { DatasetDrawing, DatasetHouse } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 import { getLastVisitedScene } from './AnnotatePage';
+import { getLastStep } from '../lib/step_state';
 
 // Two views: 'gallery' (flat Pinterest grid of all drawings across houses)
 // and 'by-house' (grouped, easier for spot-checking coverage). Filters in
@@ -294,9 +295,19 @@ function HouseCard({ house }: { house: DatasetHouse }) {
   const last = getLastVisitedScene('dataset', house.key);
   const targetFile =
     last && house.drawings.some((d) => d.file === last) ? last : hero.file;
+  // R3 — also honor last-visited step. The card always goes to the
+  // annotation editor when the user has touched it at least once;
+  // otherwise it depends on extract progress.
+  const lastStep = getLastStep(house.key);
+  const targetHref =
+    lastStep === 'extract'
+      ? `/dataset/${house.key}/extract`
+      : lastStep === 'export'
+        ? `/dataset/${house.key}/export`
+        : `/dataset/${house.key}/scene/${encodeURIComponent(targetFile)}/annotate`;
   return (
     <Link
-      to={`/dataset/${house.key}/scene/${encodeURIComponent(targetFile)}/annotate`}
+      to={targetHref}
       className="block rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
       title={
         targetFile === hero.file
