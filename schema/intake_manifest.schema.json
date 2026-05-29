@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bim-database.local/schema/intake_manifest.schema.json",
+  "title": "IntakeManifest",
+  "description": "Manifest for one per-house intake bundle under data/pdfs/incoming/<house_key>/. v1.0 bundles (PDF-only, no quality data) remain valid; v2.0 adds ingestion-pipeline provenance and per-page quality so the dataset is reproducible from the recorded thresholds and pipeline version.",
+  "type": "object",
+  "required": ["schema_version", "house_key", "consolidated_pdf", "source_filenames", "uploaded_at", "state"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0", "2.0"],
+      "description": "v1.0 = R1 PDF-only intake. v2.0 = adds source_type, submitter (form only), consent (form only), pages[], pipeline{}."
+    },
+    "house_key": {
+      "type": "string",
+      "pattern": "^house-[0-9]+$"
+    },
+    "consolidated_pdf": {
+      "type": ["string", "null"],
+      "description": "Filename of the rectified, consolidated PDF in the bundle root. Single source = passthrough; multi-source = pypdf-merged. Null only when the bundle is pending (no PDF yet)."
+    },
+    "source_filenames": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Original filenames preserved under source/ (post-dedup by SHA-256)."
+    },
+    "uploaded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "page_count": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "state": {
+      "type": "string",
+      "enum": ["pending", "partial", "extracted"],
+      "description": "Derived from the on-disk facts at write time: pending = no consolidated PDF yet; partial = consolidated PDF present, no scenes; extracted = at least one scene cut into data/dataset/<key>/."
+    },
+    "user_notes": {
+      "type": "string"
+    },
+    "extracted_scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "page": {"type": "integer", "minimum": 1},
+          "bbox_pdf_units": {
+            "type": "array",
+            "items": {"type": "number"},
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "scene_file": {"type": "string"}
+        },
+        "required": ["page", "scene_file"]
+      }
+    },
+
+    "source_type": {
+      "type": "string",
+      "enum": ["batch", "scrape", "form"],
+      "description": "v2.0+. Which adapter produced this bundle. 'batch' = developer-collected files; 'scrape' = web-scraped (gates flag but do not block); 'form' = customer submission (gates re-prompt the submitter, PII flag set)."
+    },
+    "submitter": {
+      "type": ["object", "null"],
+      "description": "v2.0, form only. Captured from the customer-facing submission form.",
+      "properties": {
+        "submission_id": {"type": "string"},
+        "contact_email": {"type": ["string", "null"]},
+        "contact_name": {"type": ["string", "null"]},
+        "client_ip_hash": {"type": ["string", "null"], "description": "SHA-256 of the client IP. Never store the raw IP."},
+        "user_agent": {"type": ["string", "null"]}
+      },
+      "required": ["submission_id"]
+    },
+    "consent": {
+      "type": ["object", "null"],
+      "description": "v2.0, form only. The license + training-use consent the submitter ticked.",
+      "properties": {
+        "training_use": {"type": "boolean"},
+        "license": {"type": "string", "enum": ["cc0", "cc-by", "cc-by-sa", "permission-granted", "other"]},
+        "license_notes": {"type": "string"},
+        "consented_at": {"type": "string", "format": "date-time"}
+      },
+      "required": ["training_use", "consented_at"]
+    },
+    "pages": {
+      "type": "array",
+      "description": "v2.0+. Per-page quality + decision. One entry per page in the consolidated PDF; order matches page numbering (1-indexed).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "page": {"type": "integer", "minimum": 1},
+          "source_origin": {
+            "type": "object",
+            "description": "Which input file + (for multi-page sources) which page within it produced this page of the consolidated PDF.",
+            "properties": {
+              "source_file": {"type": "string"},
+              "source_page": {"type": ["integer", "null"], "minimum": 1}
+            },
+            "required": ["source_file"]
+          },
+          "quality": {
+            "type": "object",
+            "properties": {
+              "width_px": {"type": "integer", "minimum": 1},
+              "height_px": {"type": "integer", "minimum": 1},
+              "dpi_estimate": {"type": ["number", "null"]},
+              "blur_laplacian_var": {"type": ["number", "null"], "description": "Variance of Laplacian; higher = sharper."},
+              "exposure_mean": {"type": ["number", "null"], "description": "Mean luminance 0..255."},
+              "glare_fraction": {"type": ["number", "null"], "description": "Fraction of pixels at >245/255 luminance."},
+              "skew_deg": {"type": ["number", "null"]},
+              "document_present": {"type": "boolean"}
+            }
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["pass", "warn", "reject"]
+          },
+          "decision_reasons": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "rectified": {
+            "type": "boolean",
+            "description": "Whether the rectifier successfully applied a perspective correction to this page."
+          },
+          "rectify_method": {
+            "type": ["string", "null"],
+            "enum": [null, "passthrough", "deskew", "perspective_contour", "perspective_lines", "learned"]
+          },
+          "pii_flag": {
+            "type": "object",
+            "properties": {
+              "title_block_suspected": {"type": "boolean"},
+              "title_block_bbox_px": {
+                "type": ["array", "null"],
+                "items": {"type": "number"},
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "redacted": {"type": "boolean"}
+            }
+          },
+          "human_qa_required": {
+            "type": "boolean",
+            "description": "True when decision != pass — flagged for human review before training use."
+          }
+        },
+        "required": ["page", "decision"]
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "description": "v2.0+. Pipeline provenance — reproducibility metadata.",
+      "properties": {
+        "version": {"type": "string", "description": "Semver of the ingestion package."},
+        "thresholds_profile": {"type": "string", "description": "Name of the thresholds profile applied (e.g. 'default', 'strict-form')."},
+        "rectify_method": {
+          "type": "string",
+          "enum": ["passthrough", "perspective_contour", "perspective_lines", "learned"],
+          "description": "Default method attempted on each page. Per-page actual method recorded in pages[].rectify_method."
+        },
+        "enhancer": {
+          "type": "object",
+          "properties": {
+            "backend": {"type": "string", "enum": ["noop", "replicate-real-esrgan", "replicate-swinir", "replicate-topaz-text-refine", "local"]},
+            "version": {"type": ["string", "null"]},
+            "applied_to_text": {"type": "boolean", "description": "Hard-constraint guard. MUST be false on pages containing dimension text/digits — generative enhancers hallucinate values."}
+          },
+          "required": ["backend"]
+        }
+      },
+      "required": ["version", "rectify_method", "enhancer"]
+    }
+  },
+  "additionalProperties": true
+}

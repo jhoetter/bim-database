@@ -5,3 +5,12 @@ jsonschema
 python-multipart   # FastAPI file uploads (R1)
 PyMuPDF            # PDF page render + crop (R1 page render, R2 scene crop)
 pypdf              # PDF merge (R1.3 consolidation)
+
+# Ingestion pipeline (ingestion/) — CPU-only by default.
+numpy              # gate metrics + image ops
+pillow-heif        # HEIC/HEIF decode for phone-photo submissions
+opencv-python-headless  # perspective rectify + Hough skew estimate (optional but recommended)
+
+# Tests — keep here so `pip install -r requirements.txt` lets `make test`
+# run out of the box on a fresh clone.
+pytest
