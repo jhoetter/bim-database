@@ -1219,6 +1219,72 @@ def render_scene_grid_with_labels(
     return FileResponse(str(out), media_type="image/png")
 
 
+@app.get("/datasets/{key}/{file}/resolve-point", tags=["pdfs"])
+def resolve_scene_point(
+    key: str,
+    file: str,
+    point: str,
+    region: str | None = None,
+    max_dim: int = 1600,
+    frame: str = "source",
+    snap: bool = True,
+    snap_radius_px: int = 14,
+    ink_threshold: int = 140,
+):
+    """Issue #10: resolve a point to final SOURCE pixels — optional
+    crop-local → source mapping, then optional snap-to-nearest-feature.
+
+    Query args:
+      point          'x,y'. In source pixels when frame='source', or in
+                     the local frame of the `region` crop when frame='crop'.
+      region         'x0,y0,x1,y1' source-pixel crop (required for
+                     frame='crop'); the same rect passed to get_scene_view.
+      max_dim        the same cap used for the crop, so downscaled crops
+                     map back correctly.
+      frame          'source' | 'crop'.
+      snap           snap the mapped point to the nearest ink feature.
+      snap_radius_px search radius for the snap.
+      ink_threshold  grayscale cutoff (0..255) below which a pixel is ink.
+
+    Returns JSON: {source_point, mapped_point, snapped, offset_px,
+    distance_px, feature_point, frame}.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    if not 100 <= max_dim <= 4000:
+        raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
+    if frame not in ("source", "crop"):
+        raise HTTPException(status_code=400, detail="frame must be 'source' or 'crop'")
+    try:
+        pparts = [float(p) for p in point.split(",")]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="point must be 'x,y'")
+    if len(pparts) != 2:
+        raise HTTPException(status_code=400, detail="point must be 'x,y' (2 numbers)")
+    parsed_region = _parse_region(region)
+    if frame == "crop" and parsed_region is None:
+        raise HTTPException(status_code=400, detail="frame='crop' requires a region")
+    if not 1 <= snap_radius_px <= 200:
+        raise HTTPException(status_code=400, detail="snap_radius_px must be in [1, 200]")
+    if not 0 <= ink_threshold <= 255:
+        raise HTTPException(status_code=400, detail="ink_threshold must be in [0, 255]")
+
+    from PIL import Image as PILImage
+    from .snap import resolve_point
+    with PILImage.open(img_path) as src:
+        src.load()
+        result = resolve_point(
+            src, (pparts[0], pparts[1]),
+            region=parsed_region, max_dim=max_dim, frame=frame,
+            snap=snap, snap_radius_px=snap_radius_px, ink_threshold=ink_threshold,
+        )
+    return result
+
+
 @app.get("/pdfs/{key}/page/{n}/grid", tags=["pdfs"])
 def render_pdf_page_grid(
     key: str,
