@@ -1,6 +1,11 @@
 # End-to-end readiness (R) tracker
 
-**Status:** Draft (2026-05-29). Pre-implementation.
+**Status:** Revised 2026-05-29 — self-audit gaps folded in (R0 audit
+of mcp/PreviewPage/Badge, R2 draft persistence + bbox editing + slug
+uniqueness, R5 coordinate convention + Schnitt usage + door swing,
+R6 explicit export folder layout, new §10 engineering hygiene with
+testing / perf / auth defaults). R0 and R1 are implementation-ready
+as the next step.
 **Owner:** jhoetter
 **Predecessors:**
   - [`spec/annotation-tool.md`](annotation-tool.md) — schema, M0–M6, **two-stage training pipeline §2** (preserved verbatim)
@@ -150,11 +155,37 @@ waves. Some waves will themselves split into sub-waves during /loop.
   Workflow-phase / search filter for dataset houses.
 - R0.9 Update `README.md` / `AGENTS.md` to drop the houses path. Add a
   short pipeline diagram (same as the §0 ASCII above).
+- R0.10 **Audit `mcp_server.py`.** It currently exposes catalog data
+  via MCP tools (`list_houses`, `get_house`, etc.). Tools that
+  query catalog fields → delete. Tools that query dataset state →
+  keep + rename to drop the `house_` prefix where it's misleading.
+  Add the new R1/R2/R4/R5 surfaces only after those waves ship.
+- R0.11 **Audit `ui/src/pages/PreviewPage.tsx`.** Currently it
+  renders catalog-side previews keyed on the catalog model.
+  Decision: delete entirely; its scene-rendering helpers are
+  duplicated in `AnnotatePage.tsx` and `DatasetPage.tsx` already.
+  Re-add a dataset-equivalent only if R4 surfaces a use-case that
+  AnnotatePage's existing preview can't cover.
+- R0.12 **Audit `ui/src/components/Badge.tsx` + the `tier-N` /
+  `reconstructability_tier` / `modelable_in_bim_ai` paths.** These
+  are catalog-only signals. Strip every `tier-*` Badge tone, the
+  `BIM-AI ✓ / ✗ / ?` corner badge on HouseCard, and the
+  `constructionTone()` mapping if construction-as-fact disappears.
+  Keep only badges driven by dataset state (e.g. `WorkflowPhaseBadge`).
+- R0.13 **localStorage cleanup for in-flight browsers.** Existing
+  users have `bim-db:annotate:*:house:<key>:*` entries that will
+  point at deleted state once R0.5/6 runs. On first load of any
+  post-R0 build, scan `window.localStorage` for keys matching
+  `*:house:*` and remove them. Surface a one-time toast:
+  *"23 alte House-Einträge entfernt — Dataset bleibt erhalten."*
+  Idempotent; runs once per browser via a sentinel key
+  `bim-db:houses-removed:v1`.
 
 Verification gate: `npm run build` clean + `pytest` clean (if any
 tests reference houses, delete those too) + a manual smoke that
 `/dataset` lists houses and `/dataset/<key>/scene/<file>/annotate`
-opens the editor unchanged.
+opens the editor unchanged. Plus: open a fresh browser profile to
+confirm no `:house:` localStorage entries reappear.
 
 ### Phase R1 — PDF intake
 
@@ -234,6 +265,47 @@ cropped JPG / PNG appears under `data/dataset/<key>/`.
 - R2.7 Cross-house batch: from the intake overview, a "Alle PDFs
   extrahieren" mode opens the extractor sequentially across all
   incoming PDFs — useful when there are many small bundles.
+- R2.8 **Draft persistence (autosave-as-you-draw).** Every bbox the
+  user places lives in a draft, NOT in a committed dataset entry,
+  until they click "Extrahieren". Drafts persist to localStorage at
+  `bim-db:extract-draft:<scope>:<houseKey>` after every bbox add /
+  edit / delete; a debounced ~500 ms write keeps it cheap. On page
+  reload the draft re-hydrates and the user picks up exactly where
+  they left off. Drafts are wiped on successful extract (replaced
+  by the committed manifest entries) or on explicit "Verwerfen".
+  This is the single most likely workflow disruption point in the
+  whole pipeline — losing 30 bboxes to a tab crash is unacceptable.
+- R2.9 **Editing already-extracted bboxes.** Every committed scene
+  on the R2 page renders its bbox as a colored rectangle on the
+  PDF page (using the `crop_from.bbox_pdf_units` from the dataset
+  manifest). Click the rectangle → handles appear (8-handle drag
+  resize + drag-to-move). Adjust → click "Erneut extrahieren"
+  → R2.4's idempotent re-extraction runs. The same rectangle is
+  also clickable in the page thumbnail strip for fast navigation
+  back to a specific scene's bbox.
+- R2.10 **Rotation** (deferred to R2 v2). PDFs sometimes contain
+  drawings rotated 90° (legacy plotter output, landscape pages
+  embedded in portrait PDFs). R2 v1 ignores rotation — the bbox
+  is always axis-aligned to the PDF page. v2 adds an explicit
+  rotation handle on the bbox. Until then, the user works around
+  by rotating the PDF before upload. Tracked as a known limitation
+  in §11 (Risks).
+- R2.11 **Cross-page batch tagging.** Shift-click multiple page
+  thumbnails → "Diese Seiten als Grundriss EG markieren" applies
+  the kind/floor combo to every bbox on selected pages in one go.
+  Avoids retyping the same metadata 12 times for a multi-floor
+  plan set.
+- R2.12 **Crop quality preflight.** After bbox draw, the panel
+  shows the rendered crop at preview size with a heuristic
+  warning ("Auflösung sehr niedrig — < 800 px") when the bbox is
+  small enough that the 300 DPI output would be under a useful
+  threshold. User can override.
+- R2.13 **Slug uniqueness.** When multiple bboxes on the same page
+  have identical `(kind, view, floor)` — common for detail crops
+  — the slug auto-appends `-2`, `-3`, … in the order the bboxes
+  were drawn. Slug is locked at first extract; subsequent
+  re-extractions of the same bbox use the locked slug. Stored in
+  the draft so it persists across reloads.
 
 ### Phase R3 — Cross-step navigation
 
@@ -305,7 +377,21 @@ Inputs (all already in `house_facts`):
 | Per-scene view_openings (each Ansicht) | M0 | window/door positions on each wall face |
 | Per-scene component_lines (each Ansicht/Schnitt) | M0 | roof slopes + ridge + eave |
 
-#### 5.2 What the 3D scene contains
+#### 5.2 Coordinate convention
+
+**Y is up.** Three.js + react-three-fiber default; matches the
+`bezug_y_px → world_y` formula already in V0.1/V3 (negate-pixel-y
+gives world-y). X runs along the building's ê axis (east from the
+orientation graph), Z runs along n̂ (north). Units: **millimetres**
+throughout — same as everything in `house_facts`, no conversion
+boundary, no unit drift.
+
+Camera, light, and grid all reference (0, 0, 0) = the user's
+Bezugshöhe in image space mapped to the origin in 3D space. The
+ground plane sits at world-y = `gelaende_mm`, which is negative
+when Gelände is below ±0,00 (typical).
+
+#### 5.3 What the 3D scene contains
 
 A minimal, label-faithful model:
 
@@ -345,8 +431,24 @@ A minimal, label-faithful model:
    triangle glyph from V1, rotating to face the camera.
 9. **Height marks** — for each `height_mark` with a `datum`, a thin
    horizontal line at y = `value_mm` with a floating label.
+10. **Door swing** — for each `floorplan_opening` with
+    `opening_kind='door'` AND `swing_side` set: render a quarter-arc
+    *on the floor slab* indicating the swing direction. Hinge at the
+    swing_side corner of the opening rect; arc sweeps to the
+    perpendicular based on `swing` (in / out / sliding gets a
+    straight line, not an arc). Color = the door's `LEGEND` colour
+    at 60 % opacity. Floor-projection (not animated in 3D) keeps
+    the read instant.
+11. **Ground use of Schnitt scenes (R5 v1 limited).** A Schnitt
+    contributes IF it has a `dachschraege` `component_line` that
+    the Ansicht roofs disagree with — that's a refine-queue signal,
+    not a geometry contribution. Schnitts that show interior
+    structure (stairs, internal walls, slabs) are NOT used by the
+    R5 v1 geometry builder. The "Vereinfacht — Schnitt-Daten
+    ignoriert" badge surfaces this explicitly so the user knows
+    the simplification.
 
-#### 5.3 Tech choices
+#### 5.4 Tech choices
 
 - **react-three-fiber + drei** for the React-friendly Three.js
   layer. Tree-shake friendly; we don't need most of drei but
@@ -362,7 +464,7 @@ A minimal, label-faithful model:
 - Keyboard: `R` reset camera, `O` orbit / `F` fit, `[` / `]`
   toggle slab visibility per floor.
 
-#### 5.4 Render fidelity gradient
+#### 5.5 Render fidelity gradient
 
 Different parts of the 3D have different confidence levels:
 
@@ -374,9 +476,11 @@ Different parts of the 3D have different confidence levels:
 | Missing | Anything without source labels | renders as a placeholder geometry with an info badge |
 
 The user always knows whether they're looking at a labeled fact or a
-gap-fill.
+gap-fill. Hovering any geometry shows a tooltip naming the source
+label IDs that contributed (so the user can click → jump to that
+scene in the annotation editor).
 
-#### 5.5 What 3D preview is NOT
+#### 5.6 What 3D preview is NOT
 
 - Not photorealistic. No textures, no shadows beyond simple ambient
   occlusion.
@@ -397,14 +501,61 @@ PDF intake through 3D preview, then add bulk export for training.
   localStorage — exposed via the W0.4 debug getter we already have)
   has a workflow state. Manual step: the user does the labeling.
 - R6.2 Bulk export: `POST /exports/<key>` produces a zip with both
-  Set A and Set B per scene, plus a top-level `house_facts.json` and
-  a manifest matching the canonical training-corpus shape.
+  Set A and Set B per scene, plus a top-level `house_facts.json`
+  and a manifest. **Explicit folder layout** (canonical training-
+  corpus shape):
+
+  ```
+  data/exports/<key>/
+    manifest.json              # version, generated_at, scene index
+    house_facts.json           # frozen snapshot of localStorage HouseFacts
+    setA/                      # Model-1 inputs (raw + dim-only labels)
+      <scene_file>.jpg         # original image, unchanged
+      <scene_file>.json        # SceneLabels with labels filtered to
+                               #   dimensioned_distance only
+    setB/                      # Model-2 inputs (rectified + all labels
+                               #   transformed through H)
+      <scene_file>.jpg         # rectified via homography from setA
+      <scene_file>.json        # SceneLabels with every label's
+                               #   geometry transformed; status fields
+                               #   preserved; sources still reference the
+                               #   ORIGINAL label ids so back-traceability
+                               #   survives the transform
+      <scene_file>.homography.json   # {matrix, rms_residual_px, status,
+                               #   computed_from: [label_ids]}
+    diagnostics/
+      coverage.txt             # per-scene readiness summary
+      anomalies.txt            # any extent/height sanity flags
+  ```
+
+  Sets are produced per scene that PASSES sanity (§R6.4). Scenes
+  that fail land in `diagnostics/skipped.txt` with the reason.
+  Image format JPG at quality 90; rectified images sized to the
+  smaller of (2× original, 4096 px on long edge).
+
 - R6.3 Cross-house bulk export: `POST /exports` — every house with
   phase ≥ 5 (or skipped) gets exported. A per-export job id; status
-  endpoint for long-running jobs.
-- R6.4 Export-quality sanity checks: refuse exports for houses with
-  pending refine-queue issues, unless `--force`. Sanity ranges on
-  extents (refuse `width_mm > 30000` etc.) and heights.
+  endpoint `GET /exports/<job_id>` returns
+  `{state: 'queued'|'running'|'done'|'failed', houses_done, total, log_tail}`.
+  Cross-house ZIP top-level layout: `exports/<job_id>/<key>/…`
+  mirroring R6.2. Streamed download (don't buffer the whole ZIP
+  in memory).
+- R6.4 Export-quality sanity checks (block, unless `--force`):
+  - Pending refine-queue items of kind `height_conflict` or
+    `extent_mismatch` (W8)
+  - `extent.width_mm` or `depth_mm` outside [3000, 30000] mm
+    (single-family-house range)
+  - `heights.first_mm > 20000` (>20 m above ±0,00 is suspicious)
+  - Any `display.export_skip` scene that's the ONLY scene of its
+    `kind` for the house (would yield a partial training pair)
+  - `calibration_per_scene[file].rms_residual_px > 8` (homography
+    degenerate)
+- R6.5 Re-export versioning: `POST /exports/<key>?version=N` allows
+  the caller to pin a numbered version; default behavior overwrites
+  `exports/<key>/`. Old versions are preserved at
+  `exports/<key>.v<N>/` when the caller explicitly requests it. No
+  auto-timestamping — keeps the file tree clean for the common
+  "re-export once after labeling" case.
 
 ---
 
@@ -671,21 +822,149 @@ For each `view_opening` on an Ansicht:
 
 ---
 
-## 10. Self-audit — is this tracker exhaustive?
+## 10. Engineering hygiene (cross-cutting, applies to every wave)
 
-- ☑ Drops "houses" path in R0 with audit script and explicit file list.
+These don't fit a single wave but matter throughout. Setting defaults
+here so /loop doesn't have to invent them per commit.
+
+### 10.1 Testing strategy
+
+- **Pure-function modules** (`lib/workflow.ts`, `lib/region_kind.ts`,
+  `lib/rooms.ts`, new R5 geometry builder): unit tests via the
+  existing vitest setup. Co-located `*.test.ts` next to source.
+  Target: every public export has at least one happy-path test.
+- **API routes** (R1/R2/R4/R6): smoke via `pytest` + `httpx.AsyncClient`,
+  one happy-path per endpoint hitting a tiny fixture PDF and a tiny
+  fixture house. Target: each new route has at least one test.
+- **UI flows**: no Playwright/Cypress yet — the cost-to-value ratio
+  isn't there for a single-user app. Manual smoke checklists per
+  wave in the commit message ("opened /dataset/intake, dropped X.pdf,
+  saw incoming/<key>/, extracted scene Y, …"). If the app gains
+  multi-user later, revisit.
+- **R5 geometry**: visual diff fixture. Save a labeled snapshot of
+  house-21's facts; the geometry builder run against it produces a
+  deterministic Three.js scene JSON (vertex/face counts, bbox
+  dimensions). Snapshot-compare in CI; mismatch fails the build.
+
+### 10.2 Performance budgets
+
+Set targets so we notice regressions:
+
+| Surface | Budget |
+|---|---|
+| PDF page render (300 DPI, A3 page) | < 800 ms server-side, cached to JPG after first render |
+| PDF.js client render (on-screen preview, 96 DPI) | < 300 ms per page; lazy-load adjacent pages |
+| R2 bbox draw → visible | < 16 ms (60 fps interaction) |
+| R4 rectified preview generation | < 2 s per scene |
+| R5 3D scene first paint | < 1.5 s for a fully-labeled house (15 scenes, ~80 walls, ~30 openings) |
+| R5 60 fps orbit | < 5 k draw calls, < 200 k triangles for the typical SFH |
+| PDF.js client bundle | < 800 KB minified (code-split per route) |
+| react-three-fiber + drei bundle | < 600 KB minified (tree-shake drei to OrbitControls + Text + Edges only) |
+
+When any budget is missed by > 2×, open an issue rather than
+shipping the regression.
+
+### 10.3 Auth + multi-user posture
+
+The app is single-user-on-localhost by default. The new mutating
+routes (`POST /pdfs`, `POST /pdfs/<key>/extract`, `DELETE /pdfs/incoming/<key>`,
+`POST /exports/*`) are **un-authed** to match the existing routes.
+
+This is acceptable because the dev server binds to localhost, but
+we document the constraint explicitly:
+
+- README warns: "Do not expose this server on a LAN or VPN without
+  fronting it with auth."
+- The server logs a startup warning when it binds to anything other
+  than `127.0.0.1` / `localhost`.
+- Multi-user support is explicitly out of scope; if it ever
+  becomes desired, the right move is a reverse-proxy with bearer
+  tokens, not bolting auth onto FastAPI directly.
+
+### 10.4 Error states + recovery
+
+For every new route + UI surface:
+
+- **Upload failure** (R1): toast with HTTP status + first 200 chars
+  of server response; PDF stays selected so user can retry without
+  re-picking files.
+- **Extraction failure** (R2): per-scene error reported in the
+  bbox draft so the user sees WHICH bbox failed; other bboxes are
+  still committed atomically (server-side: per-scene try/except,
+  partial-success response).
+- **3D crash** (R5): the geometry builder runs inside an error
+  boundary; on failure the panel shows "Geometrie konnte nicht
+  aufgebaut werden" with a "Diagnose anzeigen" button that surfaces
+  the missing facts (delegates to W5.4 "what's missing" panel).
+- **Export sanity-block** (R6): toast + a list of the failing
+  scenes, each with a "fix me" link to the offending refine queue
+  issue.
+
+### 10.5 Telemetry
+
+Single-user app — minimal. We add a developer console object
+`window.__bimReadinessDebug` exposing:
+
+- `lastExtractDraft`: the most-recently-saved R2 draft from
+  localStorage
+- `geometryStats`: R5's last render stats (vertex / triangle / draw
+  call counts + frame time)
+- `exportLastRun`: the last R6 invocation's summary
+
+Removed before any first non-dev release. Until then it's invaluable
+for diagnosing user-reported issues.
+
+### 10.6 Accessibility + i18n + mobile
+
+- **Accessibility**: keep keyboard nav working through every new
+  page (already the K tracker contract). Don't add new mouse-only
+  flows. Skip screen-reader spec — out of scope until requested.
+- **i18n**: German strings only (consistent with the existing app).
+  Any user-visible string is in German; error messages from the
+  server stay German.
+- **Mobile**: not supported. The app is desktop-only; layouts will
+  break under 1024 px. Don't fight it.
+
+### 10.7 Schema versioning + migration
+
+PDF intake manifests and dataset manifests both carry a
+`schema_version` field. When a field is added:
+
+- Reader code defaults missing fields to `null` / `[]` (same forward-
+  compat idiom as `loadHouseFacts` in W0).
+- Writer code writes the new field unconditionally.
+- No batch migration scripts — files migrate forward on first save.
+
+This means old localStorage / on-disk state from house-21/22/23
+silently gains new fields the next time it's opened post-upgrade.
+
+---
+
+## 11. Self-audit — is this tracker exhaustive?
+
+- ☑ Drops "houses" path in R0 — UI, API, scripts, data, MCP server
+  (R0.10), PreviewPage (R0.11), Badge / tier UI (R0.12),
+  localStorage migration (R0.13) all explicit.
 - ☑ Preserves houses 21 / 22 / 23 as intake-side seed PDFs (§1.2).
-- ☑ PDF intake with multi-file / batch / multi-house consolidation (R1.3).
-- ☑ Scene extraction via bbox labeling (R2) with kind/view/floor
-  metadata so the dataset side is identical to the synthetic path.
-- ☑ Cross-step navigation (R3) so the user never wonders "where am I?".
+- ☑ PDF intake (R1) with multi-file / batch / multi-house
+  consolidation.
+- ☑ Scene extraction (R2) including draft persistence (R2.8),
+  post-extract bbox editing (R2.9), cross-page batch tagging
+  (R2.11), crop quality preflight (R2.12), slug uniqueness (R2.13).
+  Rotation explicitly deferred to R2 v2 (R2.10).
+- ☑ Cross-step navigation (R3) with resume-where-left-off.
 - ☑ Per-scene export preview (R4) showing both Set A and Set B —
-  preserves the two-stage training pipeline from
-  `spec/annotation-tool.md §2` verbatim.
-- ☑ 3D annotation preview (R5) with detailed face-transform math (§8),
-  fact-driven scene assembly (§5.2), confidence gradient (§5.4), and
-  explicit non-goals (§5.5).
-- ☑ Bulk export + smoke (R6).
+  preserves `spec/annotation-tool.md §2` verbatim.
+- ☑ 3D annotation preview (R5): coordinate convention nailed down
+  (§5.2 Y-up, mm units), scene assembly (§5.3), door swing (§5.3
+  #10), Schnitt usage as refine-signal-only (§5.3 #11),
+  confidence gradient + hover-to-source (§5.5), explicit non-goals
+  (§5.6), face-transform math (§8).
+- ☑ Bulk export (R6) with explicit folder layout, sanity-check
+  rules, versioning.
+- ☑ Engineering hygiene (§10): testing strategy, performance
+  budgets, auth posture, error states, telemetry, accessibility
+  / i18n / mobile stance, schema versioning.
 - ☑ Migration plan (§6) with destructive operations gated behind a
   backup branch.
 - ☑ Open questions (§7) with defaults so /loop can resolve without
