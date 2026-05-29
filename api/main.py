@@ -1018,6 +1018,38 @@ def export_preview(key: str, file: str):
     }
 
 
+@app.delete("/datasets/{key}", tags=["dataset"], status_code=204)
+def reset_house(key: str):
+    """Wipe every extracted scene + every label for a house, BUT keep the
+    intake bundle so the user can re-extract from the same PDF.
+
+    Removes:
+      - data/dataset/<key>/ (manifest, drawings, labels)
+      - the intake manifest's extracted_scenes list (reset to [])
+      - sets intake state back to 'partial'
+
+    Keeps:
+      - data/pdfs/incoming/<key>/ (the consolidated PDF + source files)
+
+    This is the "I messed up, let me start over from the PDF" action that
+    the Extract page surfaces in its menu. It is destructive and cannot
+    be undone — the caller is responsible for confirmation.
+    """
+    _safe_key(key)
+    import shutil
+    ds_dir = DATASET_DIR / key
+    if ds_dir.exists():
+        shutil.rmtree(ds_dir)
+    # Reset the intake manifest in lockstep so the next list call shows
+    # the bundle as "ready to extract" rather than "extracted".
+    manifest = _read_manifest(key)
+    if manifest is not None:
+        manifest["extracted_scenes"] = []
+        manifest["state"] = _bundle_state(key, manifest)
+        _write_manifest(key, manifest)
+    return None
+
+
 @app.delete("/pdfs/{key}/extract/{file}", tags=["pdfs"], status_code=204)
 def delete_extracted_scene(key: str, file: str):
     """R2 — drop one extracted scene (image + dataset manifest entry +

@@ -143,6 +143,17 @@ export async function fetchExportPreview(key: string, file: string): Promise<Exp
   return r.json();
 }
 
+// House-level reset — wipes every extracted scene + every label,
+// keeping the intake bundle so the user can re-extract from the
+// same PDF. Server endpoint: DELETE /datasets/<key>.
+export async function resetHouse(key: string): Promise<void> {
+  const r = await fetch(`/datasets/${encodeURIComponent(key)}`, { method: 'DELETE' });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+}
+
 export async function deleteIncomingPdf(key: string): Promise<void> {
   const r = await fetch(`/pdfs/incoming/${encodeURIComponent(key)}`, {
     method: 'DELETE',

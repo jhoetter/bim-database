@@ -18,6 +18,7 @@ import {
   getPdfInfo,
   pdfPageUrl,
   deleteExtractedScene,
+  resetHouse,
   type ExtractItem,
   type PdfInfo,
 } from '../api/client';
@@ -321,6 +322,53 @@ export function ExtractPage() {
           >
             3D ▸
           </Link>
+          <HouseMenu
+            houseKey={key}
+            sceneCount={dataset?.drawings?.length ?? 0}
+            draftCount={draft.bboxes.length}
+            onReset={async () => {
+              const total = (dataset?.drawings?.length ?? 0);
+              const labeled = (dataset?.drawings ?? []).filter((d) => d.labeled).length;
+              const ok = window.confirm(
+                `${key} wirklich zurücksetzen?\n\n` +
+                `Wird gelöscht:\n` +
+                `  • ${total} extrahierte Szene${total === 1 ? '' : 'n'}\n` +
+                `  • ${labeled} annotierte Datei${labeled === 1 ? '' : 'en'}\n` +
+                `  • Alle Bbox-Entwürfe dieser Sitzung\n\n` +
+                `Bleibt erhalten:\n` +
+                `  • Die hochgeladene PDF\n\n` +
+                `Diese Aktion kann NICHT rückgängig gemacht werden.`,
+              );
+              if (!ok) return;
+              try {
+                await resetHouse(key);
+                clearDraft(key);
+                // Also wipe house_facts in localStorage so the next
+                // annotation session starts from a clean slate.
+                try {
+                  for (let i = window.localStorage.length - 1; i >= 0; i--) {
+                    const k = window.localStorage.key(i);
+                    if (k && (k.includes(`:house-facts:dataset:${key}`)
+                              || k.includes(`:last-step:dataset:${key}`)
+                              || k.includes(`:extract-draft:dataset:${key}`))) {
+                      window.localStorage.removeItem(k);
+                    }
+                  }
+                } catch { /* localStorage unavailable */ }
+                setDraft(emptyDraft());
+                setSelectedId(null);
+                // Reload dataset + intake.
+                const [d, b] = await Promise.all([
+                  fetchDataset(key).catch(() => null),
+                  getIncomingPdf(key).catch(() => null),
+                ]);
+                setDataset(d);
+                setIntake(b);
+              } catch (e) {
+                window.alert(`Reset fehlgeschlagen: ${(e as Error).message}`);
+              }
+            }}
+          />
         </div>
       }
       leftSidebar={
@@ -331,17 +379,11 @@ export function ExtractPage() {
           dataset={dataset}
           draft={draft}
           onPage={setPage}
-        />
-      }
-      rightRail={
-        <ExtractInspector
-          bboxes={pageBboxes}
+          pageBboxes={pageBboxes}
           selectedId={selectedId}
-          onSelect={setSelectedId}
-          onUpdate={onUpdateBbox}
-          onDelete={onDeleteBbox}
-          extractedOnPage={extractedOnPage}
-          onDeleteScene={onDeleteScene}
+          onSelectBbox={setSelectedId}
+          onUpdateBbox={onUpdateBbox}
+          onDeleteBbox={onDeleteBbox}
           onExtract={onExtract}
           onDiscardDraft={() => {
             if (!window.confirm(`Alle ${draft.bboxes.length} Bbox-Entwürfe verwerfen?`)) return;
@@ -350,11 +392,8 @@ export function ExtractPage() {
             setSelectedId(null);
           }}
           busy={busy}
-          totalDraft={draft.bboxes.length}
-          allDrafts={draft.bboxes}
         />
       }
-      rightRailLabel="Szenen"
     >
       <div className="flex flex-col h-full">
         <SceneStrip
@@ -362,6 +401,7 @@ export function ExtractPage() {
           scenes={dataset?.drawings ?? []}
           currentPage={currentPage}
           onJumpToPage={setPage}
+          onDeleteScene={onDeleteScene}
         />
         <div className="px-4 py-3 flex flex-col flex-1 min-h-0">
         <PageNav
@@ -417,12 +457,13 @@ export function ExtractPage() {
 // pill jumps the bbox view to the source page. Empty state nudges the
 // user toward the first bbox.
 function SceneStrip({
-  houseKey, scenes, currentPage, onJumpToPage,
+  houseKey, scenes, currentPage, onJumpToPage, onDeleteScene,
 }: {
   houseKey: string;
   scenes: DatasetHouse['drawings'];
   currentPage: number;
   onJumpToPage: (n: number) => void;
+  onDeleteScene: (file: string) => void;
 }) {
   if (scenes.length === 0) {
     return (
@@ -466,12 +507,20 @@ function SceneStrip({
                 <button
                   type="button"
                   onClick={() => onJumpToPage(pageN)}
-                  className="px-1.5 py-0.5 border-l border-zinc-200 text-[0.62rem] text-zinc-500 hover:bg-zinc-100 rounded-r-full"
+                  className="px-1.5 py-0.5 border-l border-zinc-200 text-[0.62rem] text-zinc-500 hover:bg-zinc-100"
                   title={`Bbox auf Seite ${pageN} zeigen`}
                 >
                   S{pageN}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => onDeleteScene(d.file)}
+                className="px-1.5 py-0.5 border-l border-zinc-200 text-[0.62rem] text-zinc-400 hover:bg-red-50 hover:text-red-700 rounded-r-full"
+                title="Szene aus dem Datensatz entfernen"
+              >
+                ✕
+              </button>
             </div>
           );
         })}
@@ -557,6 +606,8 @@ function PageNav({
 
 function ExtractSidebar({
   info, currentPage, intake, dataset, draft, onPage,
+  pageBboxes, selectedId, onSelectBbox, onUpdateBbox, onDeleteBbox,
+  onExtract, onDiscardDraft, busy,
 }: {
   info: PdfInfo | null;
   currentPage: number;
@@ -564,21 +615,35 @@ function ExtractSidebar({
   dataset: DatasetHouse | null;
   draft: DraftState;
   onPage: (n: number) => void;
+  pageBboxes: DraftBbox[];
+  selectedId: string | null;
+  onSelectBbox: (id: string | null) => void;
+  onUpdateBbox: (id: string, patch: Partial<DraftBbox>) => void;
+  onDeleteBbox: (id: string) => void;
+  onExtract: () => void;
+  onDiscardDraft: () => void;
+  busy: boolean;
 }) {
+  const totalDraft = draft.bboxes.length;
+  const missingKinds = draft.bboxes.filter((b) => b.kind == null).length;
+  const sel = pageBboxes.find((b) => b.id === selectedId) ?? null;
   return (
-    <div className="px-3 py-3 space-y-4">
-      <header>
-        <div className="text-[0.65rem] uppercase tracking-wider text-muted font-medium">Extract</div>
+    <div className="px-3 py-3 flex flex-col h-full">
+      <header className="mb-3 shrink-0">
+        <div className="text-[0.65rem] uppercase tracking-wider text-muted font-medium">PDF</div>
         <h1 className="text-[1rem] font-semibold leading-snug mt-0.5">{intake?.key}</h1>
         <p className="text-[0.72rem] text-muted">
-          {intake?.consolidated_pdf ?? '–'} · {info?.page_count ?? '?'} Seiten · {dataset?.drawings?.length ?? 0} Szenen extrahiert
+          {info?.page_count ?? '?'} Seiten · {dataset?.drawings?.length ?? 0} Szenen extrahiert
         </p>
       </header>
-      <section>
-        <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+
+      {/* Page list — primary navigation. Most-important section so it gets
+          the top spot and as much height as it needs. */}
+      <section className="flex-1 min-h-0 flex flex-col">
+        <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5 shrink-0">
           Seiten
         </h3>
-        <ul className="space-y-0.5 max-h-[60vh] overflow-auto">
+        <ul className="overflow-auto flex-1 space-y-0.5 min-h-0">
           {info?.pages.map((p) => {
             const ds = (dataset?.drawings ?? []).filter((d) =>
               (d.crop_from as { page?: number } | undefined)?.page === p.page,
@@ -615,154 +680,106 @@ function ExtractSidebar({
           })}
         </ul>
       </section>
-    </div>
-  );
-}
 
-function ExtractInspector({
-  bboxes, selectedId, onSelect, onUpdate, onDelete,
-  extractedOnPage, onDeleteScene, onExtract, onDiscardDraft,
-  busy, totalDraft, allDrafts,
-}: {
-  bboxes: DraftBbox[];
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  onUpdate: (id: string, patch: Partial<DraftBbox>) => void;
-  onDelete: (id: string) => void;
-  extractedOnPage: DatasetHouse['drawings'];
-  onDeleteScene: (file: string) => void;
-  onExtract: () => void;
-  onDiscardDraft: () => void;
-  busy: boolean;
-  totalDraft: number;
-  allDrafts: DraftBbox[];
-}) {
-  const sel = bboxes.find((b) => b.id === selectedId) ?? null;
-  const missingKinds = allDrafts.filter((b) => b.kind == null).length;
-  return (
-    <div className="px-3 py-3 space-y-4">
-      <section>
-        <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
-          Bbox-Entwürfe ({bboxes.length})
-        </h3>
-        {bboxes.length === 0 && (
-          <p className="text-[0.72rem] text-muted italic">
-            Click-drag auf die Seite, um eine Bbox zu zeichnen.
-          </p>
-        )}
-        <ul className="space-y-0.5">
-          {bboxes.map((b) => (
-            <li key={b.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(b.id)}
-                className={`w-full text-left text-[0.72rem] px-2 py-1 rounded flex items-center gap-2 ${
-                  selectedId === b.id
-                    ? 'bg-accent/10 text-accent font-semibold'
-                    : 'hover:bg-zinc-100 text-zinc-800'
-                }`}
-              >
-                <span className={`font-mono ${b.kind ? '' : 'text-amber-700'}`}>
-                  {b.kind ? KIND_LABEL[b.kind].slice(0, 2) : '?'}
-                </span>
-                <span className="flex-1 truncate">
-                  {b.kind == null
-                    ? <span className="italic text-amber-700">Typ wählen…</span>
-                    : (b.title || `${KIND_LABEL[b.kind]}${b.floor ? ` · ${FLOOR_LABEL[b.floor as keyof typeof FLOOR_LABEL] ?? b.floor}` : ''}${b.view ? ` · ${VIEW_LABEL[b.view as keyof typeof VIEW_LABEL] ?? b.view}` : ''}`)
-                  }
-                </span>
+      {/* Per-page draft bboxes — only relevant on the current page; small. */}
+      {pageBboxes.length > 0 && (
+        <section className="shrink-0 mt-3 border-t border-border pt-3">
+          <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1">
+            Diese Seite — Entwürfe ({pageBboxes.length})
+          </h3>
+          <ul className="space-y-0.5">
+            {pageBboxes.map((b) => (
+              <li key={b.id}>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); onDelete(b.id); }}
-                  className="text-[0.7rem] text-red-700"
-                >✕</button>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {sel && (
-        <section className="space-y-2">
-          <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold">
-            Auswahl
-          </h3>
-          <label className="block text-[0.72rem]">
-            Typ
-            <select
-              value={sel.kind ?? ''}
-              onChange={(e) => onUpdate(sel.id, {
-                kind: e.target.value ? (e.target.value as ExtractItem['kind']) : null,
-              })}
-              className={`w-full mt-0.5 px-2 py-1 border rounded text-[0.78rem] ${
-                sel.kind == null ? 'border-amber-500 bg-amber-50' : 'border-zinc-300'
-              }`}
-            >
-              <option value="">Typ wählen…</option>
-              {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-            </select>
-          </label>
-          {(sel.kind === 'elevation' || sel.kind === 'section') && (
-            <label className="block text-[0.72rem]">
-              Himmelsrichtung
-              <select
-                value={sel.view ?? ''}
-                onChange={(e) => onUpdate(sel.id, { view: e.target.value || undefined })}
-                className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.78rem]"
-              >
-                <option value="">–</option>
-                {VIEWS.map((v) => <option key={v} value={v}>{VIEW_LABEL[v]}</option>)}
-              </select>
-            </label>
-          )}
-          {sel.kind === 'floorplan' && (
-            <label className="block text-[0.72rem]">
-              Geschoss
-              <select
-                value={sel.floor ?? ''}
-                onChange={(e) => onUpdate(sel.id, { floor: e.target.value || undefined })}
-                className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.78rem]"
-              >
-                <option value="">–</option>
-                {FLOORS.map((f) => <option key={f} value={f}>{FLOOR_LABEL[f]}</option>)}
-              </select>
-            </label>
-          )}
-          <label className="block text-[0.72rem]">
-            Titel (optional)
-            <input
-              type="text"
-              value={sel.title ?? ''}
-              onChange={(e) => onUpdate(sel.id, { title: e.target.value || undefined })}
-              className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.78rem]"
-            />
-          </label>
-        </section>
-      )}
-
-      {extractedOnPage.length > 0 && (
-        <section>
-          <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
-            Bereits extrahiert ({extractedOnPage.length})
-          </h3>
-          <ul className="space-y-0.5 text-[0.72rem]">
-            {extractedOnPage.map((d) => (
-              <li key={d.file} className="flex items-center gap-1.5 px-2 py-0.5">
-                <span className="text-emerald-600">✓</span>
-                <span className="flex-1 truncate font-mono text-[0.65rem]">{d.file}</span>
-                <button
-                  type="button"
-                  onClick={() => onDeleteScene(d.file)}
-                  className="text-[0.7rem] text-red-700"
-                  title="Szene aus Datensatz entfernen"
-                >✕</button>
+                  onClick={() => onSelectBbox(b.id)}
+                  className={`w-full text-left text-[0.72rem] px-2 py-1 rounded flex items-center gap-2 ${
+                    selectedId === b.id
+                      ? 'bg-accent/10 text-accent font-semibold'
+                      : 'hover:bg-zinc-100 text-zinc-800'
+                  }`}
+                >
+                  <span className={`font-mono ${b.kind ? '' : 'text-amber-700'}`}>
+                    {b.kind ? KIND_LABEL[b.kind].slice(0, 2) : '?'}
+                  </span>
+                  <span className="flex-1 truncate">
+                    {b.kind == null
+                      ? <span className="italic text-amber-700">Typ wählen…</span>
+                      : (b.title || `${KIND_LABEL[b.kind]}${b.floor ? ` · ${FLOOR_LABEL[b.floor as keyof typeof FLOOR_LABEL] ?? b.floor}` : ''}${b.view ? ` · ${VIEW_LABEL[b.view as keyof typeof VIEW_LABEL] ?? b.view}` : ''}`)
+                    }
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDeleteBbox(b.id); }}
+                    className="text-[0.7rem] text-red-700"
+                  >✕</button>
+                </button>
               </li>
             ))}
           </ul>
+          {sel && (
+            <div className="mt-2 space-y-1.5 px-2 py-1.5 bg-zinc-50 rounded text-[0.72rem] border border-border">
+              <div className="text-[0.62rem] uppercase tracking-wider text-muted font-semibold">
+                Auswahl
+              </div>
+              <label className="block">
+                Typ
+                <select
+                  value={sel.kind ?? ''}
+                  onChange={(e) => onUpdateBbox(sel.id, {
+                    kind: e.target.value ? (e.target.value as ExtractItem['kind']) : null,
+                  })}
+                  className={`w-full mt-0.5 px-2 py-1 border rounded text-[0.72rem] ${
+                    sel.kind == null ? 'border-amber-500 bg-amber-50' : 'border-zinc-300'
+                  }`}
+                >
+                  <option value="">Typ wählen…</option>
+                  {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+                </select>
+              </label>
+              {(sel.kind === 'elevation' || sel.kind === 'section') && (
+                <label className="block">
+                  Himmelsrichtung
+                  <select
+                    value={sel.view ?? ''}
+                    onChange={(e) => onUpdateBbox(sel.id, { view: e.target.value || undefined })}
+                    className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.72rem]"
+                  >
+                    <option value="">–</option>
+                    {VIEWS.map((v) => <option key={v} value={v}>{VIEW_LABEL[v]}</option>)}
+                  </select>
+                </label>
+              )}
+              {sel.kind === 'floorplan' && (
+                <label className="block">
+                  Geschoss
+                  <select
+                    value={sel.floor ?? ''}
+                    onChange={(e) => onUpdateBbox(sel.id, { floor: e.target.value || undefined })}
+                    className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.72rem]"
+                  >
+                    <option value="">–</option>
+                    {FLOORS.map((f) => <option key={f} value={f}>{FLOOR_LABEL[f]}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="block">
+                Titel (optional)
+                <input
+                  type="text"
+                  value={sel.title ?? ''}
+                  onChange={(e) => onUpdateBbox(sel.id, { title: e.target.value || undefined })}
+                  className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.72rem]"
+                />
+              </label>
+            </div>
+          )}
         </section>
       )}
 
-      <section className="space-y-1.5">
+      {/* Sticky bottom: the primary commit action. Always visible so the
+          user knows where they are heading. */}
+      <section className="shrink-0 mt-3 border-t border-border pt-3 space-y-1.5">
         <button
           type="button"
           onClick={onExtract}
@@ -771,18 +788,18 @@ function ExtractInspector({
         >
           {busy ? 'Extrahiere…' : totalDraft === 0
             ? 'Bbox zeichnen, dann extrahieren'
-            : `→ ${totalDraft} Szenen extrahieren`}
+            : `→ ${totalDraft} Szene${totalDraft === 1 ? '' : 'n'} extrahieren`}
         </button>
         {missingKinds > 0 && !busy && (
           <p className="text-[0.65rem] text-amber-700 text-center">
-            {missingKinds} Bbox{missingKinds === 1 ? '' : 'en'} ohne Typ — werden als „Detail" abgelegt.
+            {missingKinds} ohne Typ — werden als „Detail" abgelegt.
           </p>
         )}
         {totalDraft > 0 && !busy && (
           <button
             type="button"
             onClick={onDiscardDraft}
-            className="w-full text-[0.7rem] text-zinc-500 hover:text-red-700"
+            className="w-full text-[0.62rem] text-zinc-500 hover:text-red-700"
           >
             Entwurf verwerfen
           </button>
@@ -791,6 +808,7 @@ function ExtractInspector({
     </div>
   );
 }
+
 
 // The actual page canvas. SVG overlay tracks bboxes in PDF-unit coords;
 // pointer interactions translate to PDF units via the INNER page div's
@@ -964,18 +982,25 @@ function PageCanvas({
             );
           })()}
         </svg>
-        {/* Post-draw classifier chip, anchored above the freshly-committed bbox. */}
+        {/* Post-draw classifier chip — anchored to the bbox. When the
+            bbox starts near the top of the page (e.g. a full-page bbox
+            at y=0), an above-anchor would be clipped by the parent's
+            overflow-hidden, so we flip it INSIDE the bbox instead. */}
         {postDraw && (() => {
           const target = draftBboxes.find((b) => b.id === postDraw.id);
           if (!target) return null;
           const [x0, y0, x1] = target.bbox_pdf;
           const leftPct = ((x0 + x1) / 2 / pageWidthPt) * 100;
           const topPct = (y0 / pageHeightPt) * 100;
+          // < 18 % means there isn't room above; render the chip just
+          // INSIDE the top of the bbox in that case so it's never clipped.
+          const placement: 'above' | 'inside' = topPct < 18 ? 'inside' : 'above';
           return (
             <PostDrawChip
               step={postDraw.step}
               leftPct={leftPct}
               topPct={topPct}
+              placement={placement}
               onPick={onPostDrawPick}
               onDismiss={onPostDrawDismiss}
             />
@@ -990,12 +1015,70 @@ function PageCanvas({
 // the user picks kind (and floor / view if applicable) without leaving
 // the canvas. Keyboard hints mirror the same letters AnnotatePage uses
 // for its post-draw chip so the muscle memory carries over.
+// Topbar action menu — surfaces destructive house-level actions
+// (reset everything) under a `⋯` button so they're discoverable but
+// out of the primary path.
+function HouseMenu({
+  houseKey, sceneCount, draftCount, onReset,
+}: {
+  houseKey: string;
+  sceneCount: number;
+  draftCount: number;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[0.78rem] px-2 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100"
+        title={`${houseKey} — Aktionen`}
+        aria-label="Menü"
+      >
+        ⋯
+      </button>
+      {open && (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="fixed inset-0 z-30 cursor-default"
+            aria-label="Menü schließen"
+          />
+          <div
+            className="absolute right-0 mt-1 z-40 bg-white border border-zinc-300 rounded-md shadow-xl min-w-[16rem] py-1 text-[0.78rem]"
+          >
+            <div className="px-3 py-1.5 text-[0.62rem] uppercase tracking-wider text-muted">
+              Diese PDF zurücksetzen
+            </div>
+            <button
+              type="button"
+              onClick={() => { setOpen(false); onReset(); }}
+              disabled={sceneCount === 0 && draftCount === 0}
+              className="block w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-700 disabled:text-zinc-400 disabled:hover:bg-transparent"
+            >
+              <div className="font-semibold">⚠ Alle Szenen löschen</div>
+              <div className="text-[0.65rem] text-zinc-500">
+                Löscht {sceneCount} Szene{sceneCount === 1 ? '' : 'n'}
+                {draftCount > 0 ? ` und ${draftCount} Entwurf` : ''}.
+                PDF bleibt erhalten.
+              </div>
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PostDrawChip({
-  step, leftPct, topPct, onPick, onDismiss,
+  step, leftPct, topPct, placement, onPick, onDismiss,
 }: {
   step: 'kind' | 'floor' | 'view';
   leftPct: number;
   topPct: number;
+  placement: 'above' | 'inside';
   onPick: (patch: Partial<DraftBbox>) => void;
   onDismiss: () => void;
 }) {
@@ -1030,9 +1113,11 @@ function PostDrawChip({
     'Welche Himmelsrichtung?';
   return (
     <div
-      className="absolute z-30 -translate-x-1/2 -translate-y-full mt-[-6px] bg-white border border-zinc-300 rounded-md shadow-xl p-2 flex flex-col gap-1.5"
+      className={`absolute z-30 -translate-x-1/2 bg-white border border-zinc-300 rounded-md shadow-xl p-2 flex flex-col gap-1.5 ${
+        placement === 'above' ? '-translate-y-full mt-[-6px]' : 'mt-2'
+      }`}
       style={{
-        left: `${Math.max(2, Math.min(98, leftPct))}%`,
+        left: `${Math.max(8, Math.min(92, leftPct))}%`,
         top: `${Math.max(0, topPct)}%`,
         pointerEvents: 'auto',
       }}
