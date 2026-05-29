@@ -183,6 +183,48 @@ export async function fetchExportPreview(key: string, file: string): Promise<Exp
   return r.json();
 }
 
+// U13 — server-backed house_facts. UI keeps a localStorage cache for
+// synchronous reads; the server file at data/dataset/<key>/house_facts.json
+// is canonical.
+export async function fetchHouseFactsRaw(key: string): Promise<unknown | null> {
+  const r = await fetch(`/datasets/${encodeURIComponent(key)}/house_facts`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+export async function putHouseFactsRaw(key: string, facts: unknown): Promise<void> {
+  const r = await fetch(`/datasets/${encodeURIComponent(key)}/house_facts`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(facts),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+}
+
+// U9 — patch a single drawing's classification (kind/floor/view/title).
+// Returns the freshly-loaded dataset manifest so the caller can update
+// its render without a follow-up GET.
+export async function patchSceneAttrs(
+  key: string,
+  file: string,
+  patch: { kind?: string | null; floor?: string | null; view?: string | null; title?: string | null },
+): Promise<DatasetHouse> {
+  const r = await fetch(`/datasets/${encodeURIComponent(key)}/drawings/${encodeURIComponent(file)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
+}
+
 // House-level reset — wipes every extracted scene + every label,
 // keeping the intake bundle so the user can re-extract from the
 // same PDF. Server endpoint: DELETE /datasets/<key>.

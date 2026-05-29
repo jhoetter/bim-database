@@ -198,6 +198,70 @@ def get_dataset(key: str):
     return data
 
 
+# ── house_facts (U13) ──────────────────────────────────────────────────────
+# Per-house structural memory — extent, heights, wall_thickness, orientation,
+# workflow phase pointer + per-scene metadata. Lives at
+# data/dataset/<key>/house_facts.json. Schema kept light: the UI is the
+# producer + sole consumer, and the shape is documented in
+# ui/src/lib/house_facts.ts (HouseFacts). Server only validates that the
+# payload is a JSON object with schema_version present.
+
+@app.get("/datasets/{key}/house_facts", tags=["dataset"])
+def get_house_facts(key: str):
+    p = DATASET_DIR / key / "house_facts.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"No house_facts for {key!r}")
+    try:
+        return json.loads(p.read_text())
+    except json.JSONDecodeError as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"house_facts.json corrupt: {e}") from e
+
+
+@app.put("/datasets/{key}/house_facts", tags=["dataset"])
+def put_house_facts(key: str, body: dict = Body(...)):
+    if not isinstance(body, dict) or "schema_version" not in body:
+        raise HTTPException(status_code=400, detail="payload must be a JSON object with schema_version")
+    p = DATASET_DIR / key / "house_facts.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(body, indent=2, ensure_ascii=False))
+    return {"ok": True, "bytes": p.stat().st_size}
+
+
+# ── per-scene attribute patch (U9) ─────────────────────────────────────────
+# In-place edit of a single scene's classification — kind / floor / view /
+# title — used by the U9 popover and the U10 AnnotatePage header. The
+# dataset manifest (data/dataset/<key>/manifest.json) is the source of
+# truth; the response returns the freshly-loaded manifest so the UI can
+# refresh in one round-trip.
+
+_SCENE_PATCH_KEYS = {"kind", "floor", "view", "title"}
+
+
+@app.patch("/datasets/{key}/drawings/{file}", tags=["dataset"])
+def patch_scene_attrs(key: str, file: str, body: dict = Body(...)):
+    if not isinstance(body, dict) or not body:
+        raise HTTPException(status_code=400, detail="patch body must be a non-empty object")
+    unknown = set(body) - _SCENE_PATCH_KEYS
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unknown patch keys: {sorted(unknown)}")
+    mp = DATASET_DIR / key / "manifest.json"
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail=f"No dataset manifest for {key!r}")
+    data = json.loads(mp.read_text())
+    drawings = data.get("drawings") or []
+    target = next((d for d in drawings if d.get("file") == file), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"No drawing {file!r} in {key!r}")
+    for k, v in body.items():
+        # null clears; otherwise overwrite.
+        if v is None:
+            target.pop(k, None)
+        else:
+            target[k] = v
+    mp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return _load_dataset_manifest(key)
+
+
 # ── annotation labels ─────────────────────────────────────────────────────
 # Scope-aware so the URL shape stays compatible with the existing UI; the
 # `house` scope is gone — only `dataset` is accepted post-R0.

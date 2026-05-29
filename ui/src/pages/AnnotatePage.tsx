@@ -56,7 +56,7 @@ import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
 import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
 import { autoTSplit } from '../lib/auto_split';
-import { loadHouseFacts, promoteToFacts, saveHouseFacts, type HouseFacts } from '../lib/house_facts';
+import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import {
   advanceWorkflow,
   currentPhase as workflowCurrentPhase,
@@ -625,6 +625,15 @@ export function AnnotatePage() {
   const sceneIndex = sceneList.findIndex((s) => s.file === decodedFile);
 
   useEffect(() => { rememberLastStep(key, 'annotate'); }, [key]);
+  // U13 — pull server's house_facts into localStorage on house change so
+  // cross-machine work resumes. Best-effort; offline = read local cache.
+  useEffect(() => {
+    let cancelled = false;
+    void syncHouseFactsFromServer(scope, key).then(() => {
+      if (!cancelled) setSceneSummaryRev((r) => r + 1);
+    });
+    return () => { cancelled = true; };
+  }, [scope, key]);
   const prevScene = sceneIndex > 0 ? sceneList[sceneIndex - 1] : null;
   const nextScene = sceneIndex >= 0 && sceneIndex < sceneList.length - 1 ? sceneList[sceneIndex + 1] : null;
 

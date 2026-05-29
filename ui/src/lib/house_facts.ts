@@ -180,6 +180,55 @@ export function saveHouseFacts(scope: LabelScope, houseKey: string, facts: House
   try {
     window.localStorage.setItem(storageKey(scope, houseKey), JSON.stringify(facts));
   } catch { /* no-op */ }
+  // U13 — also schedule a debounced push to the server so the file at
+  // data/dataset/<key>/house_facts.json stays in sync. localStorage is
+  // the synchronous read cache; the server is canonical.
+  scheduleServerPush(scope, houseKey, facts);
+}
+
+// U13 server sync. Both sides are best-effort — a network blip MUST NOT
+// drop a user's local edit.
+const PUSH_DEBOUNCE_MS = 800;
+const pushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function scheduleServerPush(scope: LabelScope, houseKey: string, facts: HouseFacts): void {
+  if (scope !== 'dataset') return;
+  const k = `${scope}:${houseKey}`;
+  const prev = pushTimers.get(k);
+  if (prev) clearTimeout(prev);
+  const t = setTimeout(() => {
+    pushTimers.delete(k);
+    void import('../api/client').then(({ putHouseFactsRaw }) =>
+      putHouseFactsRaw(houseKey, facts).catch((e) => {
+        // Don't surface — the user's local edit is still safe in
+        // localStorage; we'll retry on the next save.
+        // eslint-disable-next-line no-console
+        console.warn('house_facts server push failed', e);
+      }),
+    );
+  }, PUSH_DEBOUNCE_MS);
+  pushTimers.set(k, t);
+}
+
+// Pull the server's house_facts into localStorage. Used by AnnotatePage
+// on mount so cross-machine continuity works. If the server returns 404,
+// push the current localStorage to the server (first-ever migration).
+export async function syncHouseFactsFromServer(scope: LabelScope, houseKey: string): Promise<HouseFacts> {
+  if (scope !== 'dataset') return loadHouseFacts(scope, houseKey);
+  try {
+    const { fetchHouseFactsRaw, putHouseFactsRaw } = await import('../api/client');
+    const remote = await fetchHouseFactsRaw(houseKey);
+    if (remote && typeof remote === 'object' && (remote as HouseFacts).schema_version === '1.0') {
+      // Server wins.
+      window.localStorage.setItem(storageKey(scope, houseKey), JSON.stringify(remote));
+      return remote as HouseFacts;
+    }
+    // First-time migration: push our local copy if it has anything.
+    const local = loadHouseFacts(scope, houseKey);
+    await putHouseFactsRaw(houseKey, local).catch(() => undefined);
+    return local;
+  } catch {
+    return loadHouseFacts(scope, houseKey);
+  }
 }
 
 function addSource(map: Record<string, string[]>, fact: string, source: string): void {
