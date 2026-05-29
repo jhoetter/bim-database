@@ -29,6 +29,7 @@ import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 import { PHASE_IDS, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
+import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT } from '../components/Cheatsheet';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
 const KIND_LABEL: Record<ExtractItem['kind'], string> = {
@@ -114,11 +115,9 @@ export function ExtractPage() {
   const [dataset, setDataset] = useState<DatasetHouse | null>(null);
   const [draft, setDraft] = useState<DraftState>(() => loadDraft(key) ?? emptyDraft());
   const [busy, setBusy] = useState(false);
-  // L5 — opens the shared Cheatsheet (L10 lift) via ?. The Cheatsheet
-  // component renders in L10's wave; for now the state hides the keyboard
-  // event from the wider page when toggled.
+  // L5 + L10 — Cheatsheet toggled via ? (renders below in the Shell
+  // children). Shared component, page contributes its own sections.
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
-  void cheatsheetOpen;
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // The extracted-scene action menu (Annotieren / Bbox anpassen /
@@ -533,6 +532,15 @@ export function ExtractPage() {
           >
             3D ▸
           </Link>
+          <button
+            type="button"
+            onClick={() => setCheatsheetOpen((v) => !v)}
+            className="w-7 h-7 inline-flex items-center justify-center rounded-md text-muted hover:bg-zinc-100 hover:text-zinc-900"
+            title="Tastaturkürzel (?)"
+            aria-label="Tastaturkürzel"
+          >
+            ?
+          </button>
           <HouseMenu
             houseKey={key}
             sceneCount={dataset?.drawings?.length ?? 0}
@@ -604,6 +612,13 @@ export function ExtractPage() {
         />
       }
     >
+      {/* L10 — shared keyboard cheatsheet (open with ?). */}
+      {cheatsheetOpen && (
+        <Cheatsheet
+          sections={CHEATSHEET_SECTIONS_EXTRACT}
+          onClose={() => setCheatsheetOpen(false)}
+        />
+      )}
       {/* L8 — undo/redo toast pip (bottom-right, auto-fades). */}
       {toasts.length > 0 && (
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-1.5 pointer-events-none">

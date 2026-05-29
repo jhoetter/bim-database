@@ -58,6 +58,7 @@ import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/buil
 import { autoTSplit } from '../lib/auto_split';
 import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
+import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT, type CheatsheetSection } from '../components/Cheatsheet';
 import {
   advanceWorkflow,
   currentPhase as workflowCurrentPhase,
@@ -3853,9 +3854,14 @@ export function AnnotatePage() {
             currentSceneLabels={labels}
           />
         )}
-        {/* M13 keyboard cheatsheet (toggle with '?') */}
+        {/* L10 — keyboard cheatsheet shows both Annotate + Extract
+            sections so power users can scan the whole map from inside
+            the editor. */}
         {cheatsheetOpen && (
-          <Cheatsheet onClose={() => setCheatsheetOpen(false)} />
+          <Cheatsheet
+            sections={[...CHEATSHEET_SECTIONS_ANNOTATE, ...CHEATSHEET_SECTIONS_EXTRACT]}
+            onClose={() => setCheatsheetOpen(false)}
+          />
         )}
         {/* Floating inspector popover — replaces the old fixed right-rail.
             Dragable header, position persists in localStorage. Fades during
@@ -7346,146 +7352,74 @@ function LabelGlyph({
   );
 }
 
-// M13 keyboard cheatsheet — modal overlay, dismissed by Esc or click outside.
-function Cheatsheet({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === '?') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+// L10 — Cheatsheet lifted to ui/src/components/Cheatsheet.tsx. The
+// annotate-side section bank is exported below; the page assembles its
+// view as annotate-sections + extract-sections so power users can scan
+// the whole map from inside the editor (L16).
 
-  // Source of truth for this layout: spec/keyboard.md. Keep them in sync.
-  const sections: Array<[string, Array<[string, string]>]> = [
-    ['Modifikatoren (global)', [
-      ['Alt (halten)', 'Alle Helfer für diese Geste aus (Snap, Längen-Angleichung, Wandstärke-Vererbung, Auto-Klassifizierung, …)'],
-      ['Shift (halten)', 'Ortho-Lock (0/45/90/135°) erzwingen · oder zur Mehrfachauswahl hinzufügen'],
-      ['Cmd/Ctrl (halten)', 'Verbundene Komponente auswählen · Cmd+A alles · Cmd+S speichern · Cmd+Z undo'],
-      ['Q', 'Ortho-Snap an/aus (persistent)'],
-    ]],
-    ['Werkzeuge', [
-      ['S', 'Auswählen'],
-      ['D', 'Bemaßte Strecke'],
-      ['N', 'Maßzahl'],
-      ['W', 'Wand'],
-      ['O', 'Öffnung (tag-abhängig)'],
-      ['L', 'Bauteillinie'],
-      ['H', 'Höhenkote'],
-    ]],
-    ['Beim Zeichnen', [
-      ['Klick', 'Punkt setzen'],
-      ['Enter', 'Polylinie beenden (≥2 Punkte für Linie, ≥3 für Polygon)'],
-      ['Klick nahe Start', 'Polygon schließen (≥3 Punkte) — gleich wie Enter'],
-      ['Backspace', 'Letzten Polylinien-Punkt zurücknehmen'],
-      ['Esc', 'Geste abbrechen (pending wegwerfen)'],
-    ]],
-    ['Auswahl', [
-      ['Klick', 'Auswahl ersetzen'],
-      ['Shift+Klick', 'Auswahl umschalten'],
-      ['Cmd/Ctrl+Klick', 'Verbundene Komponente auswählen'],
-      ['Drag auf leerer Fläche', 'Rubber-band Multi-Select'],
-      ['Doppelklick auf Wand/Linie', 'Teilen (Vertex einfügen)'],
-      ['Doppelklick in geschlossener Fläche', 'Alle Wände der Fläche'],
-      ['Cmd/Ctrl + A', 'Alles auswählen'],
-      ['Del', 'Auswahl löschen'],
-      ['Backspace', 'Auswahl löschen — außer wenn Polylinie läuft'],
-    ]],
-    ['Öffnung reklassifizieren (1 ausgewählt)', [
-      ['F', 'Fenster'],
-      ['T', 'Tür'],
-      ['G', 'Gaube (Ansicht) / Sonstige (Grundriss)'],
-      ['D', 'Dachfenster (Ansicht) / Durchgang (Grundriss)'],
-      ['A', 'Tor'],
-      ['Z', 'Sonstige'],
-    ]],
-    ['Bauteillinie reklassifizieren (1 ausgewählt)', [
-      ['W', 'Wand (vertikale Gebäudekante)'],
-      ['D', 'Dach (Dachschräge)'],
-      ['Z', 'Sonstige'],
-    ]],
-    ['Wand-Attribute (1 ausgewählt)', [
-      ['← / →', '±10 mm Wandstärke'],
-      ['Shift+← / →', '±50 mm Wandstärke'],
-      ['Lila Handle ziehen', 'Wandstärke direkt zeichnen'],
-    ]],
-    ['Status (Auswahl)', [
-      ['1', 'readable'],
-      ['2', 'uncertain'],
-      ['3', 'not_readable'],
-      ['4', 'missing'],
-    ]],
-    ['Ansicht', [
-      ['R oder 0', 'Ansicht zurücksetzen'],
-      ['+ / =', 'Zoom in'],
-      ['- / _', 'Zoom out'],
-      ['Mausrad / Trackpad', 'Pan'],
-      ['Shift+Drag / Right-Drag', 'Pan'],
-    ]],
-    ['Szenen-Navigation', [
-      [',', 'Vorige Szene des Hauses'],
-      ['.', 'Nächste Szene des Hauses'],
-    ]],
-    ['Speichern + Verlauf', [
-      ['Cmd/Ctrl + S', 'Speichern'],
-      ['Cmd/Ctrl + Z', 'Rückgängig'],
-      ['Cmd/Ctrl + Shift + Z', 'Wiederherstellen'],
-    ]],
-    ['Hilfe', [
-      ['?', 'Dieses Fenster ein/aus'],
-      ['Esc', 'Dieses Fenster schließen'],
-    ]],
-  ];
-
-  return (
-    <div
-      className="absolute inset-0 z-40 bg-black/40 flex items-center justify-center p-6"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-y-auto p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="flex items-center justify-between mb-4">
-          <h2 className="text-[1rem] font-semibold">Tastaturkürzel</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted hover:text-zinc-900 text-xl leading-none w-7 h-7 flex items-center justify-center"
-            aria-label="Schließen"
-          >
-            ×
-          </button>
-        </header>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-          {sections.map(([title, rows]) => (
-            <section key={title}>
-              <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-2">
-                {title}
-              </h3>
-              <dl className="space-y-1">
-                {rows.map(([keys, desc]) => (
-                  <div key={keys} className="flex justify-between gap-3 text-[0.8rem]">
-                    <dt className="text-zinc-700">{desc}</dt>
-                    <dd className="font-mono text-[0.75rem] text-zinc-900 bg-zinc-100 px-1.5 py-0.5 rounded">
-                      {keys}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ))}
-        </div>
-        <p className="mt-5 text-[0.7rem] text-muted text-center">
-          Esc oder ? schließt das Fenster.
-        </p>
-      </div>
-    </div>
-  );
-}
+const CHEATSHEET_SECTIONS_ANNOTATE: CheatsheetSection[] = [
+  { title: 'Modifikatoren (global)', bindings: [
+    ['Alt (halten)', 'Alle Helfer für diese Geste aus (Snap, Längen-Angleichung, Wandstärke-Vererbung, Auto-Klassifizierung, …)'],
+    ['Shift (halten)', 'Ortho-Lock (0/45/90/135°) erzwingen · oder zur Mehrfachauswahl hinzufügen'],
+    ['Cmd/Ctrl (halten)', 'Verbundene Komponente auswählen · Cmd+A alles · Cmd+Z undo'],
+    ['Q', 'Ortho-Snap an/aus (persistent)'],
+  ]},
+  { title: 'Werkzeuge', bindings: [
+    ['S', 'Auswählen'],
+    ['D', 'Bemaßte Strecke'],
+    ['N', 'Maßzahl'],
+    ['W', 'Wand'],
+    ['O', 'Öffnung (tag-abhängig)'],
+    ['L', 'Bauteillinie'],
+    ['H', 'Höhenkote'],
+  ]},
+  { title: 'Beim Zeichnen', bindings: [
+    ['Klick', 'Punkt setzen'],
+    ['Enter', 'Polylinie beenden (≥2 Punkte für Linie, ≥3 für Polygon)'],
+    ['Klick nahe Start', 'Polygon schließen (≥3 Punkte) — gleich wie Enter'],
+    ['Backspace', 'Letzten Polylinien-Punkt zurücknehmen'],
+    ['Esc', 'Geste abbrechen (pending wegwerfen)'],
+  ]},
+  { title: 'Auswahl', bindings: [
+    ['Klick', 'Auswahl ersetzen'],
+    ['Shift+Klick', 'Auswahl umschalten'],
+    ['Cmd/Ctrl+Klick', 'Verbundene Komponente auswählen'],
+    ['Drag auf leerer Fläche', 'Rubber-band Multi-Select'],
+    ['Doppelklick auf Wand/Linie', 'Teilen (Vertex einfügen)'],
+    ['Doppelklick in geschlossener Fläche', 'Alle Wände der Fläche'],
+    ['Cmd/Ctrl + A', 'Alles auswählen'],
+    ['Del', 'Auswahl löschen'],
+    ['Backspace', 'Auswahl löschen — außer wenn Polylinie läuft'],
+  ]},
+  { title: 'Wand-Attribute (1 ausgewählt)', bindings: [
+    ['← / →', '±10 mm Wandstärke'],
+    ['Shift+← / →', '±50 mm Wandstärke'],
+    ['Lila Handle ziehen', 'Wandstärke direkt zeichnen'],
+  ]},
+  { title: 'Status (Auswahl)', bindings: [
+    ['1', 'readable'],
+    ['2', 'uncertain'],
+    ['3', 'not_readable'],
+    ['4', 'missing'],
+  ]},
+  { title: 'Ansicht', bindings: [
+    ['R oder 0', 'Ansicht zurücksetzen'],
+    ['+ / =', 'Zoom in'],
+    ['- / _', 'Zoom out'],
+    ['Mausrad / Trackpad', 'Pan'],
+    ['Shift+Drag / Right-Drag', 'Pan'],
+  ]},
+  { title: 'Szenen-Navigation', bindings: [
+    [', / <', 'Vorige Szene'],
+    ['. / >', 'Nächste Szene'],
+    ['← / →', 'Vorige / nächste Szene (wenn keine Wand selektiert)'],
+  ]},
+  { title: 'Verlauf (Annotate, L16)', bindings: [
+    ['Cmd/Ctrl + Z', 'Letzten Label-Vorgang rückgängig'],
+    ['Cmd/Ctrl + Shift + Z', 'Wiederherstellen'],
+    ['Cmd/Ctrl + S', 'Sofort speichern (Auto-Save ist immer aktiv)'],
+  ]},
+];
 
 // M12 inline edit input — floats above the canvas at a fixed screen
 // position. Autofocused; Enter commits; Esc cancels (which may delete the
