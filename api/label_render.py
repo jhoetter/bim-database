@@ -67,6 +67,7 @@ def render_grid_with_labels(
     tiers: Sequence[str] = ("broad", "finer"),
     region: tuple[int, int, int, int] | None = None,
     max_dim: int = 1600,
+    enhance: str | None = None,
 ) -> Image.Image:
     """Render the source image + grid overlay + every label in `labels`.
 
@@ -74,10 +75,16 @@ def render_grid_with_labels(
     upsert_label accepted). Translation to output pixels mirrors the
     grid renderer's logic so labels visually align with their grid
     addresses.
+
+    `enhance` (issue #2) is forwarded to the grid renderer to lift faint
+    scans; it changes only pixel intensity, so label positions are
+    unaffected.
     """
     # Reuse the grid renderer for the base. It handles region cropping +
     # max_dim downscaling + the coordinate-anchored grid + corner legend.
-    base = render_grid_overlay(image, tiers=tiers, region=region, max_dim=max_dim)
+    base = render_grid_overlay(
+        image, tiers=tiers, region=region, max_dim=max_dim, enhance=enhance,
+    )
     src_w, src_h = image.size
     if region is not None:
         x0, y0, x1, y1 = region

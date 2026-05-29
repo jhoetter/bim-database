@@ -33,6 +33,13 @@ from PIL import Image, ImageDraw, ImageFont
 ALL_TIERS = ("broad", "finer", "detail")
 DEFAULT_TIERS = ("broad", "finer")  # detail is opt-in
 
+# Contrast enhancement modes for faint freehand/pencil scans (issue #2).
+# "none" is the default no-op; the rest lift legibility before the grid
+# overlay is composited. Enhancement only changes pixel INTENSITY, never
+# position — so SOURCE-pixel coordinates stay valid.
+ENHANCE_MODES = ("none", "auto", "clahe", "threshold")
+DEFAULT_ENHANCE = "none"
+
 # Cell-size fraction of the long edge. 10 broad cells / 50 finer / 200 detail.
 _TIER_FRACTION = {"broad": 1 / 10, "finer": 1 / 50, "detail": 1 / 200}
 
@@ -77,6 +84,7 @@ def render_grid_overlay(
     region: tuple[int, int, int, int] | None = None,
     max_dim: int = 1600,
     background_opacity: float = 0.5,
+    enhance: str | None = DEFAULT_ENHANCE,
 ) -> Image.Image:
     """Composite the source image with a coordinate-anchored grid overlay.
 
@@ -88,7 +96,16 @@ def render_grid_overlay(
                             output reference SOURCE pixels regardless.
         max_dim:            cap on longest side of the OUTPUT image.
         background_opacity: 0.5 by default; image fades to half so the
-                            grid stays legible.
+                            grid stays legible. When `enhance` is active the
+                            fade floor is raised so the lifted contrast
+                            survives the composite.
+        enhance:            contrast lift for faint freehand/pencil scans
+                            (issue #2): one of ENHANCE_MODES. "none"
+                            (default) is a no-op. "clahe"/"auto" apply
+                            contrast-limited adaptive histogram
+                            equalization; "threshold" additionally
+                            binarizes via adaptive thresholding. Only pixel
+                            intensity changes — coordinates are unaffected.
 
     Returns:
         New RGBA image. Dimensions == cropped source dims (possibly
@@ -102,6 +119,9 @@ def render_grid_overlay(
         raise ValueError(f"unknown tier(s): {sorted(unknown)}")
     if not 0.0 < background_opacity <= 1.0:
         raise ValueError("background_opacity must be in (0, 1]")
+    enhance = (enhance or DEFAULT_ENHANCE).lower()
+    if enhance not in ENHANCE_MODES:
+        raise ValueError(f"unknown enhance mode {enhance!r}; allowed {list(ENHANCE_MODES)}")
 
     src_w, src_h = image.size
 
@@ -145,6 +165,14 @@ def render_grid_overlay(
             out_h = max(1, int(ch * scale))
             cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
     cw, ch = cropped.size
+
+    # Issue #2: lift faint pencil/freehand BEFORE the grid composite so
+    # the vision-LLM reads enhanced contrast. Applied to the (already
+    # cropped + downscaled) image; positions are untouched.
+    if enhance != "none":
+        cropped = _enhance_image(cropped, enhance)
+        # Don't let the half-fade swallow the contrast we just added.
+        background_opacity = max(background_opacity, 0.85)
 
     # Canvas == image dims; no margin. Grid + labels drawn ON the image.
     canvas = Image.new("RGBA", (cw, ch), (255, 255, 255, 255))
@@ -195,6 +223,53 @@ def _blend_to_white(img: Image.Image, alpha: float) -> Image.Image:
         return img
     white = Image.new("RGBA", img.size, (255, 255, 255, 255))
     return Image.blend(white, img, alpha)
+
+
+def _enhance_image(img: Image.Image, mode: str) -> Image.Image:
+    """Lift faint freehand/pencil scans to readable contrast (issue #2).
+
+    Works on a grayscale projection (where pencil legibility lives) and
+    returns an image in the same mode as the input. Pixel POSITIONS are
+    unchanged, so SOURCE-pixel coordinates stay valid — this is purely a
+    contrast/threshold pass, a preprocessing step for the vision-LLM
+    reader, not OCR.
+
+    Modes:
+      auto / clahe — contrast-limited adaptive histogram equalization.
+                     Gentle, reversible-looking lift that keeps tonal
+                     detail; good default for faint-but-present strokes.
+      threshold    — CLAHE then adaptive (Gaussian) thresholding to a
+                     near-binary black-on-white. Strongest; best when the
+                     scan is so faint that CLAHE alone isn't enough, at
+                     the cost of losing soft gradients.
+    """
+    import cv2
+    import numpy as np
+
+    orig_mode = img.mode
+    alpha = img.getchannel("A") if orig_mode == "RGBA" else None
+    gray = np.asarray(img.convert("L"))
+
+    if mode in ("auto", "clahe"):
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        out = clahe.apply(gray)
+    elif mode == "threshold":
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        eq = clahe.apply(gray)
+        out = cv2.adaptiveThreshold(
+            eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
+            blockSize=31, C=10,
+        )
+    else:  # pragma: no cover - guarded by caller
+        return img
+
+    result = Image.fromarray(out, mode="L").convert("RGB")
+    if alpha is not None:
+        result = result.convert("RGBA")
+        result.putalpha(alpha)
+    elif orig_mode not in ("RGB", "RGBA"):
+        result = result.convert(orig_mode)
+    return result
 
 
 def _draw_tier_lines(draw: ImageDraw.ImageDraw, spec: _Spec, tier: str) -> None:
