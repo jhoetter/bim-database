@@ -30,6 +30,7 @@ import type {
 } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import { SceneThumb } from '../components/SceneThumb';
 import { rememberLastStep } from '../lib/step_state';
 import {
   handlesFor,
@@ -612,7 +613,12 @@ export function AnnotatePage() {
   const { data: houseScenes } = useResource(
     async () => {
       const h = await fetchDataset(key);
-      return h.drawings.map((d) => ({ file: d.file, title: d.title ?? d.file }));
+      return h.drawings.map((d) => ({
+        file: d.file,
+        title: d.title ?? d.file,
+        url: d.url,
+        labeled: !!d.labeled,
+      }));
     },
     [scope, key],
   );
@@ -2713,30 +2719,31 @@ export function AnnotatePage() {
                           ? ' · nur vertikaler Bezug — horizontalen fehlt noch'
                           : ' · keine Bezugsmaße — Skalierung+Entzerrung noch nicht möglich';
                   return (
-                    <button
+                    <SceneThumb
                       key={s.file}
-                      type="button"
                       onClick={() => goToScene(s.file)}
+                      url={s.url}
+                      shortLabel={sceneShortLabel(s.file, s.title)}
                       title={`${s.title}${summary ? ` · ${summary.count} Labels` : ''}${readinessTitle}`}
-                      className={`px-1.5 py-0.5 rounded text-[0.65rem] font-medium tabular-nums whitespace-nowrap shrink-0 transition inline-flex items-center gap-1 ${
-                        isCurrent
-                          ? 'bg-accent text-white'
-                          : 'text-zinc-600 hover:bg-zinc-100'
-                      }`}
-                    >
-                      <span>{sceneShortLabel(s.file, s.title)}</span>
-                      {readinessColor && (
-                        <span
-                          className="inline-block w-1.5 h-1.5 rounded-full"
-                          style={{ backgroundColor: readinessColor }}
-                        />
-                      )}
-                      {summary && summary.count > 0 && (
-                        <span className={`text-[0.55rem] tabular-nums ${isCurrent ? 'text-white/80' : 'text-zinc-400'}`}>
-                          {summary.count}
+                      active={isCurrent}
+                      labeled={s.labeled}
+                      size="sm"
+                      trailing={
+                        <span className="inline-flex items-center gap-0.5">
+                          {readinessColor && (
+                            <span
+                              className="inline-block w-1.5 h-1.5 rounded-full"
+                              style={{ backgroundColor: readinessColor }}
+                            />
+                          )}
+                          {summary && summary.count > 0 && (
+                            <span className={`text-[0.55rem] tabular-nums ${isCurrent ? 'text-zinc-700' : 'text-zinc-400'}`}>
+                              {summary.count}
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </button>
+                      }
+                    />
                   );
                 })}
               </div>

@@ -25,6 +25,7 @@ import {
 import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
+import { SceneThumb } from '../components/SceneThumb';
 import { rememberLastStep } from '../lib/step_state';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
@@ -487,41 +488,38 @@ function SceneStrip({
             d.kind === 'elevation' && d.view ? `${KIND_LABEL.elevation} ${(VIEW_LABEL as Record<string, string>)[d.view] ?? d.view}` :
             (KIND_LABEL as Record<string, string>)[d.kind] ?? d.kind;
           return (
-            <div
+            <SceneThumb
               key={d.file}
-              className={`shrink-0 inline-flex items-center text-[0.72rem] rounded-full border ${
-                isOnPage ? 'border-accent bg-white' : 'border-zinc-300 bg-white'
-              }`}
-              title={d.file}
-            >
-              <Link
-                to={`/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`}
-                className="px-2 py-0.5 hover:bg-zinc-100 rounded-l-full"
-              >
-                <span className={d.labeled ? 'text-emerald-700' : 'text-zinc-700'}>
-                  {d.labeled ? '✓ ' : '○ '}
+              to={`/${houseKey}/scene/${encodeURIComponent(d.file)}/annotate`}
+              url={d.url}
+              shortLabel={label}
+              title={`${d.file} — Klick öffnet Annotation${pageN != null ? ` · von Seite ${pageN}` : ''}`}
+              active={isOnPage}
+              labeled={d.labeled}
+              size="md"
+              trailing={
+                <span className="flex items-center gap-0.5 ml-0.5">
+                  {pageN != null && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onJumpToPage(pageN); }}
+                      className="text-[0.6rem] text-zinc-500 hover:text-accent px-1 py-0.5 rounded hover:bg-zinc-100"
+                      title={`Bbox auf Seite ${pageN} zeigen`}
+                    >
+                      S{pageN}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteScene(d.file); }}
+                    className="text-[0.6rem] text-zinc-400 hover:text-red-700 px-1 py-0.5 rounded hover:bg-red-50"
+                    title="Szene aus dem Datensatz entfernen"
+                  >
+                    ✕
+                  </button>
                 </span>
-                {label}
-              </Link>
-              {pageN != null && (
-                <button
-                  type="button"
-                  onClick={() => onJumpToPage(pageN)}
-                  className="px-1.5 py-0.5 border-l border-zinc-200 text-[0.62rem] text-zinc-500 hover:bg-zinc-100"
-                  title={`Bbox auf Seite ${pageN} zeigen`}
-                >
-                  S{pageN}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => onDeleteScene(d.file)}
-                className="px-1.5 py-0.5 border-l border-zinc-200 text-[0.62rem] text-zinc-400 hover:bg-red-50 hover:text-red-700 rounded-r-full"
-                title="Szene aus dem Datensatz entfernen"
-              >
-                ✕
-              </button>
-            </div>
+              }
+            />
           );
         })}
       </div>

@@ -5,8 +5,6 @@ import { WorkflowPhaseBadge } from '../components/WorkflowPhaseBadge';
 import type { DatasetDrawing, DatasetHouse } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
-import { getLastVisitedScene } from './AnnotatePage';
-import { getLastStep } from '../lib/step_state';
 
 // Two views: 'gallery' (flat Pinterest grid of all drawings across houses)
 // and 'by-house' (grouped, easier for spot-checking coverage). Filters in
@@ -282,23 +280,11 @@ function HouseCard({ house }: { house: DatasetHouse }) {
     house.drawings.find((d) => d.kind === 'floorplan' && d.floor === 'EG') ??
     house.drawings.find((d) => d.kind === 'floorplan') ??
     house.drawings[0];
-  // Intake-only houses (no extracted scenes yet) still get a card —
-  // routing straight to the extract view (`/:key`) so the user can start
-  // cutting bboxes.
   const intakeOnly = !hero || (house as unknown as { intake_only?: boolean }).intake_only;
-  const last = getLastVisitedScene('dataset', house.key);
-  const targetFile =
-    !intakeOnly && hero && last && house.drawings.some((d) => d.file === last) ? last : hero?.file;
-  // Once the house has any extracted scenes, clicking the card jumps
-  // straight into annotation — the breadcrumb gets the user back to the
-  // extract view if they need to cut more bboxes. Export wins only if
-  // that was explicitly the last visited step.
-  const lastStep = getLastStep(house.key);
-  const targetHref = intakeOnly
-    ? `/${house.key}`
-    : lastStep === 'export'
-      ? `/${house.key}/export`
-      : `/${house.key}/scene/${encodeURIComponent(targetFile!)}/annotate`;
+  // The card represents the house. Clicking it goes to the house view
+  // (= ExtractPage at `/:key`) where the scene strip shows every scene as
+  // a thumbnail and the user picks which one to label.
+  const targetHref = `/${house.key}`;
   const pages = (house as unknown as { intake_page_count?: number }).intake_page_count;
   return (
     <Link
@@ -306,10 +292,8 @@ function HouseCard({ house }: { house: DatasetHouse }) {
       className="block rounded-lg overflow-hidden border border-border bg-white hover:shadow-md hover:border-zinc-300 transition"
       title={
         intakeOnly
-          ? `Eingang ohne extrahierte Szenen — Klick öffnet den Extract-Editor`
-          : targetFile === hero?.file
-            ? `${total} Zeichnung(en) — Klick öffnet Annotation`
-            : `${total} Zeichnung(en) — fortsetzen bei zuletzt besuchter Szene`
+          ? `Eingang ohne extrahierte Szenen — Klick öffnet die Haus-Ansicht`
+          : `${total} Zeichnung(en) — Klick öffnet die Haus-Ansicht`
       }
     >
       <div className="aspect-square bg-zinc-50 flex items-center justify-center overflow-hidden">
