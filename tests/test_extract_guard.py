@@ -20,7 +20,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import api.main as api_main  # noqa: E402
-from api.main import _pixmap_is_blank  # noqa: E402
+from api.main import (  # noqa: E402
+    _image_is_blank,
+    _pixmap_is_blank,
+    _render_page_poppler,
+)
 
 
 # ── unit: blank detector ──────────────────────────────────────────────────
@@ -117,3 +121,83 @@ def test_extract_allow_blank_forces_write(blank_and_content_house):
     assert r.status_code == 201, r.text
     files = [e["file"] for e in r.json()["extracted"]]
     assert (api_main.DATASET_DIR / key / files[0]).exists()
+
+
+# ── issue #24: poppler-render fallback recovers PyMuPDF-blank pages ────────
+
+pytestmark_poppler = pytest.mark.skipif(
+    shutil.which("pdftoppm") is None, reason="poppler (pdftoppm) not installed"
+)
+
+
+@pytestmark_poppler
+def test_render_page_poppler_full_page(blank_and_content_house):
+    """The poppler fallback rasterizes a page to non-blank content and
+    crops to the same dpi/72 pixel grid PyMuPDF uses."""
+    key = blank_and_content_house
+    pdf = api_main.INCOMING_DIR / key / f"{key}.pdf"
+    # page 2 has content; full-page poppler render must be non-blank.
+    img = _render_page_poppler(pdf, 2, 150)
+    assert img is not None
+    assert not _image_is_blank(img)
+    # dimensions match the PyMuPDF raster at the same dpi (pixel parity).
+    doc = fitz.open(str(pdf))
+    pix = doc[1].get_pixmap(dpi=150)
+    doc.close()
+    assert (img.width, img.height) == (pix.width, pix.height)
+
+
+@pytestmark_poppler
+def test_render_page_poppler_bbox_crop(blank_and_content_house):
+    """A bbox crop via poppler matches the requested PDF-unit region."""
+    key = blank_and_content_house
+    pdf = api_main.INCOMING_DIR / key / f"{key}.pdf"
+    dpi = 150
+    crop = _render_page_poppler(pdf, 2, dpi, clip_pdf_units=(0, 0, 300, 200))
+    assert crop is not None
+    s = dpi / 72.0
+    assert crop.width == round(300 * s)
+    assert crop.height == round(200 * s)
+    assert not _image_is_blank(crop)
+
+
+@pytestmark_poppler
+def test_extract_recovers_pymupdf_blank_via_poppler(
+    blank_and_content_house, monkeypatch
+):
+    """When PyMuPDF returns a blank pixmap but poppler can render the page
+    (the AcroForm-corrupt scanned-archive case, issue #24), extract_scenes
+    recovers the content via poppler instead of 422-ing. Simulated by
+    forcing the PyMuPDF pixmap to always read as blank; the content page 2
+    must still be written from the poppler fallback."""
+    key = blank_and_content_house
+    monkeypatch.setattr(api_main, "_pixmap_is_blank", lambda pix: True)
+    client = TestClient(api_main.app)
+    r = client.post(f"/pdfs/{key}/extract", json={"items": [{
+        "page": 2, "bbox_pdf_units": [0, 0, 600, 400], "kind": "floorplan",
+        "dpi": 150,
+    }]})
+    assert r.status_code == 201, r.text
+    files = [e["file"] for e in r.json()["extracted"]]
+    assert files
+    out = api_main.DATASET_DIR / key / files[0]
+    assert out.exists()
+    from PIL import Image as _PILImage
+    assert not _image_is_blank(_PILImage.open(out))
+
+
+@pytestmark_poppler
+def test_extract_422_when_both_renderers_blank(
+    blank_and_content_house, monkeypatch
+):
+    """Page 1 is genuinely empty: both PyMuPDF and poppler render blank,
+    so the #12 guard still fires even with the #24 fallback in place."""
+    key = blank_and_content_house
+    monkeypatch.setattr(api_main, "_pixmap_is_blank", lambda pix: True)
+    client = TestClient(api_main.app)
+    r = client.post(f"/pdfs/{key}/extract", json={"items": [{
+        "page": 1, "bbox_pdf_units": [0, 0, 600, 400], "kind": "floorplan",
+        "dpi": 150,
+    }]})
+    assert r.status_code == 422, r.text
+    assert "blank" in r.text.lower()

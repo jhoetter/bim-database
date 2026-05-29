@@ -990,6 +990,14 @@ def render_pdf_page(key: str, n: int, dpi: int = 96):
             scale = dpi / 72.0
             mat = fitz.Matrix(scale, scale)
             pix = page.get_pixmap(matrix=mat, alpha=False)
+            # Issue #24: PyMuPDF yields an all-white pixmap on AcroForm-
+            # corrupt scans; recover the page via poppler before saving.
+            if _pixmap_is_blank(pix):
+                fb = _render_page_poppler(pdf, n, dpi)
+                if fb is not None and not _image_is_blank(fb):
+                    fb.save(str(out), format="JPEG", quality=85)
+                    sentinel.write_text(str(pdf_mtime))
+                    return FileResponse(str(out), media_type="image/jpeg")
             pix.pil_save(str(out), format="JPEG", quality=85)
         sentinel.write_text(str(pdf_mtime))
     return FileResponse(str(out), media_type="image/jpeg")
@@ -1328,6 +1336,12 @@ def render_pdf_page_grid(
             scale = dpi / 72.0
             pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
             page_img = PILImage.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            # Issue #24: recover an AcroForm-corrupt blank page via poppler
+            # so the grid overlay sits on real content, not white.
+            if _pixmap_is_blank(pix):
+                fb = _render_page_poppler(pdf, n, dpi)
+                if fb is not None and not _image_is_blank(fb):
+                    page_img = fb
         overlay = render_grid_overlay(
             page_img,
             tiers=parsed_tiers,
@@ -1378,6 +1392,73 @@ def _pixmap_is_blank(pix) -> bool:
     if a.size == 0:
         return True
     return bool(int(a.min()) >= 250 and int(a.max()) - int(a.min()) <= 2)
+
+
+def _image_is_blank(img) -> bool:
+    """`_pixmap_is_blank` for a PIL.Image — used to check the poppler
+    fallback raster (issue #24)."""
+    import numpy as np
+    a = np.asarray(img.convert("RGB"), dtype=np.uint8).reshape(-1)
+    if a.size == 0:
+        return True
+    return bool(int(a.min()) >= 250 and int(a.max()) - int(a.min()) <= 2)
+
+
+def _render_page_poppler(pdf, n: int, dpi: int, clip_pdf_units=None):
+    """Render PDF page `n` (1-indexed) at `dpi` via poppler's `pdftoppm`
+    and return a PIL.Image (issue #24).
+
+    Recovery path for PDFs that PyMuPDF cannot rasterize — e.g. scanned
+    municipal Bauakten wrapped in a malformed AcroForm/Fields layer, where
+    `fitz.Page.get_pixmap` silently yields an all-white pixmap and
+    `get_images` reports zero embedded images, but the page content (the
+    embedded JPEG scans) is intact and poppler reads it fine.
+
+    `pdftoppm -r <dpi>` rasterizes the page on the same `dpi/72` pixel
+    grid PyMuPDF uses, so cropping `clip_pdf_units` (a 4-tuple in PDF
+    units, top-left origin) with `dpi/72` scaling yields pixel-identical
+    geometry to the PyMuPDF `clip=` path — `crop_from`/coordinate
+    semantics stay consistent across both renderers.
+
+    Returns None if poppler is unavailable or fails (caller falls back to
+    the original PyMuPDF behaviour / 422).
+    """
+    import glob
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+    from PIL import Image as PILImage
+
+    if shutil.which("pdftoppm") is None:
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        prefix = os.path.join(td, "pg")
+        try:
+            subprocess.run(
+                ["pdftoppm", "-f", str(n), "-l", str(n),
+                 "-r", str(int(dpi)), "-png", str(pdf), prefix],
+                check=True, capture_output=True, timeout=120,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            return None
+        files = sorted(glob.glob(prefix + "*"))
+        if not files:
+            return None
+        img = PILImage.open(files[0]).convert("RGB")
+        img.load()
+    if clip_pdf_units is not None:
+        x0, y0, x1, y1 = (float(v) for v in clip_pdf_units)
+        s = dpi / 72.0
+        box = (
+            max(0, int(round(x0 * s))),
+            max(0, int(round(y0 * s))),
+            min(img.width, int(round(x1 * s))),
+            min(img.height, int(round(y1 * s))),
+        )
+        if box[2] > box[0] and box[3] > box[1]:
+            img = img.crop(box)
+    return img
 
 
 @app.post("/pdfs/{key}/extract", tags=["pdfs"], status_code=201)
@@ -1482,18 +1563,33 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
             # can't label but that still reports as `labeled`. Fail loudly
             # so the corruption is visible at extraction time. `allow_blank`
             # opts out for the rare intentionally-empty region.
+            #
+            # Issue #24 (recovery): when PyMuPDF returns blank — the common
+            # AcroForm-corrupt scanned-archive case where get_pixmap yields
+            # an all-white raster but the embedded scans are intact — first
+            # try a poppler render of the page, cropped to the same bbox at
+            # the same DPI (pixel-identical geometry to the PyMuPDF clip).
+            # Only fall through to the 422 if BOTH renderers come back
+            # blank (a genuinely empty region vs. a PyMuPDF-only failure).
             if not bool(raw.get("allow_blank")) and _pixmap_is_blank(pix):
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"page {page_n} rendered blank for {file_name} — no "
-                        "content (the page's content stream may be corrupt in "
-                        "the merged PDF, or the bbox is empty). Crop not "
-                        "written. Re-merge the source PDF or fix the bbox; "
-                        "pass allow_blank=true to force."
-                    ),
+                fb = _render_page_poppler(
+                    pdf, page_n, dpi, clip_pdf_units=(x0, y0, x1, y1)
                 )
-            pix.pil_save(str(out_path), format="JPEG", quality=92)
+                if fb is not None and not _image_is_blank(fb):
+                    fb.save(str(out_path), format="JPEG", quality=92)
+                else:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"page {page_n} rendered blank for {file_name} — no "
+                            "content (the page's content stream may be corrupt in "
+                            "the merged PDF, or the bbox is empty). Crop not "
+                            "written. Re-merge the source PDF or fix the bbox; "
+                            "pass allow_blank=true to force."
+                        ),
+                    )
+            else:
+                pix.pil_save(str(out_path), format="JPEG", quality=92)
 
             entry = {
                 "file": file_name,
