@@ -11,6 +11,11 @@ numpy              # gate metrics + image ops
 pillow-heif        # HEIC/HEIF decode for phone-photo submissions
 opencv-python-headless  # perspective rectify + Hough skew estimate (optional but recommended)
 
+# Agentic labeling — MCP server (mcp_server.py) wraps the REST API so an
+# LLM agent can drive the full annotation workflow.
+mcp[cli]>=1.0
+httpx              # MCP server calls FastAPI over HTTP
+
 # Tests — keep here so `pip install -r requirements.txt` lets `make test`
 # run out of the box on a fresh clone.
 pytest

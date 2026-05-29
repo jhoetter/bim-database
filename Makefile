@@ -21,7 +21,7 @@ CONCURRENTLY := ./ui/node_modules/.bin/concurrently
 
 .PHONY: install dev dev-forwarded dev-api dev-web kill-ports build cleanup-houses \
         ingest form-api form-ui-install form-ui-dev form-ui-build form-dev \
-        form-dev-forwarded test
+        form-dev-forwarded test mcp
 
 install:
 	python3 -m venv $(VENV)
@@ -146,3 +146,11 @@ form-dev-forwarded:
 # Test suite. Runs the ingestion package tests (CPU-only, no API keys).
 test:
 	$(PYTHON) -m pytest tests/ -q
+
+# ── Agentic-labeling MCP server (stdio) ─────────────────────────────────
+# Normally launched by Claude Code via ~/.claude.json; this target is for
+# manual probing. Logs to tmp/mcp-server.log; stdout/stderr is reserved
+# for the MCP transport so the human side runs the prompt loop blind.
+mcp:
+	BIM_DATABASE_API_BASE=$${BIM_DATABASE_API_BASE:-http://127.0.0.1:$(FORWARDED_PORT)} \
+	  $(PYTHON) mcp_server.py

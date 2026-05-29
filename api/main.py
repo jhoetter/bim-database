@@ -941,6 +941,148 @@ def render_pdf_page(key: str, n: int, dpi: int = 96):
     return FileResponse(str(out), media_type="image/jpeg")
 
 
+# ── Agentic-labeling grid overlay (tracker §C2) ───────────────────────────
+# Renders the scene image (or PDF page) with the three-tier coordinate
+# grid an agent uses to point at pixels precisely. Disk-cached under
+# tmp/grid-cache/<key>/ keyed on (image mtime, region, tiers, max_dim).
+
+GRID_CACHE = BASE / "tmp" / "grid-cache"
+
+
+def _parse_tiers(tiers: str) -> tuple[str, ...]:
+    raw = [t.strip() for t in tiers.split(",") if t.strip()]
+    valid = {"broad", "finer", "detail"}
+    bad = [t for t in raw if t not in valid]
+    if bad:
+        raise HTTPException(status_code=400, detail=f"unknown tier(s) {bad}; allowed {sorted(valid)}")
+    if not raw:
+        raise HTTPException(status_code=400, detail="at least one tier required")
+    return tuple(raw)
+
+
+def _parse_region(region: str | None) -> tuple[int, int, int, int] | None:
+    if not region:
+        return None
+    try:
+        parts = [int(p) for p in region.split(",")]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="region must be 'x0,y0,x1,y1' integers")
+    if len(parts) != 4:
+        raise HTTPException(status_code=400, detail="region must be 'x0,y0,x1,y1' (4 ints)")
+    return (parts[0], parts[1], parts[2], parts[3])
+
+
+@app.get("/datasets/{key}/{file}/grid", tags=["pdfs"])
+def render_scene_grid(
+    key: str,
+    file: str,
+    region: str | None = None,
+    tiers: str = "broad,finer,detail",
+    max_dim: int = 1600,
+):
+    """Agent vision aid: scene image + coordinate-anchored grid overlay.
+
+    Query args:
+      region   optional 'x0,y0,x1,y1' (source-pixel coords) — agent zoom
+      tiers    comma list of {broad, finer, detail}; default all three
+      max_dim  cap on the longer side of the output PNG; default 1600
+
+    Returns image/png; cached on disk under tmp/grid-cache/. The coordinate
+    labels in the output reference SOURCE pixels, so the agent can take a
+    reading from a zoomed crop and feed it back into upsert_label against
+    the un-cropped scene without further translation.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    if not 100 <= max_dim <= 4000:
+        raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
+    parsed_tiers = _parse_tiers(tiers)
+    parsed_region = _parse_region(region)
+
+    img_mtime = img_path.stat().st_mtime_ns
+    cache_root = GRID_CACHE / "scene" / key
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cache_name = (
+        f"{Path(file).stem}"
+        f"-r{region or 'full'}"
+        f"-t{'_'.join(parsed_tiers)}"
+        f"-m{max_dim}.png"
+    )
+    out = cache_root / cache_name
+    sentinel = out.with_suffix(".mtime")
+    if not out.exists() or not sentinel.exists() or sentinel.read_text() != str(img_mtime):
+        from PIL import Image as PILImage
+        from .grid_render import render_grid_overlay
+        with PILImage.open(img_path) as src:
+            overlay = render_grid_overlay(
+                src,
+                tiers=parsed_tiers,
+                region=parsed_region,
+                max_dim=max_dim,
+            )
+        overlay.save(out, format="PNG", optimize=True)
+        sentinel.write_text(str(img_mtime))
+    return FileResponse(str(out), media_type="image/png")
+
+
+@app.get("/pdfs/{key}/page/{n}/grid", tags=["pdfs"])
+def render_pdf_page_grid(
+    key: str,
+    n: int,
+    dpi: int = 144,
+    tiers: str = "broad,finer,detail",
+    region: str | None = None,
+    max_dim: int = 1600,
+):
+    """Same as /datasets/.../grid but for a PDF page (used for scene
+    identification at W0 / extract). The grid coordinate labels are in
+    pixels at the rendered DPI; downstream `extract_scenes` MCP tool
+    converts to PDF units using the same DPI."""
+    _safe_key(key)
+    if dpi <= 0 or dpi > 600:
+        raise HTTPException(status_code=400, detail="dpi must be in (0, 600]")
+    if not 100 <= max_dim <= 4000:
+        raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
+    parsed_tiers = _parse_tiers(tiers)
+    parsed_region = _parse_region(region)
+    pdf = _consolidated_path(key)
+    pdf_mtime = pdf.stat().st_mtime_ns
+    cache_root = GRID_CACHE / "pdf" / key
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cache_name = (
+        f"page-{n}-dpi{dpi}"
+        f"-r{region or 'full'}"
+        f"-t{'_'.join(parsed_tiers)}"
+        f"-m{max_dim}.png"
+    )
+    out = cache_root / cache_name
+    sentinel = out.with_suffix(".mtime")
+    if not out.exists() or not sentinel.exists() or sentinel.read_text() != str(pdf_mtime):
+        import fitz
+        from PIL import Image as PILImage
+        from .grid_render import render_grid_overlay
+        with fitz.open(pdf) as doc:
+            if n < 1 or n > doc.page_count:
+                raise HTTPException(status_code=404, detail=f"page {n} out of range (1..{doc.page_count})")
+            page = doc.load_page(n - 1)
+            scale = dpi / 72.0
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+            page_img = PILImage.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        overlay = render_grid_overlay(
+            page_img,
+            tiers=parsed_tiers,
+            region=parsed_region,
+            max_dim=max_dim,
+        )
+        overlay.save(out, format="PNG", optimize=True)
+        sentinel.write_text(str(pdf_mtime))
+    return FileResponse(str(out), media_type="image/png")
+
+
 @app.get("/pdfs/{key}/info", tags=["pdfs"])
 def pdf_info(key: str):
     """R2 — quick metadata: page count, per-page width/height in PDF
