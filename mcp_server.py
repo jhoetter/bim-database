@@ -702,6 +702,7 @@ async def verify_label_placement(
     max_dim: int = 1600,
     enhance: str | None = None,
     format: str = "png8",
+    snap_radius_px: int = 18,
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
     a single label so the agent doesn't have to compute the region.
@@ -731,11 +732,16 @@ async def verify_label_placement(
                  none|auto|clahe|threshold (default none).
       format:    png|png8 (issue #3). Default png8 — the cheaper palette
                  PNG; ideal for the verify-after-place loop.
+      snap_radius_px: search radius for the numeric offset check (issue
+                 #10). The envelope reports `offset_px` — the vector from
+                 the label's anchor to the nearest drawn feature — so you
+                 correct by a precise delta instead of eyeballing.
 
     Returns: image + envelope with the same shape as
-    `get_scene_view_with_labels`. The envelope's `labels_in_view` will
-    typically contain just this one label (plus any neighbours that
-    happen to fall in the padded crop).
+    `get_scene_view_with_labels`, PLUS (issue #10) `offset_px`,
+    `nearest_feature_px`, `nearest_feature_distance_px`, and an
+    `offset_hint`. The envelope's `labels_in_view` will typically contain
+    just this one label (plus any neighbours in the padded crop).
     """
     started = time.time()
     # Look up the label to read its geometry.
@@ -790,11 +796,138 @@ async def verify_label_placement(
     if y1 - y0 < 20:
         y1 = min(int(img_h), y0 + 20)
     region = f"{x0},{y0},{x1},{y1}"
-    return await get_scene_view_with_labels(
+    view = await get_scene_view_with_labels(
         key=key, file=file, region=region, tiers=tiers, max_dim=max_dim,
         enhance=enhance,
         format=format,
     )
+
+    # Issue #10: numeric offset feedback. How far is the label's anchor
+    # from the nearest drawn feature? The agent can then correct by a
+    # precise delta instead of eyeballing the visual crop.
+    if isinstance(geom.get("anchor"), list) and len(geom["anchor"]) >= 2:
+        anchor = [float(geom["anchor"][0]), float(geom["anchor"][1])]
+    elif isinstance(geom.get("start"), list) and len(geom["start"]) >= 2:
+        anchor = [float(geom["start"][0]), float(geom["start"][1])]
+    else:
+        anchor = [sum(xs) / len(xs), sum(ys) / len(ys)]
+    try:
+        rp_status, rp_body = await _api_get(
+            f"/datasets/{key}/{file}/resolve-point",
+            params={
+                "point": f"{anchor[0]},{anchor[1]}",
+                "frame": "source",
+                "snap": "true",
+                "snap_radius_px": snap_radius_px,
+            },
+        )
+    except (httpx.HTTPError, httpx.RequestError):
+        rp_status, rp_body = 0, None
+    if (
+        rp_status == 200 and isinstance(rp_body, dict)
+        and view and isinstance(view[-1], TextContent)
+    ):
+        try:
+            env = json.loads(view[-1].text)
+            data = env.get("data") or {}
+            data["anchor_checked"] = anchor
+            if rp_body.get("snapped"):
+                data["offset_px"] = rp_body.get("offset_px")
+                data["nearest_feature_px"] = rp_body.get("feature_point")
+                data["nearest_feature_distance_px"] = rp_body.get("distance_px")
+                data["offset_hint"] = (
+                    "offset_px is the vector FROM the label's anchor TO the "
+                    "nearest drawn feature. To center the anchor on that "
+                    "feature, shift it by offset_px (update_label_attrs for a "
+                    f"small move). Searched within {snap_radius_px}px."
+                )
+            else:
+                data["offset_px"] = None
+                data["offset_hint"] = (
+                    f"No drawn feature within {snap_radius_px}px of the anchor — "
+                    "the anchor may already be clear of ink, or widen "
+                    "snap_radius_px and re-check."
+                )
+            env["data"] = data
+            view[-1].text = json.dumps(env, indent=2)
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            pass
+    return view
+
+
+@mcp.tool()
+async def resolve_scene_point(
+    key: str,
+    file: str,
+    point: list[float],
+    region: str | None = None,
+    max_dim: int = 1600,
+    frame: str = "source",
+    snap: bool = True,
+    snap_radius_px: int = 14,
+) -> dict:
+    """Issue #10 — turn a roughly-placed point into a precise SOURCE-pixel
+    coordinate, so you DON'T have to read absolute coords off a dense grid.
+
+    Two inversions of the hard part:
+      1. Local-crop coordinates. If you called `get_scene_view(region=...)`
+         and want to point at something in that crop, pass frame="crop"
+         with `point` in the CROP's local pixel frame (0..w, 0..h) and the
+         same `region`/`max_dim` you used. The server maps it back to
+         source pixels — short tracing distance in a small crop, low error.
+      2. Snap-to-feature. With snap=true (default) the mapped point is
+         snapped to the nearest drawn feature (Höhenkote tick-triangle,
+         line, dim arrow) within `snap_radius_px`. Place approximately;
+         the server lands you on the real mark.
+
+    USE when:
+      - About to `upsert_label` / `add_reference_dim`: resolve each
+        endpoint/anchor here first, then pass the returned `source_point`.
+      - You read a feature in a zoom crop and want its source coordinate
+        without interpolating across gridlines.
+
+    Args:
+      key, file:      scene identifier.
+      point:          [x, y]. Source pixels when frame='source'; the crop's
+                      local pixel frame when frame='crop'.
+      region:         'x0,y0,x1,y1' source-pixel crop (required for
+                      frame='crop') — the same rect you passed to
+                      get_scene_view.
+      max_dim:        the same max_dim you used for the crop (so a
+                      downscaled crop maps back correctly).
+      frame:          'source' | 'crop'.
+      snap:           snap the mapped point to the nearest feature.
+      snap_radius_px: snap search radius (source pixels). Use a small
+                      radius near dense content so it doesn't grab a
+                      neighbour.
+
+    Returns: `data` = {source_point:[x,y], mapped_point:[x,y],
+      snapped:bool, offset_px:[dx,dy], distance_px, feature_point, frame}.
+      Feed `source_point` straight into the write tools.
+    """
+    started = time.time()
+    if frame not in ("source", "crop"):
+        return _err("bad_frame", "frame must be 'source' or 'crop'", started_at=started)
+    if not (isinstance(point, list) and len(point) == 2):
+        return _err("bad_point", "point must be [x, y]", started_at=started)
+    params: dict[str, Any] = {
+        "point": f"{point[0]},{point[1]}",
+        "max_dim": max_dim,
+        "frame": frame,
+        "snap": "true" if snap else "false",
+        "snap_radius_px": snap_radius_px,
+    }
+    if region:
+        params["region"] = region
+    try:
+        status, body = await _api_get(f"/datasets/{key}/{file}/resolve-point", params=params)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(f"/datasets/{key}/{file}/resolve-point", params=params)
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -2438,6 +2571,23 @@ To zoom into a region, call `get_scene_view(file=..., region="x0,y0,x1,y1")`.
 The labels in the zoom still read in source-pixel coords — so a vertex
 you identify in a zoom at (1240, 670) maps to (1240, 670) in the
 un-cropped scene without any translation.
+
+Don't trace coordinates across the dense grid if you can avoid it
+(issue #10): vision-LLMs are strong at "that feature, there" and weak at
+"row 1797, col 232". Instead:
+
+  - Point in the crop's LOCAL frame. Call
+    `resolve_scene_point(point=[lx,ly], region=..., frame="crop")` with the
+    point in the zoom's own pixel frame (0..w, 0..h). The server maps it
+    back to source pixels for you.
+  - Snap to the real mark. `resolve_scene_point(..., snap=true)` snaps the
+    point to the nearest drawn feature (tick-triangle, line, dim arrow)
+    within `snap_radius_px`. Place approximately; the server lands you on
+    the feature. Feed the returned `source_point` into upsert_label /
+    add_reference_dim.
+  - Correct by a delta. After a write, `verify_label_placement` reports
+    `offset_px` — the vector from your anchor to the nearest feature — so
+    you nudge by an exact amount instead of eyeballing.
 """
 
 

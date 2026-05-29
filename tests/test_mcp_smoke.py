@@ -879,6 +879,88 @@ def test_h5_7_verify_label_placement_auto_crops():
         _run(mcp_server.delete_label(key=key, file=file, label_id=new_id))
 
 
+def test_resolve_scene_point_source_frame_smoke():
+    """Issue #10: resolve_scene_point returns a source coordinate and the
+    snap/offset fields."""
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+    size = meta["data"].get("image_size_px") or [2000, 1200]
+    w, h = size
+    r = _run(mcp_server.resolve_scene_point(
+        key=key, file=file, point=[w * 0.5, h * 0.5], frame="source",
+        snap=True, snap_radius_px=12,
+    ))
+    assert r["ok"], r.get("error")
+    d = r["data"]
+    assert isinstance(d["source_point"], list) and len(d["source_point"]) == 2
+    assert "snapped" in d and "offset_px" in d
+    assert d["mapped_point"] == [w * 0.5, h * 0.5]
+
+
+def test_resolve_scene_point_crop_frame_maps_origin():
+    """Issue #10: frame='crop' maps the local point back to source by the
+    crop origin (snap off so the mapping is exact)."""
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+    size = meta["data"].get("image_size_px") or [2000, 1200]
+    w, h = size
+    region = f"{int(w*0.2)},{int(h*0.2)},{int(w*0.2)+200},{int(h*0.2)+200}"
+    r = _run(mcp_server.resolve_scene_point(
+        key=key, file=file, point=[10, 20], region=region, frame="crop",
+        snap=False, max_dim=1600,
+    ))
+    assert r["ok"], r.get("error")
+    assert r["data"]["source_point"] == [int(w * 0.2) + 10, int(h * 0.2) + 20]
+
+
+def test_resolve_scene_point_crop_requires_region():
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    r = _run(mcp_server.resolve_scene_point(
+        key=key, file=file, point=[1, 2], frame="crop",
+    ))
+    assert not r["ok"]
+
+
+def test_verify_label_placement_reports_offset_px():
+    """Issue #10: verify_label_placement augments its envelope with
+    offset_px / offset_hint so the agent can correct numerically."""
+    import json as _json
+    key, file = _scratch_scene_for_guards()
+    meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+    size = meta["data"].get("image_size_px") or [2000, 1200]
+    w, h = size
+    wall = {
+        "type": "wall",
+        "geometry": {"start": [w * 0.3, h * 0.4], "end": [w * 0.7, h * 0.4]},
+        "attributes": {"thickness_mm": 365},
+        "status": "readable",
+    }
+    add = _run(mcp_server.upsert_label(key=key, file=file, label=wall))
+    assert add["ok"], add.get("error")
+    new_id = add["data"]["label_id"]
+    try:
+        result = _run(mcp_server.verify_label_placement(
+            key=key, file=file, label_id=new_id, pad_px=40, max_dim=400,
+        ))
+        assert isinstance(result, list) and len(result) == 2
+        env = _json.loads(result[1].text)
+        assert env["ok"], env.get("error")
+        data = env["data"]
+        # offset_px key always present (value may be null if no feature),
+        # plus a hint and the anchor that was checked.
+        assert "offset_px" in data
+        assert "offset_hint" in data
+        assert data["anchor_checked"] == [w * 0.3, h * 0.4]
+    finally:
+        _run(mcp_server.delete_label(key=key, file=file, label_id=new_id))
+
+
 def test_tool_descriptions_are_present():
     """Smoke check: every registered MCP tool has a docstring of >=200
     chars. Tracker §9 mitigation for description drift; the golden
@@ -902,6 +984,7 @@ def test_tool_descriptions_are_present():
         mcp_server.dump_run_summary,
         mcp_server.get_scene_view_with_labels,  # H5-2
         mcp_server.verify_label_placement,  # H5-7
+        mcp_server.resolve_scene_point,  # issue #10
     ]
     for tool in tools:
         # Tool objects are decorated; unwrap if needed.

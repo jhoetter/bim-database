@@ -77,6 +77,19 @@ class _Spec:
         return self.out_h / self.crop_src_h
 
 
+def compute_output_size(crop_w: int, crop_h: int, max_dim: int) -> tuple[int, int]:
+    """Output (width, height) for a `crop_w`×`crop_h` source-pixel crop
+    given `max_dim`. Mirrors the downscale rule in render_grid_overlay:
+    native 1:1 unless the long edge exceeds max_dim, then scale down
+    preserving aspect ratio. Shared with api.snap so the local-crop →
+    source coordinate mapping (issue #10) agrees with the rendered image.
+    """
+    if max(crop_w, crop_h) > max_dim:
+        scale = max_dim / max(crop_w, crop_h)
+        return (max(1, int(crop_w * scale)), max(1, int(crop_h * scale)))
+    return (crop_w, crop_h)
+
+
 def render_grid_overlay(
     image: Image.Image,
     *,
@@ -144,26 +157,16 @@ def render_grid_overlay(
         source_size = None
 
     cw, ch = cropped.size
-    # H4 (followups-2 tracker): crop-aware max_dim. When the caller
-    # asked for a `region`, keep the crop at native resolution if it
-    # fits — small zooms shouldn't be capped at 1600px and lose
-    # readability on small text. Full-image renders still cap at
-    # max_dim so we don't dump a 6000px PNG into the agent's context.
-    if region is not None:
-        # Crop already at native source pixels; only downscale if it
-        # blows the max_dim cap.
-        if max(cw, ch) > max_dim:
-            scale = max_dim / max(cw, ch)
-            out_w = max(1, int(cw * scale))
-            out_h = max(1, int(ch * scale))
-            cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
-        # else: keep cw,ch as-is (1:1 native)
-    else:
-        if max(cw, ch) > max_dim:
-            scale = max_dim / max(cw, ch)
-            out_w = max(1, int(cw * scale))
-            out_h = max(1, int(ch * scale))
-            cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
+    # H4 (followups-2 tracker): crop-aware max_dim. Keep the crop at
+    # native 1:1 resolution if it fits — small zooms shouldn't be capped
+    # at 1600px and lose readability on small text. Full-image renders
+    # still cap at max_dim so we don't dump a 6000px PNG into the agent's
+    # context. compute_output_size is shared with api.snap so the
+    # local-crop → source coordinate mapping (issue #10) agrees with the
+    # rendered image exactly.
+    out_w, out_h = compute_output_size(cw, ch, max_dim)
+    if (out_w, out_h) != (cw, ch):
+        cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
     cw, ch = cropped.size
 
     # Issue #2: lift faint pencil/freehand BEFORE the grid composite so
