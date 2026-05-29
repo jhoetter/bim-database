@@ -124,11 +124,26 @@ def render_grid_overlay(
         source_size = None
 
     cw, ch = cropped.size
-    if max(cw, ch) > max_dim:
-        scale = max_dim / max(cw, ch)
-        out_w = max(1, int(cw * scale))
-        out_h = max(1, int(ch * scale))
-        cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
+    # H4 (followups-2 tracker): crop-aware max_dim. When the caller
+    # asked for a `region`, keep the crop at native resolution if it
+    # fits — small zooms shouldn't be capped at 1600px and lose
+    # readability on small text. Full-image renders still cap at
+    # max_dim so we don't dump a 6000px PNG into the agent's context.
+    if region is not None:
+        # Crop already at native source pixels; only downscale if it
+        # blows the max_dim cap.
+        if max(cw, ch) > max_dim:
+            scale = max_dim / max(cw, ch)
+            out_w = max(1, int(cw * scale))
+            out_h = max(1, int(ch * scale))
+            cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
+        # else: keep cw,ch as-is (1:1 native)
+    else:
+        if max(cw, ch) > max_dim:
+            scale = max_dim / max(cw, ch)
+            out_w = max(1, int(cw * scale))
+            out_h = max(1, int(ch * scale))
+            cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
     cw, ch = cropped.size
 
     # Canvas == image dims; no margin. Grid + labels drawn ON the image.

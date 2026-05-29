@@ -161,10 +161,39 @@ def test_promote_extent_from_schnitt_horizontal_writes_depth():
     assert "width_mm" not in facts["extent"]
 
 
-def test_promote_extent_vertical_writes_height():
+def test_promote_extent_vertical_on_ansicht_writes_height():
     facts: dict = {}
     labels_json = {
         "scene_tag": "ansicht",
+        "labels": [_ref_dim([0, 0], [0, 1000], 8500)],
+    }
+    promote_scene_to_facts(facts, scene_file="x.jpg", labels_json=labels_json)
+    assert facts["extent"]["height_mm"] == 8500
+
+
+def test_promote_extent_vertical_on_grundriss_writes_depth():
+    """H2 (followups-2 tracker): on a Grundriss, vertical dim is the
+    building DEPTH (Gebäudetiefe), not height. The W2 predicate reads
+    depth_mm; vertical-on-Grundriss must populate it."""
+    facts: dict = {}
+    labels_json = {
+        "scene_tag": "grundriss",
+        "scene_level": "eg",
+        "labels": [
+            _ref_dim([0, 0], [1000, 0], 12000, "h"),  # horizontal → width
+            _ref_dim([0, 0], [0, 800], 8000, "v"),    # vertical → depth (NOT height)
+        ],
+    }
+    promote_scene_to_facts(facts, scene_file="eg.jpg", labels_json=labels_json)
+    assert facts["extent"]["width_mm"] == 12000
+    assert facts["extent"]["depth_mm"] == 8000
+    assert "height_mm" not in facts["extent"]
+
+
+def test_promote_extent_vertical_on_schnitt_writes_height():
+    facts: dict = {}
+    labels_json = {
+        "scene_tag": "schnitt",
         "labels": [_ref_dim([0, 0], [0, 1000], 8500)],
     }
     promote_scene_to_facts(facts, scene_file="x.jpg", labels_json=labels_json)
@@ -182,6 +211,32 @@ def test_promote_extent_keeps_largest():
     }
     promote_scene_to_facts(facts, scene_file="x.jpg", labels_json=labels_json)
     assert facts["extent"]["width_mm"] == 12500
+
+
+def test_promote_heights_bezug_zero_with_datum_still_sets_bezug_mm():
+    """H1 (followups-2 tracker): a height_mark with value_mm: 0 sets
+    bezug_mm = 0 regardless of datum. Previously this only worked when
+    datum was None or 'other'; agents following the playbook example
+    (datum: 'ok_ffb') hit a phantom W1-incomplete state."""
+    facts: dict = {}
+    labels_json = {
+        "scene_tag": "ansicht",
+        "scene_level": "eg",
+        "labels": [
+            {"id": "h0", "type": "height_mark", "status": "readable",
+             "geometry": {"anchor": [100, 800]},
+             "attributes": {"value_mm": 0, "datum": "ok_ffb"}},
+        ],
+    }
+    promote_scene_to_facts(facts, scene_file="ansicht.jpg",
+                           labels_json=labels_json)
+    # bezug_mm set despite datum: ok_ffb
+    assert facts["heights"]["bezug_mm"] == 0
+    # ok_ffb_eg_mm also set (same value, datum-specific key)
+    assert facts["heights"]["ok_ffb_eg_mm"] == 0
+    # Both source-chains reference the same label
+    assert any("h0" in s for s in facts["heights"]["sources"].get("bezug_mm", []))
+    assert any("h0" in s for s in facts["heights"]["sources"].get("ok_ffb_eg_mm", []))
 
 
 def test_promote_heights_bezug_and_first():

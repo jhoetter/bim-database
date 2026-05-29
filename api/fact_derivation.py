@@ -216,24 +216,36 @@ def promote_scene_to_facts(
         if orient is None:
             continue
         src = f"{src_prefix}dim:{lab.get('id', '')}"
+        # H2 (followups-2 tracker): the axis convention is per scene_tag.
+        #   Grundriss (plan view):
+        #     horizontal = width  (Gebäudebreite, plan's H axis)
+        #     vertical   = depth  (Gebäudetiefe, plan's V axis)
+        #   Ansicht (elevation):
+        #     horizontal = width  (façade-on-view)
+        #     vertical   = height (building height)
+        #   Schnitt (section through):
+        #     horizontal = depth  (depth-on-view)
+        #     vertical   = height (building height)
         if orient == "horizontal":
             if scene_tag == "schnitt":
-                current = facts["extent"].get("depth_mm")
-                if current is None or value_mm > current:
-                    facts["extent"]["depth_mm"] = value_mm
-                _add_source(facts["extent"]["sources"], "depth_mm", src)
+                axis_key = "depth_mm"
             else:
-                current = facts["extent"].get("width_mm")
-                if current is None or value_mm > current:
-                    facts["extent"]["width_mm"] = value_mm
-                _add_source(facts["extent"]["sources"], "width_mm", src)
-        else:
-            current = facts["extent"].get("height_mm")
-            if current is None or value_mm > current:
-                facts["extent"]["height_mm"] = value_mm
-            _add_source(facts["extent"]["sources"], "height_mm", src)
+                axis_key = "width_mm"
+        else:  # vertical
+            if scene_tag == "grundriss":
+                axis_key = "depth_mm"
+            else:
+                axis_key = "height_mm"
+        current = facts["extent"].get(axis_key)
+        if current is None or value_mm > current:
+            facts["extent"][axis_key] = value_mm
+        _add_source(facts["extent"]["sources"], axis_key, src)
 
     # 4. Heights from height_mark labels.
+    # H1 (followups-2 tracker): `value_mm == 0` IS the bezug signal,
+    # regardless of datum. A height_mark with `value_mm: 0, datum:
+    # "ok_ffb"` ALWAYS sets bezug_mm = 0 (and may ALSO set the
+    # datum-specific key if datum is non-empty).
     bezug_y: float | None = None
     for lab in labels:
         if lab.get("type") != "height_mark":
@@ -247,15 +259,16 @@ def promote_scene_to_facts(
             anchor = geom.get("anchor") or [0, 0]
             if len(anchor) >= 2:
                 bezug_y = anchor[1]
+            # Bezug signal: always set bezug_mm = 0 on a zero-valued
+            # height_mark.
+            facts["heights"]["bezug_mm"] = 0
+            _add_source(
+                facts["heights"]["sources"],
+                "bezug_mm",
+                f"{src_prefix}hm:{lab.get('id', '')}",
+            )
         datum = attrs.get("datum")
         if not datum or datum == "other":
-            if v == 0:
-                facts["heights"]["bezug_mm"] = 0
-                _add_source(
-                    facts["heights"]["sources"],
-                    "bezug_mm",
-                    f"{src_prefix}hm:{lab.get('id', '')}",
-                )
             continue
         key = _height_key_for_datum(datum, scene_level)
         if not key:

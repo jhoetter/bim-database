@@ -354,46 +354,46 @@ export function promoteToFacts(args: {
     const orient = dimOrientation(l.geometry.start, l.geometry.end);
     if (!orient) continue;
     const src = `${srcPrefix}dim:${l.id}`;
+    // H2 (followups-2 tracker): axis convention is per scene_tag.
+    //   Grundriss (plan view):
+    //     horizontal = width  (Gebäudebreite)
+    //     vertical   = depth  (Gebäudetiefe)  ← was 'height', now correct
+    //   Ansicht (elevation):
+    //     horizontal = width
+    //     vertical   = height
+    //   Schnitt (section):
+    //     horizontal = depth
+    //     vertical   = height
+    let axisKey: 'width_mm' | 'depth_mm' | 'height_mm';
     if (orient === 'horizontal') {
-      // For Ansicht: building width. For Schnitt: building depth. For
-      // Grundriss: either, depending on orientation of the building axis
-      // in that floor view — pragmatic: write to width_mm (it's the
-      // largest H extent we've seen), let conflict detection (N8) flag
-      // if Ansicht and Grundriss disagree.
-      if (args.sceneTag === 'schnitt') {
-        if (facts.extent.depth_mm == null || l.attributes.value_mm > facts.extent.depth_mm) {
-          facts.extent.depth_mm = l.attributes.value_mm;
-        }
-        addSource(facts.extent.sources, 'depth_mm', src);
-      } else {
-        if (facts.extent.width_mm == null || l.attributes.value_mm > facts.extent.width_mm) {
-          facts.extent.width_mm = l.attributes.value_mm;
-        }
-        addSource(facts.extent.sources, 'width_mm', src);
-      }
+      axisKey = args.sceneTag === 'schnitt' ? 'depth_mm' : 'width_mm';
     } else {
-      // Vertical is building height regardless of scene tag.
-      if (facts.extent.height_mm == null || l.attributes.value_mm > facts.extent.height_mm) {
-        facts.extent.height_mm = l.attributes.value_mm;
-      }
-      addSource(facts.extent.sources, 'height_mm', src);
+      axisKey = args.sceneTag === 'grundriss' ? 'depth_mm' : 'height_mm';
     }
+    const current = facts.extent[axisKey];
+    if (current == null || l.attributes.value_mm > current) {
+      facts.extent[axisKey] = l.attributes.value_mm;
+    }
+    addSource(facts.extent.sources, axisKey, src);
   }
 
   // Heights from height_marks with datum + value_mm set.
+  // H1 (followups-2 tracker): value_mm == 0 IS the bezug signal,
+  // regardless of datum. Mirror api/fact_derivation.py — a
+  // height_mark with `value_mm: 0, datum: "ok_ffb"` always sets
+  // bezug_mm = 0 (and may also set the datum-specific key).
   let bezugY: number | undefined;
   for (const l of args.labels) {
     if (l.type !== 'height_mark') continue;
     const v = l.attributes.value_mm;
     if (v == null) continue;
-    if (v === 0) bezugY = l.geometry.anchor[1];
+    if (v === 0) {
+      bezugY = l.geometry.anchor[1];
+      facts.heights.bezug_mm = 0;
+      addSource(facts.heights.sources, 'bezug_mm', `${srcPrefix}hm:${l.id}`);
+    }
     const d = l.attributes.datum;
     if (!d || d === 'other') {
-      // Bezugshöhe (value=0) has no datum but is still meaningful.
-      if (v === 0) {
-        facts.heights.bezug_mm = 0;
-        addSource(facts.heights.sources, 'bezug_mm', `${srcPrefix}hm:${l.id}`);
-      }
       continue;
     }
     const datumKey: string | null = (() => {

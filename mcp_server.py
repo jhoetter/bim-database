@@ -373,6 +373,9 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
     w0_blockers: list[str] = []
     if not drawings:
         w0_blockers.append("no scenes extracted yet")
+    # H3 (followups-2 tracker): orientation is OPTIONAL on ansicht/
+    # schnitt. Missing orientation surfaces in list_anomalies as a
+    # warning, not a W0 blocker.
     for d in drawings:
         f = d.get("file")
         meta = scene_meta.get(f, {})
@@ -380,8 +383,6 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
         if tag in (None, "nicht_klassifiziert"):
             w0_blockers.append(f"{f}: untagged")
             continue
-        if tag in ("ansicht", "schnitt") and not meta.get("scene_orientation"):
-            w0_blockers.append(f"{f}: missing orientation")
         if tag == "grundriss" and not meta.get("scene_level"):
             w0_blockers.append(f"{f}: missing level")
     w0_status = "done" if drawings and not w0_blockers else "pending"
@@ -469,6 +470,11 @@ async def get_scene_view(
       region:  optional 'x0,y0,x1,y1' (source-pixel coords) — agent zoom.
       tiers:   comma list of {broad, finer, detail}; default all three.
       max_dim: cap on the longer side of the output PNG; default 1600.
+
+    Per H4 (followups-2 tracker): when `region` is given, the output
+    keeps 1:1 native resolution up to `max_dim`. A 400×400 crop comes
+    back as 400×400, NOT scaled up. Small rotated dim text stays
+    readable. Full-image renders (no region) still cap at `max_dim`.
 
     Returns: one ImageContent (PNG, RGBA) and one TextContent with the
     image metadata (source dimensions, region applied, tier step sizes).
@@ -1766,7 +1772,8 @@ async def list_anomalies(key: str) -> dict:
             "message": msg, "severity": "warning",
         })
 
-    # G5-2: uncertain labels per scene (the agent's honesty markers).
+    # G5-2 + H3: per-scene anomalies — uncertain labels + missing
+    # orientation on ansicht/schnitt.
     try:
         ds_status, ds_body = await _api_get(f"/datasets/{key}")
         for d in (ds_body or {}).get("drawings") or []:
@@ -1786,6 +1793,16 @@ async def list_anomalies(key: str) -> dict:
                     "message": f"{f}: {uncertain} label(s) marked uncertain",
                     "severity": "info",
                     "details": {"file": f, "count": uncertain},
+                })
+            # H3: missing orientation on ansicht/schnitt is now a warning,
+            # not a W0 blocker. Surface for reviewer triage.
+            tag = lbl.get("scene_tag")
+            if tag in ("ansicht", "schnitt") and not lbl.get("scene_orientation"):
+                anomalies.append({
+                    "phase": "W0", "kind": "missing_orientation",
+                    "message": f"{f}: scene_orientation not set (was previously a blocker; now a warning so reviewers can spot-check)",
+                    "severity": "warning",
+                    "details": {"file": f, "scene_tag": tag},
                 })
     except Exception:  # noqa: BLE001
         pass
@@ -2032,12 +2049,14 @@ For each scene returned by `get_house(key="{key}").drawings`:
    "EG-Grundriss", "Süd-Ansicht", "Schnitt A-A" — best ground truth.
    Override the default only when the title block contradicts it.
 4. `set_scene_tag(key="{key}", file=<file>, tag=<tag>)`.
-5. **scene_orientation (per §G3-2):** if Ansicht/Schnitt with a CLEAR
-   cardinal face (the elevation labeled "Süd"/"South"; a compass mark
-   visible AND the wall it points to is the wall this scene shows),
-   call `set_scene_orientation(...)` with the value. **If unclear,
-   leave null — DO NOT GUESS.** Detail crops never have a cardinal
-   orientation; leave null always.
+5. **scene_orientation (per §G3-2 + §H3): OPTIONAL.** If
+   Ansicht/Schnitt with a CLEAR cardinal face (elevation labeled
+   "Süd"/"South"; compass mark visible AND the wall it points to is
+   the wall this scene shows), call `set_scene_orientation(...)`.
+   **If unclear, leave null — DO NOT GUESS.** Per §H3 missing
+   orientation does NOT block W0 anymore; it surfaces as a `warning`
+   in `list_anomalies` so a human reviewer knows to spot-check.
+   Detail crops never have a cardinal orientation; leave null always.
 6. If Grundriss: identify the floor level (kg/ug/eg/og/dg/spitzboden)
    from the title text or by elimination (count the floors). Call
    `set_scene_level(...)`. If genuinely unclear, leave null.
@@ -2127,6 +2146,17 @@ def prompt_w2_footprint(key: str) -> str:
 Goal: `facts.extent.width_mm`, `facts.extent.depth_mm`, and
 `facts.wall_thickness.outer_mm` all set.
 
+## Axis convention (per §H2)
+
+On a Grundriss (plan view), the building's dimensions are:
+- **horizontal dim → `extent.width_mm`** (Gebäudebreite)
+- **vertical dim → `extent.depth_mm`** (Gebäudetiefe)
+
+So adding ONE horizontal + ONE vertical reference dim on an EG-
+Grundriss populates BOTH `width_mm` AND `depth_mm` via server-side
+derivation. No need for a follow-up `set_house_facts` patch on
+extent — just label the dims and confirm via `get_house_facts`.
+
 ## Steps
 
 1. Pick EG-Grundriss (the one with `scene_level == "eg"`).
@@ -2150,13 +2180,18 @@ Goal: `facts.extent.width_mm`, `facts.extent.depth_mm`, and
    upsert_label(key="{key}", file=<eg>, label={{
      "type": "wall",
      "geometry": {{"start": [x1,y1], "end": [x2,y2]}},
-     "attributes": {{"thickness_mm": 365}}
+     "attributes": {{"thickness_mm": 365}},
+     "status": "readable"
    }})
    ```
-6. `set_house_facts(key="{key}", patch={{
-     "extent": {{"width_mm": 12400, "depth_mm": 9800}},
-     "wall_thickness": {{"outer_mm": 365}}
-   }})`.
+6. Confirm via `get_house_facts(key="{key}")`:
+   - `extent.width_mm` = horizontal dim value
+   - `extent.depth_mm` = vertical dim value
+   - `wall_thickness.outer_mm` set
+   You should NOT need to call `set_house_facts` for extent — derivation
+   handles it. The only manual `set_house_facts` is for
+   `wall_thickness.outer_mm` (since walls don't derive that
+   automatically yet).
 
 ## Exit
 

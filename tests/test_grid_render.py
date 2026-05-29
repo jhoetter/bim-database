@@ -69,6 +69,33 @@ def test_cropped_output_matches_region_dims(sample_scene):
     assert out.size == (500, 400)
 
 
+def test_cropped_output_keeps_native_resolution_under_max_dim(sample_scene):
+    """H4 (followups-2 tracker): small crops should stay 1:1 — readability
+    of small rotated dim text was the original motivation for this."""
+    region = (100, 100, 500, 500)  # 400×400 crop, source-pixel
+    out = render_grid_overlay(sample_scene, tiers=("broad",), region=region, max_dim=1600)
+    # Should NOT have been upscaled to 1600
+    assert out.size == (400, 400), (
+        f"crop with max_dim=1600 should keep 400x400 native; got {out.size}"
+    )
+
+
+def test_cropped_output_still_clamps_when_crop_exceeds_max_dim(sample_scene):
+    """Large crops still get downscaled to max_dim so an agent's context
+    doesn't get hit by a multi-megabyte image."""
+    sw, sh = sample_scene.size
+    # Use a region that's clearly bigger than max_dim if possible.
+    if max(sw, sh) < 1200:
+        pytest.skip("sample image too small to exercise the cap")
+    out = render_grid_overlay(
+        sample_scene,
+        tiers=("broad",),
+        region=(0, 0, min(sw, 1500), min(sh, 1500)),
+        max_dim=800,
+    )
+    assert max(out.size) <= 800
+
+
 def test_tiers_must_be_valid():
     img = Image.new("RGB", (400, 400), (255, 255, 255))
     with pytest.raises(ValueError, match="unknown tier"):

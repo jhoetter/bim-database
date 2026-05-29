@@ -45,10 +45,10 @@ const PHASE_ORDER: Record<PhaseId, number> = {
 
 // ── Phase 0 — Inventory ─────────────────────────────────────────────────
 
-// Tags that need orientation (Ansicht/Schnitt) or level (Grundriss).
-function tagRequiresOrientation(tag: string | null | undefined): boolean {
-  return tag === 'ansicht' || tag === 'schnitt';
-}
+// Tags that need level (Grundriss). Orientation is OPTIONAL on
+// Ansicht/Schnitt per §H3 (followups-2 tracker): forcing it produced
+// dishonest guesses. Missing orientation surfaces in `list_anomalies`
+// as a warning instead.
 function tagRequiresLevel(tag: string | null | undefined): boolean {
   return tag === 'grundriss';
 }
@@ -58,7 +58,7 @@ export function isInventoryComplete(facts: HouseFacts, scenes: SceneSummary[]): 
     const meta: SceneMetadataEntry | undefined = facts.scene_metadata[s.file];
     const tag = meta?.scene_tag ?? s.tag;
     if (!tag || tag === 'nicht_klassifiziert') return false;
-    if (tagRequiresOrientation(tag) && !meta?.orientation) return false;
+    // Per H3: orientation no longer required on ansicht/schnitt.
     if (tagRequiresLevel(tag) && !meta?.level) return false;
   }
   return scenes.length > 0;
