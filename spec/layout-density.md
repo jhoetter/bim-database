@@ -1,9 +1,10 @@
 # Layout density + keyboard (L) tracker
 
-**Status:** 2026-05-29. Pre-implementation. All Q1–Q6 ★
-recommendations approved by the user; §6 captures them as decisions,
-not open questions. §1 extended with findings L8–L16 the user
-didn't articulate but the audit surfaced.
+**Status:** 2026-05-29. **L0–L16 shipped.** All D1–D6 applied. L13
+turned out unnecessary (already implemented). L14 simplified to
+default-collapsed + completion-% header — the popover-modal
+proposal added complexity without changing what the accordion
+already does.
 
 **Owner:** jhoetter
 **Predecessor:** [`spec/ux-consistency.md`](ux-consistency.md) — U0–U13,

@@ -4083,9 +4083,21 @@ function WorkflowGuide({
 }) {
   const phase = workflowCurrentPhase(facts, scenes);
   const snap = workflowPhaseStatusSnapshot(facts, scenes);
-  const [open, setOpen] = useState(phase !== 'detail');
+  // L14 — compact-by-default. The header shows phase progress + a
+  // "Eintragen" link; the long inline body opens when the user clicks
+  // the accordion. Localstorage remembers the user's last choice per
+  // house so a power user who keeps it open stays open.
+  const openKey = `bim-db:annotate:workflow-open`;
+  const [open, setOpen] = useState(() => {
+    try { return window.localStorage.getItem(openKey) === 'true'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(openKey, String(open)); } catch { /* no-op */ }
+  }, [open, openKey]);
   const phaseList: PhaseId[] = ['inventory', 'height_anchor', 'footprint', 'orientation', 'bezugsmasse', 'detail'];
   const phaseIdx = phaseList.indexOf(phase);
+  const completeCount = phaseList.filter((p) => snap[p]?.complete).length;
 
   // W1 — Phase 0 inventory body: list every scene that's missing a
   // tag/orientation/level. Per-scene "open" button → goToScene().
@@ -4123,12 +4135,21 @@ function WorkflowGuide({
         <span className="flex-1 min-w-0">
           <span className="flex items-center gap-1.5 text-[0.7rem] uppercase tracking-wider text-zinc-700 font-semibold">
             <span className="truncate">Arbeitsablauf</span>
-            <span className="ml-auto shrink-0 text-[0.6rem] px-1.5 py-0.5 rounded-full bg-zinc-200 text-zinc-700 tabular-nums">
-              {phaseIdx + 1} / 6
+            {/* L14 — completion % badge replaces the bare "N / 6" so the
+                collapsed-by-default header tells the user "how much is
+                done" at a glance. */}
+            <span
+              className={`ml-auto shrink-0 text-[0.6rem] px-1.5 py-0.5 rounded-full tabular-nums ${
+                completeCount === 6
+                  ? 'bg-emerald-100 text-emerald-900'
+                  : 'bg-zinc-200 text-zinc-700'
+              }`}
+            >
+              {Math.round((completeCount / 6) * 100)} %
             </span>
           </span>
           <span className="block text-[0.7rem] text-zinc-500 font-normal truncate mt-0.5">
-            {workflowPhaseLabelDe(phase)}
+            Phase {phaseIdx + 1}: {workflowPhaseLabelDe(phase)}
           </span>
         </span>
       </button>
