@@ -61,6 +61,57 @@ export async function updateIncomingNotes(
   return r.json();
 }
 
+export interface PdfInfo {
+  key: string;
+  page_count: number;
+  pages: Array<{ page: number; width_pt: number; height_pt: number }>;
+}
+
+export function getPdfInfo(key: string): Promise<PdfInfo> {
+  return get<PdfInfo>(`/pdfs/${encodeURIComponent(key)}/info`);
+}
+
+export function pdfPageUrl(key: string, page: number, dpi = 144): string {
+  return `/pdfs/${encodeURIComponent(key)}/page/${page}?dpi=${dpi}`;
+}
+
+export interface ExtractItem {
+  page: number;
+  bbox_pdf_units: [number, number, number, number];
+  kind: 'floorplan' | 'elevation' | 'section' | 'detail';
+  view?: string | null;
+  floor?: string | null;
+  title?: string | null;
+  slug_override?: string | null;
+  dpi?: number;
+}
+
+export async function extractScenes(key: string, items: ExtractItem[]): Promise<{
+  extracted: Array<{ file: string; kind: string; view?: string | null; floor?: string | null; title?: string | null; crop_from: { page: number; bbox_pdf_units: number[]; dpi: number; pdf_file: string } }>;
+  intake_state: string;
+}> {
+  const r = await fetch(`/pdfs/${encodeURIComponent(key)}/extract`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  return r.json();
+}
+
+export async function deleteExtractedScene(key: string, file: string): Promise<void> {
+  const r = await fetch(`/pdfs/${encodeURIComponent(key)}/extract/${encodeURIComponent(file)}`, {
+    method: 'DELETE',
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+}
+
 export async function deleteIncomingPdf(key: string): Promise<void> {
   const r = await fetch(`/pdfs/incoming/${encodeURIComponent(key)}`, {
     method: 'DELETE',

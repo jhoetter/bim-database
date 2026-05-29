@@ -478,3 +478,246 @@ def delete_incoming_bundle(key: str):
     import shutil
     shutil.rmtree(bundle)
     return None
+
+
+# ── R2 — PDF page render + scene extraction ───────────────────────────────
+
+PDF_CACHE = BASE / "tmp" / "pdf-cache"
+
+
+def _consolidated_path(key: str) -> Path:
+    m = _read_manifest(key)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"No intake bundle for {key!r}")
+    name = m.get("consolidated_pdf")
+    if not name:
+        raise HTTPException(status_code=409, detail=f"{key} has no consolidated PDF yet")
+    p = INCOMING_DIR / key / name
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"Consolidated PDF missing for {key!r}")
+    return p
+
+
+@app.get("/pdfs/{key}/page/{n}", tags=["pdfs"])
+def render_pdf_page(key: str, n: int, dpi: int = 96):
+    """R2 — render PDF page `n` (1-indexed) at the given DPI as a JPEG.
+    Cached on disk under tmp/pdf-cache/<key>/page-<n>-<dpi>.jpg keyed on
+    the source PDF's mtime so edits invalidate stale crops."""
+    _safe_key(key)
+    if dpi <= 0 or dpi > 600:
+        raise HTTPException(status_code=400, detail="dpi must be in (0, 600]")
+    pdf = _consolidated_path(key)
+    pdf_mtime = pdf.stat().st_mtime_ns
+    cache_root = PDF_CACHE / key
+    cache_root.mkdir(parents=True, exist_ok=True)
+    out = cache_root / f"page-{n}-{dpi}.jpg"
+    sentinel = out.with_suffix(".mtime")
+    if not out.exists() or not sentinel.exists() or sentinel.read_text() != str(pdf_mtime):
+        import fitz
+        with fitz.open(pdf) as doc:
+            if n < 1 or n > doc.page_count:
+                raise HTTPException(status_code=404, detail=f"page {n} out of range (1..{doc.page_count})")
+            page = doc.load_page(n - 1)
+            scale = dpi / 72.0
+            mat = fitz.Matrix(scale, scale)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            pix.pil_save(str(out), format="JPEG", quality=85)
+        sentinel.write_text(str(pdf_mtime))
+    return FileResponse(str(out), media_type="image/jpeg")
+
+
+@app.get("/pdfs/{key}/info", tags=["pdfs"])
+def pdf_info(key: str):
+    """R2 — quick metadata: page count, per-page width/height in PDF
+    units (1 unit = 1/72 inch). The extractor needs page geometry to
+    convert client bboxes (image pixels) back to PDF coordinates."""
+    _safe_key(key)
+    pdf = _consolidated_path(key)
+    import fitz
+    pages = []
+    with fitz.open(pdf) as doc:
+        for i, page in enumerate(doc.pages(), start=1):
+            r = page.rect
+            pages.append({"page": i, "width_pt": r.width, "height_pt": r.height})
+    return {"key": key, "page_count": len(pages), "pages": pages}
+
+
+def _slug_token(s: str | None, fallback: str) -> str:
+    s = (s or fallback).strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = s.strip("-")
+    return s or fallback
+
+
+@app.post("/pdfs/{key}/extract", tags=["pdfs"], status_code=201)
+def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
+    """R2 — crop scenes out of the consolidated PDF.
+
+    Body: {"items": [{
+      "page": 1,                     # 1-indexed
+      "bbox_pdf_units": [x0, y0, x1, y1],
+      "kind": "floorplan"|"elevation"|"section"|"detail",
+      "view": "north"|...,           # optional
+      "floor": "kg"|"ug"|...,        # optional
+      "title": str,                  # optional
+      "slug_override": str,          # optional, used as the slug if set
+      "dpi": 300                     # optional, default 300
+    }]}
+
+    For each item, crops the PDF page at the bbox, writes the JPG into
+    data/dataset/<key>/, and appends a DatasetDrawing entry to the
+    dataset manifest. Idempotent on (page, slug): re-extracting overwrites
+    the image and updates the manifest entry while leaving any sibling
+    labels.json intact.
+
+    Returns the updated dataset manifest entries + the intake bundle's
+    new state."""
+    _safe_key(key)
+    items = payload.get("items") or []
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="items must be a non-empty list")
+    pdf = _consolidated_path(key)
+    ds_dir = DATASET_DIR / key
+    ds_dir.mkdir(parents=True, exist_ok=True)
+    ds_manifest_path = ds_dir / "manifest.json"
+    if ds_manifest_path.exists():
+        ds_manifest = json.loads(ds_manifest_path.read_text())
+    else:
+        ds_manifest = {"key": key, "drawings": []}
+    drawings: list[dict] = ds_manifest.setdefault("drawings", [])
+
+    import fitz
+    out_entries: list[dict] = []
+    used_slugs: set[str] = set()
+    # Seed used_slugs from existing manifest so we can dedup correctly.
+    for d in drawings:
+        st = Path(d.get("file", "")).stem
+        used_slugs.add(st)
+    with fitz.open(pdf) as doc:
+        for raw in items:
+            page_n = int(raw.get("page", 0))
+            if page_n < 1 or page_n > doc.page_count:
+                raise HTTPException(status_code=400, detail=f"page {page_n} out of range")
+            bbox = raw.get("bbox_pdf_units")
+            if not (isinstance(bbox, list) and len(bbox) == 4):
+                raise HTTPException(status_code=400, detail="bbox_pdf_units must be [x0,y0,x1,y1]")
+            x0, y0, x1, y1 = (float(v) for v in bbox)
+            if not (x1 > x0 and y1 > y0):
+                raise HTTPException(status_code=400, detail="bbox must have positive area")
+            kind = (raw.get("kind") or "detail").strip().lower()
+            view = raw.get("view")
+            floor = raw.get("floor")
+            dpi = int(raw.get("dpi", 300))
+            if dpi <= 0 or dpi > 1200:
+                raise HTTPException(status_code=400, detail="dpi out of range")
+
+            # Slug derivation. The user may override with an explicit slug
+            # for re-extraction; otherwise we synthesize one from
+            # kind/view/floor + a sequence suffix.
+            override = raw.get("slug_override")
+            base_slug = override or f"{kind}-{_slug_token(view or floor, kind)}"
+            base_slug = re.sub(r"[^a-z0-9-]+", "-", base_slug.lower()).strip("-")
+            full = f"{key}-{base_slug}"
+            if not override:
+                # Append -2, -3, ... if collision.
+                slug = full
+                n = 2
+                while slug in used_slugs:
+                    slug = f"{full}-{n}"
+                    n += 1
+                used_slugs.add(slug)
+            else:
+                slug = full
+                used_slugs.add(slug)
+
+            file_name = f"{slug}.jpg"
+            out_path = ds_dir / file_name
+
+            page = doc.load_page(page_n - 1)
+            # The PDF rect uses top-left origin. fitz.Matrix scales; clip
+            # restricts the rendered region to the bbox.
+            scale = dpi / 72.0
+            clip = fitz.Rect(x0, y0, x1, y1)
+            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip, alpha=False)
+            pix.pil_save(str(out_path), format="JPEG", quality=92)
+
+            entry = {
+                "file": file_name,
+                "kind": kind,
+                "source": "pdf",
+                "view": view,
+                "floor": floor,
+                "title": raw.get("title"),
+                "imported_at": _now_iso(),
+                "crop_from": {
+                    "pdf_file": pdf.name,
+                    "page": page_n,
+                    "bbox_pdf_units": [x0, y0, x1, y1],
+                    "dpi": dpi,
+                },
+            }
+            # Replace existing entry with same file name (re-extract) else append.
+            existing_idx = next((i for i, d in enumerate(drawings) if d.get("file") == file_name), None)
+            if existing_idx is not None:
+                drawings[existing_idx] = entry
+            else:
+                drawings.append(entry)
+            out_entries.append(entry)
+
+    ds_manifest_path.write_text(json.dumps(ds_manifest, indent=2, ensure_ascii=False))
+
+    # Update intake state.
+    intake = _read_manifest(key) or {}
+    intake.setdefault("extracted_scenes", [])
+    # Replace any same-(page,scene_file) records.
+    existing_scene_files = {e["file"] for e in out_entries}
+    intake["extracted_scenes"] = [
+        s for s in intake["extracted_scenes"]
+        if s.get("scene_file") not in existing_scene_files
+    ]
+    for e in out_entries:
+        intake["extracted_scenes"].append({
+            "page": e["crop_from"]["page"],
+            "bbox_pdf_units": e["crop_from"]["bbox_pdf_units"],
+            "scene_file": e["file"],
+        })
+    intake["state"] = _bundle_state(key, intake)
+    _write_manifest(key, intake)
+
+    return {"extracted": out_entries, "intake_state": intake["state"]}
+
+
+@app.delete("/pdfs/{key}/extract/{file}", tags=["pdfs"], status_code=204)
+def delete_extracted_scene(key: str, file: str):
+    """R2 — drop one extracted scene (image + dataset manifest entry +
+    intake record). Does NOT remove the labels JSON; the user has to
+    confirm that separately."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    ds_dir = DATASET_DIR / key
+    ds_manifest_path = ds_dir / "manifest.json"
+    if not ds_manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"no dataset manifest for {key!r}")
+    ds_manifest = json.loads(ds_manifest_path.read_text())
+    drawings = ds_manifest.get("drawings", [])
+    before = len(drawings)
+    drawings = [d for d in drawings if d.get("file") != file]
+    if len(drawings) == before:
+        raise HTTPException(status_code=404, detail=f"scene {file!r} not in dataset manifest")
+    ds_manifest["drawings"] = drawings
+    ds_manifest_path.write_text(json.dumps(ds_manifest, indent=2, ensure_ascii=False))
+    # Image
+    img = ds_dir / file
+    if img.exists():
+        img.unlink()
+    # Intake record
+    intake = _read_manifest(key)
+    if intake is not None:
+        intake["extracted_scenes"] = [
+            s for s in intake.get("extracted_scenes", [])
+            if s.get("scene_file") != file
+        ]
+        intake["state"] = _bundle_state(key, intake)
+        _write_manifest(key, intake)
+    return None

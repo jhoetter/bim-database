@@ -150,8 +150,18 @@ export interface DatasetDrawing {
   file: string;
   url: string;
   kind: 'elevation' | 'floorplan' | 'section' | 'detail' | string;
-  /** 'generated' = AI-produced; 'real' = scanned from a real architect's plan. */
-  source?: 'generated' | 'real';
+  /** 'generated' = AI-produced; 'real' = scanned from a real architect's plan;
+   *  'pdf' (R2) = crop from a user-uploaded PDF in data/pdfs/incoming/<key>/. */
+  source?: 'generated' | 'real' | 'pdf';
+  /** R2 — present when source='pdf'. Lets us replay the crop later (re-extract
+   *  at higher DPI, redraw a bbox, etc.) and lets the extract page render
+   *  already-committed scenes as overlays on the source page. */
+  crop_from?: {
+    pdf_file: string;
+    page: number;
+    bbox_pdf_units: [number, number, number, number];
+    dpi: number;
+  };
   view?: string | null;        // 'north' | 'south' | 'east' | 'west' for elevations
   floor?: string | null;       // 'EG' | 'OG' | 'DG' | ... for floorplans
   title?: string | null;
