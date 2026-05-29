@@ -1,7 +1,7 @@
 # Auto-persist + propagation (A) tracker
 
-**Status:** 2026-05-29. Draft, **pre-implementation**. User asked
-for analysis before code. Decisions in §5 still need a yes/no.
+**Status:** 2026-05-29. **A0–A3 shipped.** All Q1–Q7 ★
+recommendations applied. Known follow-ups in §8.
 
 **Owner:** jhoetter
 **Predecessor:** [`spec/ux-consistency.md`](ux-consistency.md) — U0–U13.
@@ -441,3 +441,29 @@ gelöscht — 1 h Rückgängigkeits-Fenster". They press Cmd+Z. The
 scene is back in the strip and in the manifest, with its old labels.
 
 Nothing in this scenario asked them to confirm or save.
+
+---
+
+## 8. Follow-ups (deferred for now)
+
+These trade scope for the wave shipping today. Each is a future
+iteration if the user surfaces the pain.
+
+- **Classify undo via the popover.** The U9 `SceneDetailsCard`
+  PATCH path isn't pushed onto the A3 action log yet — the user can
+  re-edit the popover for the same effect. Adding it needs the
+  card to expose `onBeforeChange(prev, next)` to the host page.
+- **House-scoped stack survives navigation.** The current stack
+  lives in `ExtractPage` state and dies on a house switch.
+  Persisting via a top-level React context would let the user undo
+  after walking away and back. Low priority; ExtractPage is the
+  only producer.
+- **`Adjust extracted`** (extracted → draft) isn't yet wrapped as
+  an `extract` undo action. The existing flow still has its own
+  confirm dialog. Folding it into the action log lets Cmd+Z reverse
+  it cleanly.
+- **In-flight save indicator off-canvas.** When the user is in the
+  WorkflowGuide popover (Phase editing), the SaveStateDot in the
+  topbar may be off-screen. Could echo the dot near the popover or
+  surface as a tiny banner if a save fails while the user is heads-
+  down editing.
