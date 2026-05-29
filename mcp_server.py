@@ -1728,6 +1728,24 @@ appear there immediately.
 - `bim-db://schema/scene_labels` — Label types + geometry shapes ([x,y] arrays)
 - `bim-db://docs/grid-coordinates` — How to read the grid overlay
 
+## Step 0 — STAMP YOUR RUN (per §G3-6, before any other write)
+
+The bim-database SPA shows a `🤖 Agent` chip on the dataset card
+when `house_facts.workflow.driven_by == "bim-agent"`. Reviewers use
+the chip to find agent-labeled houses for spot-checking. STAMP THIS
+FIRST, before any other tool call — if you crash mid-run, the partial
+result is still attributable to you.
+
+```
+set_house_facts(key="{key}", patch={{
+  "workflow": {{
+    "driven_by": "bim-agent",
+    "driven_by_run_id": "<your-run-id-or-iso-timestamp>",
+    "driven_by_started_at": "<iso-timestamp>"
+  }}
+}})
+```
+
 ## Operating loop
 
 ```
@@ -1754,6 +1772,12 @@ validate_export_readiness then export_house
    has touched the house, halt.
 5. **Honest reporting.** When you halt or finish, call `dump_run_summary`
    so the developer sees what you did.
+6. **Labels before facts.** For W1 + W2 specifically: drop the
+   geometry-bearing labels (height_mark, dimensioned_distance with
+   is_reference) BEFORE setting facts. Server-side derivation will
+   populate facts automatically. Setting facts without labels makes
+   the SPA's overlay rendering go blank — reviewers can't trust it.
+7. **Stamp your run** (Step 0 above).
 
 Start now: call `get_workflow_state(key="{key}")` and follow the
 appropriate phase playbook.
@@ -1767,29 +1791,43 @@ def prompt_w0_inventory(key: str) -> str:
 Goal: every scene has a non-null `scene_tag`, Ansicht/Schnitt have
 `scene_orientation`, Grundriss have `scene_level`.
 
+## DEFAULT MAPPING (per §G3-1)
+
+Each scene's manifest carries an extraction-time `kind` (different
+vocabulary). Start from this default → only override with explicit
+evidence:
+
+| manifest.kind | default scene_tag | when to override                                    |
+|---------------|-------------------|-----------------------------------------------------|
+| `floorplan`   | `grundriss`       | almost never — confirm by reading the title block   |
+| `elevation`   | `ansicht`         | almost never                                        |
+| `section`     | `schnitt`         | almost never                                        |
+| `detail`      | **`sonstiges`**   | only set `schnitt` if you can point at VISIBLE evidence: floor heights spanning multiple stories, cutaway hatching across the FULL building width, OR a title-block label like "Schnitt A-A". A close-up of a roof corner or eave is NOT a Schnitt — it's `sonstiges`. |
+
+This default mapping prevents the most common W0 mis-tag (a detail
+crop tagged `schnitt` because the cutaway-ish lines looked sectional
+at a glance).
+
 ## Steps
 
 For each scene returned by `get_house(key="{key}").drawings`:
 
 1. `get_scene_view(key="{key}", file=<file>, tiers="broad")` — overview only.
-2. Decide the scene_tag based on what you see:
-   - **Grundriss** = top-down plan view, room labels, door swings, often
-     dimension chains around the perimeter.
-   - **Ansicht** = side view of the building, roof + windows in
-     elevation, no cutaway hatching.
-   - **Schnitt** = cutaway with floor heights, hatched walls, roof
-     pitch annotations.
-   - **Sonstiges** = isolated detail (Anschluss, Putzdetail, Treppe).
-   - **nicht_klassifiziert** — only when truly unrecognisable.
-3. Look for the title-block text (usually bottom-right): "EG-Grundriss",
-   "Süd-Ansicht", "Schnitt A-A" — best ground truth for the tag.
+2. Look up the default scene_tag from the table above based on
+   `drawing.kind`. That's your starting answer.
+3. Confirm by reading the title-block text (usually bottom-right):
+   "EG-Grundriss", "Süd-Ansicht", "Schnitt A-A" — best ground truth.
+   Override the default only when the title block contradicts it.
 4. `set_scene_tag(key="{key}", file=<file>, tag=<tag>)`.
-5. If Ansicht/Schnitt: identify orientation (north/south/east/west) from
-   compass marks or the title text. If unclear, leave null. Call
-   `set_scene_orientation(...)`.
+5. **scene_orientation (per §G3-2):** if Ansicht/Schnitt with a CLEAR
+   cardinal face (the elevation labeled "Süd"/"South"; a compass mark
+   visible AND the wall it points to is the wall this scene shows),
+   call `set_scene_orientation(...)` with the value. **If unclear,
+   leave null — DO NOT GUESS.** Detail crops never have a cardinal
+   orientation; leave null always.
 6. If Grundriss: identify the floor level (kg/ug/eg/og/dg/spitzboden)
    from the title text or by elimination (count the floors). Call
-   `set_scene_level(...)`.
+   `set_scene_level(...)`. If genuinely unclear, leave null.
 
 ## Heuristics for ambiguous cases
 
@@ -1814,6 +1852,17 @@ def prompt_w1_height_anchor(key: str) -> str:
 
 Goal: `facts.heights.bezug_mm == 0` and `facts.heights.first_mm != null`.
 
+## ORDER MATTERS (per §G3-3)
+
+**Drop the height_mark LABELS first, then optionally confirm via
+`set_house_facts`.** Server-side derivation (G1) auto-populates
+`facts.heights` from `height_mark` labels with `datum` + `value_mm`
+set — calling `set_house_facts` afterwards is usually redundant.
+SKIPPING the labels and just setting facts is the WRONG shortcut: the
+SPA's Höhenkote rendering reads the LABELS, not the facts. A scene
+with `facts.heights.first_mm = 8500` but no height_mark label shows
+nothing on the canvas. Reviewers can't trust it.
+
 ## Steps
 
 1. `get_house(key="{key}")` — pick an Ansicht with the most visible
@@ -1829,7 +1878,8 @@ Goal: `facts.heights.bezug_mm == 0` and `facts.heights.first_mm != null`.
    upsert_label(key="{key}", file=<ansicht>, label={{
      "type": "height_mark",
      "geometry": {{"anchor": [x, y]}},
-     "attributes": {{"value_mm": 0, "datum": "ok_ffb"}}
+     "attributes": {{"value_mm": 0, "datum": "ok_ffb"}},
+     "status": "readable"
    }})
    ```
 4. For the Firsthöhe: same workflow. Read the value from the drawing
@@ -1838,14 +1888,22 @@ Goal: `facts.heights.bezug_mm == 0` and `facts.heights.first_mm != null`.
    upsert_label(key="{key}", file=<ansicht>, label={{
      "type": "height_mark",
      "geometry": {{"anchor": [x, y]}},
-     "attributes": {{"value_mm": 8500, "datum": "first"}}
+     "attributes": {{"value_mm": 8500, "datum": "first"}},
+     "status": "readable"
    }})
    ```
-5. `set_house_facts(key="{key}", patch={{"heights": {{"bezug_mm": 0, "first_mm": 8500}}}})`.
+5. `get_house_facts(key="{key}")` — confirm `heights.bezug_mm == 0`
+   and `heights.first_mm == <expected>` BOTH appear. If they do, you're
+   done; the server-side derivation already filled them in. If not, the
+   `datum` on your height_mark labels is probably wrong (`datum: "first"`
+   is required for first_mm; `value_mm: 0` is required for bezug_mm).
+   Fix the labels and re-check — DO NOT just set facts manually.
 
 ## Exit
 
-`get_workflow_state[...]["W1"]["status"] == "done"`
+`get_workflow_state[...]["W1"]["status"] == "done"` AND
+`get_house_facts.heights.sources` references at least one `hm:` source
+for each populated key (proves labels back the facts).
 """
 
 
@@ -1901,22 +1959,41 @@ def prompt_w3_orientation(key: str) -> str:
 Goal: `facts.orientation.north_edge_label_id` set (or
 `north_angle_deg` as fallback).
 
+## HONESTY RULE (per §G3-4)
+
+The `assumed` flag MUST reflect reality. Only set `assumed: false` when
+there's an EXPLICIT on-drawing compass — a "N" arrow, a "Norden" label,
+a compass rose. Everything else is a guess, and a guess MUST carry
+`assumed: true`. A human reviewer scans for `assumed: true` rows to
+prioritize what to spot-check.
+
 ## Steps
 
 1. EG-Grundriss again. `get_scene_view(tiers="broad")`.
-2. Look for a compass mark (often labeled "N" or shown as an arrow in
-   a corner) OR an explicit "Norden" label.
-3. Identify the wall that aligns with north (the wall the compass
-   arrow points along, or the wall labeled with "N"). Take its label_id
-   from `list_scene_labels`.
-4. If no compass visible: estimate from the building's likely
-   orientation (most catalog houses face the street, which is often
-   south). `set_house_facts(patch={{"orientation": {{"north_angle_deg": 0,
-                                                      "assumed": true}}}})`
-   and add `anomalies = ["manual_assumed_north"]` so a human reviewer
-   sees the assumption.
-5. Otherwise:
-   `set_house_facts(patch={{"orientation": {{"north_edge_label_id": <wall_id>}}}})`.
+2. Look for a compass mark or "Norden" label. Look carefully — small
+   compass arrows often hide in corners or near the title block.
+3. **If you see an explicit compass mark:**
+   - Identify the wall that aligns with north (the wall the compass
+     arrow points along, or the wall labeled with "N"). Take its
+     label_id from `list_scene_labels`.
+   - ```
+     set_house_facts(patch={{"orientation": {{
+       "north_edge_label_id": <wall_id>,
+       "assumed": false
+     }}}})
+     ```
+4. **If NO compass mark visible:**
+   - Default to north_angle_deg=0 (most catalog houses face the street,
+     which is often south — so the back wall points roughly north).
+   - You MUST mark this as a guess:
+     ```
+     set_house_facts(patch={{"orientation": {{
+       "north_angle_deg": 0,
+       "assumed": true
+     }}}})
+     ```
+   - The server-side guard (§G4-3) will auto-correct `assumed: false`
+     to `assumed: true` if you forget — but don't rely on that.
 
 ## Exit
 
@@ -1932,6 +2009,17 @@ Goal: every Ansicht/Schnitt has `facts.calibration_per_scene[file]`
 populated (one horizontal + one vertical reference dim, homography
 RMS ≤ 8 px).
 
+## ZOOM-BEFORE-NAMING DISCIPLINE (per §G3-5)
+
+Every `add_reference_dim` call MUST be preceded by a
+`get_scene_view(region=…)` call cropping to a tight bbox around the
+dim line + its numeric label. Reading endpoints off the BROAD-tier
+full-image view is what causes building-scale values to land on
+detail-crop scenes (the 9084 mm horizontal ref on a roof-corner
+detail bug, §B4). The plan.yaml the driver writes records every
+zoom region used — if a plan step adds a ref dim without a paired
+zoom call, the reviewer rejects the run.
+
 ## Steps per scene
 
 For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
@@ -1940,7 +2028,7 @@ For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
 1. `get_scene_view(key="{key}", file=<scene>, tiers="broad,finer")`
    — full image.
 2. Apply the **is_reference selection ladder**
-   (per tracker §8 decision 3):
+   (per agentic-labeling-tracker §8 decision 3):
    a. Identify the title-block bbox (usually bottom-right; it's the
       densest-text region). Exclude this half of the image.
    b. Find the **longest clearly-labeled horizontal** dim line in the
@@ -1949,12 +2037,21 @@ For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
       length.
    c. Find the **longest clearly-labeled vertical** dim — typically
       ground-to-eaves or ground-to-ridge.
-3. For each, zoom in for precision:
-   `get_scene_view(file=<scene>, region="<tight crop around the dim
-   text + endpoints>", tiers="finer,detail")`. Read off the endpoint
-   coords (in source pixels — the grid labels are honest) and the
-   numeric value.
-4. ```
+3. **ZOOM FIRST — REQUIRED.** Pick a tight rectangle that includes
+   BOTH the dim line's endpoints AND the numeric label text. Call:
+   ```
+   get_scene_view(file=<scene>,
+                  region="<x0>,<y0>,<x1>,<y1>",
+                  tiers="finer,detail")
+   ```
+   Read off the endpoint coords from the GRID LABELS IN THE ZOOM (they
+   still reference source pixels) and read the numeric value from the
+   visible text.
+4. Sanity check the value: does the value match the scene's expected
+   scale? A 9000+ mm dim on a 600-px-wide detail crop is almost
+   certainly a building-scale dim that bled into the crop frame —
+   reject and pick a smaller candidate.
+5. ```
    add_reference_dim(key="{key}", file=<scene>, orientation="horizontal",
                      start=[x1,y1], end=[x2,y2],
                      value_mm=<value>, dimension_text="<as written>")
@@ -1963,8 +2060,8 @@ For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
      - ≤ 8: keep going.
      - > 8: delete this dim + its partner dim_number, try the
        second-best candidate. Repeat up to 3 times.
-5. Repeat for vertical.
-6. Confirm `get_house_facts.calibration_per_scene` now has the file.
+6. Repeat for vertical.
+7. Confirm `get_house_facts.calibration_per_scene` now has the file.
 
 ## Hard caps (per scene budget)
 
