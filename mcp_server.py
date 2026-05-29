@@ -283,6 +283,36 @@ async def get_house(key: str) -> dict:
     return _ok(body, started_at=started, status_code=status)
 
 
+async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dict[str, dict]]:
+    """Load house_facts + per-scene workflow-vocabulary meta for `key`.
+
+    Shared by `get_workflow_state` and `validate_export_readiness` so both
+    derive phase status from exactly the same inputs. The workflow
+    vocabulary (scene_tag / scene_orientation / scene_level) lives in each
+    scene's labels JSON, NOT on the manifest's extraction-time
+    kind/view/floor fields — so we read it from there.
+
+    Returns: (facts, {file: {scene_tag, scene_orientation, scene_level}}).
+    """
+    facts_status, facts = await _api_get(f"/datasets/{key}/house_facts")
+    facts = facts if facts_status == 200 else {}
+    scene_meta_by_file: dict[str, dict] = {}
+    for d in (dataset.get("drawings") or []):
+        f = d.get("file")
+        if not f:
+            continue
+        lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{f}")
+        if lbl_status == 200 and isinstance(lbl, dict):
+            scene_meta_by_file[f] = {
+                "scene_tag": lbl.get("scene_tag"),
+                "scene_orientation": lbl.get("scene_orientation"),
+                "scene_level": lbl.get("scene_level"),
+            }
+        else:
+            scene_meta_by_file[f] = {"scene_tag": None}
+    return facts or {}, scene_meta_by_file
+
+
 @mcp.tool()
 async def get_workflow_state(key: str) -> dict:
     """Per-phase status (W0–W5) derived from on-disk facts.
@@ -319,26 +349,8 @@ async def get_workflow_state(key: str) -> dict:
         status, body = await _api_get(f"/datasets/{key}")
     if status >= 400:
         return _http_status_to_error(status, body, started)
-    facts_status, facts = await _api_get(f"/datasets/{key}/house_facts")
-    facts = facts if facts_status == 200 else {}
-    # Load each scene's labels JSON so we see the workflow-vocabulary
-    # scene_tag / scene_orientation / scene_level (which live there, not
-    # on the manifest's `kind` / `view` / `floor` extraction fields).
-    scene_meta_by_file: dict[str, dict] = {}
-    for d in (body.get("drawings") or []):
-        f = d.get("file")
-        if not f:
-            continue
-        lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{f}")
-        if lbl_status == 200 and isinstance(lbl, dict):
-            scene_meta_by_file[f] = {
-                "scene_tag": lbl.get("scene_tag"),
-                "scene_orientation": lbl.get("scene_orientation"),
-                "scene_level": lbl.get("scene_level"),
-            }
-        else:
-            scene_meta_by_file[f] = {"scene_tag": None}
-    state = _derive_workflow_state(body or {}, facts or {}, scene_meta_by_file)
+    facts, scene_meta_by_file = await _load_facts_and_scene_meta(key, body or {})
+    state = _derive_workflow_state(body or {}, facts, scene_meta_by_file)
     next_tool = None
     if not state.get("exportable") and state.get("next_phase"):
         next_tool = {
@@ -1886,13 +1898,41 @@ def _deep_merge(base: dict, patch: dict) -> dict:
 
 @mcp.tool()
 async def validate_export_readiness(key: str) -> dict:
-    """Server-side sanity check: would `export_house` succeed?
+    """Server-side gate: is the house HONESTLY complete enough to export?
 
     USE when:
       - Before calling export_house, to surface blockers without
         committing to the (expensive) export pipeline.
+      - As the autonomous label driver's stop-condition. `ready:true`
+        now means the substantive ground-truth phases exist — not just
+        that the server's minimal sanity gate would accept the bytes.
 
-    Returns: `data` = {ready: bool, blockers: [str, …]}
+    Why this is stricter than the export pipeline's own gate (issue #6):
+    `export_house`'s sanity check (api/main._sanity_check_house) only
+    requires ≥1 drawing + ≥1 labeled scene. Because every scene gets the
+    `labeled` flag at W0 tagging time, a house with W0 tags + an assumed
+    orientation and ZERO geometry (no heights, no extent, no calibration)
+    used to pass `ready:true` — inviting an honest agent to export an
+    empty dataset. `ready` now reflects honest completeness instead.
+
+    Required phases for `ready`/`honest_complete`:
+      - W0 (every scene tagged; grundriss carry a level)
+      - W1 (heights: bezug_mm == 0 and first_mm set)
+      - W2 (extent width+depth and wall_thickness.outer)
+      - W3 (orientation set — assumed is fine, absent is not)
+      - W4 (calibration per ansicht/schnitt) — only when the house has
+        any ansicht/schnitt scenes; skipped for floorplan-only houses.
+    W5 (detail) is optional and never blocks.
+
+    Returns: `data` = {
+      ready: bool,                # == honest_complete
+      honest_complete: bool,      # all required phases done
+      minimal_export_ok: bool,    # the permissive gate export_house enforces
+      blockers: [str, …],         # missing required phases + their reasons
+      phase_completeness: {Wn: {status, required, blockers}},
+      required_phases: [str, …],
+      scenes_total, labeled_scenes,
+    }
     """
     started = time.time()
     try:
@@ -1904,14 +1944,57 @@ async def validate_export_readiness(key: str) -> dict:
     if status >= 400:
         return _http_status_to_error(status, body, started)
     drawings = body.get("drawings") or []
-    blockers = []
+    facts, scene_meta = await _load_facts_and_scene_meta(key, body or {})
+    state = _derive_workflow_state(body or {}, facts, scene_meta)
+    phases = state["phases"]
+
+    # W4 only applies when the house actually has scenes that need
+    # calibration. Floorplan-only houses have nothing to calibrate, so
+    # requiring W4 there would make `ready` unreachable. This mirrors the
+    # has_calibration_targets gate inside _derive_workflow_state.
+    has_calibration_targets = any(
+        scene_meta.get(d.get("file"), {}).get("scene_tag") in ("ansicht", "schnitt")
+        for d in drawings
+    )
+    required = ["W0", "W1", "W2", "W3"]
+    if has_calibration_targets:
+        required.append("W4")
+
+    phase_completeness = {
+        p: {
+            "status": phases[p]["status"],
+            "required": p in required,
+            "blockers": phases[p]["blockers"],
+        }
+        for p in ("W0", "W1", "W2", "W3", "W4", "W5")
+    }
+
+    # Honest blockers: every required phase that isn't done, with its own
+    # predicate reasons spelled out so callers see the missing geometry.
+    honest_blockers: list[str] = []
+    for p in required:
+        if phases[p]["status"] != "done":
+            reason = "; ".join(phases[p]["blockers"]) or "incomplete"
+            honest_blockers.append(f"{p} incomplete: {reason}")
+
+    # The permissive gate the export pipeline actually enforces. Surfaced
+    # so callers understand a dishonest export would still be ACCEPTED
+    # (and so they don't gate on it).
+    minimal_blockers: list[str] = []
     if not drawings:
-        blockers.append("house has zero drawings")
+        minimal_blockers.append("house has zero drawings")
     elif not any(d.get("labeled") for d in drawings):
-        blockers.append("no annotated scenes")
+        minimal_blockers.append("no annotated scenes")
+
+    all_blockers = list(dict.fromkeys(honest_blockers + minimal_blockers))
+    honest_complete = not all_blockers
     return _ok({
-        "ready": not blockers,
-        "blockers": blockers,
+        "ready": honest_complete,
+        "honest_complete": honest_complete,
+        "minimal_export_ok": not minimal_blockers,
+        "blockers": all_blockers,
+        "phase_completeness": phase_completeness,
+        "required_phases": required,
         "scenes_total": len(drawings),
         "labeled_scenes": sum(1 for d in drawings if d.get("labeled")),
     }, started_at=started, status_code=status)

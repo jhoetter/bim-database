@@ -263,8 +263,51 @@ def test_validate_export_readiness_smoke():
     key = rs["data"]["houses"][0]["key"]
     r = _run(mcp_server.validate_export_readiness(key=key))
     assert r["ok"], r.get("error")
-    assert isinstance(r["data"]["ready"], bool)
-    assert isinstance(r["data"]["blockers"], list)
+    d = r["data"]
+    assert isinstance(d["ready"], bool)
+    assert isinstance(d["blockers"], list)
+    # Issue #6: enriched honest-completeness contract.
+    assert isinstance(d["honest_complete"], bool)
+    assert isinstance(d["minimal_export_ok"], bool)
+    assert d["ready"] == d["honest_complete"]
+    # ready must agree with blockers being empty.
+    assert d["ready"] == (len(d["blockers"]) == 0)
+    pc = d["phase_completeness"]
+    for p in ("W0", "W1", "W2", "W3", "W4", "W5"):
+        assert p in pc and "status" in pc[p] and "required" in pc[p]
+    # Honest completeness implies every *required* phase is done.
+    if d["honest_complete"]:
+        for p in d["required_phases"]:
+            assert pc[p]["status"] == "done", f"{p} not done but honest_complete"
+    else:
+        # At least one required phase must be unfinished to justify it.
+        assert any(pc[p]["status"] != "done" for p in d["required_phases"]) \
+            or not d["minimal_export_ok"]
+
+
+def test_validate_export_readiness_rejects_w0_only_house():
+    """Issue #6 regression: a house with W0 tags + labeled scenes but NO
+    ground-truth geometry (heights/extent/wall/calibration) must NOT be
+    reported export-ready, even though the minimal sanity gate accepts it.
+    """
+    rs = _run(mcp_server.list_houses())
+    if not rs["data"]["houses"]:
+        pytest.skip("no houses")
+    # Find a house whose W1/W2 geometry is absent.
+    for h in rs["data"]["houses"]:
+        key = h["key"]
+        r = _run(mcp_server.validate_export_readiness(key=key))
+        assert r["ok"], r.get("error")
+        d = r["data"]
+        pc = d["phase_completeness"]
+        geometry_missing = any(
+            pc[p]["status"] != "done" for p in ("W1", "W2") if p in d["required_phases"]
+        )
+        if geometry_missing:
+            assert d["ready"] is False, f"{key} ready despite missing geometry"
+            assert d["blockers"], f"{key} not ready but reported no blockers"
+            return
+    pytest.skip("no house with missing geometry in corpus")
 
 
 # ── §5.9 Audit ───────────────────────────────────────────────────────────
