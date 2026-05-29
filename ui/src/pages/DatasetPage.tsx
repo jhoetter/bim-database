@@ -330,7 +330,7 @@ function HouseCard({ house }: { house: DatasetHouse }) {
           <h3 className="text-[0.85rem] font-semibold truncate">{house.model ?? house.key}</h3>
           <span className="text-[0.65rem] text-muted font-mono">{house.key}</span>
         </div>
-        <div className="flex items-center gap-1.5 text-[0.7rem] text-muted">
+        <div className="flex items-center gap-1.5 text-[0.7rem] text-muted flex-wrap">
           <span>{total} {total === 1 ? 'Zeichnung' : 'Zeichnungen'}</span>
           {intakeOnly && (
             <span className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-semibold">
@@ -347,6 +347,18 @@ function HouseCard({ house }: { house: DatasetHouse }) {
               title={`${labeled} / ${total} Szenen annotiert`}
             >
               {labeled === 0 ? `0 / ${total} annotiert` : `${labeled}/${total} (${pct}%)`}
+            </span>
+          )}
+          {house.driven_by === 'bim-agent' && (
+            <span
+              className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-900 font-semibold"
+              title={
+                house.driven_by_run_id
+                  ? `Vom Agent gelabelt — run ${house.driven_by_run_id}`
+                  : 'Vom Agent gelabelt'
+              }
+            >
+              🤖 Agent
             </span>
           )}
         </div>

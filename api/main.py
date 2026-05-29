@@ -168,6 +168,18 @@ def _load_dataset_manifest(key: str) -> dict | None:
             **json.loads(comp_json.read_text()),
             "url": f"/static/dataset/{key}/{comp_png.name}",
         }
+    # Agentic-labeling F2: surface house_facts.workflow.driven_by so the
+    # SPA card shows a chip when the labeling was done by bim-agent.
+    facts_path = DATASET_DIR / key / "house_facts.json"
+    if facts_path.exists():
+        try:
+            facts = json.loads(facts_path.read_text())
+            wf = facts.get("workflow") or {}
+            if wf.get("driven_by"):
+                data["driven_by"] = wf.get("driven_by")
+                data["driven_by_run_id"] = wf.get("driven_by_run_id")
+        except Exception:  # noqa: BLE001
+            pass
     return data
 
 

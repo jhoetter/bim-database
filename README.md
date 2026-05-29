@@ -91,14 +91,34 @@ The intake manifest schema is in
 [`schema/intake_manifest.schema.json`](schema/intake_manifest.schema.json)
 (v2.0 — backwards-compatible with v1.0).
 
-> **Agentic labeling** (planned, not yet built): the design for an
-> MCP server + skill that lets an agent drive the full annotation
-> workflow end-to-end lives in
-> [bim-agent/spec/trackers/agentic-labeling-tracker.md][lbl]. The MCP
-> server will land at `mcp_server.py` in this repo (Phase A of the
-> tracker).
->
-> [lbl]: https://github.com/jhoetter/bim-agent/blob/main/spec/trackers/agentic-labeling-tracker.md
+### Agentic labeling
+
+End-to-end agent-driven labeling lives in
+[bim-agent][lbl]. The bim-database side ships:
+
+- **MCP server** (`mcp_server.py`, 22 tools) — wraps every REST verb so
+  an agent can drive the annotation workflow.
+- **Grid overlay** (`api/grid_render.py` + `/datasets/{key}/{file}/grid`
+  + `/pdfs/{key}/page/{n}/grid`) — every scene/page image carries a
+  three-tier coordinate grid (broad/finer/detail) so the agent can
+  point at pixels precisely.
+- **MCP prompts** for each workflow phase (`W0-inventory`,
+  `W1-height-anchor`, `W2-footprint`, `W3-orientation`, `W4-calibration`,
+  `W5-detail`) discoverable via `/mcp prompt bim-database.<name>`.
+
+The agent and driver live in bim-agent (`scripts/label_drive.py` +
+`claude-skills/house-labeling/SKILL.md`). Customer-loop SLA:
+
+> **Submission → labeled preview within 24 h.**
+> 1. Customer submits drawings via `/submit` (this repo).
+> 2. Developer reviews + promotes via the SPA Submissions tab → bundle
+>    lands at `data/pdfs/incoming/house-NN/`.
+> 3. Overnight cron in bim-agent runs `make label-next --autonomous`,
+>    which picks up the new house and labels it through W0–W4.
+> 4. Reviewer spot-checks the next morning — houses with `🤖 Agent`
+>    chip on the SPA card get a closer pass.
+
+[lbl]: https://github.com/jhoetter/bim-agent/blob/main/spec/trackers/agentic-labeling-tracker.md
 
 ---
 

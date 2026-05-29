@@ -249,6 +249,10 @@ export interface DatasetHouse {
     building_type: string | null;
   };
   composite?: DatasetComposite;
+  // Agentic-labeling: surfaced from house_facts.workflow when an agent
+  // ran the labeling. SPA renders an "Agent-gelabelt" chip on the card.
+  driven_by?: string | null;
+  driven_by_run_id?: string | null;
 }
 
 export interface DatasetComposite {
