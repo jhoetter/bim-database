@@ -13,6 +13,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { fetchLabels, fetchDataset, saveLabels, useResource } from '../api/client';
 import type {
   ComponentLineLabel,
+  DatasetDrawing,
   DimensionNumberLabel,
   DimensionedDistanceLabel,
   FloorplanOpeningLabel,
@@ -2761,6 +2762,8 @@ export function AnnotatePage() {
         <ToolPalette
           tool={tool}
           setTool={setTool}
+          currentDrawing={currentDrawing}
+          onDrawingUpdated={() => setDatasetRev((r) => r + 1)}
           sceneTag={sceneTag}
           setSceneTag={(t) => {
             pushUndo();
@@ -2974,33 +2977,9 @@ export function AnnotatePage() {
       }
     >
       <div className="flex flex-col h-full">
-        {/* U10 — Mirror of the U9 SceneDetailsCard at the top of the
-            annotation editor. Shows the scene's classification (kind /
-            floor / view / title / status / readiness) and lets the user
-            correct it without opening a sidebar — same edit surface as
-            ExtractPage's bbox popover. */}
-        {currentDrawing && (
-          <div className="shrink-0 border-b border-border bg-white">
-            <SceneDetailsCard
-              houseKey={key}
-              drawing={currentDrawing}
-              readiness={(() => {
-                let hasH = false, hasV = false;
-                for (const l of labels) {
-                  if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
-                  const dx = l.geometry.end[0] - l.geometry.start[0];
-                  const dy = l.geometry.end[1] - l.geometry.start[1];
-                  const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
-                  if (a < 15 || a > 165) hasH = true;
-                  else if (a > 75 && a < 105) hasV = true;
-                }
-                return { hasH, hasV };
-              })()}
-              onUpdated={() => setDatasetRev((r) => r + 1)}
-              variant="compact"
-            />
-          </div>
-        )}
+        {/* L2 D1 — SceneDetailsCard moved into the sidebar header. The
+            full-width strip above the canvas is gone; the per-scene
+            classification now lives one place (the sidebar). */}
         <AnnotateSceneStrip
           scenes={sceneList}
           currentFile={decodedFile}
@@ -5006,6 +4985,8 @@ function AnnotateSceneStrip({
 function ToolPalette({
   tool,
   setTool,
+  currentDrawing,
+  onDrawingUpdated,
   sceneTag,
   setSceneTag,
   sceneOrientation,
@@ -5044,6 +5025,8 @@ function ToolPalette({
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
+  currentDrawing: DatasetDrawing | null;
+  onDrawingUpdated: () => void;
   sceneTag: SceneTag;
   setSceneTag: (t: SceneTag) => void;
   sceneOrientation: SceneOrientation | null;
@@ -5084,62 +5067,45 @@ function ToolPalette({
   // Avoid unused-prop warnings; scope and houseKey are read by the inline
   // Phase 3 picker that writes facts.orientation.
   void scope; void houseKey;
+  // L2 D1 — readiness derived from labels for SceneDetailsCard.
+  const readiness = (() => {
+    let hasH = false, hasV = false;
+    for (const l of labels) {
+      if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
+      const dx = l.geometry.end[0] - l.geometry.start[0];
+      const dy = l.geometry.end[1] - l.geometry.start[1];
+      const a = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
+      if (a < 15 || a > 165) hasH = true;
+      else if (a > 75 && a < 105) hasV = true;
+    }
+    return { hasH, hasV };
+  })();
+  // L3 D2 — Szenen-Tag picker vanishes once classified. Editing kind/
+  // floor/view goes through the SceneDetailsCard popover (✏ Typ ändern).
+  // The Orientation / Level pickers only render when the field is null
+  // AND the current tag requires it.
+  const showTagPicker = sceneTag === 'nicht_klassifiziert';
+  const needsOrientation = (sceneTag === 'ansicht' || sceneTag === 'schnitt') && sceneOrientation == null;
+  const needsLevel       = sceneTag === 'grundriss' && sceneLevel == null;
   return (
     <div className="px-3 py-3 space-y-4">
-      <WorkflowGuide
-        facts={workflowFacts}
-        scenes={workflowScenes}
-        currentSceneFile={currentSceneFile}
-        currentSceneTag={sceneTag}
-        currentSceneLabels={labels}
-        onGoToScene={onGoToScene}
-        onSetOrientation={onSetOrientation}
-        onMarkDetailDone={onMarkDetailDone}
-      />
-      <section>
-        <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
-          Szenen-Tag
-        </h3>
-        <div className="grid grid-cols-1 gap-px">
-          {TAGS.map((t) => {
-            const meta = TAG_META[t];
-            const active = sceneTag === t;
-            return (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setSceneTag(t)}
-                className={`flex items-center gap-2 px-2 py-1 rounded text-[0.78rem] text-left transition ${
-                  active ? 'bg-accent text-white font-semibold' : 'hover:bg-zinc-100'
-                }`}
-              >
-                <meta.Icon size={15} />
-                <span>{meta.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        {/* N6: scene-specific metadata. For Ansicht/Schnitt: which face
-            (N/S/E/W). For Grundriss: which floor (KG/UG/EG/OG/DG/Spitzboden).
-            Drives cross-scene cache scoping — Nordansicht's M1 references
-            only pre-fill future Nordansichten, EG's wall thicknesses only
-            pre-fill EG, etc. */}
-        {(sceneTag === 'ansicht' || sceneTag === 'schnitt') && (
-          <div className={sceneOrientation == null ? 'ring-2 ring-amber-400 rounded animate-pulse' : ''}>
-            <SceneOrientationPicker value={sceneOrientation} onChange={setSceneOrientation} />
-          </div>
-        )}
-        {sceneTag === 'grundriss' && (
-          <div className={sceneLevel == null ? 'ring-2 ring-amber-400 rounded animate-pulse' : ''}>
-            <SceneLevelPicker value={sceneLevel} onChange={setSceneLevel} />
-          </div>
-        )}
-      </section>
+      {/* L2 D1 — SceneDetailsCard at the very top of the sidebar.
+          Compact variant; carries the kind/floor/view editor (L3 D2). */}
+      {currentDrawing && (
+        <section className="rounded-md border border-border bg-zinc-50/60">
+          <SceneDetailsCard
+            houseKey={houseKey}
+            drawing={currentDrawing}
+            readiness={readiness}
+            onUpdated={onDrawingUpdated}
+            variant="compact"
+          />
+        </section>
+      )}
 
+      {/* L7 — Werkzeuge first; no section header (the SceneDetailsCard
+          above plus the icons themselves carry the context). */}
       <section>
-        <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
-          Werkzeuge
-        </h3>
         <div className="grid grid-cols-1 gap-px">
           {(allTools ? TOOLS_BY_TAG.sonstiges : TOOLS_BY_TAG[sceneTag]).map((t) => {
             const family = findFamily(t);
@@ -5191,10 +5157,72 @@ function ToolPalette({
         </div>
         {sceneTag === 'nicht_klassifiziert' && !allTools && (
           <p className="text-[0.7rem] text-muted mt-2 leading-snug">
-            Setze einen Szenen-Tag oben oder aktiviere „alle anzeigen", damit Werkzeuge verfügbar werden.
+            Wähle den Szenen-Tag unten — oder ändere ihn in „Typ ändern" oben.
           </p>
         )}
       </section>
+
+      {/* L3 D2 — Orientation / Level only when the tag requires them
+          AND they're not yet set. */}
+      {needsOrientation && (
+        <section>
+          <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+            Himmelsrichtung
+          </h3>
+          <div className="ring-2 ring-amber-400 rounded animate-pulse">
+            <SceneOrientationPicker value={sceneOrientation} onChange={setSceneOrientation} />
+          </div>
+        </section>
+      )}
+      {needsLevel && (
+        <section>
+          <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+            Geschoss
+          </h3>
+          <div className="ring-2 ring-amber-400 rounded animate-pulse">
+            <SceneLevelPicker value={sceneLevel} onChange={setSceneLevel} />
+          </div>
+        </section>
+      )}
+
+      {/* L3 — Szenen-Tag picker only when truly unclassified. */}
+      {showTagPicker && (
+        <section>
+          <h3 className="text-[0.7rem] uppercase tracking-wider text-muted font-semibold mb-1.5">
+            Szenen-Tag
+          </h3>
+          <div className="grid grid-cols-1 gap-px">
+            {TAGS.map((t) => {
+              const meta = TAG_META[t];
+              const active = sceneTag === t;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setSceneTag(t)}
+                  className={`flex items-center gap-2 px-2 py-1 rounded text-[0.78rem] text-left transition ${
+                    active ? 'bg-accent text-white font-semibold' : 'hover:bg-zinc-100'
+                  }`}
+                >
+                  <meta.Icon size={15} />
+                  <span>{meta.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      <WorkflowGuide
+        facts={workflowFacts}
+        scenes={workflowScenes}
+        currentSceneFile={currentSceneFile}
+        currentSceneTag={sceneTag}
+        currentSceneLabels={labels}
+        onGoToScene={onGoToScene}
+        onSetOrientation={onSetOrientation}
+        onMarkDetailDone={onMarkDetailDone}
+      />
 
       <SceneChecklist sceneTag={sceneTag} labels={labels} />
 
