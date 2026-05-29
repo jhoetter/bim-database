@@ -1881,6 +1881,131 @@ def _deep_merge(base: dict, patch: dict) -> dict:
     return out
 
 
+# ── §5.7b Building-global facts (issue #8) ───────────────────────────────
+
+
+@mcp.tool()
+async def set_building_global_fact(
+    key: str,
+    fact: str,
+    value: float,
+    source_scene: str,
+    source_label_id: str | None = None,
+    confidence: str = "medium",
+    unit: str = "mm",
+    notes: str | None = None,
+) -> dict:
+    """Record a BUILDING-GLOBAL fact with provenance (issue #8).
+
+    Höhenkoten (FH/TH/DG/EG/UG/Bezug), the müNN datum, roof pitch and
+    Kniestock are properties of the *building*, not of one view — identical
+    on every facade. Read each one ONCE from its best source (usually the
+    Schnitt) and record it here; it is then available on every scene of
+    the house. Each value stores which scene + label it came from and a
+    confidence, so the cross-scene propagation is auditable.
+
+    USE when:
+      - You read a height/datum/roof value that holds for the whole
+        building (not a facade-specific dimension). Cite the scene + the
+        label it came from.
+
+    DON'T USE when:
+      - The value is facade-specific (a wall width on one Ansicht) — that
+        belongs in the per-scene labels / extent, not here.
+
+    Args:
+      fact:            one of the recognized names — UG_mm, EG_mm, OG_mm,
+                       DG_mm, TH_mm, FH_mm (relative to EG ±0.00),
+                       EG_munn_mm (müNN datum), bezug_mm, first_mm,
+                       roof_pitch_deg, kniestock_mm, ridge_munn_mm.
+      value:           numeric value in `unit`.
+      source_scene:    the scene file the value was read from (required —
+                       provenance is the point).
+      source_label_id: the label it was read from, when there is one.
+      confidence:      low | medium | high.
+      unit:            mm (default) or deg for roof_pitch_deg.
+      notes:           optional free text.
+
+    Returns: `data` = {fact, entry, building_global_facts}. Call
+    `get_building_global_facts` to see the propagated + derived view.
+    """
+    started = time.time()
+    from api.building_facts import (
+        CONFIDENCE_LEVELS, KNOWN_FACTS, SCHEMA, make_fact,
+    )
+    if not source_scene:
+        return _err("missing_provenance",
+                    "source_scene is required — building-global facts must cite where they were read",
+                    started_at=started)
+    if fact not in KNOWN_FACTS:
+        return _err("unknown_fact", f"{fact!r} is not a recognized building-global fact",
+                    hint=f"known facts: {sorted(KNOWN_FACTS)}", started_at=started)
+    if confidence not in CONFIDENCE_LEVELS:
+        return _err("bad_confidence", f"confidence must be one of {sorted(CONFIDENCE_LEVELS)}",
+                    started_at=started)
+    if not isinstance(value, (int, float)):
+        return _err("bad_value", "value must be numeric", started_at=started)
+    try:
+        entry = make_fact(
+            float(value), source_scene=source_scene, source_label_id=source_label_id,
+            confidence=confidence, unit=unit, notes=notes,
+        )
+    except ValueError as e:
+        return _err("bad_fact", str(e), started_at=started)
+    patch = {"building_global": {"schema": SCHEMA, "facts": {fact: entry}}}
+    res = await set_house_facts(key=key, patch=patch)
+    if not res.get("ok"):
+        return res
+    bg = ((res.get("data") or {}).get("building_global") or {})
+    return _ok(
+        {"fact": fact, "entry": entry, "building_global_facts": bg.get("facts", {})},
+        started_at=started, status_code=200,
+    )
+
+
+@mcp.tool()
+async def get_building_global_facts(key: str) -> dict:
+    """Read the building-global facts tier + deterministic derivations.
+
+    USE when:
+      - At the start of labeling any Ansicht/Schnitt: pull the shared
+        heights/datum/roof so you don't re-read what's already known.
+      - Before W1/W4 to see which building-wide anchors exist and which
+        derived values follow from them.
+
+    Returns: `data` = {
+      facts:        stored values, each with {value, unit, confidence,
+                    source:{scene,label_id}},
+      derived:      deterministically computed facts (math, not OCR), each
+                    flagged derived:true + needs_cross_check:true — e.g.
+                    <X>_munn_mm = EG_munn_mm + <X>_mm; storey heights from
+                    level deltas; roof rise from pitch (+ extent depth),
+      propagation:  {applies_to_scenes:[...]} — these hold on every scene.
+    }
+    """
+    started = time.time()
+    from api.building_facts import build_global_view
+    try:
+        f_status, facts = await _api_get(f"/datasets/{key}/house_facts")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        f_status, facts = await _api_get(f"/datasets/{key}/house_facts")
+    if f_status == 404:
+        facts = {}
+    elif f_status >= 400:
+        return _http_status_to_error(f_status, facts, started)
+    ds_status, ds = await _api_get(f"/datasets/{key}")
+    if ds_status >= 400:
+        return _http_status_to_error(ds_status, ds, started)
+    scene_files = [d.get("file") for d in ((ds or {}).get("drawings") or []) if d.get("file")]
+    view = build_global_view(
+        (facts or {}).get("building_global"), scene_files,
+        extent=(facts or {}).get("extent"),
+    )
+    return _ok(view, started_at=started, status_code=200)
+
+
 # ── §5.8 Export ──────────────────────────────────────────────────────────
 
 
