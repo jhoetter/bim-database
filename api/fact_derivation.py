@@ -101,19 +101,36 @@ def derive_scene_metadata_entry(
     Mirrors the SPA's `promoteToFacts` for the scene_metadata section.
     `image_size_px` falls back to the labels JSON's stored value.
 
-    Per agentic-labeling-followups-tracker §G6: writes both `kind`
-    (legacy) AND `scene_tag` (new) during the rename window — G6's
-    one-shot migration removes `kind` from any persisted facts file.
+    Per agentic-labeling-followups-tracker §G6: writes ONLY `scene_tag`
+    (the renamed canonical field). The legacy `kind` is migrated away
+    by `_migrate_v1_0_facts` on read. Pre-launch single-pass rename.
     """
     size = image_size_px or tuple(labels_json.get("image_size_px") or (0, 0))
     scene_tag = labels_json.get("scene_tag") or "nicht_klassifiziert"
     return {
-        "kind": scene_tag,             # legacy field; rename target in G6
-        "scene_tag": scene_tag,        # new canonical field (G6)
+        "scene_tag": scene_tag,
         "orientation": labels_json.get("scene_orientation"),
         "level": labels_json.get("scene_level"),
         "image_size_px": list(size),
     }
+
+
+def _migrate_v1_0_facts(facts: dict) -> dict:
+    """v1.0 → v1.1 migration. Renames `scene_metadata[file].kind` →
+    `scene_metadata[file].scene_tag`. Idempotent: a v1.1 dict passes
+    through unchanged."""
+    if facts.get("schema_version") == "1.1":
+        return facts
+    sm = facts.get("scene_metadata") or {}
+    for f, entry in sm.items():
+        if not isinstance(entry, dict):
+            continue
+        if "scene_tag" not in entry and "kind" in entry:
+            entry["scene_tag"] = entry.pop("kind")
+        else:
+            entry.pop("kind", None)
+    facts["schema_version"] = "1.1"
+    return facts
 
 
 def _add_source(sources: dict[str, list[str]], fact: str, src: str) -> None:
@@ -317,7 +334,8 @@ def recompute_facts_after_label_write(
             facts = {}
     else:
         facts = {}
-    facts.setdefault("schema_version", "1.0")
+    # G6: migrate v1.0 → v1.1 if needed (rename scene_metadata.kind → scene_tag).
+    facts = _migrate_v1_0_facts(facts)
 
     # Iterate scenes via the manifest (so deleted scenes are pruned).
     valid_files: set[str] = set()

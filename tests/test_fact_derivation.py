@@ -20,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from api.fact_derivation import (  # noqa: E402
+    _migrate_v1_0_facts,
     compute_scene_calibration,
     derive_scene_metadata_entry,
     dim_orientation,
@@ -122,7 +123,7 @@ def test_scene_metadata_entry_basic():
     }
     meta = derive_scene_metadata_entry(labels_json)
     assert meta["scene_tag"] == "grundriss"
-    assert meta["kind"] == "grundriss"  # legacy field — G6 removes
+    assert "kind" not in meta  # G6: legacy field is gone
     assert meta["level"] == "eg"
     assert meta["orientation"] is None
     assert meta["image_size_px"] == [2400, 1600]
@@ -326,6 +327,67 @@ def test_recompute_strict_drops_unsourced_heights(fake_dataset):
     assert "bezug_mm" not in facts["heights"]
     assert "first_mm" not in facts["heights"]
     assert any("HOUSE_FACTS_STRICT" in w for w in facts["_derivation_warnings"])
+
+
+# ── G6: v1.0 → v1.1 migration ──────────────────────────────────────────
+
+
+def test_migrate_renames_kind_to_scene_tag():
+    facts = {
+        "schema_version": "1.0",
+        "scene_metadata": {
+            "a.jpg": {"kind": "grundriss", "level": "eg"},
+            "b.jpg": {"kind": "ansicht", "orientation": "south"},
+        },
+    }
+    out = _migrate_v1_0_facts(facts)
+    assert out["schema_version"] == "1.1"
+    assert out["scene_metadata"]["a.jpg"]["scene_tag"] == "grundriss"
+    assert "kind" not in out["scene_metadata"]["a.jpg"]
+    assert out["scene_metadata"]["b.jpg"]["scene_tag"] == "ansicht"
+    assert "kind" not in out["scene_metadata"]["b.jpg"]
+
+
+def test_migrate_v1_1_is_identity():
+    facts = {
+        "schema_version": "1.1",
+        "scene_metadata": {"a.jpg": {"scene_tag": "grundriss"}},
+    }
+    out = _migrate_v1_0_facts(facts)
+    assert out is facts  # no-op
+    assert out["scene_metadata"]["a.jpg"]["scene_tag"] == "grundriss"
+
+
+def test_migrate_drops_orphan_kind_when_both_present():
+    """If a v1.0 entry already has scene_tag (somehow), drop the kind
+    rather than overwriting."""
+    facts = {
+        "schema_version": "1.0",
+        "scene_metadata": {
+            "a.jpg": {"kind": "old_value", "scene_tag": "grundriss"},
+        },
+    }
+    out = _migrate_v1_0_facts(facts)
+    assert out["scene_metadata"]["a.jpg"]["scene_tag"] == "grundriss"
+    assert "kind" not in out["scene_metadata"]["a.jpg"]
+
+
+def test_recompute_runs_migration_inline(fake_dataset):
+    """recompute_facts_after_label_write should migrate v1.0 → v1.1
+    on read, so subsequent reads always see the new shape."""
+    # Pre-seed v1.0 facts with a stale .kind entry.
+    (fake_dataset / "house-test" / "house_facts.json").write_text(json.dumps({
+        "schema_version": "1.0",
+        "scene_metadata": {
+            "eg.jpg": {"kind": "ansicht", "level": None},  # will be overwritten by labels
+        },
+    }))
+    facts = recompute_facts_after_label_write("house-test", dataset_root=fake_dataset)
+    assert facts["schema_version"] == "1.1"
+    # The eg.jpg entry's scene_tag comes from the labels JSON ("grundriss"),
+    # not from the migrated old kind.
+    assert facts["scene_metadata"]["eg.jpg"]["scene_tag"] == "grundriss"
+    assert "kind" not in facts["scene_metadata"]["eg.jpg"]
 
 
 def test_prune_scene_from_facts(fake_dataset):

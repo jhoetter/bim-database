@@ -38,7 +38,7 @@ export function WorkflowPhaseBadge({
 
   const scenes: SceneSummary[] = (sceneFiles ?? []).map((file) => ({
     file,
-    tag: facts.scene_metadata[file]?.kind ?? null,
+    tag: facts.scene_metadata[file]?.scene_tag ?? null,
   }));
   const phase = currentPhase(facts, scenes);
   const snap = phaseStatusSnapshot(facts, scenes);

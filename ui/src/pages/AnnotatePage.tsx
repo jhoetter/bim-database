@@ -886,7 +886,7 @@ export function AnnotatePage() {
     const facts = loadHouseFacts(scope, key);
     const scenes: WorkflowSceneSummary[] = (houseScenes ?? []).map((s) => ({
       file: s.file,
-      tag: facts.scene_metadata[s.file]?.kind ?? null,
+      tag: facts.scene_metadata[s.file]?.scene_tag ?? null,
     }));
     return { facts, scenes };
   }, [scope, key, houseScenes, sceneSummaryRev]);
@@ -2368,7 +2368,7 @@ export function AnnotatePage() {
       const nextFacts = loadHouseFacts(scope, key);
       const workflowScenes: WorkflowSceneSummary[] = (houseScenes ?? []).map((s) => ({
         file: s.file,
-        tag: nextFacts.scene_metadata[s.file]?.kind ?? null,
+        tag: nextFacts.scene_metadata[s.file]?.scene_tag ?? null,
       }));
       const { newFacts, advancedTo, nowOnPhase } = advanceWorkflow(
         prevFacts, nextFacts, workflowScenes, decodedFile, nowIso(),
@@ -4189,7 +4189,7 @@ function WorkflowGuide({
     const gaps: { file: string; reason: string }[] = [];
     for (const s of scenes) {
       const meta = facts.scene_metadata[s.file];
-      const tag = meta?.kind ?? s.tag;
+      const tag = meta?.scene_tag ?? s.tag;
       if (!tag || tag === 'nicht_klassifiziert') {
         gaps.push({ file: s.file, reason: 'Szenen-Tag fehlt' });
         continue;
@@ -4597,10 +4597,10 @@ function WorkflowGuideDetail({
       <ul className="space-y-0.5 ml-1 max-h-44 overflow-auto">
         {scenes.map((s) => {
           const meta = facts.scene_metadata[s.file];
-          const tag = meta?.kind ?? s.tag ?? '?';
+          const tag = meta?.scene_tag ?? s.tag ?? '?';
           const hasCalib = !!facts.calibration_per_scene[s.file];
           const isHeightScene = tag === 'ansicht' || tag === 'schnitt';
-          const ok = isHeightScene ? hasCalib : tag === 'grundriss' ? !!meta?.level : !!meta?.kind;
+          const ok = isHeightScene ? hasCalib : tag === 'grundriss' ? !!meta?.level : !!meta?.scene_tag;
           const isCurrent = s.file === currentSceneFile;
           return (
             <li key={s.file}>
@@ -4671,7 +4671,7 @@ function WorkflowGuideBezugsmasse({
   }
   // Coverage of all Ansicht/Schnitt scenes — how far the phase is overall.
   const heightScenes = scenes.filter((s) => {
-    const t = facts.scene_metadata[s.file]?.kind ?? s.tag;
+    const t = facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
     return (t === 'ansicht' || t === 'schnitt') && !s.detail_only;
   });
   const done = heightScenes.filter((s) => facts.calibration_per_scene[s.file]).length;

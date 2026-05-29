@@ -103,7 +103,7 @@ function findSceneByOrientation(
 ): SceneLabels | null {
   for (const file of Object.keys(bundle.scenes)) {
     const meta = bundle.facts.scene_metadata[file];
-    if (meta?.kind !== tag) continue;
+    if (meta?.scene_tag !== tag) continue;
     if (meta?.orientation !== o) continue;
     return bundle.scenes[file];
   }
@@ -113,12 +113,12 @@ function findSceneByOrientation(
 function findGrundrissEG(bundle: SceneBundle): SceneLabels | null {
   for (const file of Object.keys(bundle.scenes)) {
     const meta = bundle.facts.scene_metadata[file];
-    if (meta?.kind === 'grundriss' && meta?.level === 'eg') return bundle.scenes[file];
+    if (meta?.scene_tag === 'grundriss' && meta?.level === 'eg') return bundle.scenes[file];
   }
   // Fallback: first grundriss of any level.
   for (const file of Object.keys(bundle.scenes)) {
     const meta = bundle.facts.scene_metadata[file];
-    if (meta?.kind === 'grundriss') return bundle.scenes[file];
+    if (meta?.scene_tag === 'grundriss') return bundle.scenes[file];
   }
   return null;
 }

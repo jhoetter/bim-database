@@ -56,7 +56,7 @@ function tagRequiresLevel(tag: string | null | undefined): boolean {
 export function isInventoryComplete(facts: HouseFacts, scenes: SceneSummary[]): boolean {
   for (const s of scenes) {
     const meta: SceneMetadataEntry | undefined = facts.scene_metadata[s.file];
-    const tag = meta?.kind ?? s.tag;
+    const tag = meta?.scene_tag ?? s.tag;
     if (!tag || tag === 'nicht_klassifiziert') return false;
     if (tagRequiresOrientation(tag) && !meta?.orientation) return false;
     if (tagRequiresLevel(tag) && !meta?.level) return false;
@@ -95,7 +95,7 @@ export function isOrientationComplete(facts: HouseFacts): boolean {
 export function isBezugsmasseComplete(facts: HouseFacts, scenes: SceneSummary[]): boolean {
   for (const s of scenes) {
     const meta = facts.scene_metadata[s.file];
-    const tag = meta?.kind ?? s.tag;
+    const tag = meta?.scene_tag ?? s.tag;
     if (!tag || (tag !== 'ansicht' && tag !== 'schnitt')) continue;
     if (s.detail_only) continue;
     if (!facts.calibration_per_scene[s.file]) return false;
@@ -220,7 +220,7 @@ export function recommendHeightScene(
   if (fromBezug) return fromBezug;
   const fromFirst = firstSourceScene(facts.heights.sources, 'first_mm');
   if (fromFirst) return fromFirst;
-  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.kind ?? s.tag;
+  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
   const ansichten = scenes.filter((s) => tagOf(s) === 'ansicht').sort((a, b) => a.file.localeCompare(b.file));
   if (ansichten.length > 0) return ansichten[0].file;
   const schnitte = scenes.filter((s) => tagOf(s) === 'schnitt').sort((a, b) => a.file.localeCompare(b.file));
@@ -235,7 +235,7 @@ export function recommendHeightScene(
 export function recommendFootprintScene(
   facts: HouseFacts, scenes: SceneSummary[],
 ): string | null {
-  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.kind ?? s.tag;
+  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
   const grundrisse = scenes.filter((s) => tagOf(s) === 'grundriss');
   const eg = grundrisse.find((s) => facts.scene_metadata[s.file]?.level === 'eg');
   if (eg) return eg.file;
@@ -252,7 +252,7 @@ export function recommendFootprintScene(
 export function recommendBezugsmasseScene(
   facts: HouseFacts, scenes: SceneSummary[],
 ): string | null {
-  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.kind ?? s.tag;
+  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
   const candidates = scenes
     .filter((s) => {
       const t = tagOf(s);

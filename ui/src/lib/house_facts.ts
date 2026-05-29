@@ -24,7 +24,11 @@ export interface SceneCalibration {
 }
 
 export interface SceneMetadataEntry {
-  kind: SceneTag;
+  // Renamed from `kind` → `scene_tag` per agentic-labeling-followups-
+  // tracker §G6 (vocabulary collision with the dataset manifest's
+  // `kind` field, which uses a different enum). Server-side migration
+  // in api/fact_derivation.py rewrites any v1.0 files on first save.
+  scene_tag: SceneTag;
   orientation?: SceneOrientation | null;
   level?: SceneLevel | null;
   image_size_px?: [number, number];
@@ -65,7 +69,7 @@ export const PHASE_IDS = [
 export type PhaseId = typeof PHASE_IDS[number];
 
 export interface WorkflowState {
-  schema_version: '1.0';
+  schema_version: '1.0' | '1.1';
   phase: PhaseId;
   phase_completed_at: Record<PhaseId, string | null>;
   source_scene: Record<PhaseId, string | null>;
@@ -95,7 +99,9 @@ export interface FactEntry {
 }
 
 export interface HouseFacts {
-  schema_version: '1.0';
+  // G6: 1.1 = renamed scene_metadata.kind → scene_metadata.scene_tag.
+  // 1.0 entries are migrated on load via _migrateV1_0.
+  schema_version: '1.0' | '1.1';
   extent: {
     width_mm?: number;
     depth_mm?: number;
@@ -140,7 +146,7 @@ export function defaultWorkflowState(): WorkflowState {
     orientation: null, bezugsmasse: null, detail: null,
   };
   return {
-    schema_version: '1.0',
+    schema_version: '1.1',
     phase: 'inventory',
     phase_completed_at: blank,
     source_scene: { ...blank },
@@ -150,7 +156,7 @@ export function defaultWorkflowState(): WorkflowState {
 
 function defaultFacts(): HouseFacts {
   return {
-    schema_version: '1.0',
+    schema_version: '1.1',
     extent: { sources: {} },
     heights: { sources: {} },
     wall_thickness: {},
@@ -167,18 +173,41 @@ function storageKey(scope: LabelScope, houseKey: string): string {
   return `bim-db:annotate:house-facts:${scope}:${houseKey}`;
 }
 
+/** G6: in-place v1.0 → v1.1 migration. Renames every
+ *  `scene_metadata[file].kind` → `scene_metadata[file].scene_tag`.
+ *  Idempotent. Pre-launch — no users yet — so this never has to
+ *  survive a long sunset window. */
+function _migrateV1_0(facts: HouseFacts): HouseFacts {
+  if (facts.schema_version === '1.1') return facts;
+  const sm = facts.scene_metadata ?? {};
+  for (const f of Object.keys(sm)) {
+    const e = sm[f] as unknown as Record<string, unknown>;
+    if (e == null) continue;
+    if (!('scene_tag' in e) && 'kind' in e) {
+      e.scene_tag = e.kind;
+      delete e.kind;
+    } else {
+      delete e.kind;
+    }
+  }
+  facts.schema_version = '1.1';
+  return facts;
+}
+
 export function loadHouseFacts(scope: LabelScope, houseKey: string): HouseFacts {
   try {
     const raw = window.localStorage.getItem(storageKey(scope, houseKey));
     if (!raw) return defaultFacts();
     const parsed = JSON.parse(raw);
-    if (parsed?.schema_version !== '1.0') return defaultFacts();
+    if (parsed?.schema_version !== '1.0' && parsed?.schema_version !== '1.1') {
+      return defaultFacts();
+    }
     // W0 forward-compat: old caches may lack orientation/workflow/derived_facts.
     const facts = parsed as HouseFacts;
     if (facts.orientation === undefined) facts.orientation = null;
     if (!facts.workflow) facts.workflow = defaultWorkflowState();
     if (!facts.derived_facts) facts.derived_facts = {};
-    return facts;
+    return _migrateV1_0(facts);
   } catch {
     return defaultFacts();
   }
@@ -225,7 +254,8 @@ export async function syncHouseFactsFromServer(scope: LabelScope, houseKey: stri
   try {
     const { fetchHouseFactsRaw, putHouseFactsRaw } = await import('../api/client');
     const remote = await fetchHouseFactsRaw(houseKey);
-    if (remote && typeof remote === 'object' && (remote as HouseFacts).schema_version === '1.0') {
+    const v = (remote as HouseFacts | undefined)?.schema_version;
+    if (remote && typeof remote === 'object' && (v === '1.0' || v === '1.1')) {
       // Server wins.
       window.localStorage.setItem(storageKey(scope, houseKey), JSON.stringify(remote));
       return remote as HouseFacts;
@@ -291,7 +321,7 @@ export function promoteToFacts(args: {
 
   // Scene metadata always promoted (cheap).
   facts.scene_metadata[args.sceneFile] = {
-    kind: args.sceneTag,
+    scene_tag: args.sceneTag,
     orientation: args.sceneOrientation,
     level: args.sceneLevel,
     image_size_px: args.imageSize,

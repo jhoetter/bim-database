@@ -492,6 +492,11 @@ async def get_scene_view(
             err_body = {}
         return _wrap_text(_http_status_to_error(status, err_body, started))
     # Also fetch meta so the agent gets dimensions + cache key context.
+    # NOTE: `extraction_kind` here is the dataset manifest's `kind`
+    # (floorplan/elevation/section/detail) — a SEPARATE vocabulary
+    # from the workflow's `scene_tag` (grundriss/ansicht/schnitt/
+    # sonstiges/nicht_klassifiziert). Field renamed in G6 to stop
+    # tripping the agent (and me) into thinking they're the same.
     meta_status, meta_body = await _api_get(f"/datasets/{key}")
     scene_meta = {}
     if meta_status == 200:
@@ -499,7 +504,7 @@ async def get_scene_view(
             if d.get("file") == file:
                 scene_meta = {
                     "file": file,
-                    "scene_tag": d.get("kind"),
+                    "extraction_kind": d.get("kind"),
                     "view": d.get("view"),
                     "floor": d.get("floor"),
                     "labeled": d.get("labeled"),
