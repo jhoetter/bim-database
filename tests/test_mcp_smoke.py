@@ -527,6 +527,155 @@ def test_g4_4_set_house_facts_warns_on_heights_without_labels():
 # ── Tool description snapshot (tracker §9 risk: description drift) ───────
 
 
+def test_h6_add_reference_dim_rejects_zero_length():
+    """H6 (followups-2): refuse start == end on add_reference_dim — a
+    0-px line is not a usable dim and silently breaks the homography."""
+    key, file = _scratch_scene_for_guards()
+    # Both endpoints identical.
+    r = _run(mcp_server.add_reference_dim(
+        key=key, file=file, orientation="horizontal",
+        start=[400.0, 400.0], end=[400.0, 400.0],
+        value_mm=10000,
+    ))
+    assert not r["ok"], "expected reject for zero-length dim line"
+    assert r["error"]["code"] == "degenerate_dim_line"
+    # Slightly offset but still < 2 px should also fail.
+    r2 = _run(mcp_server.add_reference_dim(
+        key=key, file=file, orientation="horizontal",
+        start=[400.0, 400.0], end=[401.0, 400.0],
+        value_mm=10000,
+    ))
+    assert not r2["ok"]
+    assert r2["error"]["code"] == "degenerate_dim_line"
+
+
+def test_h6_add_reference_dim_rejects_axis_mismatch():
+    """H6 (followups-2): refuse a horizontal-declared dim that's
+    clearly vertical (and vice versa). Catches the agent passing
+    endpoints from a vertical line under orientation='horizontal'."""
+    key, file = _scratch_scene_for_guards()
+    meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+    size = meta["data"].get("image_size_px") or [2000, 1200]
+    w, h = size
+    # Declared horizontal but the line is vertical (dy >> dx).
+    r = _run(mcp_server.add_reference_dim(
+        key=key, file=file, orientation="horizontal",
+        start=[w * 0.4, 100.0], end=[w * 0.4, min(h - 100, 800)],
+        value_mm=8000,
+    ))
+    assert not r["ok"], "expected reject for axis mismatch"
+    assert r["error"]["code"] == "orientation_mismatch"
+
+
+def test_h5_get_scene_view_with_labels_renders_labels():
+    """H5-1/H5-2: the verify view must DIFFER from a clean-grid render
+    when a label has been placed (proving the label render actually
+    drew something an agent could spot-check)."""
+    import json as _json
+
+    key, file = _scratch_scene_for_guards()
+    # Clear any pre-existing geometry-bearing labels for a clean start.
+    existing = _run(mcp_server.list_scene_labels(key=key, file=file))
+    for lab in existing["data"]["labels"]:
+        if lab.get("type") in (
+            "wall", "height_mark", "dimensioned_distance",
+            "dimension_number", "component_line",
+            "floorplan_opening", "view_opening",
+        ):
+            _run(mcp_server.delete_label(key=key, file=file, label_id=lab["id"]))
+
+    meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+    size = meta["data"].get("image_size_px") or [2000, 1200]
+    w, h = size
+
+    # Baseline: render the verify view with no relevant labels.
+    baseline = _run(mcp_server.get_scene_view_with_labels(
+        key=key, file=file, tiers="broad", max_dim=400,
+    ))
+    assert isinstance(baseline, list) and len(baseline) == 2
+    baseline_img, _ = baseline
+    baseline_data = baseline_img.data
+
+    # Add a wall label — visible orange stroke through the middle.
+    wall_payload = {
+        "type": "wall",
+        "geometry": {
+            "start": [w * 0.1, h * 0.5],
+            "end": [w * 0.9, h * 0.5],
+        },
+        "attributes": {"thickness_mm": 365},
+        "status": "readable",
+    }
+    add = _run(mcp_server.upsert_label(key=key, file=file, label=wall_payload))
+    assert add["ok"], add.get("error")
+    new_id = add["data"]["label_id"]
+
+    try:
+        # Re-render — must differ because the wall stroke is now drawn.
+        with_labels = _run(mcp_server.get_scene_view_with_labels(
+            key=key, file=file, tiers="broad", max_dim=400,
+        ))
+        with_labels_img, with_labels_text = with_labels
+        assert with_labels_img.type == "image"
+        assert with_labels_img.mimeType == "image/png"
+        assert with_labels_img.data != baseline_data, (
+            "verify view must change after a wall label is placed — "
+            "H5 visual verification is broken"
+        )
+        envelope = _json.loads(with_labels_text.text)
+        assert envelope["ok"]
+        ids = [lab["id"] for lab in envelope["data"]["labels_in_view"]]
+        assert new_id in ids, (
+            f"labels_in_view should mention {new_id}; saw {ids}"
+        )
+    finally:
+        _run(mcp_server.delete_label(key=key, file=file, label_id=new_id))
+
+
+def test_h5_7_verify_label_placement_auto_crops():
+    """H5-7: verify_label_placement should look up the label, compute
+    a tight crop around its geometry, and return a verify view."""
+    import json as _json
+
+    key, file = _scratch_scene_for_guards()
+    meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+    size = meta["data"].get("image_size_px") or [2000, 1200]
+    w, h = size
+
+    wall = {
+        "type": "wall",
+        "geometry": {
+            "start": [w * 0.3, h * 0.4],
+            "end": [w * 0.7, h * 0.4],
+        },
+        "attributes": {"thickness_mm": 365},
+        "status": "readable",
+    }
+    add = _run(mcp_server.upsert_label(key=key, file=file, label=wall))
+    assert add["ok"], add.get("error")
+    new_id = add["data"]["label_id"]
+    try:
+        result = _run(mcp_server.verify_label_placement(
+            key=key, file=file, label_id=new_id, pad_px=40, max_dim=400,
+        ))
+        assert isinstance(result, list) and len(result) == 2
+        img, txt = result
+        assert img.type == "image"
+        envelope = _json.loads(txt.text)
+        assert envelope["ok"], envelope.get("error")
+        # The padded crop must enclose the wall — verify the region
+        # in the envelope matches what we computed.
+        region = envelope["data"]["region"]
+        x0, y0, x1, y1 = (int(v) for v in region.split(","))
+        assert x0 <= w * 0.3 and x1 >= w * 0.7
+        assert y0 <= h * 0.4 <= y1
+        # And the new label is listed in labels_in_view.
+        ids = [lab["id"] for lab in envelope["data"]["labels_in_view"]]
+        assert new_id in ids
+    finally:
+        _run(mcp_server.delete_label(key=key, file=file, label_id=new_id))
+
+
 def test_tool_descriptions_are_present():
     """Smoke check: every registered MCP tool has a docstring of >=200
     chars. Tracker §9 mitigation for description drift; the golden
@@ -546,6 +695,8 @@ def test_tool_descriptions_are_present():
         mcp_server.set_house_facts, mcp_server.validate_export_readiness,
         mcp_server.export_house, mcp_server.list_anomalies,
         mcp_server.dump_run_summary,
+        mcp_server.get_scene_view_with_labels,  # H5-2
+        mcp_server.verify_label_placement,  # H5-7
     ]
     for tool in tools:
         # Tool objects are decorated; unwrap if needed.

@@ -1083,6 +1083,70 @@ def render_scene_grid(
     return FileResponse(str(out), media_type="image/png")
 
 
+@app.get("/datasets/{key}/{file}/grid-with-labels", tags=["pdfs"])
+def render_scene_grid_with_labels(
+    key: str,
+    file: str,
+    region: str | None = None,
+    tiers: str = "broad,finer",
+    max_dim: int = 1600,
+):
+    """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
+    SAVED labels rendered on top. Used by `get_scene_view_with_labels`
+    so an agent can verify a label landed on the intended feature.
+
+    The labels JSON drives the overlay; if no labels.json exists the
+    output is identical to /grid. Cached on (image mtime, labels mtime).
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    if not 100 <= max_dim <= 4000:
+        raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
+    parsed_tiers = _parse_tiers(tiers)
+    parsed_region = _parse_region(region)
+
+    label_path = _safe_label_path("dataset", key, file)
+    img_mtime = img_path.stat().st_mtime_ns
+    lbl_mtime = label_path.stat().st_mtime_ns if label_path.exists() else 0
+
+    cache_root = GRID_CACHE / "scene-with-labels" / key
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cache_name = (
+        f"{Path(file).stem}"
+        f"-r{region or 'full'}"
+        f"-t{'_'.join(parsed_tiers)}"
+        f"-m{max_dim}.png"
+    )
+    out = cache_root / cache_name
+    sentinel = out.with_suffix(".mtime")
+    cache_key = f"{img_mtime}/{lbl_mtime}"
+    if not out.exists() or not sentinel.exists() or sentinel.read_text() != cache_key:
+        from PIL import Image as PILImage
+        from .label_render import render_grid_with_labels
+        labels: list[dict] = []
+        if label_path.exists():
+            try:
+                lbl_doc = json.loads(label_path.read_text())
+                labels = lbl_doc.get("labels") or []
+            except json.JSONDecodeError:
+                labels = []
+        with PILImage.open(img_path) as src:
+            overlay = render_grid_with_labels(
+                src,
+                labels,
+                tiers=parsed_tiers,
+                region=parsed_region,
+                max_dim=max_dim,
+            )
+        overlay.save(out, format="PNG", optimize=True)
+        sentinel.write_text(cache_key)
+    return FileResponse(str(out), media_type="image/png")
+
+
 @app.get("/pdfs/{key}/page/{n}/grid", tags=["pdfs"])
 def render_pdf_page_grid(
     key: str,

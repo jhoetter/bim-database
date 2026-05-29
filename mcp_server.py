@@ -537,6 +537,215 @@ async def get_scene_view(
 
 
 @mcp.tool()
+async def get_scene_view_with_labels(
+    key: str,
+    file: str,
+    region: str | None = None,
+    tiers: str = "broad,finer",
+    max_dim: int = 1600,
+) -> list[ImageContent | TextContent]:
+    """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
+    on top. This is the agent's verify view — call it after every
+    geometry-bearing label write to confirm the label landed on the
+    intended feature.
+
+    USE when:
+      - You just called `upsert_label`, `add_reference_dim`, or
+        `update_label_attrs`. Always fetch this view immediately after
+        and visually verify the label sits on the feature you meant
+        (the wall, the dim line, the height mark line).
+      - You're suspicious of an earlier label and want to spot-check
+        without opening the SPA in a browser.
+
+    DON'T USE when:
+      - You haven't placed any labels yet — use `get_scene_view` for
+        a clean image.
+
+    Args:
+      key:     house key.
+      file:    scene filename.
+      region:  optional 'x0,y0,x1,y1' (source-pixel coords) — zoom
+               around the just-placed label for the closest look.
+      tiers:   comma list of {broad, finer, detail}. Default
+               'broad,finer' (detail is opt-in for zoom precision).
+      max_dim: cap on the longer side of the output PNG; default 1600.
+               Per H4, small region crops keep 1:1 native resolution.
+
+    Returns: one ImageContent (PNG, RGBA) + one TextContent envelope.
+
+    Render vocabulary:
+      orange thick stroke      — wall
+      magenta outline          — opening (floorplan or view)
+      teal polyline            — component_line
+      dark blue dot + faint H line — height_mark
+      green stroke + arrow caps + value chip — dimensioned_distance
+      red stroke (thicker)     — dimensioned_distance with is_reference
+      grey text chip           — dimension_number
+      orange ring around endpoint — label with status='uncertain'
+
+    Per the H5 verify loop (followups-2-tracker), the agent should
+    inspect this image after EVERY geometry write. If the rendered
+    geometry doesn't land on the intended feature, `update_label_attrs`
+    or `delete_label` + re-place. Budget 3 attempts per label; flag
+    `status: uncertain` on the closest if it still misses.
+    """
+    started = time.time()
+    params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim}
+    if region:
+        params["region"] = region
+    try:
+        status, content, ctype = await _api_get_bytes(
+            f"/datasets/{key}/{file}/grid-with-labels", params=params,
+        )
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _wrap_text(_api_unreachable_error(started))
+        status, content, ctype = await _api_get_bytes(
+            f"/datasets/{key}/{file}/grid-with-labels", params=params,
+        )
+    if status >= 400:
+        try:
+            err_body = json.loads(content) if content else {}
+        except json.JSONDecodeError:
+            err_body = {}
+        return _wrap_text(_http_status_to_error(status, err_body, started))
+    # Also fetch the scene's labels list so the agent has a textual
+    # accompaniment to the image (label_id ↔ what's drawn).
+    lbl_status, lbl_body = await _api_get(f"/labels/dataset/{key}/{file}")
+    label_summaries: list[dict] = []
+    if lbl_status == 200 and isinstance(lbl_body, dict):
+        for lab in (lbl_body.get("labels") or []):
+            attrs = lab.get("attributes") or {}
+            label_summaries.append({
+                "id": lab.get("id"),
+                "type": lab.get("type"),
+                "status": lab.get("status"),
+                "is_reference": attrs.get("is_reference") if lab.get("type") == "dimensioned_distance" else None,
+                "value_mm": attrs.get("value_mm"),
+                "summary": _label_summary(lab),
+            })
+    image = ImageContent(
+        type="image",
+        data=base64.b64encode(content).decode("ascii"),
+        mimeType=ctype or "image/png",
+    )
+    text = TextContent(
+        type="text",
+        text=json.dumps(_ok({
+            "image_format": "PNG",
+            "image_bytes": len(content),
+            "labels_in_view": label_summaries,
+            "region": region,
+            "tiers": tiers.split(","),
+            "hint": (
+                "Verify the rendered geometry lands on the intended feature. "
+                "If a label is off, update_label_attrs (preferred for small "
+                "shifts) or delete_label + re-place. Budget 3 attempts per "
+                "label, then set status='uncertain' on the closest miss."
+            ),
+        }, started_at=started, status_code=status), indent=2),
+    )
+    return [image, text]
+
+
+@mcp.tool()
+async def verify_label_placement(
+    key: str,
+    file: str,
+    label_id: str,
+    pad_px: int = 80,
+    tiers: str = "finer,detail",
+    max_dim: int = 1600,
+) -> list[ImageContent | TextContent]:
+    """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
+    a single label so the agent doesn't have to compute the region.
+
+    Reads the label's geometry, computes a tight bbox around all its
+    points + `pad_px` margin, clamps to image bounds, and returns the
+    verify view of that crop. Useful as the single tool call right
+    after `upsert_label` / `add_reference_dim` / `update_label_attrs`.
+
+    USE when:
+      - You just placed or updated a label and want one tool call to
+        confirm the placement. Pair with the 3-attempt verify budget
+        from operating principle #9.
+
+    DON'T USE when:
+      - You're verifying multiple labels at once — call
+        `get_scene_view_with_labels` directly with a wider region.
+
+    Args:
+      key, file: scene identifier.
+      label_id:  the label to zoom into.
+      pad_px:    margin around the label's bbox (source pixels).
+      tiers:     grid tiers to draw; defaults to 'finer,detail' for
+                 the closest-possible look.
+      max_dim:   max output dim; per H4 small crops stay 1:1.
+
+    Returns: image + envelope with the same shape as
+    `get_scene_view_with_labels`. The envelope's `labels_in_view` will
+    typically contain just this one label (plus any neighbours that
+    happen to fall in the padded crop).
+    """
+    started = time.time()
+    # Look up the label to read its geometry.
+    label_resp = await get_label(key=key, file=file, label_id=label_id)
+    if not label_resp.get("ok"):
+        return _wrap_text(label_resp)
+    lab = label_resp["data"]
+    geom = lab.get("geometry") or {}
+    pts: list[tuple[float, float]] = []
+    for k in ("start", "end", "anchor"):
+        v = geom.get(k)
+        if isinstance(v, list) and len(v) >= 2:
+            pts.append((float(v[0]), float(v[1])))
+    for k in ("points", "polygon", "quad", "top_edge", "bottom_edge"):
+        seq = geom.get(k)
+        if isinstance(seq, list):
+            for p in seq:
+                if isinstance(p, list) and len(p) >= 2:
+                    pts.append((float(p[0]), float(p[1])))
+    if "circle" in geom:
+        c = geom["circle"]
+        center = c.get("center") or [0, 0]
+        r = float(c.get("radius_px") or 0)
+        pts.append((center[0] - r, center[1] - r))
+        pts.append((center[0] + r, center[1] + r))
+    if not pts:
+        return _wrap_text(_err(
+            "label_has_no_geometry",
+            f"label {label_id!r} carries no positional geometry — nothing to verify",
+            started_at=started,
+        ))
+    # Clamp the crop to image bounds.
+    meta = await get_scene_meta(key=key, file=file)
+    if not meta.get("ok"):
+        return _wrap_text(meta)
+    img_w, img_h = meta["data"].get("image_size_px") or [None, None]
+    if img_w is None:
+        return _wrap_text(_err(
+            "scene_missing_image_size",
+            "scene_meta has no image_size_px — cannot clamp crop",
+            started_at=started,
+        ))
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    x0 = max(0, int(min(xs)) - pad_px)
+    y0 = max(0, int(min(ys)) - pad_px)
+    x1 = min(int(img_w), int(max(xs)) + pad_px)
+    y1 = min(int(img_h), int(max(ys)) + pad_px)
+    # Ensure non-degenerate region — pad if the label is a point.
+    if x1 - x0 < 20:
+        x1 = min(int(img_w), x0 + 20)
+    if y1 - y0 < 20:
+        y1 = min(int(img_h), y0 + 20)
+    region = f"{x0},{y0},{x1},{y1}"
+    return await get_scene_view_with_labels(
+        key=key, file=file, region=region, tiers=tiers, max_dim=max_dim,
+    )
+
+
+@mcp.tool()
 async def get_pdf_page_view(
     key: str,
     page: int,
@@ -1300,6 +1509,56 @@ async def add_reference_dim(
             isinstance(end, (list, tuple)) and len(end) == 2):
         return _err("schema_invalid", "start/end must be [x, y] pairs",
                     started_at=started)
+    # H6 (followups-2): refuse degenerate (zero-length) dim lines. Seen
+    # on the 2026-05-29 house-22 drive — agent passed start == end for a
+    # ref dim, the homography solver got a singular matrix and silently
+    # failed. Catch it at the door.
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length_px = (dx * dx + dy * dy) ** 0.5
+    if length_px < 2.0:
+        return _err(
+            "degenerate_dim_line",
+            f"start {start!r} and end {end!r} are < 2 px apart — "
+            "this is not a usable reference dim",
+            hint=(
+                "a ref dim must span the actual drawn dim line. Zoom in "
+                "with get_scene_view(region=…) around the dim, read off "
+                "the two endpoint coords from the grid labels, and pass "
+                "them as separate [x, y] pairs."
+            ),
+            retry=False,
+            started_at=started,
+        )
+    # H6: also refuse a dim line that doesn't match its declared
+    # orientation (horizontal stroke claimed as vertical, etc.) when
+    # the mismatch is severe (axis ratio > 1:3). Catches the agent
+    # passing a horizontal candidate but calling it "vertical".
+    if orientation == "horizontal" and abs(dy) > abs(dx) * 3:
+        return _err(
+            "orientation_mismatch",
+            f"declared orientation 'horizontal' but the line from {start!r} "
+            f"to {end!r} is dominantly vertical (|dy|={abs(dy):.1f}, "
+            f"|dx|={abs(dx):.1f})",
+            hint=(
+                "swap orientation to 'vertical' or re-pick endpoints along "
+                "the actual horizontal dim line."
+            ),
+            retry=False,
+            started_at=started,
+        )
+    if orientation == "vertical" and abs(dx) > abs(dy) * 3:
+        return _err(
+            "orientation_mismatch",
+            f"declared orientation 'vertical' but the line from {start!r} "
+            f"to {end!r} is dominantly horizontal (|dx|={abs(dx):.1f}, "
+            f"|dy|={abs(dy):.1f})",
+            hint=(
+                "swap orientation to 'horizontal' or re-pick endpoints along "
+                "the actual vertical dim line."
+            ),
+            retry=False,
+            started_at=started,
+        )
     payload, err = await _read_labels(key, file, started)
     if err is not None:
         return err
@@ -2008,6 +2267,14 @@ validate_export_readiness then export_house
    populate facts automatically. Setting facts without labels makes
    the SPA's overlay rendering go blank — reviewers can't trust it.
 7. **Stamp your run** (Step 0 above).
+8. **VERIFY EVERY GEOMETRY WRITE (per §H5).** After every
+   `upsert_label` / `add_reference_dim` / `update_label_attrs`, call
+   `get_scene_view_with_labels(key, file, region=<tight crop>)` and
+   check the rendered stroke / dot / chip sits on the feature you
+   meant. The agent's single biggest historical failure mode was
+   placing labels off-feature and never noticing — the verify view is
+   the fix. Budget: 3 placement attempts per label; if the third still
+   misses, `set_label_status(..., "uncertain")` and move on.
 
 Start now: call `get_workflow_state(key="{key}")` and follow the
 appropriate phase playbook.
@@ -2124,7 +2391,19 @@ nothing on the canvas. Reviewers can't trust it.
      "status": "readable"
    }})
    ```
-5. `get_house_facts(key="{key}")` — confirm `heights.bezug_mm == 0`
+5. **VERIFY THE PLACEMENT (per §H5).** Immediately after each
+   `upsert_label`, call:
+   ```
+   get_scene_view_with_labels(key="{key}", file=<ansicht>,
+                              region=<crop around the just-placed mark>,
+                              tiers="finer,detail")
+   ```
+   The dot + faint Bezugslinie + value chip must visibly sit on the
+   `±0,00` / Firsthöhe line you intended. If it floats above/below, the
+   anchor is wrong: `update_label_attrs` with corrected `anchor`, then
+   re-verify. Budget 3 attempts per height_mark — if the third still
+   misses, `set_label_status(..., "uncertain")` and move on.
+6. `get_house_facts(key="{key}")` — confirm `heights.bezug_mm == 0`
    and `heights.first_mm == <expected>` BOTH appear. If they do, you're
    done; the server-side derivation already filled them in. If not, the
    `datum` on your height_mark labels is probably wrong (`datum: "first"`
@@ -2174,6 +2453,17 @@ extent — just label the dims and confirm via `get_house_facts`.
    The tool returns `homography.rms_residual_px`. **Reject if > 8 px**
    — delete the dim and try a more-clearly-outer edge. (Use
    `delete_label(label_id=data.distance_id)` and the partner dim_number.)
+
+   **VERIFY (per §H5).** Then immediately:
+   ```
+   get_scene_view_with_labels(key="{key}", file=<eg>,
+                              region=<crop around the dim line>,
+                              tiers="finer,detail")
+   ```
+   The green/red dim stroke must sit ON the building's outer edge, not
+   on an interior wall or an unrelated line of text. Endpoint caps must
+   line up with the corners. If it's wrong: `delete_label` and re-place;
+   3-attempt budget then `status="uncertain"`.
 5. Once both pass: identify an outer wall on the drawing — typically
    30-40 cm thick (drawn as a thick double line). Read its thickness:
    ```
@@ -2184,6 +2474,9 @@ extent — just label the dims and confirm via `get_house_facts`.
      "status": "readable"
    }})
    ```
+   **VERIFY (per §H5)** — `get_scene_view_with_labels` with a tight
+   region; the orange wall stroke must lie along the drawn wall, not
+   floating in empty space or crossing through openings.
 6. Confirm via `get_house_facts(key="{key}")`:
    - `extent.width_mm` = horizontal dim value
    - `extent.depth_mm` = vertical dim value
@@ -2308,8 +2601,24 @@ For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
      - ≤ 8: keep going.
      - > 8: delete this dim + its partner dim_number, try the
        second-best candidate. Repeat up to 3 times.
-6. Repeat for vertical.
-7. Confirm `get_house_facts.calibration_per_scene` now has the file.
+6. **VERIFY THE PLACEMENT (per §H5).** Immediately call:
+   ```
+   get_scene_view_with_labels(key="{key}", file=<scene>,
+                              region="<same zoom region as step 3>",
+                              tiers="finer,detail")
+   ```
+   - The red REF-dim stroke (reference dims render red) must visibly
+     span the dim line you read the value off of, with endpoint caps
+     on the exact corners.
+   - The value chip must show `REF <value>m`.
+   - If the stroke floats next to / beside / through the dim instead
+     of along it: `delete_label(label_id=data.distance_id)` + delete
+     the dim_number partner, then re-place using the corrected
+     endpoint reads. 3-attempt budget per scene per orientation.
+   - After the third miss: `set_label_status(..., "uncertain")` on
+     the closest attempt, log via `dump_run_summary`, move on.
+7. Repeat for vertical (including a fresh verify pass).
+8. Confirm `get_house_facts.calibration_per_scene` now has the file.
 
 ## Hard caps (per scene budget)
 
