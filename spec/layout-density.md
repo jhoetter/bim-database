@@ -1,7 +1,9 @@
 # Layout density + keyboard (L) tracker
 
-**Status:** 2026-05-29. Pre-implementation. User asked for analysis
-before code; decisions in §6 still need a call.
+**Status:** 2026-05-29. Pre-implementation. All Q1–Q6 ★
+recommendations approved by the user; §6 captures them as decisions,
+not open questions. §1 extended with findings L8–L16 the user
+didn't articulate but the audit surfaced.
 
 **Owner:** jhoetter
 **Predecessor:** [`spec/ux-consistency.md`](ux-consistency.md) — U0–U13,
@@ -165,6 +167,84 @@ In the proposed reorganisation (Tools first), the section heading
 of repeating it as a small uppercase label, the section header
 could just be the sidebar header — saves a row.
 
+### H. Cmd+Z runs silently on ExtractPage (L8)
+
+A3 added undo/redo with keyboard bindings. AnnotatePage's undo toasts
+`↶ Rückgängig` (and `↷ Wiederherstellen` on redo). ExtractPage's
+`runUndo` / `runRedo` paths fire silently — the user can't tell
+whether the keystroke was registered, especially when the action
+under the cursor (a green scene) just disappears or reappears with
+no audio cue.
+
+### I. Auto-extract waiting state is only inside the chip (L9)
+
+When the user presses `G` then `K` for Grundriss KG, the post-draw
+chip flips its busy state to `↻ extrahiere…`. But the **orange bbox
+on the canvas** does not change — it sits orange for 1–3 s with no
+indication that the server is mid-flight. If the chip is dismissed
+via Esc before the round-trip returns, the user has zero feedback
+that an extract is still in progress.
+
+### J. Cheatsheet content is AnnotatePage-only (L10)
+
+The cheatsheet (opened via `?`) lives inside `AnnotatePage` and only
+documents its own keys. ExtractPage has post-draw keys, scene
+navigation, page navigation, undo / redo — none are listed
+anywhere. After L1 retires the always-visible PageNav hint string,
+the cheatsheet becomes the only discoverability channel for those.
+
+### K. Breadcrumb truncation has no tooltip (L11)
+
+The breadcrumb component truncates long filenames via
+`overflow-hidden text-ellipsis`. There's no `title` attribute, so
+the user has no way to read the full filename. Bites on
+`house-22-floorplan-eg-very-long-suffix.jpg`-style names.
+
+### L. SaveStateDot floats between BezugStatus and `?` with no fixed anchor (L12)
+
+The A2 SaveStateDot sits in the topbar between `BezugStatus` and the
+`?` cheatsheet button. Its left neighbour changes — when the
+modifier-held chip (`Alt · Helfer aus`) appears between them, the dot
+shifts right. Reading "where the dot is" requires the user to scan
+for it. Better anchor: immediately right of the breadcrumb (left side
+of the topbar), where save-state is conventionally placed.
+
+### M. Tool palette tooltips hide the keyboard letter behind hover (L13)
+
+`<button title="Wand (W)">` only reveals the `W` letter on hover.
+For a power user trying to internalise the keyboard map, the letter
+should be visible inline next to the icon, e.g. as a small
+`<kbd>` glyph in the bottom-right of the icon button.
+
+### N. WorkflowGuide phase bodies are long-form (L14)
+
+Each phase body (when expanded) renders paragraphs of guidance text
+and inputs. On the new sidebar layout (post L2 + L3), the Workflow
+accordion shares vertical space with the SceneDetailsCard + Tools.
+The phase bodies may need a "compact mode" toggle or default-collapsed
+state to coexist sanely.
+
+### O. HouseMenu (⋯) on ExtractPage hides the only house-level destructive action (L15)
+
+The `⋯` icon in the ExtractPage topbar opens HouseMenu which
+contains "Alle Szenen löschen" (full house reset). Discoverability
+is by design — destructive lives behind a stable, low-attention
+icon. Adequate, but the cheatsheet should at minimum mention that
+house-level reset exists via that icon.
+
+### P. Cmd+Z semantics differ by page (L16)
+
+On AnnotatePage `Cmd+Z` undoes label edits. On ExtractPage `Cmd+Z`
+undoes extract / delete. The two stacks are independent. A user who
+just extracted, then went into a scene and edited labels, then
+returned to extract, would expect `Cmd+Z` to undo "the most recent
+thing" — but it's scoped to whichever page they're on.
+
+This is **the right behaviour** for principle-of-least-surprise on a
+per-page basis (cross-page undo would be wildly more confusing), but
+it needs to be documented in the shared cheatsheet (L10) and tested
+in §4 acceptance.
+
 ---
 
 ## 2. Items
@@ -310,20 +390,142 @@ fold into the section's own structure (the tool icons already speak
 for themselves). The "BIM Datensatz" brand cell at the very top
 stays. Saves one row + ~8 px of padding.
 
+### L8 — Toast feedback for Extract-side undo / redo
+
+`runUndo` / `runRedo` on ExtractPage emit a small toast (same
+pattern as AnnotatePage):
+
+```
+↶ Szene zurück in Entwurf  (or)  ↷ Erneut extrahiert
+↶ Szene wiederhergestellt        ↷ Erneut gelöscht
+↶ Typ zurückgesetzt              ↷ Typ erneut geändert
+```
+
+Reuses the existing toast surface if AnnotatePage's `addToast` can
+be lifted to a shared context; if not, ExtractPage gets its own
+inline toast pip.
+
+### L9 — Pending-extract visual on the bbox itself
+
+The orange draft bbox gets an additional "in flight" decoration
+while the server is processing:
+
+```
+fill: rgba(245, 158, 11, 0.35)   ← higher opacity than normal draft
+stroke: animated dashed pattern  ← strokeDashoffset transition
+```
+
+A small `↻` glyph centered on the bbox shows progress. Driven by a
+local `extractingDraftIds: Set<string>` state on ExtractPage that's
+populated when `extractDraftNow` starts and cleared on completion.
+
+If the chip is dismissed via Esc during the round-trip, the bbox
+still carries this visual until the request resolves.
+
+### L10 — Shared cheatsheet (extends L5)
+
+The `Cheatsheet` component in AnnotatePage gets moved into
+`ui/src/components/Cheatsheet.tsx` and reads a per-page section
+prop. ExtractPage opens it via `?` (new — L5) showing only its own
+section; AnnotatePage shows both sections (so a power user can scan
+the whole map from inside the editor).
+
+Section schema:
+
+```ts
+type Section = { title: string; bindings: Array<{ keys: string[]; effect: string }> };
+type CheatsheetProps = { sections: Section[]; onClose: () => void };
+```
+
+The new ExtractPage section covers: bbox draw, `← → ↑ ↓ Home End`
+page nav, `Esc Del` selection, `G/A/S/D` post-draw kind, `K/U/E/O/D/S`
+floor, `N/S/O/W` view, `Cmd+Z` extract-side undo, `?` cheatsheet
+itself, **+ note about the ⋯ HouseMenu (L15)**.
+
+### L11 — Breadcrumb tooltip on truncation
+
+`Breadcrumb` component checks each crumb's text length and adds a
+`title={c.label}` attribute when the label could plausibly truncate
+(simplest: always add `title`). One-line fix.
+
+### L12 — SaveStateDot anchored next to the breadcrumb
+
+The dot lives **immediately right of the breadcrumb** instead of
+mid-topbar. New layout:
+
+```
+[sidebar toggle] [Breadcrumb] [SaveStateDot] [flex-1 spacer] [BezugStatus] [modifiers] [?] 
+```
+
+This pins it to a fixed position (left of the spacer) so the user
+always knows where to look. The save state is conventionally
+associated with the document name in modern editors; this matches.
+
+### L13 — Inline keyboard letters on tool icons
+
+Tool palette buttons render a small `<kbd>` glyph in the bottom-
+right corner of the icon:
+
+```
+┌─────────┐
+│ [icon]  │
+│      W  │ ← bottom-right kbd
+└─────────┘
+```
+
+Style: `text-[0.55rem] tabular-nums font-mono text-zinc-400
+position: absolute bottom-0.5 right-1`. Same pattern as the
+emerald `✓` overlay on SceneChip thumbnails (consistent
+"corner-badge" rhythm).
+
+Hovers still show the full title for the screen-reader case.
+
+### L14 — WorkflowGuide compact mode
+
+Each phase body opt-in to a `compact` rendering that shows the
+phase title, completion %, and a single "Eintragen" link that opens
+the full body as a popover modal. The full inline body is reserved
+for a "Workflow ◐" page (`/:key/workflow`) — a separate full-page
+view for users who want to deeply edit the workflow.
+
+Sidebar default = compact. Modal = full editor.
+
+### L15 — Cheatsheet documents `⋯` HouseMenu
+
+Added as a row in the cheatsheet's "Haus-Aktionen" section, with
+the visual `⋯` glyph and a one-line description "Haus zurücksetzen
+— löscht alle Szenen + Annotationen, behält die PDF".
+
+### L16 — Cmd+Z scope documented per page
+
+In the cheatsheet, the "Rückgängig" rows make the page-scope
+explicit:
+
+```
+Cmd+Z (auf Extract)     Letzten Szenen-Vorgang rückgängig
+Cmd+Z (im Editor)       Letzten Label-Vorgang rückgängig
+Cmd+Shift+Z             Erneut (vorigen Cmd+Z)
+```
+
+No code change — just documentation that closes the principle-of-
+least-surprise gap.
+
 ---
 
 ## 3. Order of implementation
 
 | Wave | Items | Risk |
 |---|---|---|
-| 1 | L1, L5, L6 | low — additive keyboard + small removals |
-| 2 | L2, L3 (sidebar restructure) | medium — touches both AnnotatePage layout AND ToolPalette logic |
-| 3 | L4 (popover positioning) | medium — three popovers, viewport math |
-| 4 | L7 | trivial — falls out of L3 |
+| 1 | L1, L5, L6, L8, L11, L12, L16 | low — additive keyboard + small removals + new toasts + tooltip |
+| 2 | L2, L3, L7 (sidebar restructure) | medium — touches AnnotatePage layout + ToolPalette logic |
+| 3 | L4 (popover positioning) + L9 (in-flight bbox decoration) | medium — viewport math + new SVG state |
+| 4 | L10, L13, L15 (cheatsheet upgrade + tool kbd glyphs) | medium — shared component lift |
+| 5 | L14 (WorkflowGuide compact + modal) | medium — biggest refactor; ship last |
 
-L1 + L5 first because they're additive and low-risk. L2 + L3 should
-ship together because they're the same redesign. L4 is independent
-and can interleave.
+L1 + L5 + L8 + L11 + L12 + L16 are all "small wins" that batch
+cleanly. L2 + L3 + L7 are the sidebar redesign. L4 + L9 share the
+overlay-positioning theme. L10 + L13 + L15 are the cheatsheet
+upgrade. L14 is the biggest scope and ships last.
 
 ---
 
@@ -371,66 +573,24 @@ action popover appears at their cursor, not at the top of the bbox.
 
 ---
 
-## 6. Open decisions (user input needed)
+## 6. Decisions (user-approved 2026-05-29)
 
-### Q1 — On L2, does the SceneDetailsCard go in the sidebar OR fold into the topbar?
+All Q1–Q6 ★ recommendations are approved. They are now decisions, not
+options. Captured here as the rule each item ships against.
 
-Options:
+- **D1 (L2 anchor):** SceneDetailsCard goes in the **sidebar header**.
+- **D2 (L3 tag picker):** Szenen-Tag picker **vanishes entirely**;
+  editing the classification happens via the SceneDetailsCard popover.
+- **D3 (L4 click anchor):** Click-anchored popover **stays where it
+  opened**; does not follow the mouse.
+- **D4 (L5 cheatsheet):** **Shared `Cheatsheet` component**, one
+  section per page.
+- **D5 (L7 brand row):** **Keep** "BIM Datensatz" as the sidebar
+  top row.
+- **D6 (L1 timestamp):** **Drop** the `Auto-gespeichert · HH:MM`
+  fallback line on the PageNav row.
 
-| Option | Pro | Con |
-|---|---|---|
-| **Sidebar header** ★ | Always visible without taking canvas height. | Sidebar narrows the data: long titles truncate. |
-| **Topbar trailing chip** | Visible even when sidebar is collapsed. | Even less space than sidebar; clashes with existing topbar trailing. |
-| **Fold into the breadcrumb** | Maximally compact. | Filename + kind both fight for space in the breadcrumb. |
-
-**Recommendation:** Sidebar header. The sidebar already houses the
-tools; co-locating the "what scene am I on" with "what tools do I
-have" makes the per-scene context one place.
-
-### Q2 — On L3, does the Szenen-Tag picker disappear entirely or fall back to an inline edit on the SceneDetailsCard?
-
-| Option | Pro | Con |
-|---|---|---|
-| **Vanish; edit via popover** ★ | Sidebar truly slim. One place to change classification. | Two clicks to change tag instead of one. |
-| **Tiny inline chip in the SceneDetailsCard** | One click. | Adds a chip back to the always-visible header. |
-| **Keep as today but smaller** | Lowest blast radius. | Wastes the win of L2. |
-
-**Recommendation:** Vanish + edit via the popover. The user said
-"if I labeled it as floorplan in extract, the editor should know"
-— so editing the tag from the editor is the exception case.
-
-### Q3 — On L4, should the click-anchored popover follow the mouse as it moves OR stay where it opened?
-
-**Recommendation:** Stay where it opened. Following the mouse fights
-with hover semantics on the popover's own buttons.
-
-### Q4 — On L5, does ExtractPage get its own cheatsheet or share AnnotatePage's component with a section per page?
-
-| Option | Pro | Con |
-|---|---|---|
-| **Shared component, section per page** ★ | One source of truth for the cheatsheet. | Reads must filter to the current page. |
-| **Two separate cheatsheets** | Smaller per page. | Duplication risk over time. |
-
-**Recommendation:** Shared component. The cheatsheet should read its
-data from `spec/keyboard.md` ideally; for now, hardcode but in one
-file.
-
-### Q5 — On L7, do we also drop "BIM Datensatz" brand from the sidebar header?
-
-It's currently the top row and links to `/`. Keeping it is fine;
-removing it costs ~24 px more.
-
-**Recommendation:** Keep. It's the only navigation-up affordance
-on a narrow viewport where the topbar might scroll.
-
-### Q6 — On L1, do we also drop the `Auto-gespeichert · HH:MM` hint that replaces the keyboard hints when drafts exist?
-
-Auto-extract (A1) means drafts are short-lived. The `Auto-gespeichert`
-line refers to the localStorage draft cache, not the dataset-level
-auto-save which has its own indicator (A2 SaveStateDot).
-
-**Recommendation:** Drop. A1 makes the localStorage draft a transient
-state; the timestamp is uninteresting.
+Locked-in non-goals carry forward from §5.
 
 ---
 
@@ -451,7 +611,23 @@ state; the timestamp is uninteresting.
 
 ---
 
-## 8. After this wave
+## 8. Out-of-scope for this tracker (already captured elsewhere)
+
+These came up during the audit but belong to existing trackers; not
+re-litigating here:
+
+- **Empty-state copy unification** — already U14 in
+  `spec/ux-consistency.md`.
+- **Semantic colour tokens** — already U16.
+- **Mobile / narrow-viewport breakpoints** — already U17.
+- **Server-side undo state** — explicit non-goal in
+  `spec/auto-persist.md` §4.
+- **Auto-classify (filename inference)** — non-goal in
+  `spec/auto-persist.md` §4.
+
+---
+
+## 9. After this wave
 
 If everything ships:
 - 88 px of vertical chrome reclaimed on AnnotatePage (L1 + L2).
