@@ -26,6 +26,7 @@ import type { DatasetHouse, IncomingPdf } from '../api/types';
 import { Shell } from '../components/layout/Shell';
 import { Breadcrumb } from '../components/layout/Breadcrumb';
 import { rememberLastStep } from '../lib/step_state';
+import { PHASE_IDS, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
 const KIND_LABEL: Record<ExtractItem['kind'], string> = {
@@ -805,6 +806,12 @@ function ExtractSidebar({
         </p>
       </header>
 
+      {/* U11 — house-global facts the user already locked in. Visible at
+          this level so they don't have to dive into a scene to check
+          what's been captured. Read-only here; edits happen in
+          AnnotatePage's workflow guide. */}
+      <HouseFactsCard houseKey={intake?.key ?? ''} dataset={dataset} />
+
       {/* Page list — primary navigation. Most-important section so it gets
           the top spot and as much height as it needs. */}
       <section className="flex-1 min-h-0 flex flex-col">
@@ -1235,6 +1242,125 @@ function PageCanvas({
 // the user picks kind (and floor / view if applicable) without leaving
 // the canvas. Keyboard hints mirror the same letters AnnotatePage uses
 // for its post-draw chip so the muscle memory carries over.
+// U11 — Read-only summary of house_facts (extent / heights / wall
+// thickness / north orientation / workflow phase). Visible at the house
+// level so the user doesn't have to dive into a scene to remember
+// what's already locked in. Editing happens in AnnotatePage's
+// WorkflowGuide; the ✏ link jumps there.
+function HouseFactsCard({
+  houseKey, dataset,
+}: {
+  houseKey: string;
+  dataset: DatasetHouse | null;
+}) {
+  const [facts, setFacts] = useState<HouseFacts | null>(null);
+  useEffect(() => {
+    if (!houseKey) { setFacts(null); return; }
+    let cancelled = false;
+    void syncHouseFactsFromServer('dataset', houseKey).then((f) => {
+      if (!cancelled) setFacts(f);
+    });
+    return () => { cancelled = true; };
+  }, [houseKey]);
+  if (!facts) return null;
+
+  const extent = facts.extent;
+  const haveExtent = extent.width_mm != null || extent.depth_mm != null || extent.height_mm != null;
+  const heights = facts.heights ?? {};
+  const heightRows: Array<[string, number]> = [];
+  if (heights.bezug_mm != null)        heightRows.push(['±0', heights.bezug_mm]);
+  if (heights.first_mm != null)        heightRows.push(['First', heights.first_mm]);
+  if (heights.traufe_mm != null)       heightRows.push(['Traufe', heights.traufe_mm]);
+  if (heights.gelaende_mm != null)     heightRows.push(['Gelände', heights.gelaende_mm]);
+  if (heights.ok_ffb_eg_mm != null)    heightRows.push(['OK FFB EG', heights.ok_ffb_eg_mm]);
+  if (heights.ok_ffb_og_mm != null)    heightRows.push(['OK FFB OG', heights.ok_ffb_og_mm]);
+  if (heights.ok_ffb_dg_mm != null)    heightRows.push(['OK FFB DG', heights.ok_ffb_dg_mm]);
+  const outerWall = facts.wall_thickness?.outer_mm ?? null;
+  const orientationLabel = facts.orientation
+    ? (facts.orientation.north_angle_deg != null
+        ? `${facts.orientation.north_angle_deg.toFixed(0)}° (${facts.orientation.source_grundriss_file})`
+        : `gesetzt (${facts.orientation.source_grundriss_file})`)
+    : null;
+  const wf = facts.workflow;
+  const phaseIdx = wf ? PHASE_IDS.indexOf(wf.phase) : -1;
+  const phaseLabel = wf && phaseIdx >= 0
+    ? `Phase ${phaseIdx + 1} / ${PHASE_IDS.length} — ${wf.phase}`
+    : null;
+
+  // Pick a "jump into annotation" target — the most-recently-touched
+  // scene of the house, falling back to the EG Grundriss or first
+  // drawing. The pencil ✏ on each row drops the user into AnnotatePage
+  // where each fact has its editor in the WorkflowGuide.
+  const editTarget = dataset?.drawings?.[0]?.file;
+  const editHref = editTarget
+    ? `/${houseKey}/scene/${encodeURIComponent(editTarget)}/annotate`
+    : null;
+
+  const empty = !haveExtent && heightRows.length === 0 && outerWall == null && orientationLabel == null;
+  if (empty) return null;
+  return (
+    <section className="shrink-0 mb-3 px-2.5 py-2 rounded-md border border-border bg-zinc-50/70">
+      <div className="flex items-center justify-between mb-1.5">
+        <h3 className="text-[0.62rem] uppercase tracking-wider text-muted font-semibold">
+          Haus-Fakten
+        </h3>
+        {editHref && (
+          <Link
+            to={editHref}
+            className="text-[0.6rem] text-zinc-500 hover:text-accent"
+            title="Im Annotations-Editor bearbeiten"
+          >
+            ✏ bearbeiten
+          </Link>
+        )}
+      </div>
+      <dl className="space-y-0.5 text-[0.72rem]">
+        {haveExtent && (
+          <FactRow
+            label="Ausdehnung"
+            value={`${formatMm(extent.width_mm)} × ${formatMm(extent.depth_mm)}${
+              extent.height_mm != null ? ` × ${formatMm(extent.height_mm)}` : ''
+            }`}
+          />
+        )}
+        {heightRows.length > 0 && (
+          <FactRow
+            label="Höhen"
+            value={heightRows
+              .map(([id, mm]) => `${id} ${formatMm(mm)}`)
+              .join(' · ')}
+          />
+        )}
+        {outerWall != null && (
+          <FactRow label="Außenwand" value={`${(outerWall / 10).toFixed(1)} cm`} />
+        )}
+        {orientationLabel && (
+          <FactRow label="Nord" value={orientationLabel} />
+        )}
+        {phaseLabel && (
+          <FactRow label="Workflow" value={phaseLabel} />
+        )}
+      </dl>
+    </section>
+  );
+}
+
+function FactRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <dt className="text-muted shrink-0 w-[5.5rem]">{label}</dt>
+      <dd className="font-medium truncate" title={value}>{value}</dd>
+    </div>
+  );
+}
+
+function formatMm(v: number | null | undefined): string {
+  if (v == null) return '–';
+  if (v >= 1000) return `${(v / 1000).toFixed(2).replace('.', ',')} m`;
+  if (v >= 10) return `${(v / 10).toFixed(1)} cm`;
+  return `${v} mm`;
+}
+
 // Topbar action menu — surfaces destructive house-level actions
 // (reset everything) under a `⋯` button so they're discoverable but
 // out of the primary path.
