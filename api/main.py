@@ -120,12 +120,15 @@ def _intake_stub_manifest(key: str) -> dict | None:
         "schema_version": "1.0",
         "key": key,
         "linked_house": key,
-        "model": m.get("user_notes") or key,
+        # P1.2 — title is just the key; notes ride along separately so a
+        # 200-char upload comment doesn't become the card headline.
+        "model": key,
         "manufacturer": None,
         "building_type": None,
         "drawings": [],
         "intake_only": True,
         "intake_page_count": m.get("page_count"),
+        "intake_notes": m.get("user_notes") or None,
     }
 
 

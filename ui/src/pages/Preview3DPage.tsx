@@ -74,7 +74,6 @@ export function Preview3DPage() {
         <div className="flex items-center gap-2">
           <Breadcrumb
             items={[
-              { label: 'Datensatz', to: '/' },
               { label: key, to: `/${key}` },
               { label: 'Annotieren', to: `/${key}` },
             ]}

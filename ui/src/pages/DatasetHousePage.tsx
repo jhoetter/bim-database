@@ -37,7 +37,6 @@ export function DatasetHousePage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: 'Datensatz', to: '/' },
             { label: data?.model ?? key },
             ...(activeDrawing ? [{ label: activeDrawing.title ?? activeDrawing.file }] : []),
           ]}
@@ -87,18 +86,18 @@ export function DatasetHousePage() {
           >
             ✂ Szenen extrahieren
           </Link>
-          <Link
-            to={`/${key}/3d`}
-            className="text-[0.78rem] px-2.5 py-1.5 rounded-md bg-zinc-900 text-white hover:opacity-90"
-            title="3D-Vorschau der annotierten Geometrie"
-          >
-            🧊 3D-Vorschau
-          </Link>
           {intake && (
-            <span className="text-[0.7rem] text-muted ml-auto">
+            <span className="text-[0.7rem] text-muted">
               PDF: {intake.consolidated_pdf ?? '–'} · {intake.page_count ?? '?'} Seiten · Status: {intake.state}
             </span>
           )}
+          <Link
+            to={`/${key}/3d`}
+            className="text-[0.72rem] px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-100 ml-auto"
+            title="3D-Vorschau der annotierten Geometrie"
+          >
+            3D-Vorschau →
+          </Link>
         </div>
         {data?.composite && (
           <CompositeSection composite={data.composite} houseKey={key} />

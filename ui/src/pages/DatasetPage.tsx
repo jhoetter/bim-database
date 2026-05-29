@@ -349,16 +349,16 @@ function HouseCard({ house }: { house: DatasetHouse }) {
               ausstehend
             </span>
           )}
-          {labeled > 0 && (
+          {!intakeOnly && total > 0 && (
             <span
               className={`text-[0.62rem] px-1.5 py-0.5 rounded-full font-semibold ${
                 pct === 100 ? 'bg-emerald-600 text-white'
-                : pct >= 50  ? 'bg-emerald-100 text-emerald-900'
-                            : 'bg-amber-100 text-amber-900'
+                : pct > 0    ? 'bg-emerald-100 text-emerald-900'
+                             : 'bg-amber-100 text-amber-900'
               }`}
               title={`${labeled} / ${total} Szenen annotiert`}
             >
-              ✓ {labeled}/{total} ({pct}%)
+              {labeled === 0 ? `0 / ${total} annotiert` : `${labeled}/${total} (${pct}%)`}
             </span>
           )}
         </div>

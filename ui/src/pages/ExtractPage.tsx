@@ -28,8 +28,20 @@ import { StepperBar } from '../components/StepperBar';
 import { computePerHouseSteps, rememberLastStep } from '../lib/step_state';
 
 const KINDS: ExtractItem['kind'][] = ['floorplan', 'elevation', 'section', 'detail'];
+const KIND_LABEL: Record<ExtractItem['kind'], string> = {
+  floorplan: 'Grundriss',
+  elevation: 'Ansicht',
+  section:   'Schnitt',
+  detail:    'Detail',
+};
 const VIEWS = ['north', 'south', 'east', 'west'] as const;
+const VIEW_LABEL: Record<typeof VIEWS[number], string> = {
+  north: 'Nord', south: 'Süd', east: 'Ost', west: 'West',
+};
 const FLOORS = ['kg', 'ug', 'eg', 'og', 'dg', 'spitzboden'] as const;
+const FLOOR_LABEL: Record<typeof FLOORS[number], string> = {
+  kg: 'KG', ug: 'UG', eg: 'EG', og: 'OG', dg: 'DG', spitzboden: 'Spitzboden',
+};
 const DRAFT_KEY = (key: string) => `bim-db:extract-draft:dataset:${key}`;
 const PAGE_DPI = 144;
 
@@ -236,7 +248,6 @@ export function ExtractPage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: 'Datensatz', to: '/' },
             { label: key, to: `/${key}` },
             { label: 'Szenen extrahieren' },
           ]}
@@ -418,12 +429,19 @@ function ExtractSidebar({
                       : 'hover:bg-zinc-100 text-zinc-800'
                   }`}
                 >
-                  <span className="font-mono">S{p.page}</span>
-                  <span className="flex-1 text-right text-[0.62rem] text-muted">
-                    {ds > 0 && <span className="text-emerald-700">✓{ds}</span>}
-                    {ds > 0 && dr > 0 && ' · '}
-                    {dr > 0 && <span className="text-amber-700">●{dr}</span>}
-                    {ds === 0 && dr === 0 && '○'}
+                  <span className="font-mono w-8 shrink-0">S{p.page}</span>
+                  <span className="flex-1 inline-flex items-center justify-end gap-1.5 text-[0.62rem]">
+                    {ds > 0 && (
+                      <span className="px-1 rounded bg-emerald-100 text-emerald-900 font-semibold">
+                        ✓ {ds}
+                      </span>
+                    )}
+                    {dr > 0 && (
+                      <span className="px-1 rounded bg-amber-100 text-amber-900 font-semibold">
+                        ● {dr}
+                      </span>
+                    )}
+                    {ds === 0 && dr === 0 && <span className="text-zinc-300">○</span>}
                   </span>
                 </button>
               </li>
@@ -483,9 +501,9 @@ function ExtractInspector({
                     : 'hover:bg-zinc-100 text-zinc-800'
                 }`}
               >
-                <span className="font-mono">{b.kind.slice(0, 2)}</span>
+                <span className="font-mono">{KIND_LABEL[b.kind].slice(0, 2)}</span>
                 <span className="flex-1 truncate">
-                  {b.title || `${b.kind}${b.floor ? ` · ${b.floor}` : ''}${b.view ? ` · ${b.view}` : ''}`}
+                  {b.title || `${KIND_LABEL[b.kind]}${b.floor ? ` · ${FLOOR_LABEL[b.floor as keyof typeof FLOOR_LABEL] ?? b.floor}` : ''}${b.view ? ` · ${VIEW_LABEL[b.view as keyof typeof VIEW_LABEL] ?? b.view}` : ''}`}
                 </span>
                 <button
                   type="button"
@@ -510,7 +528,7 @@ function ExtractInspector({
               onChange={(e) => onUpdate(sel.id, { kind: e.target.value as ExtractItem['kind'] })}
               className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.78rem]"
             >
-              {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+              {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
             </select>
           </label>
           {(sel.kind === 'elevation' || sel.kind === 'section') && (
@@ -522,7 +540,7 @@ function ExtractInspector({
                 className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.78rem]"
               >
                 <option value="">–</option>
-                {VIEWS.map((v) => <option key={v} value={v}>{v}</option>)}
+                {VIEWS.map((v) => <option key={v} value={v}>{VIEW_LABEL[v]}</option>)}
               </select>
             </label>
           )}
@@ -535,7 +553,7 @@ function ExtractInspector({
                 className="w-full mt-0.5 px-2 py-1 border border-zinc-300 rounded text-[0.78rem]"
               >
                 <option value="">–</option>
-                {FLOORS.map((f) => <option key={f} value={f}>{f}</option>)}
+                {FLOORS.map((f) => <option key={f} value={f}>{FLOOR_LABEL[f]}</option>)}
               </select>
             </label>
           )}

@@ -28,7 +28,7 @@ export function IntakePage() {
   return (
     <Shell
       breadcrumb={
-        <Breadcrumb items={[{ label: 'Datensatz', to: '/' }, { label: 'Hochladen' }]} />
+        <Breadcrumb items={[{ label: 'Hochladen' }]} />
       }
       leftSidebar={<IntakeSidebar bundles={data ?? []} />}
     >
@@ -102,14 +102,6 @@ function IntakeSidebar({ bundles }: { bundles: IncomingPdf[] }) {
             </div>
           ))}
         </dl>
-      </section>
-      <section>
-        <Link
-          to="/"
-          className="block text-[0.72rem] text-accent hover:underline"
-        >
-          ← Zurück zum Datensatz
-        </Link>
       </section>
     </div>
   );
@@ -289,9 +281,11 @@ function BundleRow({ bundle, onChange }: { bundle: IncomingPdf; onChange: () => 
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-[0.72rem] text-zinc-600 hover:text-zinc-900 mt-1 italic text-left"
+            className="text-[0.72rem] text-zinc-600 hover:text-zinc-900 mt-1 italic text-left inline-flex items-center gap-1 group"
+            title="Notiz bearbeiten"
           >
-            {notes || '(keine Notiz — klicken zum Hinzufügen)'}
+            <span className="text-zinc-400 group-hover:text-zinc-700">✎</span>
+            <span>{notes || 'Notiz hinzufügen'}</span>
           </button>
         )}
       </div>

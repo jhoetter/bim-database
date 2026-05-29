@@ -38,7 +38,6 @@ export function ExportPreviewPage() {
       breadcrumb={
         <Breadcrumb
           items={[
-            { label: 'Datensatz', to: '/' },
             { label: key, to: `/${key}` },
             { label: `Export-Vorschau: ${decodedFile}` },
           ]}
