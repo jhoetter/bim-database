@@ -2767,6 +2767,12 @@ export function AnnotatePage() {
             onRedo={redo}
             what="Label"
           />
+          {/* G5-3 (agentic-labeling-followups-tracker): when an agent
+              labeled this house, surface the marker + a "Mark as
+              reviewed" button. Clicking stamps reviewed_by + reviewed_at
+              into facts.workflow so the chip disappears from the
+              dataset card. */}
+          <AgentLabeledChip scope={scope} houseKey={key} />
         </div>
       }
       topbarTrailing={
@@ -4835,6 +4841,59 @@ function WorkflowGuideOrientation({
 // it visually conflicted with everything else and the user called it
 // out as weird. The popover shows the same controls without sitting on
 // top of the drawing.
+
+// G5-3 (agentic-labeling-followups-tracker): show a 🤖 chip when the
+// house was labeled by bim-agent and is awaiting human review. The chip
+// has a "✓ Reviewed" button that stamps facts.workflow.reviewed_by +
+// reviewed_at so the chip disappears (here AND on the dataset card).
+// Reads facts live from localStorage so we pick up the most recent
+// agent stamp without a server round-trip.
+function AgentLabeledChip({ scope, houseKey }: { scope: LabelScope; houseKey: string }) {
+  const [tick, setTick] = useState(0);
+  const facts = loadHouseFacts(scope, houseKey);
+  const wf = facts.workflow ?? null;
+  const drivenBy = wf?.driven_by;
+  const reviewedBy = wf?.reviewed_by;
+  if (!drivenBy || reviewedBy) return null;
+  const markReviewed = () => {
+    const f = loadHouseFacts(scope, houseKey);
+    const w = f.workflow ?? { schema_version: '1.0' as const, phase: 'inventory' as const,
+                              phase_completed_at: { inventory: null, height_anchor: null,
+                                footprint: null, orientation: null, bezugsmasse: null,
+                                detail: null },
+                              source_scene: { inventory: null, height_anchor: null,
+                                footprint: null, orientation: null, bezugsmasse: null,
+                                detail: null },
+                              user_skipped: {} };
+    w.reviewed_by = 'human';
+    w.reviewed_at = new Date().toISOString();
+    f.workflow = w;
+    saveHouseFacts(scope, houseKey, f);
+    setTick((t) => t + 1);  // re-render so the chip disappears
+  };
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 text-[0.7rem] font-medium"
+      title={
+        wf?.driven_by_run_id
+          ? `Vom Agent gelabelt (run ${wf.driven_by_run_id}) — bitte prüfen`
+          : 'Vom Agent gelabelt — bitte prüfen'
+      }
+      data-tick={tick}
+    >
+      🤖 {drivenBy} – prüfen
+      <button
+        type="button"
+        onClick={markReviewed}
+        className="ml-1 px-1.5 py-0.5 rounded bg-purple-600 text-white text-[0.62rem] hover:bg-purple-700"
+        title="Als geprüft markieren — entfernt das Agenten-Banner aus der Übersicht."
+      >
+        ✓ geprüft
+      </button>
+    </span>
+  );
+}
+
 // A2 — tiny status dot replacing the dirty pill and Speichern button.
 // 6×6 px circle near the breadcrumb area: amber while saving, red on
 // failure, hidden when clean. Tooltip carries the last-save time or

@@ -1700,34 +1700,111 @@ async def export_house(
 @mcp.tool()
 async def list_anomalies(key: str) -> dict:
     """List validator-flagged issues for a house — everything blocking
-    a clean export plus any per-phase predicate failures.
+    a clean export plus per-phase predicate failures, server-side
+    derivation warnings, and any assumed/uncertain rows the agent
+    or human flagged.
 
     USE when:
       - Triaging a failed `export_house`: which blockers must be cleared?
       - Pre-flight before committing a labeling pass: how clean is the
         house?
+      - Looking for the agent's "I guessed" markers (assumed: true on
+        orientation, status: uncertain on labels) before exporting.
 
     DON'T USE when:
       - The agent already knows the current phase's blockers from
         `get_workflow_state`; this tool aggregates across all phases.
 
-    v0.1: surfaces the workflow blockers + the export gate blockers.
-    Future: pulls from a dedicated /datasets/{key}/anomalies endpoint
-    when that exists.
+    Returns: `data.anomalies = [{phase, kind, message, severity}]`
+    where severity ∈ {"blocker", "warning", "info"}.
+
+    Augmented per agentic-labeling-followups-tracker §G5-2 to include
+    server-side derivation warnings (G1) + assumed-orientation rows
+    (G4-3) + uncertain labels (B6).
     """
     started = time.time()
     wf = await get_workflow_state(key=key)
     if not wf.get("ok"):
         return wf
     state = wf["data"]
-    anomalies = []
+    anomalies: list[dict] = []
     for phase, ph in state["phases"].items():
         for b in ph.get("blockers", []):
-            anomalies.append({"phase": phase, "kind": "phase_blocker", "message": b})
+            anomalies.append({
+                "phase": phase, "kind": "phase_blocker",
+                "message": b, "severity": "blocker",
+            })
     if not state.get("exportable"):
-        anomalies.append({"phase": "export", "kind": "export_blocker",
-                          "message": "no labeled scenes yet"})
-    return _ok({"anomalies": anomalies, "count": len(anomalies)},
+        anomalies.append({
+            "phase": "export", "kind": "export_blocker",
+            "message": "no labeled scenes yet", "severity": "blocker",
+        })
+
+    # G5-2: derivation warnings from fact_derivation.recompute_…
+    # (HOUSE_FACTS_STRICT mode drops fields, surfaces them here).
+    facts_env = await get_house_facts(key=key)
+    facts = (facts_env or {}).get("data") or {}
+    for w in facts.get("_derivation_warnings", []) or []:
+        anomalies.append({
+            "phase": "facts", "kind": "derivation_warning",
+            "message": w, "severity": "warning",
+        })
+
+    # G5-2: assumed orientation surfaces here so reviewers prioritize.
+    orient = facts.get("orientation") or {}
+    if orient.get("assumed") is True:
+        msg = "orientation is assumed (no compass mark on drawing)"
+        if isinstance(orient.get("north_angle_deg"), (int, float)):
+            msg += f" — north_angle_deg={orient['north_angle_deg']}"
+        anomalies.append({
+            "phase": "W3", "kind": "assumed_orientation",
+            "message": msg, "severity": "warning",
+        })
+
+    # G5-2: uncertain labels per scene (the agent's honesty markers).
+    try:
+        ds_status, ds_body = await _api_get(f"/datasets/{key}")
+        for d in (ds_body or {}).get("drawings") or []:
+            f = d.get("file")
+            if not f:
+                continue
+            lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{f}")
+            if lbl_status != 200 or not isinstance(lbl, dict):
+                continue
+            uncertain = sum(
+                1 for lab in (lbl.get("labels") or [])
+                if lab.get("status") == "uncertain"
+            )
+            if uncertain:
+                anomalies.append({
+                    "phase": "labels", "kind": "uncertain_labels",
+                    "message": f"{f}: {uncertain} label(s) marked uncertain",
+                    "severity": "info",
+                    "details": {"file": f, "count": uncertain},
+                })
+    except Exception:  # noqa: BLE001
+        pass
+
+    # G5-2: surface the agent's run marker so reviewers see it.
+    wf_obj = facts.get("workflow") or {}
+    if wf_obj.get("driven_by"):
+        anomalies.append({
+            "phase": "review", "kind": "agent_labeled",
+            "message": (
+                f"labeled by {wf_obj['driven_by']!r}"
+                + (f", run {wf_obj.get('driven_by_run_id')!r}"
+                   if wf_obj.get("driven_by_run_id") else "")
+                + " — needs human spot-check"
+            ),
+            "severity": "info",
+        })
+
+    counts = {
+        "blocker": sum(1 for a in anomalies if a["severity"] == "blocker"),
+        "warning": sum(1 for a in anomalies if a["severity"] == "warning"),
+        "info": sum(1 for a in anomalies if a["severity"] == "info"),
+    }
+    return _ok({"anomalies": anomalies, "count": len(anomalies), "by_severity": counts},
                started_at=started)
 
 

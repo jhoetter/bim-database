@@ -70,6 +70,18 @@ export interface WorkflowState {
   phase_completed_at: Record<PhaseId, string | null>;
   source_scene: Record<PhaseId, string | null>;
   user_skipped: Partial<Record<PhaseId, boolean>>;
+  // G5-3 (agentic-labeling-followups-tracker): when bim-agent runs
+  // automated labeling, it stamps driven_by + driven_by_run_id +
+  // driven_by_started_at. The SPA card shows the 🤖 Agent chip while
+  // these are set. The "Mark as reviewed" button on AnnotatePage adds
+  // reviewed_by + reviewed_at; a future render step can then promote
+  // the labels to training-grade data.
+  driven_by?: string;
+  driven_by_run_id?: string;
+  driven_by_started_at?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  touched_by?: string;  // mentioned in skill principle #5; kept here for forward-compat
 }
 
 // W0.2 — generic provenance-tagged fact bag for future extensions

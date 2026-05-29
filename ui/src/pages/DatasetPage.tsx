@@ -283,9 +283,16 @@ function GroupedByHouse({ houses }: { houses: DatasetHouse[] }) {
 // the user has been here before (per-house localStorage), else the hero
 // scene (preferring floorplan-EG).
 function HouseCard({ house }: { house: DatasetHouse }) {
-  const labeled = house.drawings.filter((d) => d.labeled).length;
+  // G5-1 (agentic-labeling-followups-tracker): 3-state label count.
+  //   annotated  = labels JSON exists AND labels.length > 0
+  //   tagged_only = labels JSON exists but is empty (just scene_tag)
+  //   not_labeled = no labels JSON
+  // The previous binary `labeled` collapsed tagged_only into "labeled",
+  // which made the agent's runs look more complete than they were.
+  const annotated = house.drawings.filter((d) => d.labeled && (d.label_count ?? 0) > 0).length;
+  const taggedOnly = house.drawings.filter((d) => d.labeled && (d.label_count ?? 0) === 0).length;
   const total = house.drawings.length;
-  const pct = total === 0 ? 0 : Math.round((labeled / total) * 100);
+  const pct = total === 0 ? 0 : Math.round((annotated / total) * 100);
   const hero =
     house.drawings.find((d) => d.kind === 'floorplan' && d.floor === 'EG') ??
     house.drawings.find((d) => d.kind === 'floorplan') ??
@@ -345,9 +352,20 @@ function HouseCard({ house }: { house: DatasetHouse }) {
                 : pct > 0    ? 'bg-emerald-100 text-emerald-900'
                              : 'bg-amber-100 text-amber-900'
               }`}
-              title={`${labeled} / ${total} Szenen annotiert`}
+              title={`${annotated} von ${total} Szenen annotiert (mit Labels)`}
             >
-              {labeled === 0 ? `0 / ${total} annotiert` : `${labeled}/${total} (${pct}%)`}
+              {annotated === 0 ? `0 / ${total} annotiert` : `${annotated}/${total} (${pct}%)`}
+            </span>
+          )}
+          {!intakeOnly && taggedOnly > 0 && (
+            <span
+              className="text-[0.62rem] px-1.5 py-0.5 rounded-full bg-zinc-100 text-zinc-700 font-medium"
+              title={
+                `${taggedOnly} Szene(n) getagged aber ohne Annotationen — `
+                + `der scene_tag ist gesetzt, aber labels[] ist leer.`
+              }
+            >
+              {taggedOnly} getagged
             </span>
           )}
           {house.driven_by === 'bim-agent' && (
