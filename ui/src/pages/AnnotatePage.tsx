@@ -797,6 +797,14 @@ export function AnnotatePage() {
     try { return window.localStorage.getItem('bim-db:annotate:img-grayscale') === 'true'; }
     catch { return false; }
   });
+  // Grid overlay — same image the agent sees via the bim-database MCP
+  // server's get_scene_view (image @ 0.5 opacity + 3-tier coordinate grid:
+  // broad/finer/detail). Useful for sanity-checking what the agent
+  // perceives when labels look off. Backed by GET /datasets/{key}/{file}/grid.
+  const [showGrid, setShowGrid] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bim-db:annotate:show-grid') === 'true'; }
+    catch { return false; }
+  });
   useEffect(() => {
     try { window.localStorage.setItem('bim-db:annotate:img-opacity', String(imgOpacity)); }
     catch { /* no-op */ }
@@ -805,6 +813,10 @@ export function AnnotatePage() {
     try { window.localStorage.setItem('bim-db:annotate:img-grayscale', String(imgGrayscale)); }
     catch { /* no-op */ }
   }, [imgGrayscale]);
+  useEffect(() => {
+    try { window.localStorage.setItem('bim-db:annotate:show-grid', String(showGrid)); }
+    catch { /* no-op */ }
+  }, [showGrid]);
   // Global drag flag — set true during any handle / body drag. The right
   // rail dims to near-invisible while it's true so a wall being dragged
   // doesn't disappear visually behind the inspector overlay.
@@ -2716,6 +2728,8 @@ export function AnnotatePage() {
             setImgOpacity={setImgOpacity}
             imgGrayscale={imgGrayscale}
             setImgGrayscale={setImgGrayscale}
+            showGrid={showGrid}
+            setShowGrid={setShowGrid}
             onZoomIn={() => zoomBy(0.7)}
             onZoomOut={() => zoomBy(1.4)}
             onFit={resetView}
@@ -3086,11 +3100,14 @@ export function AnnotatePage() {
             </pattern>
           </defs>
           <image
-            href={imageUrl}
+            href={showGrid
+              ? `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?max_dim=${Math.max(imageSize[0], imageSize[1])}`
+              : imageUrl}
             x={0} y={0}
             width={imageSize[0]} height={imageSize[1]}
             opacity={imgOpacity}
             style={imgGrayscale ? { filter: 'grayscale(1)' } : undefined}
+            preserveAspectRatio="none"
           />
           {/* Implied height-bezugslinien — for every Höhenkote, draw a
               thin dashed horizontal line across the canvas at its
@@ -4800,12 +4817,15 @@ function SaveStateDot({
 
 function CanvasDisplayPalette({
   imgOpacity, setImgOpacity, imgGrayscale, setImgGrayscale,
+  showGrid, setShowGrid,
   onZoomIn, onZoomOut, onFit,
 }: {
   imgOpacity: number;
   setImgOpacity: (v: number) => void;
   imgGrayscale: boolean;
   setImgGrayscale: (v: boolean) => void;
+  showGrid: boolean;
+  setShowGrid: (v: boolean) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
@@ -4895,6 +4915,28 @@ function CanvasDisplayPalette({
               </label>
               <p className="text-[0.62rem] text-zinc-500 leading-snug">
                 Bild auf Weiß ausblenden, um Labels gegen den leeren Canvas zu prüfen.
+              </p>
+              <hr className="border-zinc-200" />
+              <label className="flex items-center justify-between gap-3">
+                <span>Agenten-Raster</span>
+                <button
+                  type="button"
+                  onClick={() => setShowGrid(!showGrid)}
+                  className={`text-[0.7rem] px-2 py-0.5 rounded-md border ${
+                    showGrid
+                      ? 'bg-purple-600 text-white border-purple-600'
+                      : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                  title="Bild mit Koordinatenraster überlagern (genau das, was die Labeling-Agenten sehen)"
+                >
+                  {showGrid ? '🤖 An' : 'Aus'}
+                </button>
+              </label>
+              <p className="text-[0.62rem] text-zinc-500 leading-snug">
+                Zeigt das Bild mit dem 3-stufigen Pixelraster, das die
+                Labeling-Agenten zur Koordinaten-Lokalisierung verwenden
+                (broad / finer / detail). Hilft beim Spot-Check, was ein
+                Agent sieht, wenn seine Labels schief liegen.
               </p>
             </div>
           </>

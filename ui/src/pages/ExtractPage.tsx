@@ -17,6 +17,7 @@ import {
   getIncomingPdf,
   getPdfInfo,
   pdfPageUrl,
+  pdfPageGridUrl,
   deleteExtractedScene,
   restoreExtractedScene,
   patchSceneAttrs,
@@ -120,6 +121,18 @@ export function ExtractPage() {
   // L5 + L10 — Cheatsheet toggled via ? (renders below in the Shell
   // children). Shared component, page contributes its own sections.
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
+  // Agent-grid overlay — swaps the PDF page image for the same image
+  // the bim-database MCP server returns to a labeling agent
+  // (image @ 0.5 opacity + 3-tier coordinate grid). Useful for spot-
+  // checking what the agent sees when its extracted bboxes look off.
+  const [showGrid, setShowGrid] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bim-db:extract:show-grid') === 'true'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('bim-db:extract:show-grid', String(showGrid)); }
+    catch { /* no-op */ }
+  }, [showGrid]);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // The extracted-scene action menu (Annotieren / Bbox anpassen /
@@ -567,6 +580,19 @@ export function ExtractPage() {
           </Link>
           <button
             type="button"
+            onClick={() => setShowGrid(!showGrid)}
+            className={`text-[0.7rem] px-2 py-1 rounded-md border ${
+              showGrid
+                ? 'bg-purple-600 text-white border-purple-600'
+                : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+            }`}
+            title="Agenten-Raster überlagern: zeigt das Bild, das ein Labeling-Agent über den MCP-Server sieht (3-stufiges Pixelraster)"
+            aria-label="Agenten-Raster umschalten"
+          >
+            {showGrid ? '🤖 Raster' : 'Raster'}
+          </button>
+          <button
+            type="button"
             onClick={() => setCheatsheetOpen((v) => !v)}
             className="w-7 h-7 inline-flex items-center justify-center rounded-md text-muted hover:bg-zinc-100 hover:text-zinc-900"
             title="Tastaturkürzel (?)"
@@ -697,6 +723,7 @@ export function ExtractPage() {
             page={currentPage}
             pageWidthPt={pageInfo.width_pt}
             pageHeightPt={pageInfo.height_pt}
+            showGrid={showGrid}
             draftBboxes={pageBboxes}
             extracted={extractedOnPage}
             selectedId={selectedId}
@@ -1212,11 +1239,13 @@ function PageCanvas({
   postDraw, onPostDrawPick, onPostDrawDismiss, extractBusy, extractingIds,
   houseKey, onDeleteExtracted, onAdjustExtracted,
   menuFor, setMenuFor, onDatasetRefresh, onClassifyAction,
+  showGrid,
 }: {
   pdfKey: string;
   page: number;
   pageWidthPt: number;
   pageHeightPt: number;
+  showGrid: boolean;
   draftBboxes: DraftBbox[];
   extracted: DatasetHouse['drawings'];
   selectedId: string | null;
@@ -1334,7 +1363,9 @@ function PageCanvas({
           </div>
         )}
         <img
-          src={pdfPageUrl(pdfKey, page, PAGE_DPI)}
+          src={showGrid
+            ? pdfPageGridUrl(pdfKey, page, PAGE_DPI)
+            : pdfPageUrl(pdfKey, page, PAGE_DPI)}
           alt={`Seite ${page}`}
           className="block w-full h-full select-none pointer-events-none"
           draggable={false}

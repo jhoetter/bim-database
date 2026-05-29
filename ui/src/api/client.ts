@@ -115,6 +115,26 @@ export function pdfPageUrl(key: string, page: number, dpi = 144): string {
   return `/pdfs/${encodeURIComponent(key)}/page/${page}?dpi=${dpi}`;
 }
 
+// Same PDF page rendered through the agentic-labeling grid overlay
+// (image @ 0.5 opacity + 3-tier coordinate grid). Used by ExtractPage's
+// "Raster" toggle so the developer sees what the labeling agent sees.
+export function pdfPageGridUrl(
+  key: string,
+  page: number,
+  dpi = 144,
+  tiers: string = 'broad,finer,detail',
+): string {
+  return `/pdfs/${encodeURIComponent(key)}/page/${page}/grid?dpi=${dpi}&tiers=${encodeURIComponent(tiers)}`;
+}
+
+export function sceneGridUrl(
+  key: string,
+  file: string,
+  tiers: string = 'broad,finer,detail',
+): string {
+  return `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(file)}/grid?tiers=${encodeURIComponent(tiers)}`;
+}
+
 export interface ExtractItem {
   page: number;
   bbox_pdf_units: [number, number, number, number];
