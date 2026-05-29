@@ -961,6 +961,78 @@ def test_verify_label_placement_reports_offset_px():
         _run(mcp_server.delete_label(key=key, file=file, label_id=new_id))
 
 
+def test_split_scene_splits_lump_into_per_drawing_scenes():
+    """Issue #11: a full-page lump with two drawings splits into two
+    standalone child scenes (each with content), and the parent is
+    retired."""
+    import json
+    import fitz
+    import shutil
+    from PIL import Image
+    import numpy as np
+
+    key = "house-zzsplittest"
+    incoming = api_main.INCOMING_DIR / key
+    dataset = api_main.DATASET_DIR / key
+    incoming.mkdir(parents=True, exist_ok=True)
+
+    # One landscape page, two distinct drawings (left + right halves).
+    doc = fitz.open()
+    page = doc.new_page(width=720, height=288)
+    page.draw_rect(fitz.Rect(40, 40, 320, 248), color=(0, 0, 0), width=4)
+    page.draw_line(fitz.Point(40, 40), fitz.Point(320, 248), color=(0, 0, 0), width=2)
+    page.draw_rect(fitz.Rect(400, 40, 680, 248), color=(0, 0, 0), width=4)
+    page.draw_line(fitz.Point(400, 248), fitz.Point(680, 40), color=(0, 0, 0), width=2)
+    pdf_name = f"{key}.pdf"
+    doc.save(str(incoming / pdf_name))
+    doc.close()
+    (incoming / "manifest.json").write_text(json.dumps({
+        "key": key, "consolidated_pdf": pdf_name, "state": "ready",
+        "extracted_scenes": [],
+    }))
+
+    try:
+        # Extract the WHOLE page as one lump scene (crop_dpi 300).
+        ex = _run(mcp_server.extract_scenes(key=key, items=[{
+            "page": 1, "bbox_pdf_units": [0, 0, 720, 288], "kind": "elevation",
+            "title": "lump", "crop_dpi": 300,
+        }]))
+        assert ex["ok"], ex.get("error")
+        lump_file = ex["data"]["extracted"][0]["file"]
+        # Parent rendered at 300 dpi -> 3000 x 1200 source px.
+        sp = _run(mcp_server.split_scene(key=key, file=lump_file, regions=[
+            {"bbox_pixels": [0, 0, 1500, 1200], "kind": "elevation", "view": "west"},
+            {"bbox_pixels": [1500, 0, 3000, 1200], "kind": "elevation", "view": "east"},
+        ]))
+        assert sp["ok"], sp.get("error")
+        assert sp["data"]["parent_dims_px"] == [3000, 1200]
+        assert sp["data"]["retired"] == lump_file
+        created = sp["data"]["created"]
+        assert len(created) == 2
+
+        # Parent is gone from the manifest; both children present + non-blank.
+        gh = _run(mcp_server.get_house(key=key))
+        files = {d["file"] for d in gh["data"]["drawings"]}
+        assert lump_file not in files
+        for c in created:
+            assert c["file"] in files
+            img = Image.open(dataset / c["file"]).convert("L")
+            nonwhite = int((np.asarray(img) < 240).sum())
+            assert nonwhite > 0, f"child {c['file']} rendered blank"
+    finally:
+        shutil.rmtree(incoming, ignore_errors=True)
+        shutil.rmtree(dataset, ignore_errors=True)
+
+
+def test_split_scene_requires_regions():
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    r = _run(mcp_server.split_scene(key=key, file=file, regions=[]))
+    assert not r["ok"]
+    assert r["error"]["code"] == "schema_invalid"
+
+
 def test_tool_descriptions_are_present():
     """Smoke check: every registered MCP tool has a docstring of >=200
     chars. Tracker §9 mitigation for description drift; the golden
@@ -969,7 +1041,8 @@ def test_tool_descriptions_are_present():
         mcp_server.list_houses, mcp_server.get_house,
         mcp_server.get_workflow_state, mcp_server.get_recommended_next_action,
         mcp_server.list_pdfs, mcp_server.get_pdf_info,
-        mcp_server.extract_scenes, mcp_server.get_scene_view,
+        mcp_server.extract_scenes, mcp_server.split_scene,  # issue #11
+        mcp_server.get_scene_view,
         mcp_server.get_pdf_page_view, mcp_server.get_scene_meta,
         mcp_server.list_scene_labels, mcp_server.get_label,
         mcp_server.set_scene_tag, mcp_server.set_scene_orientation,

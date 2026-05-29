@@ -136,6 +136,15 @@ async def _api_put(path: str, json_body: Any) -> tuple[int, Any]:
     return r.status_code, body
 
 
+async def _api_delete(path: str) -> tuple[int, Any]:
+    r = await _client().delete(path)
+    try:
+        body = r.json() if r.content else None
+    except json.JSONDecodeError:
+        body = r.text
+    return r.status_code, body
+
+
 async def _api_patch(path: str, json_body: dict, started: float) -> dict | None:
     """PATCH wrapper that returns an MCP error envelope on failure, or None
     on success. Use in tools where the response body isn't needed and the
@@ -1196,6 +1205,136 @@ async def extract_scenes(
                    "args": {"key": key},
                    "reason": "see what W0 needs next now that scenes exist",
                })
+
+
+@mcp.tool()
+async def split_scene(
+    key: str,
+    file: str,
+    regions: list[dict],
+    retire_parent: bool = True,
+) -> dict:
+    """Split an over-broad scene (a full-page lump holding several
+    drawings) into one scene PER drawing (issue #11).
+
+    A scene must be ONE drawing — lumping multiple drawings into a single
+    scene makes scene_tag meaningless, breaks best-source routing, and
+    makes calibration impossible (multiple coordinate frames in one image).
+
+    Flow (region detection is YOUR job — the vision-LLM is the detector):
+      1. View the lump with `get_scene_view(key, file)`.
+      2. Identify each constituent drawing's bbox in the scene's own pixel
+         frame (the SOURCE pixels the grid labels show).
+      3. Call this tool with one region per drawing. Each region is
+         re-cropped from the parent PDF page as a standalone scene, and the
+         parent lump is retired (recycle-bin; restorable) unless
+         retire_parent=false.
+
+    USE when:
+      - A just-extracted scene visibly contains 2+ distinct drawings
+        (e.g. "4 facades on one sheet", or "EG+DG+Schnitt combined").
+        Split BEFORE tagging — never tag a multi-drawing lump.
+
+    DON'T USE when:
+      - The scene is a single drawing — nothing to split.
+      - The parent scene wasn't cropped from a PDF (no crop_from).
+
+    Args:
+      key:  house key.
+      file: the over-broad parent scene file to split.
+      regions: list of child specs, each:
+        {
+          "bbox_pixels": [x0,y0,x1,y1],  // in the PARENT scene's source px
+          "kind": "elevation",           // floorplan|elevation|section|detail
+          "view": "north",               // optional
+          "floor": "eg",                 // optional
+          "title": "Nordansicht",        // optional
+          "slug_override": null           // optional
+        }
+      retire_parent: recycle the parent lump after the children are
+        created (default true; restorable via the SPA / undo).
+
+    Returns: `data` = {created: [...child manifest entries...],
+      retired: <parent file or null>, parent_dims_px: [w,h]}.
+    Blank child regions are rejected by the extract guard (issue #12), in
+    which case nothing is retired.
+    """
+    started = time.time()
+    from api.segment import scene_px_dims, scene_px_to_pdf, validate_region_px
+
+    if not regions:
+        return _err("schema_invalid", "regions must be a non-empty list",
+                    hint="pass one region per constituent drawing", started_at=started)
+
+    # Look up the parent scene's crop provenance.
+    try:
+        ds_status, ds = await _api_get(f"/datasets/{key}")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        ds_status, ds = await _api_get(f"/datasets/{key}")
+    if ds_status >= 400:
+        return _http_status_to_error(ds_status, ds, started)
+    parent = next((d for d in (ds or {}).get("drawings") or [] if d.get("file") == file), None)
+    if parent is None:
+        return _err("not_found", f"scene {file!r} not in dataset manifest", started_at=started)
+    crop = parent.get("crop_from") or {}
+    bbox = crop.get("bbox_pdf_units")
+    page = crop.get("page")
+    pdf_dpi = int(crop.get("dpi") or 0)
+    if not (isinstance(bbox, list) and len(bbox) == 4 and page and pdf_dpi > 0):
+        return _err(
+            "not_splittable",
+            f"scene {file!r} has no PDF crop_from (page/bbox/dpi) — cannot split",
+            hint="split only applies to scenes extracted from a PDF page",
+            started_at=started,
+        )
+    parent_dims = scene_px_dims(bbox, pdf_dpi)
+
+    # Build one extract item per region, mapping parent-scene px -> PDF units.
+    items: list[dict] = []
+    for i, reg in enumerate(regions):
+        if not isinstance(reg, dict):
+            return _err("schema_invalid", f"regions[{i}] must be an object", started_at=started)
+        err = validate_region_px(reg.get("bbox_pixels"), parent_dims)
+        if err:
+            return _err("bad_region", f"regions[{i}]: {err}", started_at=started)
+        pdf_box = scene_px_to_pdf(reg["bbox_pixels"], bbox, pdf_dpi)
+        items.append({
+            "page": int(page),
+            "bbox_pdf_units": pdf_box,
+            "kind": reg.get("kind", "detail"),
+            "view": reg.get("view"),
+            "floor": reg.get("floor"),
+            "title": reg.get("title"),
+            "slug_override": reg.get("slug_override"),
+            "dpi": pdf_dpi,
+            "allow_blank": bool(reg.get("allow_blank", False)),
+        })
+
+    ex_status, ex_body = await _api_post(f"/pdfs/{key}/extract", json_body={"items": items})
+    if ex_status >= 400:
+        # e.g. a child region rendered blank (issue #12 guard) — leave the
+        # parent intact so nothing is lost.
+        return _http_status_to_error(ex_status, ex_body, started)
+    created = (ex_body or {}).get("extracted") or []
+
+    retired = None
+    if retire_parent:
+        del_status, del_body = await _api_delete(f"/pdfs/{key}/extract/{file}")
+        if del_status >= 400:
+            # Children exist; surface the retire failure but don't fail hard.
+            return _ok(
+                {"created": created, "retired": None, "parent_dims_px": list(parent_dims),
+                 "warning": f"children created but parent not retired (status {del_status})"},
+                started_at=started, status_code=ex_status,
+            )
+        retired = file
+
+    return _ok(
+        {"created": created, "retired": retired, "parent_dims_px": list(parent_dims)},
+        started_at=started, status_code=ex_status,
+    )
 
 
 # ── §5.3 Scene inspection (cont.) ────────────────────────────────────────
