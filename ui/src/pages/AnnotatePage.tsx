@@ -1000,7 +1000,46 @@ export function AnnotatePage() {
   useEffect(() => {
     if (data) {
       const initialLabels = data.labels ?? [];
-      const tag = data.scene_tag ?? 'nicht_klassifiziert';
+      // A0 — derive sceneTag/level/orientation from the dataset manifest
+      // when the labels JSON doesn't carry them yet. Propagation fix: the
+      // post-draw classifier on ExtractPage writes kind/floor/view to
+      // the manifest; the editor previously ignored those and forced
+      // the user to re-pick. We mark dirty when we derive, so the next
+      // auto-save (A2) persists it into labels — after that the labels
+      // file is the source of truth (Q1: labels wins after first save).
+      const drawingHere = houseDataset?.drawings.find((d) => d.file === decodedFile) ?? null;
+      const derivedTag: SceneTag | null = drawingHere?.kind === 'floorplan'
+        ? 'grundriss'
+        : drawingHere?.kind === 'elevation'
+          ? 'ansicht'
+          : drawingHere?.kind === 'section'
+            ? 'schnitt'
+            : drawingHere?.kind === 'detail'
+              ? 'sonstiges'
+              : null;
+      const tag: SceneTag = data.scene_tag ?? derivedTag ?? 'nicht_klassifiziert';
+      const normaliseFloor = (raw: string | null | undefined): SceneLevel | null => {
+        if (!raw) return null;
+        const v = raw.toLowerCase();
+        if (v === 'kg' || v === 'ug' || v === 'eg' || v === 'og' || v === 'dg') return v;
+        if (v === 'spitzboden' || v === 'sp') return 'spitzboden';
+        return null;
+      };
+      const normaliseView = (raw: string | null | undefined): SceneOrientation | null => {
+        if (!raw) return null;
+        const v = raw.toLowerCase();
+        if (v === 'north' || v === 'nord' || v === 'n') return 'north';
+        if (v === 'south' || v === 'sued' || v === 'süd' || v === 's') return 'south';
+        if (v === 'east'  || v === 'ost'  || v === 'o') return 'east';
+        if (v === 'west'  || v === 'w') return 'west';
+        return null;
+      };
+      const initialLevel = data.scene_level ?? normaliseFloor(drawingHere?.floor);
+      const initialOrientation = data.scene_orientation ?? normaliseView(drawingHere?.view);
+      const derivedFromManifest =
+        (data.scene_tag == null && derivedTag != null) ||
+        (data.scene_level == null && initialLevel != null) ||
+        (data.scene_orientation == null && initialOrientation != null);
       const imgSize = data.image_size_px ?? [1024, 1024];
 
       // V0.1 (was N5 auto-apply): when opening an Ansicht/Schnitt, inject
@@ -1086,16 +1125,17 @@ export function AnnotatePage() {
 
       setLabels(hydratedLabels);
       setSceneTag(tag);
-      setSceneOrientation(data.scene_orientation ?? null);
-      setSceneLevel(data.scene_level ?? null);
+      setSceneOrientation(initialOrientation);
+      setSceneLevel(initialLevel);
       setHiddenLabelIds(new Set(data.display?.hidden_label_ids ?? []));
       setImageSize(imgSize);
       setView({ x: 0, y: 0, w: imgSize[0], h: imgSize[1] });
       undoStackRef.current = [];
       redoStackRef.current = [];
       setSelectedIds(new Set());
-      // Auto-applied heights count as a change the user should save.
-      setDirty(autoAppliedCount > 0);
+      // Either auto-applied heights OR a fresh A0 manifest derivation
+      // count as changes the next save needs to persist.
+      setDirty(autoAppliedCount > 0 || derivedFromManifest);
       if (autoAppliedCount > 0) {
         setCrossSceneProvenance(autoProvenance);
         addToast(
@@ -1106,7 +1146,7 @@ export function AnnotatePage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, houseDataset]);
 
   // Warn on close if dirty
   useEffect(() => {
