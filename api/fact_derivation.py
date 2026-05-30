@@ -88,10 +88,10 @@ def check_height_stack(heights: dict, *, tol_mm: float = 50.0) -> dict:
         if isinstance(traufe, (int, float)) and first < traufe - tol_mm:
             problems.append(f"first_mm={first} < traufe_mm={traufe} (ridge below eaves)")
 
-    # 3. traufe between top storey and ridge
-    if isinstance(traufe, (int, float)):
-        if top_storey is not None and traufe < top_storey - tol_mm:
-            problems.append(f"traufe_mm={traufe} below top storey FFB {top_storey}")
+    # NOTE: we deliberately do NOT require traufe >= top storey FFB. The
+    # eaves (Traufe) is a roof line; an attic/Spitzboden floor can legally
+    # sit above it. The only hard constraint on traufe is traufe <= first
+    # (ridge above eaves), checked above.
 
     checked = [k for k, _ in present]
     if isinstance(first, (int, float)):
