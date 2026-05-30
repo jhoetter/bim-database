@@ -37,8 +37,11 @@ def _scene_with_cross(w: int, h: int, cx: int, cy: int) -> Image.Image:
     the feature.)
     """
     arr = np.full((h, w, 3), 255, np.uint8)
-    arr[:, cx] = (255, 0, 0)
-    arr[cy, :] = (255, 0, 0)
+    # 3px-wide bands: a broad grid line (width 2) drawn ON TOP at the same
+    # coordinate can't cover all three red columns/rows, so the content
+    # chroma survives even when (cx,cy) lands exactly on a grid line.
+    arr[:, max(0, cx - 1):cx + 2] = (255, 0, 0)
+    arr[max(0, cy - 1):cy + 2, :] = (255, 0, 0)
     return Image.fromarray(arr)
 
 
