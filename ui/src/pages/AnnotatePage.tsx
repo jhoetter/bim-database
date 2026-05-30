@@ -3158,16 +3158,38 @@ export function AnnotatePage() {
               <circle cx="3" cy="3" r="0.5" fill="#94a3b8" opacity="0.5" />
             </pattern>
           </defs>
+          {/* Coordinate-frame invariant (grid-toggle drift fix):
+              the BASE image is ALWAYS the clean scene crop (imageUrl =
+              /static/dataset/...), authored at exactly imageSize px. Labels,
+              regions, and height-bezugslinien are all drawn in that same
+              source-pixel frame, so they sit on the ink whether or not the
+              grid is shown. The grid is a SEPARATE overlay <image> stretched
+              into the identical {imageSize} box — never a swap of the base
+              href. Previously the single <image> swapped its href to the
+              /grid render, whose pixel dimensions can differ from the crop
+              (compute_output_size caps the long edge at max_dim, so a crop
+              larger than max_dim came back downscaled) and was then stretched
+              by preserveAspectRatio="none" into the imageSize box — moving the
+              ink under the (un-stretched) labels. Keeping the base fixed and
+              overlaying the grid removes that drift entirely. */}
           <image
-            href={showGrid
-              ? `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?tiers=${encodeURIComponent(gridTiersParam)}&max_dim=${Math.max(imageSize[0], imageSize[1])}`
-              : imageUrl}
+            href={imageUrl}
             x={0} y={0}
             width={imageSize[0]} height={imageSize[1]}
             opacity={imgOpacity}
             style={imgGrayscale ? { filter: 'grayscale(1)' } : undefined}
             preserveAspectRatio="none"
           />
+          {showGrid && (
+            <image
+              href={`/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?tiers=${encodeURIComponent(gridTiersParam)}&max_dim=${Math.max(imageSize[0], imageSize[1])}`}
+              x={0} y={0}
+              width={imageSize[0]} height={imageSize[1]}
+              opacity={imgOpacity}
+              style={imgGrayscale ? { filter: 'grayscale(1)' } : undefined}
+              preserveAspectRatio="none"
+            />
+          )}
           {/* Implied height-bezugslinien — for every Höhenkote, draw a
               thin dashed horizontal line across the canvas at its
               y-coordinate. The line is IMPLIED by the Höhenkote —
