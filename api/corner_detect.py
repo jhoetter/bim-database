@@ -95,6 +95,78 @@ def _cluster_points(points: list[tuple[int, int]], radius: int) -> list[tuple[in
     return clusters
 
 
+def detect_wall_outline(
+    image: Image.Image,
+    region=None,
+    *,
+    min_wall_px: int = 8,
+    thresh: Optional[int] = None,
+    n_outlines: int = 2,
+    epsilon_px: float = 8.0,
+    min_area_frac: float = 0.02,
+    close_px: int | None = None,
+) -> list[dict]:
+    """Ordered outer-boundary polygon(s) of the thick-wall ink.
+
+    Unlike `detect_wall_corners` (a scattered point cloud the agent must
+    connect itself), this returns the OUTER face of each connected wall
+    structure as an *ordered* polygon, so each consecutive vertex pair is one
+    wall segment. Far more robust for placing outer walls, and it naturally
+    separates disjoint structures (the main block vs. the garage wing each
+    become their own polygon). Keep `min_wall_px` small (6-10) so faint outer
+    walls a large kernel would erase are preserved; furniture blobs are smaller
+    than the footprint and so drop out of the top-`n_outlines` largest
+    contours.
+
+    Returns up to `n_outlines` dicts, largest area first:
+        {"polygon": [[x, y], ...], "area": int, "n_vertices": int}
+    Coordinates are integer FULL-image SOURCE pixels tracing the outer face.
+    Positional prior only; the vision-LLM judges/prunes furniture bumps and
+    decides thickness.
+    """
+    gray, ox, oy = _to_gray_array(image, region)
+    if gray.size == 0:
+        return []
+    mask = _wall_mask(gray, min_wall_px=min_wall_px, thresh=thresh)
+    if int(mask.sum()) == 0:
+        return []
+    # Door/window openings break the wall ring into disconnected fragments,
+    # each too small to be the footprint. A morphological CLOSE bridges those
+    # gaps so the outer ring reconnects into one contour per structure. The
+    # kernel must exceed the widest opening (a door ~0.9m); default scales
+    # generously with wall thickness and is overridable.
+    ck = int(close_px) if close_px is not None else max(31, int(min_wall_px) * 12)
+    if ck > 0:
+        mask = cv2.morphologyEx(
+            mask, cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ck, ck)),
+        )
+    contours, _ = cv2.findContours(
+        mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if not contours:
+        return []
+    h, w = mask.shape
+    min_area = float(min_area_frac) * float(h) * float(w)
+    out: list[dict] = []
+    for cnt in sorted(contours, key=cv2.contourArea, reverse=True):
+        area = float(cv2.contourArea(cnt))
+        if area < min_area:
+            continue
+        approx = cv2.approxPolyDP(cnt, float(epsilon_px), True)
+        poly = [
+            [
+                int(min(max(0, int(p[0][0]) + ox), image.width - 1)),
+                int(min(max(0, int(p[0][1]) + oy), image.height - 1)),
+            ]
+            for p in approx
+        ]
+        out.append({"polygon": poly, "area": int(area), "n_vertices": len(poly)})
+        if len(out) >= int(n_outlines):
+            break
+    return out
+
+
 def detect_wall_corners(
     image: Image.Image,
     region=None,

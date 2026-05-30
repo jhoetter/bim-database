@@ -1258,6 +1258,51 @@ def check_corner_route(
     return {"ok": True, "data": result}
 
 
+@app.get("/datasets/{key}/{file}/wall-outline", tags=["pdfs"])
+def wall_outline(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 8,
+    thresh: int | None = None,
+    n_outlines: int = 2,
+    epsilon_px: float = 8.0,
+):
+    """Ordered outer-boundary polygon(s) of the thick-wall ink (full-image
+    source px). Each consecutive vertex pair is one wall segment; disjoint
+    structures (main block vs. garage) return as separate polygons. Use a
+    small min_wall_px (6-10) so faint outer walls survive the morphology."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    from PIL import Image as PILImage
+    from .corner_detect import detect_wall_outline
+    parsed = _parse_region(region)
+    with PILImage.open(img_path) as src:
+        src = src.convert("RGB")
+        outlines = detect_wall_outline(
+            src, region=parsed, min_wall_px=min_wall_px, thresh=thresh,
+            n_outlines=n_outlines, epsilon_px=epsilon_px,
+        )
+    return {
+        "ok": True,
+        "data": {
+            "outlines": outlines,
+            "count": len(outlines),
+            "params": {
+                "region": list(parsed) if parsed else None,
+                "min_wall_px": min_wall_px,
+                "thresh": thresh,
+                "n_outlines": n_outlines,
+                "epsilon_px": epsilon_px,
+            },
+        },
+    }
+
+
 @app.get("/datasets/{key}/{file}/grid-with-labels", tags=["pdfs"])
 def render_scene_grid_with_labels(
     key: str,

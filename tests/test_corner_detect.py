@@ -2,7 +2,11 @@
 import numpy as np
 from PIL import Image
 
-from api.corner_detect import detect_wall_corners, check_corner
+from api.corner_detect import (
+    detect_wall_corners,
+    detect_wall_outline,
+    check_corner,
+)
 
 
 def _make_rect_image(
@@ -105,3 +109,47 @@ def test_check_corner_far_reports_not_found():
 def test_empty_image_returns_empty():
     img = Image.new("RGB", (300, 200), (255, 255, 255))
     assert detect_wall_corners(img, min_wall_px=10) == []
+
+
+def test_outline_traces_rectangle_outer_face():
+    """detect_wall_outline returns ONE ordered polygon whose bbox matches the
+    thick rectangle outer face (within the open/close kernel slack)."""
+    rect = (120, 90, 470, 320)
+    img = _make_rect_image(rect=rect, thickness=14, thin_line=True)
+    outs = detect_wall_outline(img, min_wall_px=10, epsilon_px=6)
+    assert outs, "expected at least one wall outline"
+    poly = outs[0]["polygon"]
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    # bbox of the traced outer face is close to the true rectangle bounds
+    assert abs(min(xs) - rect[0]) <= 14, (min(xs), rect[0])
+    assert abs(min(ys) - rect[1]) <= 14, (min(ys), rect[1])
+    assert abs(max(xs) - rect[2]) <= 14, (max(xs), rect[2])
+    assert abs(max(ys) - rect[3]) <= 14, (max(ys), rect[3])
+
+
+def test_outline_bridges_a_door_gap():
+    """A rectangle wall ring with a GAP (door opening) in one side must still
+    come back as a single connected outline (the CLOSE bridges the gap),
+    not zero/fragments."""
+    arr = np.full((400, 600), 255, dtype=np.uint8)
+    x0, y0, x1, y1 = 120, 90, 470, 320
+    t = 14
+    arr[y0:y0 + t, x0:x1] = 0
+    arr[y1 - t:y1, x0:x1] = 0
+    arr[y0:y1, x0:x0 + t] = 0
+    arr[y0:y1, x1 - t:x1] = 0
+    # punch a 40px door gap in the bottom wall
+    gx = (x0 + x1) // 2
+    arr[y1 - t:y1, gx - 20:gx + 20] = 255
+    img = Image.fromarray(arr, mode="L").convert("RGB")
+    outs = detect_wall_outline(img, min_wall_px=10, epsilon_px=6, close_px=60)
+    assert outs, "door gap should be bridged into one outline, got none"
+    ys = [p[1] for p in outs[0]["polygon"]]
+    # the outline still reaches the bottom wall despite the gap
+    assert max(ys) >= y1 - t - 6, (max(ys), y1)
+
+
+def test_outline_empty_image_returns_empty():
+    img = Image.new("RGB", (300, 200), (255, 255, 255))
+    assert detect_wall_outline(img, min_wall_px=10) == []
