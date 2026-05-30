@@ -256,7 +256,43 @@ def render_grid_with_labels(
                 _chip(draw, chip_font, txt, (anchor[0] + 10, anchor[1]),
                       out_w, out_h)
 
+    if clean:
+        # Reduce the label layer's alpha to ~62% so the black drawing ink
+        # remains visible beside/through every colored stroke — the whole
+        # point of the QA view: a misaligned wall is immediately obvious.
+        alpha = target.getchannel("A").point(lambda v: int(v * 0.62))
+        target.putalpha(alpha)
+        base = Image.alpha_composite(base, target)
+
     return base
+
+
+def _clean_base(
+    image: Image.Image,
+    *,
+    region: tuple[int, int, int, int] | None,
+    max_dim: int,
+    enhance: str | None,
+) -> Image.Image:
+    """Build the QA base: the drawing at FULL opacity, NO grid. Crop +
+    downscale + optional enhance EXACTLY as render_grid_overlay does (same
+    compute_output_size + _enhance_image) so the (sx, sy) mapping computed
+    by the caller still lands labels on the right pixels."""
+    from .grid_render import _enhance_image, compute_output_size
+
+    if region is not None:
+        x0, y0, x1, y1 = (int(v) for v in region)
+        img = image.crop((x0, y0, x1, y1))
+    else:
+        img = image
+    cw, ch = img.size
+    ow, oh = compute_output_size(cw, ch, max_dim)
+    if (ow, oh) != (cw, ch):
+        img = img.resize((ow, oh), Image.LANCZOS)
+    mode = (enhance or "none").lower()
+    if mode != "none":
+        img = _enhance_image(img, mode)
+    return img.convert("RGBA")
 
 
 def _draw_dim_cap(
