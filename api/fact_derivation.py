@@ -119,6 +119,87 @@ def dim_orientation(start: list[float], end: list[float]) -> str | None:
     return None
 
 
+# Canonical compass tokens used across the stack (set_scene_orientation, exers).
+_ORIENTATION_CANON = {"north", "south", "east", "west"}
+
+# German + abbreviation -> canonical English. Mirrors set_scene_orientation's
+# inline mapping so the title cross-check speaks the same vocabulary.
+_ORIENTATION_ALIASES = {
+    "nord": "north", "norden": "north", "n": "north",
+    "süd": "south", "sued": "south", "süden": "south", "sueden": "south", "s": "south",
+    "ost": "east", "osten": "east", "o": "east", "e": "east",
+    "west": "west", "westen": "west", "w": "west",
+}
+
+
+def normalize_orientation(value: str | None) -> str | None:
+    """Map any compass token (English/German/abbrev, any case) to canonical
+    north/south/east/west, or None if it isn't a recognisable single compass
+    direction. Pure; no I/O."""
+    if not value:
+        return None
+    v = value.strip().lower()
+    if v in _ORIENTATION_CANON:
+        return v
+    return _ORIENTATION_ALIASES.get(v)
+
+
+def orientation_from_title(title: str | None) -> str | None:
+    """Extract the compass orientation an elevation/section drawing TITLE
+    claims, e.g. "Ansicht Nord", "Westansicht", "Süd-Ansicht", "South
+    Elevation" -> canonical north/south/east/west.
+
+    Scans tokens AND embedded German compound forms ("Westansicht"). Returns
+    None if no single unambiguous direction is found, or if two conflicting
+    directions appear (e.g. "Nord-Süd Schnitt") — ambiguity is not a claim.
+    Pure; no I/O."""
+    if not title:
+        return None
+    import re
+    text = title.lower()
+    found: set[str] = set()
+    # whole-word / abbrev tokens
+    for tok in re.split(r"[^a-zäöüß]+", text):
+        canon = normalize_orientation(tok)
+        if canon:
+            found.add(canon)
+    # embedded compounds: "westansicht", "nordfassade", "ostseite", ...
+    for stem, canon in (("nord", "north"), ("süd", "south"), ("sued", "south"),
+                        ("ost", "east"), ("west", "west")):
+        if stem in text:
+            found.add(canon)
+    if len(found) == 1:
+        return next(iter(found))
+    return None  # zero or conflicting -> no unambiguous claim
+
+
+def compass_titles_agree(title: str | None,
+                         scene_orientation: str | None) -> dict:
+    """V4.2 consistency assertion: does an Ansicht's drawing TITLE agree with
+    the compass orientation set on the scene?
+
+    Returns a dict the caller logs as the assertion:
+      {agree, title_orientation, scene_orientation, reason}
+    `agree` is True only when both resolve to the SAME canonical direction.
+    When the title carries no direction (or the scene has none set), agree is
+    None ("can't check") rather than False. Pure; no I/O."""
+    title_o = orientation_from_title(title)
+    scene_o = normalize_orientation(scene_orientation)
+    if title_o is None or scene_o is None:
+        missing = []
+        if title_o is None:
+            missing.append("title has no unambiguous compass direction")
+        if scene_o is None:
+            missing.append("scene_orientation not set/recognised")
+        return {"agree": None, "title_orientation": title_o,
+                "scene_orientation": scene_o, "reason": "; ".join(missing)}
+    agree = title_o == scene_o
+    reason = ("title and compass agree" if agree
+              else f"title says {title_o} but scene compass is {scene_o}")
+    return {"agree": agree, "title_orientation": title_o,
+            "scene_orientation": scene_o, "reason": reason}
+
+
 def compute_scene_calibration(labels: list[dict]) -> dict | None:
     """px_per_mm from M1 reference dimensioned_distances.
 
