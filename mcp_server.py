@@ -454,16 +454,25 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
     ) else "pending"
 
     # W4: every Ansicht/Schnitt has facts.calibration_per_scene[file].
+    # Issue #27: a single axis-aligned ref dim DOES calibrate the scene
+    # under the square-pixel (isotropic) assumption (#26) — the persisted
+    # calibration carries single_ref_assumed_isotropic. Such a scene counts
+    # as calibrated, but we SURFACE the assumption so reviewers see W4
+    # rests on it (vs a measured two-axis M1-both calibration).
     cps = facts.get("calibration_per_scene") or {}
     w4_blockers: list[str] = []
+    w4_assumed_isotropic: list[str] = []
     has_calibration_targets = False
     for d in drawings:
         f = d.get("file")
         tag = scene_meta.get(f, {}).get("scene_tag")
         if tag in ("ansicht", "schnitt"):
             has_calibration_targets = True
-            if f not in cps:
+            calib = cps.get(f)
+            if not calib:
                 w4_blockers.append(f"{f}: not calibrated")
+            elif isinstance(calib, dict) and calib.get("single_ref_assumed_isotropic"):
+                w4_assumed_isotropic.append(f)
     w4_status = "done" if has_calibration_targets and not w4_blockers else "pending"
 
     # W5: manual; user_skipped or phase_completed_at.detail
@@ -484,7 +493,8 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
                else ([no_scenes_blocker] if not has_scenes else ["extent or wall_thickness missing"])},
         "W3": {"status": w3_status, "blockers": [] if w3_status == "done"
                else ([no_scenes_blocker] if not has_scenes else ["orientation not set"])},
-        "W4": {"status": w4_status, "blockers": w4_blockers},
+        "W4": {"status": w4_status, "blockers": w4_blockers,
+               "assumed_isotropic_scenes": w4_assumed_isotropic},
         "W5": {"status": w5_status, "blockers": ["W5 not marked complete"] if w5_status != "done" else []},
     }
     next_phase = None
@@ -2517,6 +2527,12 @@ async def validate_export_readiness(key: str) -> dict:
 
     all_blockers = list(dict.fromkeys(honest_blockers + minimal_blockers))
     honest_complete = not all_blockers
+
+    # Issue #27: surface scenes whose W4 calibration rests on the
+    # single-ref isotropic (square-pixel) assumption — they count as
+    # calibrated, but an honest export should record the assumption.
+    assumed_isotropic_scenes = phases["W4"].get("assumed_isotropic_scenes") or []
+
     return _ok({
         "ready": honest_complete,
         "honest_complete": honest_complete,
@@ -2526,6 +2542,9 @@ async def validate_export_readiness(key: str) -> dict:
         "required_phases": required,
         "scenes_total": len(drawings),
         "labeled_scenes": sum(1 for d in drawings if d.get("labeled")),
+        "calibration_assumptions": {
+            "single_ref_assumed_isotropic": assumed_isotropic_scenes,
+        },
     }, started_at=started, status_code=status)
 
 
