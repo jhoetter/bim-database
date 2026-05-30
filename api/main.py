@@ -1303,6 +1303,44 @@ def wall_outline(
     }
 
 
+@app.get("/datasets/{key}/{file}/refine-wall", tags=["pdfs"])
+def refine_wall(
+    key: str,
+    file: str,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    search_px: int = 22,
+    n_samples: int = 25,
+    thresh: int | None = None,
+):
+    """Sub-pixel refine a candidate wall segment to the measured ink BAND.
+
+    Samples perpendicular profiles along (x0,y0)->(x1,y1), finds the dark
+    band's centre in each slice, and TLS/PCA-fits a line through those centre
+    points so the result follows the wall's TRUE tilt (handles non-axis-aligned
+    scans + non-90 corners). Returns corrected endpoints, measured
+    thickness_px, angle_deg, fit_line, and confidence (frac of slices that
+    found a band). Pair with /check-corner for endpoints; use line_intersection
+    of adjacent refined walls to make exact shared corners."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    from PIL import Image as PILImage
+    from .wall_refine import refine_segment
+    with PILImage.open(img_path) as src:
+        src = src.convert("RGB")
+        res = refine_segment(
+            src, (x0, y0), (x1, y1),
+            search_px=search_px, n_samples=n_samples, thresh=thresh,
+        )
+    return {"ok": True, "data": res}
+
+
 @app.get("/datasets/{key}/{file}/grid-with-labels", tags=["pdfs"])
 def render_scene_grid_with_labels(
     key: str,
