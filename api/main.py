@@ -23,7 +23,7 @@ from typing import Any
 
 from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 BASE = Path(__file__).parent.parent
@@ -1151,6 +1151,111 @@ def render_scene_grid(
         _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(str(img_mtime))
     return FileResponse(str(out), media_type="image/png")
+
+
+# ── wall-corner detection (classic-CV positional prior) ────────────────────
+# Hand-drawn floorplans force the vision-LLM agent to guess exact source
+# pixels off a faint, downscaled scan, which misplaces wall endpoints. These
+# routes run a deterministic morphological-open + contour-vertex pass over the
+# THICK wall ink (thin annotation lines are erased by the open) and hand the
+# agent candidate corner coordinates to SNAP endpoints to. Per project rules
+# this is a positional prior / cross-check only — the agent stays the judge.
+
+@app.get("/datasets/{key}/{file}/wall-corners", tags=["pdfs"])
+def wall_corners(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 8,
+    thresh: int | None = None,
+    max_dim: int = 1600,
+    format: str = "json",
+):
+    """Candidate wall-corner coords (full-image source px). JSON by default;
+    `format=png` returns the grid overlay with each corner ringed + indexed."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+
+    from PIL import Image as PILImage, ImageDraw
+    from .corner_detect import detect_wall_corners
+
+    parsed = _parse_region(region)
+    with PILImage.open(img_path) as src:
+        src = src.convert("RGB")
+        corners = detect_wall_corners(
+            src, region=parsed, min_wall_px=min_wall_px, thresh=thresh
+        )
+        params = {
+            "region": list(parsed) if parsed else None,
+            "min_wall_px": min_wall_px,
+            "thresh": thresh,
+        }
+
+        if format == "png":
+            from .grid_render import render_grid_overlay
+            overlay = render_grid_overlay(
+                src, region=parsed, tiers=("finer",), max_dim=max_dim
+            ).convert("RGB")
+            if parsed:
+                ox, oy, x1, y1 = parsed
+                base_w = x1 - ox
+            else:
+                ox, oy = 0, 0
+                base_w = src.size[0]
+            scale = overlay.size[0] / base_w if base_w else 1.0
+            draw = ImageDraw.Draw(overlay)
+            r = 7
+            for i, (cx, cy) in enumerate(corners):
+                sx = (cx - ox) * scale
+                sy = (cy - oy) * scale
+                draw.ellipse([sx - r, sy - r, sx + r, sy + r],
+                             outline=(0, 255, 0), width=2)
+                draw.ellipse([sx - 1, sy - 1, sx + 1, sy + 1], fill=(255, 0, 255))
+                draw.text((sx + r + 1, sy - r - 1), str(i), fill=(0, 255, 0))
+            import io as _io
+            buf = _io.BytesIO()
+            overlay.save(buf, format="PNG")
+            return Response(content=buf.getvalue(), media_type="image/png")
+
+    return {
+        "ok": True,
+        "data": {
+            "corners": [[x, y] for (x, y) in corners],
+            "count": len(corners),
+            "params": params,
+        },
+    }
+
+
+@app.get("/datasets/{key}/{file}/check-corner", tags=["pdfs"])
+def check_corner_route(
+    key: str,
+    file: str,
+    x: int,
+    y: int,
+    search_px: int = 40,
+    min_wall_px: int = 8,
+):
+    """Nearest detected wall corner to (x,y) with a snap/move hint.
+    dx>0 => true corner is RIGHT of (x,y); dy>0 => BELOW (y grows down)."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    from PIL import Image as PILImage
+    from .corner_detect import check_corner
+    with PILImage.open(img_path) as src:
+        src = src.convert("RGB")
+        result = check_corner(
+            src, x, y, search_px=search_px, min_wall_px=min_wall_px
+        )
+    return {"ok": True, "data": result}
 
 
 @app.get("/datasets/{key}/{file}/grid-with-labels", tags=["pdfs"])

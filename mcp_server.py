@@ -1554,6 +1554,98 @@ async def list_scene_labels(key: str, file: str) -> dict:
     }, started_at=started, status_code=status)
 
 
+@mcp.tool()
+async def detect_wall_corners(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 8,
+    thresh: int | None = None,
+) -> dict:
+    """Detect candidate WALL-corner coordinates (classic-CV positional prior).
+
+    Hand-drawn floorplans have THICK wall strokes (~10-18px) and THIN
+    annotation lines (dimensions/furniture/hatching, ~1-3px). A
+    morphological open (kernel ~min_wall_px) erases the thin lines so only
+    thick walls survive; contour-polygon vertices of the wall mask are
+    returned as candidate corners in FULL-image SOURCE pixels. YOU remain
+    the judge of which corners are real and how to connect them — snap wall
+    endpoints to these instead of guessing off a faint downscaled image.
+
+    key:         house key (e.g. 'house-22').
+    file:        scene image filename.
+    region:      optional 'x0,y0,x1,y1' source px to restrict detection
+                 (recommended — keeps title-block / dimension-frame ink out).
+    min_wall_px: wall stroke thickness in px. Tune up (e.g. 18 on house-22)
+                 to suppress thin-line noise; down to catch thinner walls.
+    thresh:      optional dark-ink cutoff 0-255 (default = Otsu).
+
+    Returns {corners:[[x,y],...], count, params}.
+    """
+    started = time.time()
+    params: dict[str, Any] = {"min_wall_px": min_wall_px}
+    if region is not None:
+        params["region"] = region
+    if thresh is not None:
+        params["thresh"] = thresh
+    try:
+        status, body = await _api_get(
+            f"/datasets/{key}/{file}/wall-corners", params
+        )
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(
+            f"/datasets/{key}/{file}/wall-corners", params
+        )
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    data = body.get("data", body) if isinstance(body, dict) else body
+    return _ok(data, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def check_corner(
+    key: str,
+    file: str,
+    x: int,
+    y: int,
+    search_px: int = 40,
+    min_wall_px: int = 8,
+) -> dict:
+    """Snap-check a candidate wall endpoint against the nearest detected
+    wall corner. Use iteratively to pull an endpoint onto real ink.
+
+    Returns {found, nearest:[cx,cy], dx, dy, distance, move_hint}.
+    dx>0 => the true corner is to the RIGHT of (x,y);
+    dy>0 => the true corner is BELOW (image y grows downward).
+    move_hint reads e.g. 'left 5, up 8' or 'on-corner'.
+
+    key/file:    scene id.
+    x, y:        candidate endpoint in source px.
+    search_px:   max snap radius.
+    min_wall_px: wall stroke thickness in px (match detect_wall_corners).
+    """
+    started = time.time()
+    params = {
+        "x": x, "y": y, "search_px": search_px, "min_wall_px": min_wall_px,
+    }
+    try:
+        status, body = await _api_get(
+            f"/datasets/{key}/{file}/check-corner", params
+        )
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(
+            f"/datasets/{key}/{file}/check-corner", params
+        )
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    data = body.get("data", body) if isinstance(body, dict) else body
+    return _ok(data, started_at=started, status_code=status)
+
+
 def _label_summary(label: dict) -> str:
     """One-line human description for the summary view."""
     t = label.get("type")
