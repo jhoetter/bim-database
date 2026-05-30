@@ -1617,8 +1617,12 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
       "slug_override": str,          # optional, used as the slug if set
       "dpi": 300,                    # optional, default 300
       "allow_blank": false,          # optional; bypass the blank-render guard
-      "no_clip_expand": false        # optional; bypass clip-detection bbox
+      "no_clip_expand": false,       # optional; bypass clip-detection bbox
                                      #   auto-expansion (issue #25)
+      "bbox_is_authoritative": false # optional (V1.1); the caller's bbox is
+                                     #   final — never auto-expand it. Alias
+                                     #   of no_clip_expand, intent-named for
+                                     #   the vision-LLM-chooses-extent flow.
     }]}
 
     Per issue #25: the segmentation bbox can under-shoot a tall drawing
@@ -1719,7 +1723,16 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
             page_rect = page.rect
             page_w, page_h = float(page_rect.width), float(page_rect.height)
             clip_diag: dict | None = None
-            if not bool(raw.get("no_clip_expand")):
+            # V1.1: when the caller (the vision-LLM) has chosen the bbox
+            # deliberately, that extent is authoritative — do NOT let #25
+            # auto-expand grow it (which would override the chosen crop,
+            # e.g. to the whole page). `bbox_is_authoritative` is the
+            # intent-named alias of `no_clip_expand`; either disables the
+            # auto-expansion.
+            _bbox_authoritative = bool(raw.get("no_clip_expand")) or bool(
+                raw.get("bbox_is_authoritative")
+            )
+            if not _bbox_authoritative:
                 grown, expanded, history = _expand_bbox_for_clip(
                     page, [x0, y0, x1, y1], dpi, page_w, page_h
                 )

@@ -1197,8 +1197,10 @@ async def extract_scenes(
           "title": "EG-Grundriss",    // optional human title
           "slug_override": null,      // optional slug
           "allow_blank": false,       // optional; bypass the blank-render guard
-          "no_clip_expand": false     // optional; bypass clip-detection bbox
+          "no_clip_expand": false,    // optional; bypass clip-detection bbox
                                       //   auto-expansion (issue #25)
+          "bbox_is_authoritative": false // optional (V1.1); YOUR chosen bbox
+                                      //   is final — never auto-expand it
         }
       idempotency_key: optional driver-supplied key for crash-replay safety.
 
@@ -1213,6 +1215,11 @@ async def extract_scenes(
     and re-crops until the drawing no longer hits an edge. To re-capture a
     clipped scene, re-extract it (idempotent on slug) — pass a wider bbox or
     just let the auto-expansion grow it. Set `no_clip_expand: true` to off.
+
+    V1.1: when YOU chose the bbox deliberately (the vision-LLM-picks-the-
+    extent flow — building + all dim chains + Nordpfeil + datum), pass
+    `bbox_is_authoritative: true` so the auto-expansion never overrides your
+    chosen crop. The recorded crop_from bbox then equals your input exactly.
 
     Returns: `data` = {extracted: [...new manifest entries...], intake_state: ...}
 
@@ -1251,6 +1258,10 @@ async def extract_scenes(
             "dpi": int(raw.get("crop_dpi", 300)),
             "allow_blank": bool(raw.get("allow_blank", False)),
             "no_clip_expand": bool(raw.get("no_clip_expand", False)),
+            # V1.1: when YOU (the vision-LLM) have chosen the crop extent
+            # deliberately — building + all dim chains + Nordpfeil + datum —
+            # set this so the #25 auto-expansion never overrides it.
+            "bbox_is_authoritative": bool(raw.get("bbox_is_authoritative", False)),
         })
     try:
         status, body = await _api_post(f"/pdfs/{key}/extract", json_body={"items": api_items})
