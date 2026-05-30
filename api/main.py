@@ -1383,6 +1383,46 @@ def score_walls_route(
     return {"ok": True, "data": res}
 
 
+@app.get("/datasets/{key}/{file}/score-measurements", tags=["pdfs"])
+def score_measurements_route(
+    key: str,
+    file: str,
+    tol_px: int = 8,
+    axis_tol_px: int = 14,
+):
+    """Metric-correctness QA of the saved geometry against the saved
+    dimension chains — the oracle layer over score-walls.
+
+    score-walls checks only INK coverage, so it accepts a wall on the wrong
+    line if that line has ink. This checks PLACEMENT: each dimension segment's
+    endpoints are ticks that must be the projection of a wall face; a tick
+    with no wall face within tol is a misplaced/missing wall (returned in
+    `unmatched_ticks` with the nearest wall + delta, so 'move wall to the
+    tick' is mechanical). Also reports per-chain collinearity + part-sum so
+    the agent can compare to the printed overall. Pure core in
+    `measure_check.score_measurements_from_labels`."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    doc = get_labels("dataset", key, file)
+    walls, dims = [], []
+    for lab in (doc.get("labels") or []):
+        g = lab.get("geometry") or {}
+        s, e = g.get("start"), g.get("end")
+        if not s or not e:
+            continue
+        t = lab.get("type")
+        if t == "wall":
+            walls.append({"start": s, "end": e})
+        elif t == "dimensioned_distance":
+            attrs = lab.get("attributes") or {}
+            dims.append({"start": s, "end": e, "value_mm": attrs.get("value_mm")})
+    from .measure_check import score_measurements_from_labels
+    res = score_measurements_from_labels(
+        walls, dims, tol_px=tol_px, axis_tol_px=axis_tol_px)
+    return {"ok": True, "data": res}
+
+
 @app.get("/datasets/{key}/{file}/grid-with-labels", tags=["pdfs"])
 def render_scene_grid_with_labels(
     key: str,

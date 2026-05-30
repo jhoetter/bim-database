@@ -112,6 +112,128 @@ def ticks_align_with_features(
             "match_frac": round(n_matched / n, 3) if n else 1.0}
 
 
+def _orientation(start, end, *, tol_deg_frac: float = 0.0) -> str | None:
+    """horizontal / vertical / None from a segment's dominant axis. A segment
+    is horizontal if |dx| > |dy|, vertical if |dy| > |dx|."""
+    dx = abs(float(end[0]) - float(start[0]))
+    dy = abs(float(end[1]) - float(start[1]))
+    if dx == 0 and dy == 0:
+        return None
+    return "horizontal" if dx >= dy else "vertical"
+
+
+def score_measurements_from_labels(
+    walls: list[dict],
+    dims: list[dict],
+    *,
+    tol_px: float = 8.0,
+    axis_tol_px: float = 14.0,
+) -> dict:
+    """Score the saved geometry against the saved dimension chains — the
+    label-level entry the /score-measurements route wraps. PURE.
+
+    `walls`: [{start:[x,y], end:[x,y]}, ...] (the wall labels' geometry).
+    `dims`:  [{start, end, value_mm?}, ...] (dimensioned_distance geometry +
+             optional read value).
+
+    For each dimension segment, its two endpoints are TICKS that should be the
+    projection of a wall face on the running axis. A horizontal dim's ticks
+    are x-positions that should align with VERTICAL walls' x; a vertical dim's
+    ticks with HORIZONTAL walls' y. A tick with no wall face within tol_px is
+    a placement defect (wall missing or misplaced) — exactly what score-walls
+    (ink-only) cannot catch.
+
+    Dims are grouped into CHAINS by orientation + shared cross-axis line
+    (within axis_tol_px); per chain we report collinearity and, when every
+    part carries a value, the part-sum (for the agent to compare to the
+    printed overall by eye).
+
+    Returns {ok, n_dims, n_walls, total_ticks, matched_ticks, match_frac,
+             unmatched_ticks:[{axis,pos,nearest,dist}], chains:[...]}.
+    """
+    # wall face positions per axis
+    vert_wall_x = []   # vertical walls -> their x (constant)
+    horiz_wall_y = []  # horizontal walls -> their y (constant)
+    for w in walls:
+        s, e = w.get("start"), w.get("end")
+        if not s or not e:
+            continue
+        o = _orientation(s, e)
+        if o == "vertical":
+            vert_wall_x.append((float(s[0]) + float(e[0])) / 2.0)
+        elif o == "horizontal":
+            horiz_wall_y.append((float(s[1]) + float(e[1])) / 2.0)
+
+    unmatched = []
+    total_ticks = 0
+    matched = 0
+    # group dims into chains: (orientation, rounded cross-axis bucket)
+    chains: dict[tuple, dict] = {}
+    for d in dims:
+        s, e = d.get("start"), d.get("end")
+        if not s or not e:
+            continue
+        o = _orientation(s, e)
+        if o is None:
+            continue
+        if o == "horizontal":
+            ticks = [float(s[0]), float(e[0])]      # x positions
+            cross = (float(s[1]) + float(e[1])) / 2.0
+            feats = vert_wall_x
+            axis = "x"
+        else:
+            ticks = [float(s[1]), float(e[1])]      # y positions
+            cross = (float(s[0]) + float(e[0])) / 2.0
+            feats = horiz_wall_y
+            axis = "y"
+        bucket = (o, round(cross / max(1.0, axis_tol_px)))
+        ch = chains.setdefault(bucket, {
+            "orientation": o, "cross": cross, "tick_pos": [],
+            "values_mm": [], "cross_positions": []})
+        ch["cross_positions"].append(cross)
+        for t in ticks:
+            ch["tick_pos"].append(t)
+            total_ticks += 1
+            if feats:
+                nearest = min(feats, key=lambda f: abs(f - t))
+                dist = abs(nearest - t)
+                if dist <= tol_px:
+                    matched += 1
+                else:
+                    unmatched.append({"axis": axis, "pos": round(t, 1),
+                                      "nearest": round(nearest, 1),
+                                      "dist": round(dist, 1)})
+            else:
+                unmatched.append({"axis": axis, "pos": round(t, 1),
+                                  "nearest": None, "dist": None})
+        v = d.get("value_mm")
+        if v:
+            ch["values_mm"].append(float(v))
+
+    chain_out = []
+    for ch in chains.values():
+        coll = chain_collinear(ch["cross_positions"], tol_px=tol_px)
+        chain_out.append({
+            "orientation": ch["orientation"],
+            "cross_axis": round(ch["cross"], 1),
+            "n_parts": len(ch["tick_pos"]) // 2,
+            "collinear": coll["collinear"],
+            "spread_px": coll["spread_px"],
+            "sum_mm": round(sum(ch["values_mm"]), 1) if ch["values_mm"] else None,
+        })
+
+    return {
+        "ok": not unmatched and all(c["collinear"] for c in chain_out),
+        "n_dims": len(dims),
+        "n_walls": len(walls),
+        "total_ticks": total_ticks,
+        "matched_ticks": matched,
+        "match_frac": round(matched / total_ticks, 3) if total_ticks else 1.0,
+        "unmatched_ticks": unmatched,
+        "chains": chain_out,
+    }
+
+
 def score_chain(
     tick_positions: list[float],
     cross_axis_positions: list[float],

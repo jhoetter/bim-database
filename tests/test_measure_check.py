@@ -107,3 +107,43 @@ def test_score_chain_fails_on_misplaced_wall():
     # the metric chain itself is fine — only placement is wrong
     assert res["sum"]["consistent"] is True
     assert res["collinear"]["collinear"] is True
+
+
+# ── label-level scorer (route core) ───────────────────────────────────────
+
+def test_score_from_labels_aligned():
+    from api.measure_check import score_measurements_from_labels
+    walls = [
+        {"start": [120, 100], "end": [120, 900]},   # vertical wall x=120
+        {"start": [627, 100], "end": [627, 900]},   # vertical wall x=627
+        {"start": [1163, 100], "end": [1163, 900]}, # vertical wall x=1163
+    ]
+    dims = [
+        {"start": [120, 50], "end": [627, 50], "value_mm": 3170},
+        {"start": [627, 50], "end": [1163, 50], "value_mm": 3350},
+    ]
+    res = score_measurements_from_labels(walls, dims, tol_px=8)
+    assert res["ok"] is True
+    assert res["unmatched_ticks"] == []
+    assert res["match_frac"] == 1.0
+    # both H dims share cross y=50 -> one chain, sum present
+    assert len(res["chains"]) == 1
+    assert res["chains"][0]["sum_mm"] == 6520.0
+
+
+def test_score_from_labels_misplaced_wall_flagged():
+    from api.measure_check import score_measurements_from_labels
+    walls = [
+        {"start": [120, 100], "end": [120, 900]},
+        {"start": [730, 100], "end": [730, 900]},   # should be at 627
+        {"start": [1163, 100], "end": [1163, 900]},
+    ]
+    dims = [
+        {"start": [120, 50], "end": [627, 50], "value_mm": 3170},
+        {"start": [627, 50], "end": [1163, 50], "value_mm": 3350},
+    ]
+    res = score_measurements_from_labels(walls, dims, tol_px=8)
+    assert res["ok"] is False
+    # the 627 tick (shared by both dims) has no wall within 8px -> 2 unmatched
+    poss = [u["pos"] for u in res["unmatched_ticks"]]
+    assert 627.0 in poss
