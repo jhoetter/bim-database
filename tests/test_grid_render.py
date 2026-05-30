@@ -57,10 +57,16 @@ def test_output_matches_source_dimensions_no_margin(sample_scene):
 def test_output_clamped_to_max_dim(sample_scene):
     out = render_grid_overlay(sample_scene, tiers=("broad",), max_dim=400)
     assert max(out.size) <= 400
-    # Aspect ratio preserved (within 1 px rounding).
-    src_ratio = sample_scene.size[0] / sample_scene.size[1]
-    out_ratio = out.size[0] / out.size[1]
-    assert abs(src_ratio - out_ratio) < 0.01
+    # Aspect ratio preserved == both axes scaled by the SAME factor, each
+    # within the ±1px slack of integer rounding. A fixed ratio tolerance
+    # is wrong here: when the short side rounds (e.g. 2480x1084 -> 400x174,
+    # true 174.84) the ratio drifts >0.01 with no actual skew. Checking
+    # each axis against the single nominal scale catches genuine skew
+    # (a per-axis scale would push one side >1px off) without false alarms.
+    sw, sh = sample_scene.size
+    scale = 400 / max(sw, sh)
+    assert abs(out.size[0] - sw * scale) <= 1.0
+    assert abs(out.size[1] - sh * scale) <= 1.0
 
 
 def test_cropped_output_matches_region_dims(sample_scene):
