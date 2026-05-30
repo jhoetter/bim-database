@@ -1341,6 +1341,48 @@ def refine_wall(
     return {"ok": True, "data": res}
 
 
+@app.get("/datasets/{key}/{file}/score-walls", tags=["pdfs"])
+def score_walls_route(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 8,
+    tol_px: int = 9,
+    thresh: int | None = None,
+):
+    """Objective QA of the CURRENTLY SAVED wall labels vs the ink.
+
+    Returns precision (labels on ink), recall (ink covered by labels), f1,
+    plus MISSING_REGIONS (bboxes of ink walls no label covers — "add a wall
+    here") and OFF_INK_SEGMENTS (labels that don't sit on ink — "this one's
+    wrong"). This is the agent's self-QA signal for human-free convergence:
+    recall < 1 => walls missing; precision < 1 => labels misplaced."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    doc = get_labels("dataset", key, file)
+    walls = []
+    for lab in (doc.get("labels") or []):
+        if lab.get("type") != "wall":
+            continue
+        g = lab.get("geometry") or {}
+        s, e = g.get("start"), g.get("end")
+        if s and e:
+            walls.append(((float(s[0]), float(s[1])), (float(e[0]), float(e[1]))))
+    from PIL import Image as PILImage
+    from .wall_score import score_walls
+    parsed = _parse_region(region)
+    with PILImage.open(img_path) as src:
+        src = src.convert("RGB")
+        res = score_walls(src, walls, region=parsed,
+                          min_wall_px=min_wall_px, tol_px=tol_px, thresh=thresh)
+    res["n_walls"] = len(walls)
+    return {"ok": True, "data": res}
+
+
 @app.get("/datasets/{key}/{file}/grid-with-labels", tags=["pdfs"])
 def render_scene_grid_with_labels(
     key: str,
