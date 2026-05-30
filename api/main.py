@@ -2012,6 +2012,36 @@ def _load_scene_labels(key: str, file: str) -> dict | None:
     return json.loads(p.read_text())
 
 
+def _persist_scene_calibration(key: str, file: str, calib: dict) -> None:
+    """Merge one scene's calibration into
+    house_facts.calibration_per_scene (issue #27).
+
+    Idempotent — a later `recompute_facts_after_label_write` re-derives the
+    same value via `compute_scene_calibration`, so this only makes the
+    derived W4 / export-readiness state stable EARLIER (right after the
+    homography is computed), in particular for the single-ref isotropic
+    path whose preview previously persisted nothing. The entry carries the
+    `single_ref_assumed_isotropic` honesty flag.
+    """
+    p = DATASET_DIR / key / "house_facts.json"
+    facts: dict = {}
+    if p.exists():
+        try:
+            loaded = json.loads(p.read_text())
+            if isinstance(loaded, dict):
+                facts = loaded
+        except json.JSONDecodeError:
+            facts = {}
+    facts.setdefault("schema_version", "1.1")
+    cps = facts.get("calibration_per_scene")
+    if not isinstance(cps, dict):
+        cps = {}
+        facts["calibration_per_scene"] = cps
+    cps[file] = calib
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(facts, indent=2, ensure_ascii=False))
+
+
 @app.post("/exports/{key}/{file}/preview", tags=["exports"])
 def export_preview(key: str, file: str, assume_isotropic: bool = False):
     """R4 — return the two ground-truth views for one scene:
@@ -2030,6 +2060,13 @@ def export_preview(key: str, file: str, assume_isotropic: bool = False):
     `insufficient_references`. The harness vision-LLM makes the
     axis-aligned judgement and opts in; the engine just honours the flag
     and stamps `single_ref_assumed_isotropic` into the homography snapshot.
+
+    Issue #27: when the rectification is valid (status == "ok") the scene's
+    calibration is PERSISTED into house_facts.calibration_per_scene (with
+    the single_ref_assumed_isotropic flag), returned as
+    `persisted_calibration`. This makes the W4 / export-readiness gate
+    stable on the single-ref isotropic path without a separate label-write
+    recompute. Degenerate/insufficient results persist nothing.
     """
     _safe_key(key)
     if "/" in file or ".." in file:
@@ -2051,6 +2088,23 @@ def export_preview(key: str, file: str, assume_isotropic: bool = False):
     from .homography import compute_rectification, rectify_image, transform_label
 
     rect = compute_rectification(labels, img_size, assume_isotropic=assume_isotropic)
+
+    # Issue #27: persist the scene's calibration when the rectification is
+    # valid, so the derived W4 / export-readiness state is stable without a
+    # separate label-write recompute. In particular the single-ref
+    # isotropic path (assume_isotropic=true) now lands in
+    # calibration_per_scene with its single_ref_assumed_isotropic flag, so
+    # `recompute_homography(assume_isotropic=true)` (which calls this
+    # endpoint) actually updates the gate. Gated on status == "ok", so the
+    # genuine-degenerate guard (no refs / near-parallel / single ref
+    # without opt-in) persists nothing.
+    persisted_calibration = None
+    if rect.status == "ok":
+        from .fact_derivation import compute_scene_calibration
+        calib = compute_scene_calibration(labels)
+        if calib:
+            _persist_scene_calibration(key, file, calib)
+            persisted_calibration = calib
 
     # Cache key based on (image mtime, labels mtime). Either dimension
     # changing invalidates the rectified output.
@@ -2098,6 +2152,7 @@ def export_preview(key: str, file: str, assume_isotropic: bool = False):
             "rms_residual_px": rect.rms_residual_px,
             "single_ref_assumed_isotropic": rect.single_ref_assumed_isotropic,
         },
+        "persisted_calibration": persisted_calibration,
         "raw_url": f"/static/dataset/{key}/{file}",
         "rectified_url": (
             f"/static/exports-cache/{key}/{Path(file).stem}/rectified.jpg"

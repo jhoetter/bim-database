@@ -153,6 +153,40 @@ def test_workflow_state_w1_height_mark_label_satisfies():
     assert state_no_scenes["phases"]["W1"]["status"] == "pending"
 
 
+def test_workflow_state_w4_surfaces_single_ref_isotropic():
+    """Issue #27: a scene calibrated from a single ref under the isotropic
+    assumption still counts as W4-calibrated (done), but the assumption is
+    surfaced in `assumed_isotropic_scenes`; a measured M1-both scene is
+    NOT flagged."""
+    ds = {"drawings": [{"file": "e.jpg"}, {"file": "s.jpg"}]}
+    facts = {"calibration_per_scene": {
+        "e.jpg": {"px_per_mm": 0.09, "computed_from": "M1-H-Bezug",
+                  "single_ref_assumed_isotropic": True},
+        "s.jpg": {"px_per_mm": 0.08, "computed_from": "M1-both",
+                  "single_ref_assumed_isotropic": False},
+    }}
+    sm = {"e.jpg": {"scene_tag": "ansicht"}, "s.jpg": {"scene_tag": "schnitt"}}
+    state = mcp_server._derive_workflow_state(ds, facts, sm)
+    w4 = state["phases"]["W4"]
+    assert w4["status"] == "done"
+    assert w4["blockers"] == []
+    assert w4["assumed_isotropic_scenes"] == ["e.jpg"]
+
+
+def test_validate_export_readiness_surfaces_calibration_assumptions():
+    """Issue #27: validate_export_readiness exposes the single-ref
+    isotropic assumption so an honest export records it."""
+    rs = _run(mcp_server.list_houses())
+    if not rs["data"]["houses"]:
+        pytest.skip("no houses")
+    key = rs["data"]["houses"][0]["key"]
+    r = _run(mcp_server.validate_export_readiness(key=key))
+    assert r["ok"], r.get("error")
+    ca = r["data"]["calibration_assumptions"]
+    assert "single_ref_assumed_isotropic" in ca
+    assert isinstance(ca["single_ref_assumed_isotropic"], list)
+
+
 def test_workflow_state_full_geometry_with_scene_is_done():
     """Guard the happy path: a scene plus complete geometry still flips
     W1/W2/W3 to done (the issue #20 fix must not over-block)."""
