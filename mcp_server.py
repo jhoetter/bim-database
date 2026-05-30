@@ -313,6 +313,9 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
         lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{f}")
         if lbl_status == 200 and isinstance(lbl, dict):
             labels = lbl.get("labels") or []
+            label_types = {
+                la.get("type") for la in labels if isinstance(la, dict)
+            }
             scene_meta_by_file[f] = {
                 "scene_tag": lbl.get("scene_tag"),
                 "scene_orientation": lbl.get("scene_orientation"),
@@ -323,6 +326,10 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
                     isinstance(la, dict) and la.get("type") == "height_mark"
                     for la in labels
                 ),
+                # V5.1: the geometry label types present on this scene, so
+                # the workflow gate can require real polygons (walls, roof,
+                # openings) — not just facts — before a scene is "done".
+                "label_types": sorted(t for t in label_types if t),
             }
         else:
             scene_meta_by_file[f] = {"scene_tag": None}
@@ -375,6 +382,28 @@ async def get_workflow_state(key: str) -> dict:
             "reason": f"phase {state['next_phase']} is the next to advance",
         }
     return _ok(state, next_tool=next_tool, started_at=started, status_code=status)
+
+
+# V5.1 — geometry the honest gate requires, per scene type. A scene is
+# "geometry-complete" when it carries at least one label of EACH required
+# kind. This is what stops a facts-only scene (tagged + an assumed
+# orientation, ZERO polygons) from passing as export-ready.
+_REQUIRED_GEOMETRY: dict[str, list[str]] = {
+    # Grundriss: walls define the footprint; openings are windows/doors.
+    "grundriss": ["wall", "floorplan_opening"],
+    # Schnitt: component lines carry roof planes / slabs / storey lines.
+    "schnitt": ["component_line"],
+    # Ansicht: façade openings (windows/doors/dormers) + roof/outline lines.
+    "ansicht": ["view_opening"],
+}
+
+
+def _missing_geometry(scene_tag: str | None, label_types) -> list[str]:
+    """Return the required geometry kinds this scene is MISSING (empty list
+    = geometry-complete). Pure helper for the V5.1 gate."""
+    req = _REQUIRED_GEOMETRY.get(scene_tag or "", [])
+    have = set(label_types or [])
+    return [k for k in req if k not in have]
 
 
 def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dict]) -> dict:
@@ -475,6 +504,26 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
                 w4_assumed_isotropic.append(f)
     w4_status = "done" if has_calibration_targets and not w4_blockers else "pending"
 
+    # Wgeo (V5.1): every scene of a geometry-bearing type carries the
+    # required polygons (walls/openings/component lines), not just facts.
+    # This is the honest-gate fix — a facts-only scene with zero geometry
+    # is NOT complete. Only scenes whose tag is in _REQUIRED_GEOMETRY are
+    # checked; sonstiges/detail/nicht_klassifiziert are exempt.
+    wgeo_blockers: list[str] = []
+    has_geometry_targets = False
+    for d in drawings:
+        f = d.get("file")
+        meta = scene_meta.get(f, {})
+        tag = meta.get("scene_tag")
+        if tag in _REQUIRED_GEOMETRY:
+            has_geometry_targets = True
+            missing = _missing_geometry(tag, meta.get("label_types"))
+            if missing:
+                wgeo_blockers.append(f"{f}: missing geometry {missing}")
+    wgeo_status = "done" if has_geometry_targets and not wgeo_blockers else (
+        "pending" if has_scenes else "pending"
+    )
+
     # W5: manual; user_skipped or phase_completed_at.detail
     wf = (facts.get("workflow") or {})
     w5_status = "done" if has_scenes and (
@@ -495,6 +544,8 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
                else ([no_scenes_blocker] if not has_scenes else ["orientation not set"])},
         "W4": {"status": w4_status, "blockers": w4_blockers,
                "assumed_isotropic_scenes": w4_assumed_isotropic},
+        "Wgeo": {"status": wgeo_status, "blockers": [] if wgeo_status == "done"
+                 else ([no_scenes_blocker] if not has_scenes else wgeo_blockers)},
         "W5": {"status": w5_status, "blockers": ["W5 not marked complete"] if w5_status != "done" else []},
     }
     next_phase = None
@@ -2509,6 +2560,15 @@ async def validate_export_readiness(key: str) -> dict:
     required = ["W0", "W1", "W2", "W3"]
     if has_calibration_targets:
         required.append("W4")
+    # V5.1: require real geometry whenever the house has any
+    # geometry-bearing scene (grundriss/schnitt/ansicht). This is the
+    # honest-gate fix — facts present but zero polygons is NOT ready.
+    has_geometry_targets = any(
+        scene_meta.get(d.get("file"), {}).get("scene_tag") in _REQUIRED_GEOMETRY
+        for d in drawings
+    )
+    if has_geometry_targets:
+        required.append("Wgeo")
 
     phase_completeness = {
         p: {
@@ -2516,7 +2576,7 @@ async def validate_export_readiness(key: str) -> dict:
             "required": p in required,
             "blockers": phases[p]["blockers"],
         }
-        for p in ("W0", "W1", "W2", "W3", "W4", "W5")
+        for p in ("W0", "W1", "W2", "W3", "W4", "Wgeo", "W5")
     }
 
     # Honest blockers: every required phase that isn't done, with its own
