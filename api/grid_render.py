@@ -186,6 +186,19 @@ def render_grid_overlay(
     canvas.paste(cropped, (0, 0), cropped if cropped.mode == "RGBA" else None)
 
     long_src = max(crop_src_w, crop_src_h)
+    # Nest the tiers so they coincide EXACTLY: broad = 5×finer, finer = 5×detail.
+    # Deriving each tier independently from a fraction of long_src lets integer
+    # rounding split them — e.g. long=1080 → broad=int(1080/10)=108 but
+    # 5×finer=5×int(1080/50)=5×21=105. The broad labels then land 3–9 px off
+    # the finer-every-5th labels and print DOUBLED, overlapping numbers
+    # (315/324, 420/432, 525/540) that are unreadable and easy to MISREAD —
+    # a real label-placement hazard. Anchoring broad to 5×finer guarantees a
+    # broad label sits exactly on a finer-every-5th line, so each coordinate
+    # prints once. Coordinates themselves were already correct (content maps to
+    # source px at 0-px offset); this is a label-legibility fix.
+    finer_step = max(1, round(long_src * _TIER_FRACTION["finer"]))
+    broad_step = 5 * finer_step
+    detail_step = max(1, finer_step // 5)
     spec = _Spec(
         out_w=cw,
         out_h=ch,
@@ -193,9 +206,9 @@ def render_grid_overlay(
         crop_src_h=crop_src_h,
         region_origin=region_origin,
         source_size=source_size,
-        broad_step=max(1, int(long_src * _TIER_FRACTION["broad"])),
-        finer_step=max(1, int(long_src * _TIER_FRACTION["finer"])),
-        detail_step=max(1, int(long_src * _TIER_FRACTION["detail"])),
+        broad_step=broad_step,
+        finer_step=finer_step,
+        detail_step=detail_step,
     )
 
     draw = ImageDraw.Draw(canvas, "RGBA")
