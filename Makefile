@@ -21,7 +21,7 @@ CONCURRENTLY := ./ui/node_modules/.bin/concurrently
 
 .PHONY: install dev dev-forwarded dev-api dev-web kill-ports build cleanup-houses \
         ingest form-api form-ui-install form-ui-dev form-ui-build form-dev \
-        form-dev-forwarded test mcp
+        form-dev-forwarded test verify mcp
 
 install:
 	python3 -m venv $(VENV)
@@ -145,6 +145,14 @@ form-dev-forwarded:
 
 # Test suite. Runs the ingestion package tests (CPU-only, no API keys).
 test:
+	$(PYTHON) -m pytest tests/ -q
+
+# G.5 — correctness-verification gate. The labeling-correctness V-tests
+# (V0/V2/V3/V4/V5/V6 round-trip, gate, geometry, compass, wall-score, …)
+# all live under tests/, so the full suite IS the verify gate; running it
+# here gives both repos a uniform `make verify` entry point for CI.
+# See spec/trackers/labeling-correctness-verification-tracker.md (in bim-agent).
+verify:
 	$(PYTHON) -m pytest tests/ -q
 
 # ── Agentic-labeling MCP server (stdio) ─────────────────────────────────
