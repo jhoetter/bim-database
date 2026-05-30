@@ -31,6 +31,76 @@ from typing import Any
 # ── Pure helpers ──────────────────────────────────────────────────────────
 
 
+# Storey order from lowest to highest, by their heights-dict keys. Only the
+# keys present in a given facts.heights are checked, in this order.
+_STOREY_ORDER = [
+    "ok_ffb_kg_mm",
+    "ok_ffb_ug_mm",
+    "ok_ffb_eg_mm",
+    "ok_ffb_og_mm",
+    "ok_ffb_dg_mm",
+    "ok_ffb_spitzboden_mm",
+]
+
+
+def check_height_stack(heights: dict, *, tol_mm: float = 50.0) -> dict:
+    """V2.5 — sanity-check a derived `heights` dict and surface problems.
+
+    Rules (only over the keys actually present):
+      * the storey OK-FFB stack (KG→…→Spitzboden) is strictly increasing;
+      * `first_mm` (the roof ridge), if present, is the MAXIMUM height —
+        ≥ every storey FFB and ≥ traufe;
+      * `traufe_mm` (eaves), if present, sits between the top storey FFB
+        and first_mm.
+
+    Catches the house-21 class of error where the EG storey height (2.75 m)
+    was mislabelled as the Firsthöhe (so first_mm < several storeys).
+
+    Returns {"ok": bool, "problems": [str, ...], "checked": [keys...]}.
+    Pure — no I/O. `tol_mm` allows tiny drafting/rounding slack on the
+    equality-ish comparisons (ridge ≥ top, etc.).
+    """
+    problems: list[str] = []
+    present = [(k, heights[k]) for k in _STOREY_ORDER
+              if isinstance(heights.get(k), (int, float))]
+
+    # 1. storey stack strictly increasing
+    for (k_lo, v_lo), (k_hi, v_hi) in zip(present, present[1:]):
+        if not (v_hi > v_lo - tol_mm):
+            problems.append(
+                f"storey stack not increasing: {k_hi}={v_hi} <= {k_lo}={v_lo}"
+            )
+
+    top_storey = present[-1][1] if present else None
+    first = heights.get("first_mm")
+    traufe = heights.get("traufe_mm")
+
+    # 2. first_mm is the max
+    if isinstance(first, (int, float)):
+        if top_storey is not None and first < top_storey - tol_mm:
+            problems.append(
+                f"first_mm={first} is below the top storey FFB {top_storey} "
+                "— likely a storey/Traufe value mislabelled as the ridge"
+            )
+        for k, v in present:
+            if first < v - tol_mm:
+                problems.append(f"first_mm={first} < {k}={v}")
+        if isinstance(traufe, (int, float)) and first < traufe - tol_mm:
+            problems.append(f"first_mm={first} < traufe_mm={traufe} (ridge below eaves)")
+
+    # 3. traufe between top storey and ridge
+    if isinstance(traufe, (int, float)):
+        if top_storey is not None and traufe < top_storey - tol_mm:
+            problems.append(f"traufe_mm={traufe} below top storey FFB {top_storey}")
+
+    checked = [k for k, _ in present]
+    if isinstance(first, (int, float)):
+        checked.append("first_mm")
+    if isinstance(traufe, (int, float)):
+        checked.append("traufe_mm")
+    return {"ok": not problems, "problems": problems, "checked": checked}
+
+
 def dim_orientation(start: list[float], end: list[float]) -> str | None:
     """Same H/V buckets the SPA uses (within ±15° of horizontal or
     ±15° of vertical). Returns "horizontal" / "vertical" / None.
