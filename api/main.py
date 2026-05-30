@@ -1162,6 +1162,7 @@ def render_scene_grid_with_labels(
     max_dim: int = 1600,
     enhance: str | None = None,
     format: str | None = None,
+    clean: bool = False,
 ):
     """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
     SAVED labels rendered on top. Used by `get_scene_view_with_labels`
@@ -1198,6 +1199,7 @@ def render_scene_grid_with_labels(
         f"-t{'_'.join(parsed_tiers)}"
         f"-m{max_dim}"
         f"-e{parsed_enhance}"
+        f"-c{int(bool(clean))}"
         f"-f{parsed_format}.png"
     )
     out = cache_root / cache_name
@@ -1221,6 +1223,7 @@ def render_scene_grid_with_labels(
                 region=parsed_region,
                 max_dim=max_dim,
                 enhance=parsed_enhance,
+                clean=bool(clean),
             )
         _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(cache_key)

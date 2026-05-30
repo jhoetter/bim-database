@@ -68,6 +68,7 @@ def render_grid_with_labels(
     region: tuple[int, int, int, int] | None = None,
     max_dim: int = 1600,
     enhance: str | None = None,
+    clean: bool = False,
 ) -> Image.Image:
     """Render the source image + grid overlay + every label in `labels`.
 
@@ -80,11 +81,19 @@ def render_grid_with_labels(
     scans; it changes only pixel intensity, so label positions are
     unaffected.
     """
-    # Reuse the grid renderer for the base. It handles region cropping +
-    # max_dim downscaling + the coordinate-anchored grid + corner legend.
-    base = render_grid_overlay(
-        image, tiers=tiers, region=region, max_dim=max_dim, enhance=enhance,
-    )
+    # Base image. In the default verify mode we reuse the grid renderer
+    # (grid + corner legend, drawing faded to 0.5). In `clean` QA mode
+    # (H5 quality-assurance, per the labeling-correctness work) we instead
+    # show the drawing at FULL opacity with NO grid, and composite the
+    # label strokes semi-transparently — so a wall line that misses the
+    # black wall ink is obvious instead of being hidden under a dense grid
+    # mesh on a 50%-faded background.
+    if clean:
+        base = _clean_base(image, region=region, max_dim=max_dim, enhance=enhance)
+    else:
+        base = render_grid_overlay(
+            image, tiers=tiers, region=region, max_dim=max_dim, enhance=enhance,
+        )
     src_w, src_h = image.size
     if region is not None:
         x0, y0, x1, y1 = region
@@ -114,7 +123,11 @@ def render_grid_with_labels(
     def in_bounds(pt: tuple[int, int]) -> bool:
         return 0 <= pt[0] < out_w and 0 <= pt[1] < out_h
 
-    draw = ImageDraw.Draw(base, "RGBA")
+    # In clean QA mode draw labels onto a separate transparent layer so we
+    # can composite them at reduced alpha (the underlying ink shows
+    # through). In normal mode draw straight onto the base (unchanged).
+    target = Image.new("RGBA", base.size, (0, 0, 0, 0)) if clean else base
+    draw = ImageDraw.Draw(target, "RGBA")
     label_font = _load_font(11)
     chip_font = _load_font(10)
 
