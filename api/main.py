@@ -1693,6 +1693,18 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
             override = raw.get("slug_override")
             base_slug = override or f"{kind}-{_slug_token(view or floor, kind)}"
             base_slug = re.sub(r"[^a-z0-9-]+", "-", base_slug.lower()).strip("-")
+            # A scene's filename stem is `{key}-{base_slug}`. When the caller
+            # passes an explicit slug_override to RE-EXTRACT an existing scene,
+            # they pass the full stem (e.g. "house-22-floorplan-eg"), which
+            # already starts with "{key}-". Re-prepending the key here produced
+            # a phantom double-prefixed scene ("house-22-house-22-floorplan-eg")
+            # and left the real scene's crop untouched — so re-cropping silently
+            # did nothing. Strip a leading "{key}-" from the override so the
+            # full stem resolves to the SAME file and the re-extract overwrites
+            # the intended scene.
+            key_prefix = f"{key}-"
+            if override and base_slug.startswith(key_prefix):
+                base_slug = base_slug[len(key_prefix):]
             full = f"{key}-{base_slug}"
             if not override:
                 # Append -2, -3, ... if collision.
