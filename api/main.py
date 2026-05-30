@@ -2013,7 +2013,7 @@ def _load_scene_labels(key: str, file: str) -> dict | None:
 
 
 @app.post("/exports/{key}/{file}/preview", tags=["exports"])
-def export_preview(key: str, file: str):
+def export_preview(key: str, file: str, assume_isotropic: bool = False):
     """R4 — return the two ground-truth views for one scene:
        Set A = raw image + dimensioned strokes only
        Set B = rectified image + every label, geometry transformed through H
@@ -2022,6 +2022,14 @@ def export_preview(key: str, file: str):
     tmp/exports-cache/<key>/<file>/rectified.jpg keyed on (image mtime,
     labels mtime); the response carries rectified_url pointing at the
     static-mounted cache.
+
+    `assume_isotropic` (issue #26): when true and the scene has exactly
+    one reference dim, the calibration derives the second-axis scale from
+    the same px-per-mm (square-pixel / isotropic assumption — valid for
+    axis-aligned orthographic German Ansicht/Schnitt) instead of returning
+    `insufficient_references`. The harness vision-LLM makes the
+    axis-aligned judgement and opts in; the engine just honours the flag
+    and stamps `single_ref_assumed_isotropic` into the homography snapshot.
     """
     _safe_key(key)
     if "/" in file or ".." in file:
@@ -2042,7 +2050,7 @@ def export_preview(key: str, file: str):
 
     from .homography import compute_rectification, rectify_image, transform_label
 
-    rect = compute_rectification(labels, img_size)
+    rect = compute_rectification(labels, img_size, assume_isotropic=assume_isotropic)
 
     # Cache key based on (image mtime, labels mtime). Either dimension
     # changing invalidates the rectified output.
@@ -2088,6 +2096,7 @@ def export_preview(key: str, file: str):
             "computed_from": rect.computed_from,
             "rectified_size_px": list(rect.rectified_size_px),
             "rms_residual_px": rect.rms_residual_px,
+            "single_ref_assumed_isotropic": rect.single_ref_assumed_isotropic,
         },
         "raw_url": f"/static/dataset/{key}/{file}",
         "rectified_url": (

@@ -1857,6 +1857,7 @@ async def add_reference_dim(
     end: list[float],
     value_mm: float,
     dimension_text: str | None = None,
+    assume_isotropic: bool = False,
     idempotency_key: str | None = None,
 ) -> dict:
     """Sugar tool: create a `dimensioned_distance` with `is_reference=true`
@@ -1877,6 +1878,15 @@ async def add_reference_dim(
                   (read off the grid overlay).
       value_mm: numeric value in millimeters (e.g. 11200 for "11.20 m").
       dimension_text: optional as-written text, e.g. "11,20 m".
+
+      assume_isotropic: forwarded to the recompute that runs after the
+                   write. Set True only when the scene is an axis-aligned
+                   orthographic drawing (square pixels — any normal
+                   Ansicht/Schnitt) and you intend to calibrate from a
+                   single reference dim per the square-pixel assumption.
+                   See `recompute_homography` for the full contract. With
+                   only one ref dim on the scene and this left False, the
+                   recompute reports `homography_degenerate` as before.
 
     Returns: `data` = {distance_id, dim_number_id, recompute_homography:
                        {status, rms_residual_px, ...}}
@@ -2027,7 +2037,9 @@ async def add_reference_dim(
     if not result.get("ok"):
         return result
     # Compute homography (best-effort).
-    homo = await recompute_homography(key=key, file=file)
+    homo = await recompute_homography(
+        key=key, file=file, assume_isotropic=assume_isotropic
+    )
     result["data"]["distance_id"] = distance_id
     result["data"]["dim_number_id"] = dim_number_id
     result["data"]["homography"] = homo.get("data") if homo.get("ok") else None
@@ -2036,7 +2048,9 @@ async def add_reference_dim(
 
 
 @mcp.tool()
-async def recompute_homography(key: str, file: str) -> dict:
+async def recompute_homography(
+    key: str, file: str, assume_isotropic: bool = False
+) -> dict:
     """Run the rectification compute over the scene's reference dims.
 
     USE when:
@@ -2047,20 +2061,33 @@ async def recompute_homography(key: str, file: str) -> dict:
     runs it for you. Call it only when you need to verify a calibration
     landed cleanly.
 
+    Args:
+      assume_isotropic (issue #26): set True ONLY after YOU (the harness
+        vision-LLM) have judged the drawing to be an axis-aligned
+        orthographic projection — i.e. square pixels, same scale on both
+        axes. This is true for essentially every German Ansicht/Schnitt and
+        false for perspective/isometric views. When True and the scene has
+        exactly ONE reference dim, the engine derives the second-axis scale
+        from the same px-per-mm instead of returning `homography_degenerate`,
+        and stamps `single_ref_assumed_isotropic=true` into the result for
+        honesty. Leave it False (default) to keep the strict two-ref gate.
+
     Returns: `data` = {status: 'ok'|'degenerate', rms_residual_px?,
-                       matrix?, computed_from?, reason?}
+                       matrix?, computed_from?, single_ref_assumed_isotropic?,
+                       reason?}
 
     Backend lives in api/homography.py + the export preview endpoint.
     We use the per-scene export preview as the cheapest way to trigger
     a recompute; it returns the homography snapshot.
     """
     started = time.time()
+    params = {"assume_isotropic": "true"} if assume_isotropic else None
     try:
-        status, body = await _api_post(f"/exports/{key}/{file}/preview")
+        status, body = await _api_post(f"/exports/{key}/{file}/preview", params=params)
     except (httpx.HTTPError, httpx.RequestError):
         if not await _wait_for_api():
             return _api_unreachable_error(started)
-        status, body = await _api_post(f"/exports/{key}/{file}/preview")
+        status, body = await _api_post(f"/exports/{key}/{file}/preview", params=params)
     if status >= 400:
         return _http_status_to_error(status, body, started)
     homo = body.get("homography") or {}
@@ -2081,10 +2108,17 @@ async def recompute_homography(key: str, file: str) -> dict:
             "matrix": homo.get("matrix"),
             "computed_from": homo.get("computed_from"),
             "rectified_size_px": homo.get("rectified_size_px"),
+            "single_ref_assumed_isotropic": homo.get("single_ref_assumed_isotropic", False),
         }, started_at=started, status_code=status)
     return _err("homography_degenerate",
                 body.get("reason") or "rectification could not produce a valid transform",
-                hint="add or replace a reference dim so the horizontal + vertical pair is more orthogonal",
+                hint=(
+                    "add a second reference dim on the missing axis, OR — if "
+                    "this is an axis-aligned orthographic drawing (any normal "
+                    "Ansicht/Schnitt: square pixels, same scale both axes) — "
+                    "re-call with assume_isotropic=True to calibrate from the "
+                    "single ref dim under the square-pixel assumption"
+                ),
                 retry=True,
                 details={"computed_from": body.get("computed_from")},
                 started_at=started)

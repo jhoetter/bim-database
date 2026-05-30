@@ -82,12 +82,29 @@ def compute_scene_calibration(labels: list[dict]) -> dict | None:
             h_calib = px_per_mm
         else:
             v_calib = px_per_mm
+    # Issue #26 honesty flag: with a reference dim on only ONE axis, the
+    # other axis's scale is assumed equal under the square-pixel (isotropic)
+    # assumption — valid for axis-aligned orthographic drawings (German
+    # Ansicht/Schnitt). Surface it so reviewers see the px_per_mm was
+    # derived from one axis, not measured on both.
     if h_calib is not None and v_calib is not None:
-        return {"px_per_mm": (h_calib + v_calib) / 2.0, "computed_from": "M1-both"}
+        return {
+            "px_per_mm": (h_calib + v_calib) / 2.0,
+            "computed_from": "M1-both",
+            "single_ref_assumed_isotropic": False,
+        }
     if h_calib is not None:
-        return {"px_per_mm": h_calib, "computed_from": "M1-H-Bezug"}
+        return {
+            "px_per_mm": h_calib,
+            "computed_from": "M1-H-Bezug",
+            "single_ref_assumed_isotropic": True,
+        }
     if v_calib is not None:
-        return {"px_per_mm": v_calib, "computed_from": "M1-V-Bezug"}
+        return {
+            "px_per_mm": v_calib,
+            "computed_from": "M1-V-Bezug",
+            "single_ref_assumed_isotropic": True,
+        }
     return None
 
 

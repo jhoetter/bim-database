@@ -81,12 +81,21 @@ def test_calibration_both_axes():
 
 def test_calibration_h_only():
     c = compute_scene_calibration([_ref_dim([0, 0], [1000, 0], 10000)])
-    assert c == {"px_per_mm": 0.1, "computed_from": "M1-H-Bezug"}
+    # Issue #26: single-axis calibration carries the isotropic honesty flag.
+    assert c == {
+        "px_per_mm": 0.1,
+        "computed_from": "M1-H-Bezug",
+        "single_ref_assumed_isotropic": True,
+    }
 
 
 def test_calibration_v_only():
     c = compute_scene_calibration([_ref_dim([0, 0], [0, 1000], 10000)])
-    assert c == {"px_per_mm": 0.1, "computed_from": "M1-V-Bezug"}
+    assert c == {
+        "px_per_mm": 0.1,
+        "computed_from": "M1-V-Bezug",
+        "single_ref_assumed_isotropic": True,
+    }
 
 
 def test_calibration_no_reference_dims():

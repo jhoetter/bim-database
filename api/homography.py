@@ -31,6 +31,13 @@ class Rectification:
     rms_residual_px: float
     status: str  # 'ok' | 'insufficient_references' | 'degenerate'
     reason: str | None = None
+    # Issue #26: True when this calibration used a single reference dim
+    # and derived the second-axis scale from the same px-per-mm under the
+    # square-pixel (isotropic) assumption — valid for axis-aligned
+    # orthographic drawings (German Ansicht/Schnitt). The harness
+    # vision-LLM makes the axis-aligned judgement and opts in via
+    # `assume_isotropic`; the engine just honours it and records it here.
+    single_ref_assumed_isotropic: bool = False
 
 
 def _orient_is_horiz(o: Any) -> bool:
@@ -84,6 +91,7 @@ def compute_rectification(
     labels: list[dict],
     image_size: tuple[int, int],
     target_max_dim: int = 1200,
+    assume_isotropic: bool = False,
 ) -> Rectification:
     """Affine fit from longest H + longest V is_reference dim_distances.
     Returns a typed result with status='ok'/'insufficient_references'/'degenerate'."""
@@ -96,6 +104,43 @@ def compute_rectification(
     H = _pick_longest(refs, "h")
     V = _pick_longest(refs, "v")
     identity = Affine(1, 0, 0, 1, 0, 0)
+
+    # Issue #26 — single-ref isotropic calibration.
+    # Axis-aligned orthographic drawings (all German Ansicht/Schnitt)
+    # have square pixels, so one reliable reference dim fixes the scale
+    # on BOTH axes: px-per-mm is identical horizontally and vertically.
+    # When the caller (the harness vision-LLM, having judged the drawing
+    # orthographic) opts in via assume_isotropic, synthesise the missing
+    # axis from the present one — a unit-aspect partner rotated 90 deg
+    # with the same mm-per-px — so the existing two-ref affine math runs
+    # unchanged and yields an isotropic transform instead of erroring.
+    single_ref_isotropic = False
+    if assume_isotropic and (H is None) != (V is None):
+        present = H if H is not None else V
+        pg = present["geometry"]
+        psx, psy = pg["start"]
+        pex, pey = pg["end"]
+        pvx, pvy = pex - psx, pey - psy
+        plen_px = (pvx * pvx + pvy * pvy) ** 0.5
+        plen_mm = float(present["attributes"]["value_mm"])
+        if plen_px >= 1e-6 and plen_mm > 0:
+            # Rotate the present pixel vector +90 deg; same length in px
+            # AND in mm (square pixels => identical px-per-mm scale).
+            rot_vx, rot_vy = -pvy, pvx
+            synth = {
+                "id": "synthetic_isotropic",
+                "geometry": {
+                    "start": [psx, psy],
+                    "end": [psx + rot_vx, psy + rot_vy],
+                },
+                "attributes": {"value_mm": plen_mm},
+            }
+            if H is None:
+                H = synth
+            else:
+                V = synth
+            single_ref_isotropic = True
+
     if H is None or V is None:
         reason = (
             "Mindestens 1 horizontale + 1 vertikale Referenz-Strecke benötigt."
@@ -173,6 +218,7 @@ def compute_rectification(
         display_scale=scale,
         rms_residual_px=rms,
         status="ok",
+        single_ref_assumed_isotropic=single_ref_isotropic,
     )
 
 
