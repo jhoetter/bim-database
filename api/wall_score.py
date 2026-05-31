@@ -40,6 +40,41 @@ def _label_mask(shape, walls, thick_px: int) -> np.ndarray:
     return m
 
 
+def _thin_wall_mask(gray, *, thresh, min_len_px: int = 40, max_thick_px: int = 7):
+    """Mask of FAINT, LINE-LIKE wall ink that the thick-wall OPEN erases.
+
+    On faint scans some real walls are drawn 1-3px thin; `_wall_mask`'s OPEN
+    (kernel ~min_wall_px) removes them, so a correctly-placed faint wall scores
+    as off-ink. This recovers them WITHOUT pulling in blobby furniture/text:
+    threshold dark ink, then keep only connected components that are
+    ELONGATED (long axis >= min_len_px AND aspect >= ~5) — i.e. strokes, not
+    blobs. Returned mask is meant to be UNIONed with the thick-wall mask.
+    """
+    if thresh is None:
+        _, binary = cv2.threshold(gray, 0, 255,
+                                  cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    else:
+        _, binary = cv2.threshold(gray, int(thresh), 255, cv2.THRESH_BINARY_INV)
+    # bridge tiny gaps along strokes so a dashed/broken wall reads as one run
+    binary = cv2.morphologyEx(
+        binary, cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    out = np.zeros_like(binary)
+    for i in range(1, n):
+        bw, bh, area = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT], stats[i, cv2.CC_STAT_AREA]
+        long_axis = max(bw, bh)
+        short_axis = max(1, min(bw, bh))
+        if long_axis < min_len_px:
+            continue
+        if short_axis > max_thick_px:
+            continue  # thick handled by the normal mask; keep this for thin only
+        if long_axis / short_axis < 5.0:
+            continue  # blobby (furniture/text) -> drop
+        out[labels == i] = 255
+    return out
+
+
 def score_walls(
     image: Image.Image,
     walls: list[tuple[tuple[float, float], tuple[float, float]]],
@@ -49,6 +84,7 @@ def score_walls(
     thresh: int | None = None,
     tol_px: int = 9,
     min_missing_area: int = 400,
+    thin_aware: bool = False,
 ) -> dict:
     """Score a wall-label set against the thick-ink wall mask.
 
@@ -69,6 +105,9 @@ def score_walls(
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "ink_px": 0,
                 "label_px": 0, "missing_regions": [], "off_ink_segments": []}
     ink = _wall_mask(gray, min_wall_px=min_wall_px, thresh=thresh)
+    if thin_aware:
+        # union in faint line-like wall ink the thick OPEN erased
+        ink = cv2.bitwise_or(ink, _thin_wall_mask(gray, thresh=thresh))
     h, w = ink.shape
 
     # shift label coords into the (possibly cropped) working frame
