@@ -2007,7 +2007,8 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
                 slug = full
                 used_slugs.add(slug)
 
-            file_name = f"{slug}.jpg"
+            _ext = "png" if str(raw.get("format","")).lower()=="png" else "jpg"
+            file_name = f"{slug}.{_ext}"
             out_path = ds_dir / file_name
 
             page = doc.load_page(page_n - 1)
