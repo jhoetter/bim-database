@@ -10,5 +10,88 @@
     4636,
     3445
   ],
-  "labels": []
+  "labels": [
+    {
+      "id": "lab-34beeb4e8d",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          1130.0,
+          250.0
+        ],
+        "end": [
+          2148.0,
+          295.0
+        ]
+      },
+      "attributes": {
+        "value_mm": 9860.0,
+        "is_reference": true,
+        "target_orientation": "horizontal"
+      },
+      "status": "readable"
+    },
+    {
+      "id": "lab-70bf4a9186",
+      "type": "dimension_number",
+      "geometry": {
+        "anchor": [
+          1638.3817432380922,
+          286.4863418582686
+        ]
+      },
+      "attributes": {
+        "text": "9.86",
+        "parsed_value_mm": 9860.0
+      },
+      "relations": [
+        {
+          "kind": "labels",
+          "other_id": "lab-34beeb4e8d"
+        }
+      ],
+      "status": "readable"
+    },
+    {
+      "id": "lab-11fc579a4e",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          228.0,
+          1056.0
+        ],
+        "end": [
+          197.0,
+          2147.0
+        ]
+      },
+      "attributes": {
+        "value_mm": 9080.0,
+        "is_reference": true,
+        "target_orientation": "vertical"
+      },
+      "status": "readable"
+    },
+    {
+      "id": "lab-8db4d01347",
+      "type": "dimension_number",
+      "geometry": {
+        "anchor": [
+          198.50564818672498,
+          1601.1023603059473
+        ]
+      },
+      "attributes": {
+        "text": "9.08",
+        "parsed_value_mm": 9080.0
+      },
+      "relations": [
+        {
+          "kind": "labels",
+          "other_id": "lab-11fc579a4e"
+        }
+      ],
+      "status": "readable"
+    }
+  ]
 }
