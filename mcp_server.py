@@ -1646,6 +1646,183 @@ async def check_corner(
     return _ok(data, started_at=started, status_code=status)
 
 
+async def _cv_get(path: str, params: dict, started: float) -> dict:
+    """Shared GET->envelope helper for the CV tools (retry once on transport
+    error; surface HTTP errors; unwrap + wrap success in _ok)."""
+    try:
+        status, body = await _api_get(path, params)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_get(path, params)
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    data = body.get("data", body) if isinstance(body, dict) else body
+    return _ok(data, started_at=started, status_code=status)
+
+
+async def _cv_post(path: str, json_body: dict, started: float) -> dict:
+    """Shared POST->envelope helper for the CV tools."""
+    try:
+        status, body = await _api_post(path, json_body)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_post(path, json_body)
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    data = body.get("data", body) if isinstance(body, dict) else body
+    return _ok(data, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def wall_outline(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 8,
+    thresh: int | None = None,
+    n_outlines: int = 2,
+    epsilon_px: float = 8.0,
+) -> dict:
+    """Ordered outer-boundary polygon(s) of the thick-wall ink (TOPOLOGY/shape).
+    Each consecutive vertex pair is a wall; disjoint structures (house vs garage)
+    return as separate polygons. Use a small min_wall_px (6-10) so faint outer
+    walls survive. For the cleaned, step-snapped silhouette use building_silhouette."""
+    started = time.time()
+    params: dict = {"min_wall_px": min_wall_px, "n_outlines": n_outlines,
+                    "epsilon_px": epsilon_px}
+    if region is not None:
+        params["region"] = region
+    if thresh is not None:
+        params["thresh"] = thresh
+    return await _cv_get(f"/datasets/{key}/{file}/wall-outline", params, started)
+
+
+@mcp.tool()
+async def building_silhouette(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 16,
+    thresh: int | None = None,
+    angle_tol_deg: float = 18.0,
+    min_area_frac: float = 0.02,
+) -> dict:
+    """Shape-first decomposition (do this BEFORE placing coordinates): outer
+    silhouette as ORDERED stepped polygon(s), one per connected mass (house vs
+    detached garage auto-separate), edges snapped to axis-aligned steps, specks
+    dropped. Returns {masses:[{polygon,area,bbox}], count}."""
+    started = time.time()
+    params: dict = {"min_wall_px": min_wall_px, "angle_tol_deg": angle_tol_deg,
+                    "min_area_frac": min_area_frac}
+    if region is not None:
+        params["region"] = region
+    if thresh is not None:
+        params["thresh"] = thresh
+    return await _cv_get(f"/datasets/{key}/{file}/building-silhouette", params, started)
+
+
+@mcp.tool()
+async def refine_wall(
+    key: str,
+    file: str,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    search_px: int = 22,
+    n_samples: int = 25,
+    thresh: int | None = None,
+) -> dict:
+    """Sub-pixel refine a candidate wall segment onto the measured ink BAND:
+    returns corrected endpoints, thickness_px, angle_deg (TRUE tilt), and
+    confidence (frac of slices on ink). Accept an edge only at confidence>=~0.85.
+    Intersect adjacent refined walls (connect_corners) for exact shared corners."""
+    started = time.time()
+    params: dict = {"x0": x0, "y0": y0, "x1": x1, "y1": y1,
+                    "search_px": search_px, "n_samples": n_samples}
+    if thresh is not None:
+        params["thresh"] = thresh
+    return await _cv_get(f"/datasets/{key}/{file}/refine-wall", params, started)
+
+
+@mcp.tool()
+async def score_walls(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 16,
+    tol_px: int = 18,
+    thresh: int | None = None,
+    thin_aware: bool = False,
+    close_px: int = 82,
+) -> dict:
+    """THE self-QA signal. Scores the CURRENTLY SAVED wall labels vs the ink:
+    precision, recall, f1, plus missing_regions ('add a wall here') and
+    off_ink_segments ('this one is wrong'). Converge until recall>=~0.9,
+    precision>=~0.85, both lists empty. Defaults are the canonical 600dpi params
+    (min_wall_px=16, tol_px=18, close_px=82); scale down for lower-DPI scenes."""
+    started = time.time()
+    params: dict = {"min_wall_px": min_wall_px, "tol_px": tol_px,
+                    "thin_aware": thin_aware, "close_px": close_px}
+    if region is not None:
+        params["region"] = region
+    if thresh is not None:
+        params["thresh"] = thresh
+    return await _cv_get(f"/datasets/{key}/{file}/score-walls", params, started)
+
+
+@mcp.tool()
+async def score_measurements(
+    key: str,
+    file: str,
+    tol_px: int = 8,
+    axis_tol_px: int = 14,
+) -> dict:
+    """Metric-correctness QA over score-walls: checks each dimension tick is the
+    projection of a wall face (unmatched_ticks = misplaced/missing wall + nearest
+    + delta) and per-chain collinearity + part-sum vs the printed overall."""
+    started = time.time()
+    params: dict = {"tol_px": tol_px, "axis_tol_px": axis_tol_px}
+    return await _cv_get(f"/datasets/{key}/{file}/score-measurements", params, started)
+
+
+@mcp.tool()
+async def propose_wall_edit(
+    key: str,
+    file: str,
+    candidate: dict,
+    params: dict | None = None,
+    region: str | None = None,
+    apply: bool = False,
+) -> dict:
+    """Atomic test-and-apply for ONE wall edit. candidate is
+    {"op":"add","wall":[[x0,y0],[x1,y1]]} | {"op":"move","index":i,"wall":[...]}
+    | {"op":"delete","index":i}. Scores current vs edited walls with the canonical
+    params; returns {applied, gain, before, after, walls_after, persisted}. With
+    apply=true it persists walls_after ONLY if f1 improved (a delete that lowers
+    recall is rejected). Removes the test-vs-apply desync."""
+    started = time.time()
+    payload: dict = {"candidate": candidate, "apply": apply}
+    if params is not None:
+        payload["params"] = params
+    if region is not None:
+        payload["region"] = region
+    return await _cv_post(f"/datasets/{key}/{file}/propose-wall-edit", payload, started)
+
+
+@mcp.tool()
+async def connect_corners(edges: list, closed: bool = True) -> dict:
+    """Pure geometry: given ORDERED fitted edges [[[x0,y0],[x1,y1]], ...] (each a
+    refine-wall band centerline), return walls whose shared corners are the
+    INTERSECTIONS of adjacent edges' lines, so the shell is closed by construction
+    (honors tilt). Returns {walls, count, closed}."""
+    started = time.time()
+    return await _cv_post("/geometry/connect-corners",
+                          {"edges": edges, "closed": closed}, started)
+
+
 def _label_summary(label: dict) -> str:
     """One-line human description for the summary view."""
     t = label.get("type")
