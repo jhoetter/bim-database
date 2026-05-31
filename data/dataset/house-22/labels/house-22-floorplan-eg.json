@@ -1,0 +1,302 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-22",
+  "scene_file": "house-22-floorplan-eg.jpg",
+  "scene_tag": "grundriss",
+  "scene_orientation": null,
+  "scene_level": "eg",
+  "image_size_px": [
+    2318,
+    1723
+  ],
+  "annotated_by": "jhoetter",
+  "annotated_at": "2026-05-30T20:17:01.793Z",
+  "labels": [
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          627,
+          563
+        ],
+        "end": [
+          1151,
+          573
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "exterior top",
+      "id": "lab-34b1d9905c"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          610,
+          570
+        ],
+        "end": [
+          663,
+          1122
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "exterior left",
+      "id": "lab-e0faf08c69"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          627,
+          1125
+        ],
+        "end": [
+          1163,
+          1125
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "exterior bottom",
+      "id": "lab-fef965bcce"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1160,
+          569
+        ],
+        "end": [
+          1129,
+          860
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "exterior right-upper",
+      "id": "lab-601874a6e6"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1151,
+          862
+        ],
+        "end": [
+          1163,
+          862
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "exterior notch step",
+      "id": "lab-b627137b53"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1154,
+          862
+        ],
+        "end": [
+          1166,
+          1125
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "exterior right-lower",
+      "id": "lab-7cb1564313"
+    },
+    {
+      "id": "lab-6c2176b1fe",
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1306,
+          730
+        ],
+        "end": [
+          1446,
+          734
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "garage top"
+    },
+    {
+      "id": "lab-312eb3d1ed",
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1441,
+          754
+        ],
+        "end": [
+          1442,
+          1090
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "garage right (thick black band, conf 1.0)"
+    },
+    {
+      "id": "lab-6404da1e62",
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1305,
+          1121
+        ],
+        "end": [
+          1446,
+          1121
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "garage bottom"
+    },
+    {
+      "id": "lab-286182df66",
+      "type": "wall",
+      "status": "uncertain",
+      "geometry": {
+        "start": [
+          1281,
+          756
+        ],
+        "end": [
+          1283,
+          1090
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "garage left / garage-door side; refine conf ~0.05 (likely open door, no continuous wall ink)"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          655,
+          673
+        ],
+        "end": [
+          816,
+          674
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior DU/WC 103 | Kueche 104",
+      "id": "lab-5a8f47bc8a"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          821,
+          672
+        ],
+        "end": [
+          820,
+          826
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior Kueche 104 | Diele 115",
+      "id": "lab-6405bc3eb3"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1028,
+          612
+        ],
+        "end": [
+          1029,
+          826
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior Diele 115 | stair core (left)",
+      "id": "lab-ba27785c01"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1029,
+          828
+        ],
+        "end": [
+          1151,
+          832
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior stair core | Wohnen/Essen 105 (bottom)",
+      "id": "lab-8ecf268456"
+    },
+    {
+      "type": "wall",
+      "status": "uncertain",
+      "geometry": {
+        "start": [
+          1029,
+          615
+        ],
+        "end": [
+          1149,
+          618
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior stair core | Gast 113 (top); faint, max refine conf 0.62",
+      "id": "lab-14112ac4cb"
+    }
+  ]
+}
