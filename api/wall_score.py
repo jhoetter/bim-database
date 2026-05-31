@@ -85,6 +85,7 @@ def score_walls(
     tol_px: int = 9,
     min_missing_area: int = 400,
     thin_aware: bool = False,
+    close_px: int = 0,
 ) -> dict:
     """Score a wall-label set against the thick-ink wall mask.
 
@@ -108,6 +109,15 @@ def score_walls(
     if thin_aware:
         # union in faint line-like wall ink the thick OPEN erased
         ink = cv2.bitwise_or(ink, _thin_wall_mask(gray, thresh=thresh))
+    if close_px > 0:
+        # Walls are continuous bands but hand-drawn scans render them with
+        # intermittent/faint ink along the run. A CLOSE reconnects each wall's
+        # own broken segments so a correctly-placed full-length label scores
+        # on-ink. Kept small enough (< a doorway width) not to bridge openings
+        # or merge distinct walls. Opt-in (default 0 = unchanged).
+        ink = cv2.morphologyEx(
+            ink, cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(close_px), int(close_px))))
     h, w = ink.shape
 
     # shift label coords into the (possibly cropped) working frame

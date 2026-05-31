@@ -1349,6 +1349,8 @@ def score_walls_route(
     min_wall_px: int = 8,
     tol_px: int = 9,
     thresh: int | None = None,
+    thin_aware: bool = False,
+    close_px: int = 0,
 ):
     """Objective QA of the CURRENTLY SAVED wall labels vs the ink.
 
@@ -1378,7 +1380,8 @@ def score_walls_route(
     with PILImage.open(img_path) as src:
         src = src.convert("RGB")
         res = score_walls(src, walls, region=parsed,
-                          min_wall_px=min_wall_px, tol_px=tol_px, thresh=thresh)
+                          min_wall_px=min_wall_px, tol_px=tol_px, thresh=thresh,
+                          thin_aware=thin_aware, close_px=close_px)
     res["n_walls"] = len(walls)
     return {"ok": True, "data": res}
 

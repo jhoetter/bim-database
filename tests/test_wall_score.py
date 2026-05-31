@@ -58,3 +58,22 @@ def test_empty_labels_zero_recall_all_missing():
     res = score_walls(img, [], min_wall_px=10, tol_px=10)
     assert res["recall"] == 0.0, res
     assert res["missing_regions"], res
+
+
+def test_close_px_bridges_intermittent_wall_ink():
+    """A wall drawn with a GAP in the middle (intermittent ink) under-scores;
+    close_px bridges the gap so a full-length label scores higher."""
+    import numpy as np
+    from PIL import Image
+    from api.wall_score import score_walls
+    arr = np.full((200, 400), 255, dtype=np.uint8)
+    # horizontal wall y=100, x 40..360, but with a 40px ink GAP in the middle
+    arr[94:106, 40:170] = 0
+    arr[94:106, 230:360] = 0
+    img = Image.fromarray(arr, mode="L").convert("RGB")
+    wall = [((40, 100), (360, 100))]
+    base = score_walls(img, wall, min_wall_px=8, tol_px=9, close_px=0)
+    closed = score_walls(img, wall, min_wall_px=8, tol_px=9, close_px=51)
+    # closing the gap raises recall (more of the label's ink span is covered)
+    assert closed["recall"] >= base["recall"]
+    assert closed["f1"] >= base["f1"]
