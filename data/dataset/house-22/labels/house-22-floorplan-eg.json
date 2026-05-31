@@ -278,6 +278,44 @@
       },
       "notes": "stair-core top (restored true y611)",
       "id": "lab-sct611"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1100,
+          874
+        ],
+        "end": [
+          1100,
+          1074
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior Gast left",
+      "id": "lab-mgastL"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1150,
+          872
+        ],
+        "end": [
+          1150,
+          1074
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior Gast right",
+      "id": "lab-mgastR"
     }
   ]
 }
