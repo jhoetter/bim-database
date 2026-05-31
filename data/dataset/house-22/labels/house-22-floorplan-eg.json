@@ -506,6 +506,25 @@
       },
       "notes": "missing2",
       "id": "lab-m24"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          776,
+          824
+        ],
+        "end": [
+          805,
+          824
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing last",
+      "id": "lab-ml824"
     }
   ]
 }
