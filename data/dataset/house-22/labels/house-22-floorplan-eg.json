@@ -56,12 +56,12 @@
       "status": "readable",
       "geometry": {
         "start": [
-          627,
-          1125
+          628,
+          1104
         ],
         "end": [
           1163,
-          1125
+          1124
         ]
       },
       "attributes": {
@@ -297,6 +297,25 @@
       },
       "notes": "interior stair core | Gast 113 (top); faint, max refine conf 0.62",
       "id": "lab-14112ac4cb"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1180,
+          567
+        ],
+        "end": [
+          1196,
+          850
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "exterior right-upper added cycle3",
+      "id": "lab-c3a1right1"
     }
   ]
 }
