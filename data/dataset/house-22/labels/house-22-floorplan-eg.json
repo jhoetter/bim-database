@@ -259,6 +259,25 @@
       },
       "notes": "interior c5 horiz",
       "id": "lab-c5c1"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1031,
+          611
+        ],
+        "end": [
+          1147,
+          611
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "stair-core top (restored true y611)",
+      "id": "lab-sct611"
     }
   ]
 }
