@@ -98,6 +98,7 @@ def render_grid_overlay(
     max_dim: int = 1600,
     background_opacity: float = 0.5,
     enhance: str | None = DEFAULT_ENHANCE,
+    source_dpi: int | None = None,
 ) -> Image.Image:
     """Composite the source image with a coordinate-anchored grid overlay.
 
@@ -230,7 +231,7 @@ def render_grid_overlay(
     if "finer" in tiers:
         _draw_tier_labels(draw, label_font, spec, "finer")
 
-    _draw_top_right_legend(draw, canvas.size, spec, legend_font)
+    _draw_top_right_legend(draw, canvas.size, spec, legend_font, source_dpi=source_dpi)
     return canvas
 
 
@@ -414,6 +415,7 @@ def _draw_top_right_legend(
     canvas_size: tuple[int, int],
     spec: _Spec,
     font: ImageFont.ImageFont,
+    source_dpi: int | None = None,
 ) -> None:
     """Tiny faint chip in the top-right corner. Smaller font than the
     axis labels so it doesn't compete with content."""
@@ -421,6 +423,11 @@ def _draw_top_right_legend(
     lines = [
         f"grid (src px): b/f/d = {spec.broad_step}/{spec.finer_step}/{spec.detail_step}",
     ]
+    if source_dpi:
+        # Calibration safety: every grid self-describes the dpi of its
+        # coordinate frame so px<->PDF-unit conversion (1 px = 72/dpi pt)
+        # is always verifiable and can never silently mis-calibrate.
+        lines.append(f"dpi {source_dpi}  (1 px = {72.0/source_dpi:.4f} pt)")
     if spec.source_size:
         lines.append(
             f"crop ({spec.region_origin[0]},{spec.region_origin[1]}) "

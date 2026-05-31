@@ -1145,12 +1145,20 @@ def render_scene_grid(
         from PIL import Image as PILImage
         from .grid_render import render_grid_overlay
         with PILImage.open(img_path) as src:
+            _m = _load_dataset_manifest(key)
+            _scene_dpi = next(
+                (d.get("crop_from", {}).get("dpi")
+                 for d in ((_m or {}).get("drawings") or [])
+                 if d.get("file") == file),
+                None,
+            )
             overlay = render_grid_overlay(
                 src,
                 tiers=parsed_tiers,
                 region=parsed_region,
                 max_dim=max_dim,
                 enhance=parsed_enhance,
+                source_dpi=_scene_dpi,
             )
         _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(str(img_mtime))
@@ -1627,6 +1635,7 @@ def render_pdf_page_grid(
             tiers=parsed_tiers,
             region=parsed_region,
             max_dim=max_dim,
+            source_dpi=dpi,
         )
         overlay.save(out, format="PNG", optimize=True)
         sentinel.write_text(str(pdf_mtime))
