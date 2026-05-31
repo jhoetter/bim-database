@@ -582,10 +582,6 @@ async def get_scene_view(
     target: str | None = None,
     target_line: str = "none",
     background_opacity: float | None = None,
-    clean: bool = False,
-    contrast: str = "high",
-    show_relations: str = "required",
-    include_hidden: bool = False,
 ) -> list[ImageContent | TextContent]:
     """Scene image with the three-tier coordinate grid overlay.
 
@@ -722,6 +718,11 @@ async def get_scene_view_with_labels(
     target: str | None = None,
     target_line: str = "none",
     background_opacity: float | None = None,
+    clean: bool = False,
+    contrast: str = "high",
+    show_relations: str = "required",
+    show_height_guides: str = "auto",
+    include_hidden: bool = False,
 ) -> list[ImageContent | TextContent]:
     """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
     on top. This is the agent's verify view — call it after every
@@ -771,6 +772,9 @@ async def get_scene_view_with_labels(
       show_relations:
                required|all|none. Required shows correctness-critical links
                such as opening→wall and dimension number→distance.
+      show_height_guides:
+               auto|always|never. Auto shows datum guide lines in Agent View /
+               clean QA contexts and keeps normal editor views quieter.
       include_hidden:
                When false, respect display.hidden_label_ids like the UI.
 
@@ -800,6 +804,7 @@ async def get_scene_view_with_labels(
         "style": style, "target_line": target_line,
         "clean": clean, "contrast": contrast,
         "show_relations": show_relations,
+        "show_height_guides": show_height_guides,
         "include_hidden": include_hidden,
     }
     if region:
@@ -862,6 +867,7 @@ async def get_scene_view_with_labels(
             "clean": clean,
             "contrast": contrast,
             "show_relations": show_relations,
+            "show_height_guides": show_height_guides,
             "include_hidden": include_hidden,
             "render_contract_version": "labeling-render-contract/2026-05-31",
             "hint": (
@@ -889,6 +895,7 @@ async def verify_label_placement(
     background_opacity: float | None = None,
     contrast: str = "high",
     show_relations: str = "required",
+    show_height_guides: str = "auto",
     include_hidden: bool = False,
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
@@ -926,6 +933,8 @@ async def verify_label_placement(
       contrast:  normal|high. Defaults high for QA.
       show_relations:
                  required|all|none relation cues. Defaults required.
+      show_height_guides:
+                 auto|always|never datum guide lines for height marks.
       include_hidden:
                  Include labels hidden in the UI display preferences.
       snap_radius_px: search radius for the numeric offset check (issue
@@ -1000,6 +1009,7 @@ async def verify_label_placement(
         clean=True,
         contrast=contrast,
         show_relations=show_relations,
+        show_height_guides=show_height_guides,
         include_hidden=include_hidden,
     )
 

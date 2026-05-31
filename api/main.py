@@ -1141,6 +1141,13 @@ def _parse_show_relations(show_relations: str | None) -> str:
     return value
 
 
+def _parse_show_height_guides(show_height_guides: str | None) -> str:
+    value = (show_height_guides or "auto").strip().lower()
+    if value not in ("auto", "always", "never"):
+        raise HTTPException(status_code=400, detail="show_height_guides must be auto, always, or never")
+    return value
+
+
 def _scene_px_per_mm(key: str, file: str) -> float | None:
     facts_path = DATASET_DIR / key / "house_facts.json"
     if not facts_path.exists():
@@ -1714,6 +1721,7 @@ def render_scene_grid_with_labels(
     background_opacity: float | None = None,
     contrast: str | None = None,
     show_relations: str | None = None,
+    show_height_guides: str | None = None,
     include_hidden: bool = False,
 ):
     """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
@@ -1746,6 +1754,7 @@ def render_scene_grid_with_labels(
         parsed_opacity, opacity_explicit = 0.2, True
     parsed_contrast = _parse_contrast(contrast)
     parsed_show_relations = _parse_show_relations(show_relations)
+    parsed_show_height_guides = _parse_show_height_guides(show_height_guides)
 
     label_path = _safe_label_path("dataset", key, file)
     img_mtime = img_path.stat().st_mtime_ns
@@ -1766,6 +1775,7 @@ def render_scene_grid_with_labels(
         f"-o{parsed_opacity:g}x{int(opacity_explicit)}"
         f"-k{parsed_contrast}"
         f"-rel{parsed_show_relations}"
+        f"-hg{parsed_show_height_guides}"
         f"-ih{int(bool(include_hidden))}"
         f"-f{parsed_format}.png"
     )
@@ -1802,6 +1812,7 @@ def render_scene_grid_with_labels(
                 contrast=parsed_contrast,
                 px_per_mm=_scene_px_per_mm(key, file),
                 show_relations=parsed_show_relations,
+                show_height_guides=parsed_show_height_guides,
             )
         _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(cache_key)

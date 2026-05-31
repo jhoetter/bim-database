@@ -88,6 +88,22 @@ def test_reference_dimension_uses_amber_marker_not_plain_line_only():
     assert int(amber.sum()) > 300
 
 
+def test_reference_dimension_uses_m1_badge_language():
+    label = {
+        "id": "dim-1",
+        "type": "dimensioned_distance",
+        "geometry": {"start": [80, 300], "end": [420, 300]},
+        "attributes": {"value_mm": 3000, "target_orientation": "horizontal", "is_reference": True},
+        "status": "readable",
+    }
+    out = render_grid_with_labels(_blank(), [label], clean=True, max_dim=1000)
+    arr = _rgb(out)
+    # The M1 badge is a compact amber rectangle below the dimension midpoint.
+    badge = arr[305:326, 238:282]
+    amber = (badge[..., 0] > 180) & (badge[..., 1] > 90) & (badge[..., 1] < 190) & (badge[..., 2] < 90)
+    assert int(amber.sum()) > 40
+
+
 def test_missing_and_not_readable_statuses_are_visible():
     labels = [
         {
@@ -188,3 +204,38 @@ def test_dimension_number_bbox_and_relation_to_distance_render():
     cyan_relation = (arr[..., 1] > 80) & (arr[..., 2] > 150) & (arr[..., 0] < 90)
     assert int(purple.sum()) > 180
     assert int(cyan_relation.sum()) > 30
+
+
+def test_height_marks_use_triangle_and_configurable_guides():
+    label = {
+        "id": "hm-1",
+        "type": "height_mark",
+        "geometry": {"anchor": [260, 180]},
+        "attributes": {"value_mm": 4580, "datum": "traufe"},
+        "status": "readable",
+    }
+    with_guides = render_grid_with_labels(_blank(), [label], clean=True, max_dim=1000, show_height_guides="auto")
+    without_guides = render_grid_with_labels(_blank(), [label], clean=True, max_dim=1000, show_height_guides="never")
+    arr_guides = _rgb(with_guides)
+    arr_no_guides = _rgb(without_guides)
+    green = (arr_guides[..., 1] > 100) & (arr_guides[..., 0] < 90) & (arr_guides[..., 2] < 120)
+    # Triangle body near the anchor plus guide line.
+    assert int(green[160:190, 245:275].sum()) > 40
+    guide_row = (arr_guides[180, :, 1] > 130) & (arr_guides[180, :, 0] < 170) & (arr_guides[180, :, 2] < 180)
+    no_guide_row = (arr_no_guides[180, :, 1] > 130) & (arr_no_guides[180, :, 0] < 170) & (arr_no_guides[180, :, 2] < 180)
+    assert int(guide_row.sum()) > int(no_guide_row.sum()) + 50
+
+
+def test_component_region_kind_chip_uses_stored_region_kind():
+    label = {
+        "id": "region-1",
+        "type": "component_line",
+        "geometry": {"polyline": [[120, 80], [220, 80], [220, 170], [120, 170]]},
+        "attributes": {"line_kind": "other", "region_kind": "roof"},
+        "status": "readable",
+    }
+    out = render_grid_with_labels(_blank(), [label], clean=True, max_dim=1000)
+    arr = _rgb(out)
+    # Stored region kind produces a visible center chip even when line_kind is generic.
+    dark_text_or_chip = (arr[..., 0] < 120) & (arr[..., 1] < 120) & (arr[..., 2] < 120)
+    assert int(dark_text_or_chip[110:145, 145:205].sum()) > 20

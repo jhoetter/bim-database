@@ -65,6 +65,7 @@ export interface ComponentLineLabel extends LabelBase {
       | 'first' | 'traufe' | 'gelaende' | 'geschoss'
       | 'ok_ffb' | 'sockel' | 'firstkante' | 'dachschraege'
       | 'kniestock' | 'gebaeudekante' | 'other';
+    region_kind?: 'roof' | 'wall_body' | 'gable' | 'ground' | 'unknown';
   };
 }
 export interface HeightMarkLabel extends LabelBase {

@@ -92,7 +92,7 @@ const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel
 // /labels/{scope}/...
 
 const UNDO_LIMIT = 200;
-const WALL_PX_PER_MM = 0.05;               // visual scale for wall band; pragmatic for h-1's ~10 m × 1024 px
+const FALLBACK_WALL_PX_PER_MM = 0.05;      // fallback visual scale when a scene has no calibration
 const STANDARD_THICKNESS_MM = [115, 175, 240, 300, 365] as const;
 const TAGS: SceneTag[] = ['grundriss', 'ansicht', 'schnitt', 'sonstiges', 'nicht_klassifiziert'];
 
@@ -923,6 +923,11 @@ export function AnnotatePage() {
     }));
     return { facts, scenes };
   }, [scope, key, houseScenes, sceneSummaryRev]);
+  const effectiveWallPxPerMm = useMemo(() => {
+    const facts = loadHouseFacts(scope, key);
+    const px = facts.calibration_per_scene[decodedFile]?.px_per_mm;
+    return Number.isFinite(px) && px > 0 ? px : FALLBACK_WALL_PX_PER_MM;
+  }, [scope, key, decodedFile, sceneSummaryRev]);
   // V3 — refine kinds per label, used on the canvas to draw issue rings,
   // ? corners, etc. We pass house context for cross-scene checks; the
   // refine module returns at most one issue per label, picking the most
@@ -1735,7 +1740,7 @@ export function AnnotatePage() {
               const t1 = Math.max(projA, projB);
               // Center the opening on the wall axis; depth = wall thickness.
               const thicknessMm = parent.attributes.thickness_mm ?? 365;
-              const depthHalfPx = (thicknessMm * WALL_PX_PER_MM) / 2;
+              const depthHalfPx = (thicknessMm * effectiveWallPxPerMm) / 2;
               const px = -uy;
               const py = ux;
               const along = (t: number): Point => [ws[0] + ux * t, ws[1] + uy * t];
@@ -1756,7 +1761,7 @@ export function AnnotatePage() {
           let derivedWidthMm: number | null = null;
           if (attachWallId) {
             const al = Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]);
-            derivedWidthMm = Math.round(al / WALL_PX_PER_MM);
+            derivedWidthMm = Math.round(al / effectiveWallPxPerMm);
           }
 
           // Auto-infer (M3.3): if 3+ nearby floorplan_openings share a kind,
@@ -1854,6 +1859,8 @@ export function AnnotatePage() {
               created_at: nowIso(),
               updated_at: nowIso(),
             };
+            const rk = inferRegionKind(label, { imageHeight: imageSize[1] });
+            if (rk !== 'unknown') label.attributes.region_kind = rk;
             setLabels((prev) => [...prev, label]);
             setDirty(true);
             setSelectedId(label.id);
@@ -1862,7 +1869,6 @@ export function AnnotatePage() {
               setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
             }
             setPendingPolyline([]);
-            const rk = inferRegionKind(label, { imageHeight: imageSize[1] });
             addToast(
               rk === 'unknown'
                 ? 'Polygon geschlossen ✓'
@@ -1898,13 +1904,14 @@ export function AnnotatePage() {
               created_at: nowIso(),
               updated_at: nowIso(),
             };
+            const rk = inferRegionKind(label, { imageHeight: imageSize[1] });
+            if (rk !== 'unknown') label.attributes.region_kind = rk;
             setLabels((prev) => [...prev, label]);
             setDirty(true);
             setSelectedId(label.id);
             const mid = finalPoly[Math.floor(finalPoly.length / 2)];
             setPostDrawChip({ labelId: label.id, kindFamily: 'component_line', anchor: mid });
             setPendingPolyline([]);
-            const rk = inferRegionKind(label, { imageHeight: imageSize[1] });
             const baseToast = startAnchor.labelId === endAnchor.labelId
               ? '↩ verankert an gemeinsamem Label — Polylinie geschlossen'
               : '↩ verankert an zwei Labels';
@@ -2539,6 +2546,8 @@ export function AnnotatePage() {
           created_at: nowIso(),
           updated_at: nowIso(),
         };
+        const rk = pendingPolyline.length >= 3 ? inferRegionKind(label, { imageHeight: imageSize[1] }) : 'unknown';
+        if (rk !== 'unknown') label.attributes.region_kind = rk;
         setLabels((prev) => [...prev, label]);
         setDirty(true);
         setSelectedId(label.id);
@@ -2549,7 +2558,6 @@ export function AnnotatePage() {
         }
         setPendingPolyline([]);
         if (pendingPolyline.length >= 3) {
-          const rk = inferRegionKind(label, { imageHeight: imageSize[1] });
           if (rk !== 'unknown') {
             addToast(`↻ ${regionKindLabel(rk)} erkannt`, 'info', 1800);
           }
@@ -2777,6 +2785,7 @@ export function AnnotatePage() {
     + `&clean=${showGrid ? 'false' : 'true'}`
     + `&contrast=high`
     + `&show_relations=required`
+    + `&show_height_guides=auto`
     + `&include_hidden=false`
     + `&v=${encodeURIComponent(String(lastSavedAt ?? labels.length))}`;
 
@@ -3377,6 +3386,7 @@ export function AnnotatePage() {
               inheritedFromOtherScene={crossSceneProvenance.has(l.id)}
               refineKind={refineKindByLabel.get(l.id) ?? null}
               imageHeight={imageSize[1]}
+              wallPxPerMm={effectiveWallPxPerMm}
               screenScale={view.w / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               imageSnapRadius={(SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               eventToSvgPoint={eventToSvgPoint}
@@ -3745,7 +3755,7 @@ export function AnnotatePage() {
             const t0 = Math.min(projA, projB);
             const t1 = Math.max(projA, projB);
             const thicknessMm = parent.attributes.thickness_mm ?? 365;
-            const depthHalfPx = (thicknessMm * WALL_PX_PER_MM) / 2;
+            const depthHalfPx = (thicknessMm * effectiveWallPxPerMm) / 2;
             const px = -uy;
             const py = ux;
             const along = (t: number): Point => [ws[0] + ux * t, ws[1] + uy * t];
@@ -6784,6 +6794,7 @@ function LabelGlyph({
   inheritedFromOtherScene,
   refineKind,
   imageHeight,
+  wallPxPerMm,
   screenScale,
   imageSnapRadius,
   eventToSvgPoint,
@@ -6810,6 +6821,9 @@ function LabelGlyph({
   refineKind: RefineIssue['kind'] | null;
   /** Image height in px — used by region-kind inference (V2). */
   imageHeight: number;
+  /** Effective scene pixels per millimeter for wall bodies. Uses calibration
+   *  when available, fallback visual scale otherwise. */
+  wallPxPerMm: number;
   /** Image-pixels per screen-pixel — used to size on-canvas glyphs in
    *  screen-pinned units (multiply a desired screen px by this factor). */
   screenScale: number;
@@ -7104,7 +7118,7 @@ function LabelGlyph({
       // and re-introduce the corner gap we just fixed.
       const { start, end } = label.geometry;
       const thicknessMm = label.attributes.thickness_mm ?? 365;
-      const path = wallBandPath(start, end, thicknessMm, WALL_PX_PER_MM);
+      const path = wallBandPath(start, end, thicknessMm, wallPxPerMm);
       body = (
         <g {...bodyProps}>
           {path && (
@@ -7275,7 +7289,7 @@ function LabelGlyph({
       // and pick the matching hatch + centroid glyph. Falls back to the
       // generic bim-area-hatch when inference returns 'unknown'.
       const regionKind: RegionKind | null = isArea
-        ? inferRegionKind(label, { imageHeight })
+        ? ((label.attributes.region_kind as RegionKind | undefined) ?? inferRegionKind(label, { imageHeight }))
         : null;
       const regionHatchId = regionKind ? regionHatchFor(regionKind) : null;
       const RegionGlyph = regionKind ? regionGlyphFor(regionKind) : null;
@@ -7410,7 +7424,7 @@ function LabelGlyph({
         label.geometry.start,
         label.geometry.end,
         label.attributes.thickness_mm ?? 365,
-        WALL_PX_PER_MM,
+        wallPxPerMm,
       )
     : null;
 
@@ -7437,7 +7451,7 @@ function LabelGlyph({
       const ddy = pt[1] - start[1];
       const projPx = ddx * perpX + ddy * perpY;
       // Δthickness_mm = 2 × projection / pxPerMm (handle sits at half-thickness)
-      const deltaMm = (2 * projPx) / WALL_PX_PER_MM;
+      const deltaMm = (2 * projPx) / wallPxPerMm;
       let next = Math.max(50, Math.min(800, startThickness + deltaMm));
       // Snap to standard residential thicknesses if within 5 mm.
       for (const std of STANDARD_THICKNESS_MM) {

@@ -109,6 +109,7 @@ def render_grid_with_labels(
     contrast: str = "high",
     px_per_mm: float | None = None,
     show_relations: str = "required",
+    show_height_guides: str = "auto",
 ) -> Image.Image:
     """Render the source image + grid overlay + every label in `labels`.
 
@@ -183,6 +184,12 @@ def render_grid_with_labels(
         raise ValueError("contrast must be normal or high")
     if show_relations not in ("required", "all", "none"):
         raise ValueError("show_relations must be required, all, or none")
+    if show_height_guides not in ("auto", "always", "never"):
+        raise ValueError("show_height_guides must be auto, always, or never")
+    render_height_guides = (
+        show_height_guides == "always"
+        or (show_height_guides == "auto" and (clean or contrast == "high"))
+    )
 
     label_by_id = {str(lab.get("id")): lab for lab in labels if lab.get("id") is not None}
 
@@ -284,16 +291,25 @@ def render_grid_with_labels(
                 kind = (lab.get("attributes") or {}).get("line_kind") or "other"
                 color = _line_color(kind)
                 if len(pts) >= 3:
+                    region_kind = (lab.get("attributes") or {}).get("region_kind")
                     draw.polygon(pts, fill=_with_alpha(color, 34 if contrast == "normal" else 52))
                     _draw_hatch(target, pts, color=_with_alpha(color, 70))
-                    _chip(draw, chip_font, str(kind), _poly_center(pts), out_w, out_h)
+                    _chip(draw, chip_font, _region_label(region_kind) if region_kind else str(kind), _poly_center(pts), out_w, out_h)
                 draw.line(pts, fill=color, width=_COMPONENT_LINE_WIDTH + 1, joint="curve")
                 for p in pts:
                     draw.ellipse([p[0] - 3, p[1] - 3, p[0] + 3, p[1] + 3], fill=color)
         elif t == "height_mark":
             anchor = to_out(geom.get("anchor") or [0, 0])
             if in_bounds(anchor):
-                _draw_height_mark(draw, anchor, lab.get("attributes") or {}, chip_font, out_w, out_h)
+                _draw_height_mark(
+                    draw,
+                    anchor,
+                    lab.get("attributes") or {},
+                    chip_font,
+                    out_w,
+                    out_h,
+                    show_guide=render_height_guides,
+                )
         elif t == "dimensioned_distance":
             attrs = lab.get("attributes") or {}
             start = to_out(geom.get("start") or [0, 0])
@@ -332,9 +348,9 @@ def render_grid_with_labels(
             value_mm = attrs.get("value_mm")
             if value_mm is not None and in_bounds(mid):
                 txt = f"{value_mm/1000:.2f}m"
-                if attrs.get("is_reference"):
-                    txt = "REF " + txt
                 _chip(draw, label_font, txt, mid, out_w, out_h)
+                if attrs.get("is_reference"):
+                    _badge(draw, chip_font, "M1", (mid[0], mid[1] + 14), out_w, out_h, _DIM_REF_COLOR)
         elif t == "dimension_number":
             anchor = geom.get("anchor")
             bbox = geom.get("bbox")
@@ -666,27 +682,52 @@ def _draw_height_mark(
     font: ImageFont.ImageFont,
     out_w: int,
     out_h: int,
+    *,
+    show_guide: bool,
 ) -> None:
     value = attrs.get("value_mm")
     datum = attrs.get("datum")
     is_bezug = value == 0
     color = _HEIGHT_BEZUG_COLOR if is_bezug else _HEIGHT_MARK_COLOR
     x, y = anchor
-    draw.line([(0, y), (out_w - 1, y)], fill=_with_alpha(color, 90 if is_bezug else 55), width=2 if is_bezug else 1)
+    if show_guide:
+        draw.line([(0, y), (out_w - 1, y)], fill=_with_alpha(color, 120 if is_bezug else 130), width=2 if is_bezug else 1)
+    tri = [(x, y + 4), (x - 10, y - 16), (x + 10, y - 16)]
     if is_bezug:
-        tri = [(x, y + 4), (x - 11, y - 16), (x + 11, y - 16)]
         draw.polygon(tri, fill=color, outline=(180, 83, 9, 255))
         draw.polygon([(x, y + 7), (x - 15, y - 21), (x + 15, y - 21)], outline=color)
     else:
-        r = _HEIGHT_MARK_RADIUS
-        draw.ellipse([x - r, y - r, x + r, y + r], fill=color)
+        draw.polygon(tri, fill=_with_alpha(color, 225), outline=color)
     parts = []
     if datum:
-        parts.append(str(datum))
+        parts.append(_datum_label(str(datum)))
     if value is not None:
-        parts.append("±0.00" if value == 0 else f"{value/1000:+.2f}m")
+        parts.append("±0,00" if value == 0 else f"{value/1000:+.2f} m".replace(".", ","))
     if parts:
         _chip(draw, font, " ".join(parts), (x + 10, y), out_w, out_h)
+
+
+def _datum_label(datum: str) -> str:
+    return {
+        "first": "First",
+        "traufe": "Traufe",
+        "gelaende": "Gelände",
+        "geschoss": "Geschoss",
+        "ok_ffb": "OK FFB",
+        "sockel": "Sockel",
+        "kniestock": "Kniestock",
+        "other": "",
+    }.get(datum, datum)
+
+
+def _region_label(kind: str | None) -> str:
+    return {
+        "roof": "Dachfläche",
+        "gable": "Giebel",
+        "wall_body": "Wandfläche",
+        "ground": "Geländefläche",
+        "unknown": "Fläche",
+    }.get(kind or "", str(kind or ""))
 
 
 def _draw_status_marker(
@@ -802,3 +843,24 @@ def _chip(
         fill=_LABEL_CHIP_BG,
     )
     draw.text((x, y), text, font=font, fill=_LABEL_CHIP_FG)
+
+
+def _badge(
+    draw: ImageDraw.ImageDraw,
+    font: ImageFont.ImageFont,
+    text: str,
+    pos: tuple[int, int],
+    canvas_w: int,
+    canvas_h: int,
+    color: tuple[int, int, int, int],
+) -> None:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    pad_x = 5
+    pad_y = 3
+    w = tw + 2 * pad_x
+    h = th + 2 * pad_y
+    x = max(0, min(canvas_w - w - 1, pos[0] - w // 2))
+    y = max(0, min(canvas_h - h - 1, pos[1] - h // 2))
+    draw.rounded_rectangle([x, y, x + w, y + h], radius=3, fill=color, outline=(255, 255, 255, 245), width=1)
+    draw.text((x + pad_x, y + pad_y), text, font=font, fill=(255, 255, 255, 255))
