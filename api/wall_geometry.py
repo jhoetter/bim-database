@@ -147,16 +147,19 @@ def building_silhouette(image, *, region=None, min_wall_px: int = 16,
     from api.corner_detect import detect_wall_outline
 
     out = detect_wall_outline(image, region, min_wall_px=min_wall_px, thresh=thresh)
-    raw_masses = out.get("masses")
-    if raw_masses is None:
-        # single-outline API shape → wrap as one mass
-        poly = out.get("outline") or []
-        raw_masses = [{"outline": poly, "area": out.get("area", _poly_area(poly))}] if poly else []
+    # detect_wall_outline returns a LIST of {"polygon", "area", "n_vertices"},
+    # largest-first. Tolerate a dict shape too (older/wrapped variants).
+    if isinstance(out, dict):
+        raw_masses = out.get("masses") or (
+            [{"polygon": out["outline"]}] if out.get("outline") else []
+        )
+    else:
+        raw_masses = list(out)
 
     total = 0.0
     cleaned = []
     for m in raw_masses:
-        poly = m.get("outline") or m.get("polygon") or []
+        poly = m.get("polygon") or m.get("outline") or []
         if len(poly) < 3:
             continue
         rp = rectilinearize([tuple(p) for p in poly], angle_tol_deg=angle_tol_deg)
