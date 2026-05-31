@@ -284,25 +284,6 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1100,
-          874
-        ],
-        "end": [
-          1100,
-          1074
-        ]
-      },
-      "attributes": {
-        "thickness_mm": 150
-      },
-      "notes": "interior Gast left",
-      "id": "lab-mgastL"
-    },
-    {
-      "type": "wall",
-      "status": "readable",
-      "geometry": {
-        "start": [
           1150,
           872
         ],
