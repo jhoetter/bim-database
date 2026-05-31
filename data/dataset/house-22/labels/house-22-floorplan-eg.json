@@ -224,25 +224,6 @@
     },
     {
       "type": "wall",
-      "status": "uncertain",
-      "geometry": {
-        "start": [
-          1029,
-          615
-        ],
-        "end": [
-          1149,
-          618
-        ]
-      },
-      "attributes": {
-        "thickness_mm": 150
-      },
-      "notes": "interior stair core | Gast 113 (top); faint, max refine conf 0.62",
-      "id": "lab-14112ac4cb"
-    },
-    {
-      "type": "wall",
       "status": "readable",
       "geometry": {
         "start": [
