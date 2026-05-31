@@ -338,14 +338,7 @@ def _scene_image_path(scope: str, key: str, file: str) -> Path:
     return _scope_root(scope) / key / file
 
 
-@app.get("/labels/{scope}/{key}/{file}", tags=["labels"])
-def get_labels(scope: str, key: str, file: str):
-    """Return the label set for one scene. If no labels file exists yet,
-    return a fresh skeleton with image_size_px pre-filled — so the UI can
-    open the editor on a brand-new scene without a separate 'create' step."""
-    label_path = _safe_label_path(scope, key, file)
-    if label_path.exists():
-        return json.loads(label_path.read_text())
+def _label_skeleton(scope: str, key: str, file: str) -> dict[str, Any]:
     img_path = _scene_image_path(scope, key, file)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail=f"scene image not found: {scope}/{key}/{file}")
@@ -358,9 +351,36 @@ def get_labels(scope: str, key: str, file: str):
         "scene_key": key,
         "scene_file": file,
         "scene_tag": "nicht_klassifiziert",
+        "scene_orientation": None,
+        "scene_level": None,
         "image_size_px": [w, h],
         "labels": [],
     }
+
+
+def _recompute_facts_from_scratch(key: str) -> dict:
+    """Rebuild facts after a destructive label reset.
+
+    Normal label writes preserve human-entered facts. Reset semantics are
+    stronger: remove stale derived/manual labeling state first so the next
+    run starts from the current labels only.
+    """
+    facts_path = DATASET_DIR / key / "house_facts.json"
+    if facts_path.exists():
+        facts_path.unlink()
+    from .fact_derivation import recompute_facts_after_label_write
+    return recompute_facts_after_label_write(key, dataset_root=DATASET_DIR)
+
+
+@app.get("/labels/{scope}/{key}/{file}", tags=["labels"])
+def get_labels(scope: str, key: str, file: str):
+    """Return the label set for one scene. If no labels file exists yet,
+    return a fresh skeleton with image_size_px pre-filled — so the UI can
+    open the editor on a brand-new scene without a separate 'create' step."""
+    label_path = _safe_label_path(scope, key, file)
+    if label_path.exists():
+        return json.loads(label_path.read_text())
+    return _label_skeleton(scope, key, file)
 
 
 @app.put("/labels/{scope}/{key}/{file}", tags=["labels"])
@@ -403,6 +423,71 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
     if derivation_note:
         resp["derivation_warning"] = derivation_note
     return resp
+
+
+@app.delete("/labels/{scope}/{key}/{file}", tags=["labels"])
+def reset_scene_labels(scope: str, key: str, file: str):
+    """Reset one scene's labels and workflow metadata, keeping the scene image.
+
+    Mirrors the AnnotatePage "Labels zurücksetzen" action, but also rebuilds
+    house_facts from scratch so stale calibration/extent/orientation facts from
+    the cleared labels cannot leak into the next run.
+    """
+    if scope != "dataset":
+        raise HTTPException(status_code=400, detail="only dataset labels can be reset")
+    payload = _label_skeleton(scope, key, file)
+    label_path = _safe_label_path(scope, key, file)
+    label_path.parent.mkdir(parents=True, exist_ok=True)
+    label_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    facts = _recompute_facts_from_scratch(key)
+    return {
+        "ok": True,
+        "file": file,
+        "labels_reset": 1,
+        "label_count": 0,
+        "house_facts": facts,
+    }
+
+
+@app.delete("/datasets/{key}/labels", tags=["dataset"])
+def reset_house_labeling(key: str):
+    """Reset every scene's labels for a house, keeping extracted scenes.
+
+    This is the MCP/automation counterpart to scene-level UI resets when the
+    user wants a fresh labeling run without re-extracting the source PDF.
+    """
+    _safe_key(key)
+    house_dir = DATASET_DIR / key
+    manifest_path = house_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail=f"no dataset manifest for {key!r}")
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"manifest.json corrupt: {e}") from e
+    drawings = [d for d in (manifest.get("drawings") or []) if d.get("file")]
+    labels_dir = house_dir / "labels"
+    if labels_dir.exists():
+        import shutil
+        shutil.rmtree(labels_dir)
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    reset_files: list[str] = []
+    for d in drawings:
+        file = d["file"]
+        payload = _label_skeleton("dataset", key, file)
+        (_safe_label_path("dataset", key, file)).write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False)
+        )
+        reset_files.append(file)
+    facts = _recompute_facts_from_scratch(key)
+    return {
+        "ok": True,
+        "key": key,
+        "mode": "labels_only_keep_scenes",
+        "labels_reset": len(reset_files),
+        "files": reset_files,
+        "house_facts": facts,
+    }
 
 
 # ── PDF intake (R1 — landing routes; full impl lands in R1 wave) ──────────

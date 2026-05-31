@@ -2211,6 +2211,106 @@ async def set_scene_level(
                started_at=started, status_code=put_status)
 
 
+@mcp.tool()
+async def reset_scene_labels(
+    key: str,
+    file: str,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Reset ONE scene's labels and scene metadata, keeping the scene image.
+
+    USE when:
+      - You want to restart labeling for a single extracted scene.
+      - A prior agent run produced bad labels and the extraction itself is OK.
+
+    EFFECT:
+      - Writes a clean labels skeleton for the scene.
+      - Sets scene_tag='nicht_klassifiziert', clears scene_orientation/level.
+      - Removes every saved label for that scene.
+      - Rebuilds house_facts from scratch so stale calibration/extent facts
+        from deleted labels do not leak into the next run.
+
+    DON'T USE when:
+      - You want to remove extracted scenes and return to PDF extraction;
+        call `reset_house_dataset` instead.
+    """
+    started = time.time()
+    try:
+        status, body = await _api_delete(f"/labels/dataset/{key}/{file}")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_delete(f"/labels/dataset/{key}/{file}")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def reset_house_labeling(
+    key: str,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Reset ALL labels for a house while keeping extracted scenes.
+
+    USE when:
+      - You want a fresh labeling run on the existing scene crops.
+      - The extraction/cropping is good, but the annotations should be purged.
+
+    EFFECT:
+      - Replaces every scene labels JSON with an empty skeleton.
+      - Clears scene tags/orientations/levels back to unclassified metadata.
+      - Rebuilds house_facts from scratch so required phases become pending.
+      - Keeps data/dataset/<key> images and manifest intact.
+
+    DON'T USE when:
+      - You need to re-extract scenes from the incoming PDF. Use
+        `reset_house_dataset` for that stronger reset.
+    """
+    started = time.time()
+    try:
+        status, body = await _api_delete(f"/datasets/{key}/labels")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_delete(f"/datasets/{key}/labels")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def reset_house_dataset(
+    key: str,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Destructive house reset: remove extracted scenes and labels.
+
+    USE when:
+      - The scene extraction/cropping itself is bad.
+      - You want to return the incoming PDF bundle to the "ready to extract"
+        state and start over from W0 extraction.
+
+    EFFECT:
+      - Deletes data/dataset/<key>/ entirely.
+      - Resets the incoming PDF manifest's extracted_scenes list/state.
+      - Keeps data/pdfs/incoming/<key>/ source PDFs.
+
+    This is stronger than `reset_house_labeling` and cannot be undone.
+    """
+    started = time.time()
+    try:
+        status, body = await _api_delete(f"/datasets/{key}")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await _api_delete(f"/datasets/{key}")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok({"key": key, "mode": "dataset_removed_keep_incoming_pdf"},
+               started_at=started, status_code=status)
+
+
 # ── §5.5 Label CRUD ──────────────────────────────────────────────────────
 
 
