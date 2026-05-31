@@ -5074,6 +5074,20 @@ function CanvasDisplayPalette({
       >
         FIT
       </button>
+      <label
+        className="hidden lg:flex items-center gap-1.5 px-1.5 py-1 rounded-md border border-zinc-200 bg-white text-[0.65rem] text-zinc-600"
+        title="Deckkraft der Quellzeichnung. Wirkt auch auf Agent View."
+      >
+        <span className="tabular-nums w-7 text-right">{Math.round(imgOpacity * 100)}%</span>
+        <input
+          type="range"
+          min={0.1} max={1} step={0.05}
+          value={imgOpacity}
+          onChange={(e) => setImgOpacity(Number(e.target.value))}
+          className="w-20 accent-accent"
+          aria-label="Bilddeckkraft"
+        />
+      </label>
       <div className="relative">
         <button
           type="button"
