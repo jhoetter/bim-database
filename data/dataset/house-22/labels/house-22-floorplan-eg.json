@@ -166,25 +166,6 @@
       "notes": "garage bottom"
     },
     {
-      "id": "lab-286182df66",
-      "type": "wall",
-      "status": "uncertain",
-      "geometry": {
-        "start": [
-          1247,
-          760
-        ],
-        "end": [
-          1249,
-          1085
-        ]
-      },
-      "attributes": {
-        "thickness_mm": 240
-      },
-      "notes": "garage left / garage-door side; refine conf ~0.05 (likely open door, no continuous wall ink)"
-    },
-    {
       "type": "wall",
       "status": "readable",
       "geometry": {
