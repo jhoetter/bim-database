@@ -111,7 +111,7 @@ export function getPdfInfo(key: string): Promise<PdfInfo> {
   return get<PdfInfo>(`/pdfs/${encodeURIComponent(key)}/info`);
 }
 
-export function pdfPageUrl(key: string, page: number, dpi = 144): string {
+export function pdfPageUrl(key: string, page: number, dpi = 600): string {
   return `/pdfs/${encodeURIComponent(key)}/page/${page}?dpi=${dpi}`;
 }
 
@@ -121,7 +121,7 @@ export function pdfPageUrl(key: string, page: number, dpi = 144): string {
 export function pdfPageGridUrl(
   key: string,
   page: number,
-  dpi = 144,
+  dpi = 600,
   tiers: string = 'broad,finer,detail',
 ): string {
   return `/pdfs/${encodeURIComponent(key)}/page/${page}/grid?dpi=${dpi}&tiers=${encodeURIComponent(tiers)}`;

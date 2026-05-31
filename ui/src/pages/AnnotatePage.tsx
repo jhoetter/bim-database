@@ -3182,7 +3182,7 @@ export function AnnotatePage() {
           />
           {showGrid && (
             <image
-              href={`/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?tiers=${encodeURIComponent(gridTiersParam)}&max_dim=${Math.max(imageSize[0], imageSize[1])}`}
+              href={`/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?tiers=${encodeURIComponent(gridTiersParam)}&max_dim=${Math.min(8000, Math.max(imageSize[0], imageSize[1]))}`}
               x={0} y={0}
               width={imageSize[0]} height={imageSize[1]}
               opacity={imgOpacity}

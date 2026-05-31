@@ -52,7 +52,10 @@ const FLOOR_LABEL: Record<typeof FLOORS[number], string> = {
   kg: 'KG', ug: 'UG', eg: 'EG', og: 'OG', dg: 'DG', spitzboden: 'Spitzboden',
 };
 const DRAFT_KEY = (key: string) => `bim-db:extract-draft:dataset:${key}`;
-const PAGE_DPI = 144;
+// Render the page at the server's max-quality dpi (>= the ~429 dpi native
+// scan) so the extraction view shows ACTUAL quality, never a downsampled
+// proxy. No magic number: this is the server's render cap.
+const PAGE_DPI = 600;
 
 interface DraftBbox {
   id: string;

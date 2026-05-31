@@ -1121,8 +1121,8 @@ def render_scene_grid(
     img_path = _scene_image_path("dataset", key, file)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
-    if not 100 <= max_dim <= 4000:
-        raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
+    if not 100 <= max_dim <= 8000:
+        raise HTTPException(status_code=400, detail="max_dim must be in [100, 8000]")
     parsed_tiers = _parse_tiers(tiers)
     parsed_region = _parse_region(region)
     parsed_enhance = _parse_enhance(enhance)
@@ -1465,8 +1465,8 @@ def render_scene_grid_with_labels(
     img_path = _scene_image_path("dataset", key, file)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
-    if not 100 <= max_dim <= 4000:
-        raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
+    if not 100 <= max_dim <= 8000:
+        raise HTTPException(status_code=400, detail="max_dim must be in [100, 8000]")
     parsed_tiers = _parse_tiers(tiers)
     parsed_region = _parse_region(region)
     parsed_enhance = _parse_enhance(enhance)
@@ -1551,8 +1551,8 @@ def resolve_scene_point(
     img_path = _scene_image_path("dataset", key, file)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
-    if not 100 <= max_dim <= 4000:
-        raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
+    if not 100 <= max_dim <= 8000:
+        raise HTTPException(status_code=400, detail="max_dim must be in [100, 8000]")
     if frame not in ("source", "crop"):
         raise HTTPException(status_code=400, detail="frame must be 'source' or 'crop'")
     try:
@@ -1597,8 +1597,8 @@ def render_pdf_page_grid(
     _safe_key(key)
     if dpi <= 0 or dpi > 600:
         raise HTTPException(status_code=400, detail="dpi must be in (0, 600]")
-    if not 100 <= max_dim <= 4000:
-        raise HTTPException(status_code=400, detail="max_dim must be in [100, 4000]")
+    if not 100 <= max_dim <= 8000:
+        raise HTTPException(status_code=400, detail="max_dim must be in [100, 8000]")
     parsed_tiers = _parse_tiers(tiers)
     parsed_region = _parse_region(region)
     pdf = _consolidated_path(key)
