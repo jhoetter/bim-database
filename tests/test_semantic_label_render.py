@@ -239,3 +239,17 @@ def test_component_region_kind_chip_uses_stored_region_kind():
     # Stored region kind produces a visible center chip even when line_kind is generic.
     dark_text_or_chip = (arr[..., 0] < 120) & (arr[..., 1] < 120) & (arr[..., 2] < 120)
     assert int(dark_text_or_chip[110:145, 145:205].sum()) > 20
+
+
+def test_component_region_kind_falls_back_to_line_kind_inference():
+    label = {
+        "id": "region-1",
+        "type": "component_line",
+        "geometry": {"polyline": [[120, 80], [220, 80], [220, 170], [120, 170]]},
+        "attributes": {"line_kind": "dachschraege"},
+        "status": "readable",
+    }
+    out = render_grid_with_labels(_blank(), [label], clean=True, max_dim=1000)
+    arr = _rgb(out)
+    dark_text_or_chip = (arr[..., 0] < 120) & (arr[..., 1] < 120) & (arr[..., 2] < 120)
+    assert int(dark_text_or_chip[110:145, 145:205].sum()) > 20

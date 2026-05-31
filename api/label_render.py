@@ -288,10 +288,11 @@ def render_grid_with_labels(
             raw_pts = geom.get("points") or geom.get("polyline") or []
             pts = [to_out(p) for p in raw_pts]
             if len(pts) >= 2:
-                kind = (lab.get("attributes") or {}).get("line_kind") or "other"
+                attrs = lab.get("attributes") or {}
+                kind = attrs.get("line_kind") or "other"
                 color = _line_color(kind)
                 if len(pts) >= 3:
-                    region_kind = (lab.get("attributes") or {}).get("region_kind")
+                    region_kind = attrs.get("region_kind") or _infer_region_kind(raw_pts, attrs, src_h)
                     draw.polygon(pts, fill=_with_alpha(color, 34 if contrast == "normal" else 52))
                     _draw_hatch(target, pts, color=_with_alpha(color, 70))
                     _chip(draw, chip_font, _region_label(region_kind) if region_kind else str(kind), _poly_center(pts), out_w, out_h)
@@ -728,6 +729,33 @@ def _region_label(kind: str | None) -> str:
         "ground": "Geländefläche",
         "unknown": "Fläche",
     }.get(kind or "", str(kind or ""))
+
+
+def _infer_region_kind(raw_pts: Sequence[Sequence[float]], attrs: dict, image_height: int) -> str:
+    if len(raw_pts) < 3:
+        return "unknown"
+    lk = attrs.get("line_kind") or "other"
+    ys = [float(p[1]) for p in raw_pts if len(p) >= 2]
+    xs = [float(p[0]) for p in raw_pts if len(p) >= 2]
+    if not xs or not ys:
+        return "unknown"
+    min_y = min(ys)
+    max_y = max(ys)
+    touches_bottom = max_y >= image_height - 8
+    if lk == "gelaende" and touches_bottom:
+        return "ground"
+    if lk in ("dachschraege", "first", "firstkante"):
+        return "roof"
+    top_vertices = [(float(p[0]), float(p[1])) for p in raw_pts if len(p) >= 2 and abs(float(p[1]) - min_y) <= 4]
+    if len(top_vertices) == 1 and max_y - min_y > 10:
+        peak = top_vertices[0]
+        left = [p for p in raw_pts if len(p) >= 2 and float(p[0]) < peak[0] and float(p[1]) > peak[1]]
+        right = [p for p in raw_pts if len(p) >= 2 and float(p[0]) > peak[0] and float(p[1]) > peak[1]]
+        if left and right:
+            return "roof"
+    if lk == "gebaeudekante":
+        return "wall_body"
+    return "unknown"
 
 
 def _draw_status_marker(
