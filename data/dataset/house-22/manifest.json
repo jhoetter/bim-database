@@ -1,0 +1,25 @@
+{
+  "key": "house-22",
+  "drawings": [
+    {
+      "file": "house-22-floorplan-eg.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": "eg",
+      "title": "EG-Grundriss",
+      "imported_at": "2026-05-31T10:36:20Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 2,
+        "bbox_pdf_units": [
+          30.4836,
+          0.0,
+          586.6964,
+          413.3999938964844
+        ],
+        "dpi": 600
+      }
+    }
+  ]
+}
