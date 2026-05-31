@@ -96,11 +96,11 @@
       "geometry": {
         "start": [
           1308,
-          726
+          732
         ],
         "end": [
           1444,
-          726
+          732
         ]
       },
       "attributes": {
@@ -151,12 +151,12 @@
       "status": "readable",
       "geometry": {
         "start": [
-          655,
-          673
+          657,
+          662
         ],
         "end": [
-          816,
-          674
+          814,
+          662
         ]
       },
       "attributes": {
@@ -189,11 +189,11 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1048,
+          1018,
           615
         ],
         "end": [
-          1048,
+          1018,
           826
         ]
       },
