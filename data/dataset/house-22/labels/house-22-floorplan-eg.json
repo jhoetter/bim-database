@@ -297,6 +297,139 @@
       },
       "notes": "interior Gast right",
       "id": "lab-mgastR"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          889,
+          1067
+        ],
+        "end": [
+          956,
+          1067
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing r1",
+      "id": "lab-r1"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          665,
+          823
+        ],
+        "end": [
+          665,
+          883
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing r2",
+      "id": "lab-r2"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          945,
+          831
+        ],
+        "end": [
+          1009,
+          831
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing r4",
+      "id": "lab-r4"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          613,
+          794
+        ],
+        "end": [
+          613,
+          844
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing r5",
+      "id": "lab-r5"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1214,
+          732
+        ],
+        "end": [
+          1214,
+          841
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing r6",
+      "id": "lab-r6"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1181,
+          1119
+        ],
+        "end": [
+          1223,
+          1119
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing r7",
+      "id": "lab-r7"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          673,
+          1068
+        ],
+        "end": [
+          702,
+          1068
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing r8",
+      "id": "lab-r8"
     }
   ]
 }
