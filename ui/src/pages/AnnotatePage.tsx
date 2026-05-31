@@ -57,6 +57,7 @@ import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknes
 import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
 import { autoTSplit } from '../lib/auto_split';
 import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
+import { effectiveWallPxPerMm, wallBandPath } from '../lib/renderGeometry';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT, type CheatsheetSection } from '../components/Cheatsheet';
 import { UndoRedoControls } from '../components/UndoRedoControls';
@@ -92,7 +93,6 @@ const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel
 // /labels/{scope}/...
 
 const UNDO_LIMIT = 200;
-const FALLBACK_WALL_PX_PER_MM = 0.05;      // fallback visual scale when a scene has no calibration
 const STANDARD_THICKNESS_MM = [115, 175, 240, 300, 365] as const;
 const TAGS: SceneTag[] = ['grundriss', 'ansicht', 'schnitt', 'sonstiges', 'nicht_klassifiziert'];
 
@@ -923,10 +923,9 @@ export function AnnotatePage() {
     }));
     return { facts, scenes };
   }, [scope, key, houseScenes, sceneSummaryRev]);
-  const effectiveWallPxPerMm = useMemo(() => {
+  const effectiveWallScalePxPerMm = useMemo(() => {
     const facts = loadHouseFacts(scope, key);
-    const px = facts.calibration_per_scene[decodedFile]?.px_per_mm;
-    return Number.isFinite(px) && px > 0 ? px : FALLBACK_WALL_PX_PER_MM;
+    return effectiveWallPxPerMm(facts, decodedFile);
   }, [scope, key, decodedFile, sceneSummaryRev]);
   // V3 — refine kinds per label, used on the canvas to draw issue rings,
   // ? corners, etc. We pass house context for cross-scene checks; the
@@ -1740,7 +1739,7 @@ export function AnnotatePage() {
               const t1 = Math.max(projA, projB);
               // Center the opening on the wall axis; depth = wall thickness.
               const thicknessMm = parent.attributes.thickness_mm ?? 365;
-              const depthHalfPx = (thicknessMm * effectiveWallPxPerMm) / 2;
+              const depthHalfPx = (thicknessMm * effectiveWallScalePxPerMm) / 2;
               const px = -uy;
               const py = ux;
               const along = (t: number): Point => [ws[0] + ux * t, ws[1] + uy * t];
@@ -1761,7 +1760,7 @@ export function AnnotatePage() {
           let derivedWidthMm: number | null = null;
           if (attachWallId) {
             const al = Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]);
-            derivedWidthMm = Math.round(al / effectiveWallPxPerMm);
+            derivedWidthMm = Math.round(al / effectiveWallScalePxPerMm);
           }
 
           // Auto-infer (M3.3): if 3+ nearby floorplan_openings share a kind,
@@ -3386,7 +3385,7 @@ export function AnnotatePage() {
               inheritedFromOtherScene={crossSceneProvenance.has(l.id)}
               refineKind={refineKindByLabel.get(l.id) ?? null}
               imageHeight={imageSize[1]}
-              wallPxPerMm={effectiveWallPxPerMm}
+              wallPxPerMm={effectiveWallScalePxPerMm}
               screenScale={view.w / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               imageSnapRadius={(SNAP_SCREEN_RADIUS * view.w) / Math.max(1, svgRef.current?.clientWidth ?? 1)}
               eventToSvgPoint={eventToSvgPoint}
@@ -3755,7 +3754,7 @@ export function AnnotatePage() {
             const t0 = Math.min(projA, projB);
             const t1 = Math.max(projA, projB);
             const thicknessMm = parent.attributes.thickness_mm ?? 365;
-            const depthHalfPx = (thicknessMm * effectiveWallPxPerMm) / 2;
+            const depthHalfPx = (thicknessMm * effectiveWallScalePxPerMm) / 2;
             const px = -uy;
             const py = ux;
             const along = (t: number): Point => [ws[0] + ux * t, ws[1] + uy * t];
@@ -8007,31 +8006,6 @@ function LinkVisuals({ labels, selectedId }: { labels: Label[]; selectedId: stri
       ))}
     </g>
   );
-}
-
-// Compute a wall's perpendicular band as an SVG path. Returns '' for a
-// degenerate zero-length wall (avoids NaN in the path string). The band is
-// EXTENDED along the axis by half-thickness on each end so that adjacent
-// walls meeting at a corner naturally overlap into the corner area
-// (creating a clean visual L-join instead of a gap).
-function wallBandPath(start: Point, end: Point, thicknessMm: number, pxPerMm: number): string {
-  const dx = end[0] - start[0];
-  const dy = end[1] - start[1];
-  const len = Math.hypot(dx, dy);
-  if (len === 0) return '';
-  const ux = dx / len;
-  const uy = dy / len;
-  const px = -uy;
-  const py = ux;
-  const half = (thicknessMm * pxPerMm) / 2;
-  // Extend each endpoint along the axis by half-thickness.
-  const s: Point = [start[0] - ux * half, start[1] - uy * half];
-  const e: Point = [end[0] + ux * half, end[1] + uy * half];
-  const a: Point = [s[0] + px * half, s[1] + py * half];
-  const b: Point = [e[0] + px * half, e[1] + py * half];
-  const c: Point = [e[0] - px * half, e[1] - py * half];
-  const d: Point = [s[0] - px * half, s[1] - py * half];
-  return `M ${a[0]},${a[1]} L ${b[0]},${b[1]} L ${c[0]},${c[1]} L ${d[0]},${d[1]} Z`;
 }
 
 // Inner graphics for a floorplan_opening — door swing arc / window sashes.
