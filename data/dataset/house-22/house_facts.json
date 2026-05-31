@@ -1,7 +1,7 @@
 {
   "schema_version": "1.1",
   "scene_metadata": {
-    "house-22-floorplan-eg.jpg": {
+    "house-22-floorplan-eg.png": {
       "scene_tag": "grundriss",
       "orientation": null,
       "level": "eg",
@@ -11,12 +11,7 @@
       ]
     }
   },
-  "calibration_per_scene": {
-    "house-22-floorplan-eg.jpg": {
-      "px_per_mm": 0.0732236147370626,
-      "computed_from": "M1-both"
-    }
-  },
+  "calibration_per_scene": {},
   "openings_catalog": [],
   "extent": {
     "sources": {},
