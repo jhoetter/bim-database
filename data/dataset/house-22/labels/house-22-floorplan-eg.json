@@ -37,12 +37,12 @@
       "status": "readable",
       "geometry": {
         "start": [
-          610,
-          570
+          627,
+          563
         ],
         "end": [
-          663,
-          1122
+          628,
+          1104
         ]
       },
       "attributes": {
