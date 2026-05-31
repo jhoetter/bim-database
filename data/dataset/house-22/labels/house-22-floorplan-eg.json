@@ -18,11 +18,11 @@
       "status": "readable",
       "geometry": {
         "start": [
-          627,
+          613,
           563
         ],
         "end": [
-          1151,
+          1165,
           573
         ]
       },
@@ -37,12 +37,12 @@
       "status": "readable",
       "geometry": {
         "start": [
-          610,
-          570
+          611,
+          584
         ],
         "end": [
-          663,
-          1122
+          662,
+          1108
         ]
       },
       "attributes": {
@@ -56,11 +56,11 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1151,
+          1137,
           862
         ],
         "end": [
-          1163,
+          1177,
           862
         ]
       },
@@ -95,11 +95,11 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1308,
+          1322,
           732
         ],
         "end": [
-          1444,
+          1430,
           732
         ]
       },
@@ -115,11 +115,11 @@
       "geometry": {
         "start": [
           1441,
-          754
+          740
         ],
         "end": [
           1442,
-          1090
+          1104
         ]
       },
       "attributes": {
@@ -133,11 +133,11 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1305,
+          1291,
           1121
         ],
         "end": [
-          1446,
+          1460,
           1121
         ]
       },
@@ -171,11 +171,11 @@
       "geometry": {
         "start": [
           821,
-          672
+          658
         ],
         "end": [
           820,
-          826
+          840
         ]
       },
       "attributes": {
@@ -190,11 +190,11 @@
       "geometry": {
         "start": [
           1018,
-          615
+          601
         ],
         "end": [
           1018,
-          826
+          840
         ]
       },
       "attributes": {
@@ -208,11 +208,11 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1029,
+          1015,
           828
         ],
         "end": [
-          1151,
+          1165,
           832
         ]
       },
@@ -265,11 +265,11 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1031,
+          1045,
           611
         ],
         "end": [
-          1147,
+          1133,
           611
         ]
       },
@@ -285,11 +285,11 @@
       "geometry": {
         "start": [
           1150,
-          872
+          858
         ],
         "end": [
           1150,
-          1074
+          1088
         ]
       },
       "attributes": {
@@ -430,6 +430,82 @@
       },
       "notes": "missing r8",
       "id": "lab-r8"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1170,
+          741
+        ],
+        "end": [
+          1170,
+          853
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing2",
+      "id": "lab-m20"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1091,
+          1048
+        ],
+        "end": [
+          1135,
+          1048
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing2",
+      "id": "lab-m22"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1091,
+          1054
+        ],
+        "end": [
+          1135,
+          1054
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing2",
+      "id": "lab-m23"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1091,
+          1060
+        ],
+        "end": [
+          1135,
+          1060
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "missing2",
+      "id": "lab-m24"
     }
   ]
 }
