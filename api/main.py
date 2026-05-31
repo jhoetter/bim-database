@@ -1438,6 +1438,128 @@ def score_measurements_route(
     return {"ok": True, "data": res}
 
 
+@app.get("/datasets/{key}/{file}/building-silhouette", tags=["pdfs"])
+def building_silhouette_route(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 16,
+    thresh: int | None = None,
+    angle_tol_deg: float = 18.0,
+    min_area_frac: float = 0.02,
+):
+    """Shape-first decomposition (methodology §2): the outer silhouette as
+    ORDERED stepped polygon(s), one per connected mass (house vs detached garage
+    auto-separate), edges snapped to axis-aligned steps, non-wall specks dropped.
+    Wraps wall-outline + rectilinearize so the agent gets the masses in one call.
+    Returns {masses:[{polygon,area,bbox}], count}."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    from PIL import Image as PILImage
+    from .wall_geometry import building_silhouette
+    parsed = _parse_region(region)
+    with PILImage.open(img_path) as src:
+        src = src.convert("RGB")
+        res = building_silhouette(
+            src, region=parsed, min_wall_px=min_wall_px, thresh=thresh,
+            angle_tol_deg=angle_tol_deg, min_area_frac=min_area_frac,
+        )
+    res["params"] = {
+        "region": list(parsed) if parsed else None,
+        "min_wall_px": min_wall_px, "thresh": thresh,
+        "angle_tol_deg": angle_tol_deg, "min_area_frac": min_area_frac,
+    }
+    return {"ok": True, "data": res}
+
+
+@app.post("/datasets/{key}/{file}/propose-wall-edit", tags=["pdfs"])
+def propose_wall_edit_route(
+    key: str,
+    file: str,
+    body: dict[str, Any] = Body(...),
+):
+    """Atomic test-and-apply for ONE wall edit (methodology §5). Body:
+      {"candidate": {"op":"add|move|delete", ...}, "params": {..score-walls..},
+       "region": "x0,y0,x1,y1"|null, "apply": false}
+    where candidate.add={"op":"add","wall":[[x0,y0],[x1,y1]]},
+    move={"op":"move","index":i,"wall":[...]}, delete={"op":"delete","index":i}.
+    Scores the CURRENT saved walls and the candidate-edited walls with the
+    canonical params; returns {applied, gain, before, after, walls_after}. If
+    apply=true AND f1 improved, persists walls_after (non-wall labels preserved).
+    A delete that lowers recall scores worse and is rejected (never delete a real
+    wall to chase a metric). Removes the test-vs-apply desync."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    candidate = body.get("candidate")
+    if not isinstance(candidate, dict) or "op" not in candidate:
+        raise HTTPException(status_code=400, detail="body.candidate {op,...} required")
+    params = body.get("params") or {}
+    parsed = _parse_region(body.get("region"))
+    apply = bool(body.get("apply", False))
+    doc = get_labels("dataset", key, file)
+    walls = []
+    for lab in (doc.get("labels") or []):
+        if lab.get("type") != "wall":
+            continue
+        g = lab.get("geometry") or {}
+        s, e = g.get("start"), g.get("end")
+        if s and e:
+            walls.append(((float(s[0]), float(s[1])), (float(e[0]), float(e[1]))))
+    from PIL import Image as PILImage
+    from .wall_geometry import propose_wall_edit
+    try:
+        with PILImage.open(img_path) as src:
+            src = src.convert("RGB")
+            res = propose_wall_edit(src, walls, candidate, region=parsed, params=params)
+    except (ValueError, IndexError, KeyError) as ex:
+        raise HTTPException(status_code=400, detail=f"bad candidate: {ex}")
+    res["persisted"] = False
+    if apply and res.get("applied"):
+        non_walls = [l for l in (doc.get("labels") or []) if l.get("type") != "wall"]
+        new_walls = [{
+            "type": "wall",
+            "geometry": {"start": [w[0][0], w[0][1]], "end": [w[1][0], w[1][1]]},
+            "attributes": {"thickness_mm": None},
+            "status": "readable",
+        } for w in res["walls_after"]]
+        new_doc = dict(doc)
+        new_doc["labels"] = non_walls + new_walls
+        put_labels("dataset", key, file, new_doc)
+        res["persisted"] = True
+    return {"ok": True, "data": res}
+
+
+@app.post("/geometry/connect-corners", tags=["pdfs"])
+def connect_corners_route(body: dict[str, Any] = Body(...)):
+    """Pure geometry (methodology §3): given ORDERED fitted edges
+    [[[x0,y0],[x1,y1]], ...] (each ~a refine-wall band centerline), return walls
+    whose shared corners are the INTERSECTIONS of adjacent edges' lines, so the
+    shell is closed by construction (honors tilt; corners are not equal-y).
+    Body: {"edges": [...], "closed": true}. Returns {walls, count, closed}."""
+    edges = body.get("edges")
+    if not isinstance(edges, list) or not edges:
+        raise HTTPException(status_code=400, detail="body.edges (list of [start,end]) required")
+    closed = bool(body.get("closed", True))
+    from .wall_geometry import connect_corners
+    try:
+        pairs = [((e[0][0], e[0][1]), (e[1][0], e[1][1])) for e in edges]
+        walls = connect_corners(pairs, closed=closed)
+    except (IndexError, TypeError, ValueError) as ex:
+        raise HTTPException(status_code=400, detail=f"bad edges: {ex}")
+    return {"ok": True, "data": {
+        "walls": [[[w[0][0], w[0][1]], [w[1][0], w[1][1]]] for w in walls],
+        "count": len(walls), "closed": closed,
+    }}
+
+
 @app.get("/datasets/{key}/{file}/grid-with-labels", tags=["pdfs"])
 def render_scene_grid_with_labels(
     key: str,
