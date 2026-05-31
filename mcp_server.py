@@ -574,7 +574,7 @@ async def get_scene_view(
     key: str,
     file: str,
     region: str | None = None,
-    tiers: str = "broad,finer,detail",
+    tiers: str = "broad,finer",
     max_dim: int = 1600,
     enhance: str | None = None,
     format: str = "png8",
@@ -599,7 +599,9 @@ async def get_scene_view(
       key:     house key, e.g. "house-22".
       file:    scene filename, e.g. "house-22-ansicht-sued.jpg".
       region:  optional 'x0,y0,x1,y1' (source-pixel coords) — agent zoom.
-      tiers:   comma list of {broad, finer, detail}; default all three.
+      tiers:   comma list of {broad, finer, detail}; default broad+finer.
+               Pass detail only on small, intentional coordinate crops; it is
+               too dense for overview or label QA views.
       max_dim: cap on the longer side of the output PNG; default 1600.
       enhance: contrast lift for faint scans (issue #2): one of
                none|auto|clahe|threshold (default none). "auto"/"clahe"
@@ -710,7 +712,7 @@ async def get_scene_view_with_labels(
     key: str,
     file: str,
     region: str | None = None,
-    tiers: str = "broad,finer",
+    tiers: str = "broad",
     max_dim: int = 1600,
     enhance: str | None = None,
     format: str = "png8",
@@ -718,7 +720,7 @@ async def get_scene_view_with_labels(
     target: str | None = None,
     target_line: str = "none",
     background_opacity: float | None = None,
-    clean: bool = False,
+    clean: bool = True,
     contrast: str = "high",
     show_relations: str = "required",
     show_height_guides: str = "auto",
@@ -746,8 +748,8 @@ async def get_scene_view_with_labels(
       file:    scene filename.
       region:  optional 'x0,y0,x1,y1' (source-pixel coords) — zoom
                around the just-placed label for the closest look.
-      tiers:   comma list of {broad, finer, detail}. Default
-               'broad,finer' (detail is opt-in for zoom precision).
+      tiers:   comma list of {broad, finer, detail}. Default 'broad'.
+               Use denser tiers only for coordinate-reading views, not QA.
       max_dim: cap on the longer side of the output PNG; default 1600.
                Per H4, small region crops keep 1:1 native resolution.
       enhance: contrast lift for faint scans (issue #2):
@@ -765,7 +767,8 @@ async def get_scene_view_with_labels(
                normal labeling and 0.2 for visual QA so saved labels stand
                out strongly against faint source ink.
       clean:   When true, render semantic labels without the coordinate grid.
-               Verification/QA defaults should use clean=True.
+               Defaults true because verification/QA must distinguish source
+               ink from saved labels without grid noise.
       contrast:
                normal|high. High contrast keeps the same semantics but makes
                labels/chips stronger for agent QA.

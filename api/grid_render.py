@@ -238,7 +238,12 @@ def render_grid_overlay(
     canvas.paste(cropped, (0, 0), cropped if cropped.mode == "RGBA" else None)
 
     long_src = max(crop_src_w, crop_src_h)
-    # Nest the tiers so they coincide EXACTLY: broad = 5×finer, finer = 5×detail.
+    # Nest the tiers so they coincide EXACTLY where it remains legible:
+    # broad = 5×finer, finer ≈ 5×detail. Detail must never collapse into a
+    # 1–2 px mesh on tight crops; at that density it hides the drawing instead
+    # of helping coordinate reads. Keep at least a 6 source-px interval, which
+    # is still dense enough for fine placement on full-res scans but visually
+    # separable from source ink and label geometry.
     # Deriving each tier independently from a fraction of long_src lets integer
     # rounding split them — e.g. long=1080 → broad=int(1080/10)=108 but
     # 5×finer=5×int(1080/50)=5×21=105. The broad labels then land 3–9 px off
@@ -250,7 +255,7 @@ def render_grid_overlay(
     # source px at 0-px offset); this is a label-legibility fix.
     finer_step = max(1, round(long_src * _TIER_FRACTION["finer"]))
     broad_step = 5 * finer_step
-    detail_step = max(1, finer_step // 5)
+    detail_step = max(6, finer_step // 5)
     spec = _Spec(
         out_w=cw,
         out_h=ch,
@@ -380,7 +385,7 @@ def _multicolor_line(
         return _with_alpha(color, 245)
     if tier == "finer":
         return _with_alpha(color, 165)
-    return _with_alpha(color, 75)
+    return _with_alpha(color, 35)
 
 
 def _draw_tier_lines(

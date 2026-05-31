@@ -221,7 +221,7 @@ def render_grid_with_labels(
                 pts = [to_out(p) for p in quad]
                 kind = (lab.get("attributes") or {}).get("opening_kind") or "window"
                 color = _opening_color(kind)
-                draw.polygon(pts, fill=_with_alpha(color, 36 if contrast == "normal" else 54), outline=color)
+                draw.polygon(pts, fill=_with_alpha(color, 18 if contrast == "normal" else 28), outline=color)
                 _draw_floorplan_opening_inner(draw, pts, lab.get("attributes") or {}, color)
                 if not _has_relation(lab, "belongs_to"):
                     _warn(draw, chip_font, "no parent wall", _poly_center(pts), out_w, out_h)
@@ -236,7 +236,7 @@ def render_grid_with_labels(
                 if r > 0:
                     draw.ellipse(
                         [center[0] - r, center[1] - r, center[0] + r, center[1] + r],
-                        fill=_with_alpha(color, 32 if contrast == "normal" else 48),
+                        fill=_with_alpha(color, 16 if contrast == "normal" else 26),
                         outline=color,
                         width=_OPENING_WIDTH,
                     )
@@ -253,7 +253,7 @@ def render_grid_with_labels(
                 if r > 0:
                     draw.ellipse(
                         [center[0] - r, center[1] - r, center[0] + r, center[1] + r],
-                        fill=_with_alpha(color, 32 if contrast == "normal" else 48),
+                        fill=_with_alpha(color, 16 if contrast == "normal" else 26),
                         outline=color,
                         width=_OPENING_WIDTH,
                     )
@@ -267,7 +267,7 @@ def render_grid_with_labels(
             elif "polygon" in geom:
                 pts = [to_out(p) for p in geom["polygon"]]
                 if len(pts) >= 3:
-                    draw.polygon(pts, fill=_with_alpha(color, 32 if contrast == "normal" else 48), outline=color)
+                    draw.polygon(pts, fill=_with_alpha(color, 16 if contrast == "normal" else 26), outline=color)
                     _chip(draw, chip_font, str(kind), _poly_center(pts), out_w, out_h)
                     if frame_visible:
                         draw.line(pts + [pts[0]], fill=color, width=_OPENING_WIDTH + 1)
@@ -276,7 +276,7 @@ def render_grid_with_labels(
                 bottom = [to_out(p) for p in (geom.get("bottom_edge") or [])]
                 if len(top) >= 2 and len(bottom) >= 2:
                     body = top + list(reversed(bottom))
-                    draw.polygon(body, fill=_with_alpha(color, 32 if contrast == "normal" else 48), outline=color)
+                    draw.polygon(body, fill=_with_alpha(color, 16 if contrast == "normal" else 26), outline=color)
                     if frame_visible:
                         draw.line(body + [body[0]], fill=color, width=_OPENING_WIDTH + 1)
                 for k in ("top_edge", "bottom_edge"):

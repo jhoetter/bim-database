@@ -1255,7 +1255,7 @@ def render_scene_grid(
     key: str,
     file: str,
     region: str | None = None,
-    tiers: str = "broad,finer,detail",
+    tiers: str = "broad,finer",
     max_dim: int = 1600,
     enhance: str | None = None,
     format: str | None = None,
@@ -1268,7 +1268,7 @@ def render_scene_grid(
 
     Query args:
       region   optional 'x0,y0,x1,y1' (source-pixel coords) — agent zoom
-      tiers    comma list of {broad, finer, detail}; default all three
+      tiers    comma list of {broad, finer, detail}; default broad+finer
       max_dim  cap on the longer side of the output PNG; default 1600
       enhance  contrast lift for faint scans (issue #2): none|auto|clahe|
                threshold. Default none. Changes pixel intensity only, so
