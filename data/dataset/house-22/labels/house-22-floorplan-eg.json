@@ -56,12 +56,12 @@
       "status": "readable",
       "geometry": {
         "start": [
-          628,
-          1104
+          640,
+          1099
         ],
         "end": [
-          1163,
-          1124
+          1150,
+          1091
         ]
       },
       "attributes": {
