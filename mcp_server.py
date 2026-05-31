@@ -2368,6 +2368,14 @@ async def upsert_label(
              `type`, `geometry`. The tool defaults `status='readable'`
              and `attributes={}` if absent.
 
+             Scene-category palette is enforced by the API:
+               grundriss: wall, floorplan_opening, dimensioned_distance,
+                          dimension_number
+               ansicht/schnitt: view_opening, component_line, height_mark,
+                                dimensioned_distance, dimension_number
+               sonstiges: all label types
+             Example: `height_mark` on a `grundriss` is rejected.
+
              Geometry uses [x, y] ARRAYS, not {x, y} objects:
                wall:                 {start: [x,y], end: [x,y]}
                floorplan_opening:    {quad: [[x,y],[x,y],[x,y],[x,y]]}

@@ -372,6 +372,66 @@ def _recompute_facts_from_scratch(key: str) -> dict:
     return recompute_facts_after_label_write(key, dataset_root=DATASET_DIR)
 
 
+_LABEL_TYPES_BY_SCENE_TAG = {
+    "grundriss": {
+        "wall",
+        "floorplan_opening",
+        "dimensioned_distance",
+        "dimension_number",
+    },
+    "ansicht": {
+        "view_opening",
+        "component_line",
+        "height_mark",
+        "dimensioned_distance",
+        "dimension_number",
+    },
+    "schnitt": {
+        "view_opening",
+        "component_line",
+        "height_mark",
+        "dimensioned_distance",
+        "dimension_number",
+    },
+    "sonstiges": {
+        "wall",
+        "floorplan_opening",
+        "view_opening",
+        "component_line",
+        "height_mark",
+        "dimensioned_distance",
+        "dimension_number",
+    },
+    "nicht_klassifiziert": set(),
+}
+
+
+def _validate_scene_tag_label_palette(payload: dict[str, Any]) -> None:
+    """Reject labels that the scene category cannot semantically support.
+
+    The SPA tool palette is only a UI affordance; MCP and direct HTTP writes
+    must get the same guard here so invalid labels cannot be persisted.
+    """
+    scene_tag = payload.get("scene_tag") or "nicht_klassifiziert"
+    allowed = _LABEL_TYPES_BY_SCENE_TAG.get(scene_tag)
+    if allowed is None:
+        raise HTTPException(status_code=400, detail=f"unknown scene_tag {scene_tag!r}")
+    labels = payload.get("labels") or []
+    bad = sorted({
+        str(lab.get("type"))
+        for lab in labels
+        if isinstance(lab, dict) and lab.get("type") not in allowed
+    })
+    if bad:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"label type(s) {bad} not allowed on scene_tag={scene_tag!r}; "
+                f"allowed={sorted(allowed)}"
+            ),
+        )
+
+
 @app.get("/labels/{scope}/{key}/{file}", tags=["labels"])
 def get_labels(scope: str, key: str, file: str):
     """Return the label set for one scene. If no labels file exists yet,
@@ -397,6 +457,7 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
     payload.setdefault("scope", scope)
     payload.setdefault("scene_key", key)
     payload.setdefault("scene_file", file)
+    _validate_scene_tag_label_palette(payload)
     if _jsonschema and LABELS_SCHEMA:
         try:
             _jsonschema.validate(payload, LABELS_SCHEMA)
