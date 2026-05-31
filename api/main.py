@@ -2066,7 +2066,10 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
                     pdf, page_n, dpi, clip_pdf_units=(x0, y0, x1, y1)
                 )
                 if fb is not None and not _image_is_blank(fb):
-                    fb.save(str(out_path), format="JPEG", quality=100)
+                    if str(out_path).lower().endswith(".png"):
+                        fb.save(str(out_path), format="PNG", optimize=True)
+                    else:
+                        fb.save(str(out_path), format="JPEG", quality=100)
                 else:
                     raise HTTPException(
                         status_code=422,
@@ -2079,7 +2082,10 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
                         ),
                     )
             else:
-                pix.pil_save(str(out_path), format="JPEG", quality=100)
+                if str(out_path).lower().endswith(".png"):
+                    pix.pil_save(str(out_path), format="PNG")
+                else:
+                    pix.pil_save(str(out_path), format="JPEG", quality=100)
 
             entry = {
                 "file": file_name,
