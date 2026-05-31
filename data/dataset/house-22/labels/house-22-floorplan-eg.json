@@ -335,6 +335,44 @@
       },
       "notes": "interior c5 horiz",
       "id": "lab-c5c1"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1140,
+          873
+        ],
+        "end": [
+          1140,
+          1073
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior c7 vert1140",
+      "id": "lab-c7v1"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1095,
+          871
+        ],
+        "end": [
+          1115,
+          1073
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior c7 vert1095",
+      "id": "lab-c7v2"
     }
   ]
 }
