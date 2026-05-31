@@ -56,25 +56,6 @@
       "status": "readable",
       "geometry": {
         "start": [
-          640,
-          1099
-        ],
-        "end": [
-          1150,
-          1091
-        ]
-      },
-      "attributes": {
-        "thickness_mm": 240
-      },
-      "notes": "exterior bottom",
-      "id": "lab-fef965bcce"
-    },
-    {
-      "type": "wall",
-      "status": "readable",
-      "geometry": {
-        "start": [
           1151,
           862
         ],
