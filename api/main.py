@@ -968,10 +968,14 @@ def _consolidated_path(key: str) -> Path:
 
 
 @app.get("/pdfs/{key}/page/{n}", tags=["pdfs"])
-def render_pdf_page(key: str, n: int, dpi: int = 96):
+def render_pdf_page(key: str, n: int, dpi: int = 300):
     """R2 — render PDF page `n` (1-indexed) at the given DPI as a JPEG.
     Cached on disk under tmp/pdf-cache/<key>/page-<n>-<dpi>.jpg keyed on
-    the source PDF's mtime so edits invalidate stale crops."""
+    the source PDF's mtime so edits invalidate stale crops.
+
+    Quality-first: default 300 dpi (was 96) so the pre-extraction page view
+    + grid coordinates are read off near-native resolution, not a coarse
+    proxy. Cap stays 600 (>= the ~429 dpi native scan; higher only upscales)."""
     _safe_key(key)
     if dpi <= 0 or dpi > 600:
         raise HTTPException(status_code=400, detail="dpi must be in (0, 600]")
@@ -995,10 +999,10 @@ def render_pdf_page(key: str, n: int, dpi: int = 96):
             if _pixmap_is_blank(pix):
                 fb = _render_page_poppler(pdf, n, dpi)
                 if fb is not None and not _image_is_blank(fb):
-                    fb.save(str(out), format="JPEG", quality=85)
+                    fb.save(str(out), format="JPEG", quality=95)
                     sentinel.write_text(str(pdf_mtime))
                     return FileResponse(str(out), media_type="image/jpeg")
-            pix.pil_save(str(out), format="JPEG", quality=85)
+            pix.pil_save(str(out), format="JPEG", quality=95)
         sentinel.write_text(str(pdf_mtime))
     return FileResponse(str(out), media_type="image/jpeg")
 
@@ -1041,7 +1045,7 @@ GRID_FORMATS = ("png", "png8")
 def _parse_format(fmt: str | None) -> str:
     """Validate the grid output `format` query arg (issue #3). Returns a
     normalized value; defaults to the cheaper palette PNG."""
-    f = (fmt or "png8").strip().lower()
+    f = (fmt or "png").strip().lower()
     if f not in GRID_FORMATS:
         raise HTTPException(
             status_code=400,
@@ -1573,7 +1577,7 @@ def resolve_scene_point(
 def render_pdf_page_grid(
     key: str,
     n: int,
-    dpi: int = 144,
+    dpi: int = 300,
     tiers: str = "broad,finer,detail",
     region: str | None = None,
     max_dim: int = 1600,
@@ -1959,7 +1963,7 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
             kind = (raw.get("kind") or "detail").strip().lower()
             view = raw.get("view")
             floor = raw.get("floor")
-            dpi = int(raw.get("dpi", 300))
+            dpi = int(raw.get("dpi", 600))
             if dpi <= 0 or dpi > 1200:
                 raise HTTPException(status_code=400, detail="dpi out of range")
 
@@ -2053,7 +2057,7 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
                     pdf, page_n, dpi, clip_pdf_units=(x0, y0, x1, y1)
                 )
                 if fb is not None and not _image_is_blank(fb):
-                    fb.save(str(out_path), format="JPEG", quality=92)
+                    fb.save(str(out_path), format="JPEG", quality=100)
                 else:
                     raise HTTPException(
                         status_code=422,
@@ -2066,7 +2070,7 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
                         ),
                     )
             else:
-                pix.pil_save(str(out_path), format="JPEG", quality=92)
+                pix.pil_save(str(out_path), format="JPEG", quality=100)
 
             entry = {
                 "file": file_name,
