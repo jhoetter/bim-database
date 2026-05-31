@@ -1086,6 +1086,78 @@ def _parse_region(region: str | None) -> tuple[int, int, int, int] | None:
     return (parts[0], parts[1], parts[2], parts[3])
 
 
+def _parse_grid_style(style: str | None) -> str:
+    s = (style or "standard").strip().lower()
+    if s not in ("standard", "coordinate_audit", "coordinate_pair", "coordinate_multicolor"):
+        raise HTTPException(
+            status_code=400,
+            detail="style must be standard, coordinate_audit, coordinate_pair, or coordinate_multicolor",
+        )
+    return s
+
+
+def _parse_target(target: str | None) -> tuple[int, int] | None:
+    if not target:
+        return None
+    try:
+        parts = [int(p) for p in target.split(",")]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="target must be 'x,y' integers")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="target must be 'x,y' (2 ints)")
+    return (parts[0], parts[1])
+
+
+def _parse_target_line(target_line: str | None) -> str:
+    t = (target_line or "none").strip().lower()
+    if t not in ("vertical", "horizontal", "none"):
+        raise HTTPException(status_code=400, detail="target_line must be vertical, horizontal, or none")
+    return t
+
+
+def _parse_background_opacity(background_opacity: float | None) -> tuple[float, bool]:
+    if background_opacity is None:
+        return 0.5, False
+    try:
+        value = float(background_opacity)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="background_opacity must be a number in (0, 1]")
+    if not 0.0 < value <= 1.0:
+        raise HTTPException(status_code=400, detail="background_opacity must be in (0, 1]")
+    return value, True
+
+
+def _parse_contrast(contrast: str | None) -> str:
+    value = (contrast or "high").strip().lower()
+    if value not in ("normal", "high"):
+        raise HTTPException(status_code=400, detail="contrast must be normal or high")
+    return value
+
+
+def _parse_show_relations(show_relations: str | None) -> str:
+    value = (show_relations or "required").strip().lower()
+    if value not in ("required", "all", "none"):
+        raise HTTPException(status_code=400, detail="show_relations must be required, all, or none")
+    return value
+
+
+def _scene_px_per_mm(key: str, file: str) -> float | None:
+    facts_path = DATASET_DIR / key / "house_facts.json"
+    if not facts_path.exists():
+        return None
+    try:
+        facts = json.loads(facts_path.read_text())
+    except json.JSONDecodeError:
+        return None
+    calib = ((facts.get("calibration_per_scene") or {}).get(file) or {})
+    value = calib.get("px_per_mm")
+    try:
+        px_per_mm = float(value)
+    except (TypeError, ValueError):
+        return None
+    return px_per_mm if px_per_mm > 0 else None
+
+
 @app.get("/datasets/{key}/{file}/grid", tags=["pdfs"])
 def render_scene_grid(
     key: str,
@@ -1095,6 +1167,10 @@ def render_scene_grid(
     max_dim: int = 1600,
     enhance: str | None = None,
     format: str | None = None,
+    style: str | None = None,
+    target: str | None = None,
+    target_line: str | None = None,
+    background_opacity: float | None = None,
 ):
     """Agent vision aid: scene image + coordinate-anchored grid overlay.
 
@@ -1109,6 +1185,9 @@ def render_scene_grid(
                PNG, typically 2-4x smaller than RGBA at near-identical
                legibility, to cut the token cost of each read. Pass
                format=png for full-fidelity RGBA.
+      background_opacity  optional fade of the source drawing against white
+               in (0,1]. Defaults to 0.5; enhanced images raise to 0.85
+               only when this parameter is omitted.
 
     Returns image/png; cached on disk under tmp/grid-cache/. The coordinate
     labels in the output reference SOURCE pixels, so the agent can take a
@@ -1127,6 +1206,10 @@ def render_scene_grid(
     parsed_region = _parse_region(region)
     parsed_enhance = _parse_enhance(enhance)
     parsed_format = _parse_format(format)
+    parsed_style = _parse_grid_style(style)
+    parsed_target = _parse_target(target)
+    parsed_target_line = _parse_target_line(target_line)
+    parsed_opacity, opacity_explicit = _parse_background_opacity(background_opacity)
 
     img_mtime = img_path.stat().st_mtime_ns
     cache_root = GRID_CACHE / "scene" / key
@@ -1137,6 +1220,10 @@ def render_scene_grid(
         f"-t{'_'.join(parsed_tiers)}"
         f"-m{max_dim}"
         f"-e{parsed_enhance}"
+        f"-s{parsed_style}"
+        f"-g{target or 'none'}"
+        f"-gl{parsed_target_line}"
+        f"-o{parsed_opacity:g}x{int(opacity_explicit)}"
         f"-f{parsed_format}.png"
     )
     out = cache_root / cache_name
@@ -1158,7 +1245,12 @@ def render_scene_grid(
                 region=parsed_region,
                 max_dim=max_dim,
                 enhance=parsed_enhance,
+                background_opacity=parsed_opacity,
+                background_opacity_explicit=opacity_explicit,
                 source_dpi=_scene_dpi,
+                style=parsed_style,
+                target=parsed_target,
+                target_line=parsed_target_line,  # type: ignore[arg-type]
             )
         _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(str(img_mtime))
@@ -1438,6 +1530,52 @@ def score_measurements_route(
     return {"ok": True, "data": res}
 
 
+@app.get("/datasets/{key}/{file}/dimension-chain-candidates", tags=["pdfs"])
+def dimension_chain_candidates_route(
+    key: str,
+    file: str,
+    region: str | None = None,
+    orientation: str | None = None,
+    thresh: int = 205,
+    min_line_frac: float = 0.25,
+    min_tick_px: int = 12,
+    tick_search_px: int = 45,
+    pad_px: int = 80,
+):
+    """Dimension-chain context-gatherer for measurement-first labeling.
+
+    Given an optional scene region, returns a deterministic positional prior:
+    the strongest likely dimension line, its running orientation, tick
+    positions, and a tight crop region. It does not read text or values; the
+    harness vision model reads the returned crop and writes
+    dimensioned_distance + dimension_number labels.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    if orientation not in (None, "horizontal", "vertical"):
+        raise HTTPException(status_code=400, detail="orientation must be horizontal, vertical, or omitted")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    from PIL import Image as PILImage
+    from .dimension_chain import detect_dimension_chain
+    parsed = _parse_region(region)
+    with PILImage.open(img_path) as src:
+        src = src.convert("RGB")
+        res = detect_dimension_chain(
+            src,
+            region=parsed,
+            orientation=orientation,  # type: ignore[arg-type]
+            thresh=thresh,
+            min_line_frac=min_line_frac,
+            min_tick_px=min_tick_px,
+            tick_search_px=tick_search_px,
+            pad_px=pad_px,
+        )
+    return {"ok": True, "data": res}
+
+
 @app.get("/datasets/{key}/{file}/building-silhouette", tags=["pdfs"])
 def building_silhouette_route(
     key: str,
@@ -1570,6 +1708,13 @@ def render_scene_grid_with_labels(
     enhance: str | None = None,
     format: str | None = None,
     clean: bool = False,
+    style: str | None = None,
+    target: str | None = None,
+    target_line: str | None = None,
+    background_opacity: float | None = None,
+    contrast: str | None = None,
+    show_relations: str | None = None,
+    include_hidden: bool = False,
 ):
     """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
     SAVED labels rendered on top. Used by `get_scene_view_with_labels`
@@ -1593,6 +1738,14 @@ def render_scene_grid_with_labels(
     parsed_region = _parse_region(region)
     parsed_enhance = _parse_enhance(enhance)
     parsed_format = _parse_format(format)
+    parsed_style = _parse_grid_style(style)
+    parsed_target = _parse_target(target)
+    parsed_target_line = _parse_target_line(target_line)
+    parsed_opacity, opacity_explicit = _parse_background_opacity(background_opacity)
+    if clean and background_opacity is None:
+        parsed_opacity, opacity_explicit = 0.2, True
+    parsed_contrast = _parse_contrast(contrast)
+    parsed_show_relations = _parse_show_relations(show_relations)
 
     label_path = _safe_label_path("dataset", key, file)
     img_mtime = img_path.stat().st_mtime_ns
@@ -1607,6 +1760,13 @@ def render_scene_grid_with_labels(
         f"-m{max_dim}"
         f"-e{parsed_enhance}"
         f"-c{int(bool(clean))}"
+        f"-s{parsed_style}"
+        f"-g{target or 'none'}"
+        f"-gl{parsed_target_line}"
+        f"-o{parsed_opacity:g}x{int(opacity_explicit)}"
+        f"-k{parsed_contrast}"
+        f"-rel{parsed_show_relations}"
+        f"-ih{int(bool(include_hidden))}"
         f"-f{parsed_format}.png"
     )
     out = cache_root / cache_name
@@ -1620,6 +1780,9 @@ def render_scene_grid_with_labels(
             try:
                 lbl_doc = json.loads(label_path.read_text())
                 labels = lbl_doc.get("labels") or []
+                hidden = set(((lbl_doc.get("display") or {}).get("hidden_label_ids") or []))
+                if hidden and not include_hidden:
+                    labels = [lab for lab in labels if lab.get("id") not in hidden]
             except json.JSONDecodeError:
                 labels = []
         with PILImage.open(img_path) as src:
@@ -1631,6 +1794,14 @@ def render_scene_grid_with_labels(
                 max_dim=max_dim,
                 enhance=parsed_enhance,
                 clean=bool(clean),
+                style=parsed_style,
+                target=parsed_target,
+                target_line=parsed_target_line,
+                background_opacity=parsed_opacity,
+                background_opacity_explicit=opacity_explicit,
+                contrast=parsed_contrast,
+                px_per_mm=_scene_px_per_mm(key, file),
+                show_relations=parsed_show_relations,
             )
         _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(cache_key)

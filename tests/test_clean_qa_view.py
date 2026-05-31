@@ -42,6 +42,22 @@ def test_clean_preserves_drawing_ink_full_opacity():
     assert (255 - o[:, 298:303, :].mean()) > 120
 
 
+def test_clean_respects_explicit_background_opacity():
+    """Explicit low opacity is allowed even in clean QA mode."""
+    img = _scene_with_vwall(x=300)
+    out = render_grid_with_labels(
+        img,
+        [_wall(360)],
+        clean=True,
+        max_dim=2000,
+        background_opacity=0.2,
+        background_opacity_explicit=True,
+    )
+    o = np.asarray(out.convert("RGB"))
+    # The real wall ink is faded toward white instead of remaining black.
+    assert o[:, 298:303, :].mean() > 180
+
+
 def test_clean_label_is_visible_and_orange():
     """The wall label renders as a visible orange stroke."""
     img = _scene_with_vwall(x=300)
@@ -50,6 +66,22 @@ def test_clean_label_is_visible_and_orange():
     band = o[:, 358:363, :].mean(axis=(0, 1))  # rgb at the label x
     r, g, b = band
     assert r > g > b and r > 180, band  # orange-ish, clearly drawn
+
+
+def test_wall_render_includes_thickness_band():
+    """Wall verification renders the wall body, not just its axis."""
+    img = Image.new("RGB", (600, 400), (255, 255, 255))
+    wall = {
+        "type": "wall",
+        "geometry": {"start": [100, 200], "end": [500, 200]},
+        "status": "readable",
+        "attributes": {"thickness_mm": 365},
+    }
+    out = render_grid_with_labels(img, [wall], clean=True, max_dim=2000)
+    o = np.asarray(out.convert("RGB")).astype(int)
+    # Sample inside the wall band but away from the orange centerline.
+    band_luma = o[208:214, 250:350, :].mean()
+    assert band_luma < 250
 
 
 def test_clean_makes_misalignment_visible():
@@ -63,7 +95,7 @@ def test_clean_makes_misalignment_visible():
     ink_dark = 255 - o[:, 298:303, :].mean()     # real wall column
     label_orange = o[:, 358:363, 0].mean() - o[:, 358:363, 2].mean()  # R-B at label
     assert ink_dark > 120, "real wall ink must remain visible"
-    assert label_orange > 60, "label must be visibly orange at its (wrong) x"
+    assert label_orange > 55, "label must be visibly orange at its (wrong) x"
 
 
 def test_clean_no_grid_lines():

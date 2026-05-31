@@ -34,7 +34,7 @@ from mcp.types import ImageContent, TextContent
 
 # Server identity — version is read by the skill at startup to verify
 # compatibility (tracker §6.3). Bump MAJOR on any tool signature break.
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 
 API_BASE = os.environ.get("BIM_DATABASE_API_BASE", "http://127.0.0.1:12500").rstrip("/")
 HEALTH_PROBE_TIMEOUT_S = float(os.environ.get("BIM_MCP_HEALTH_TIMEOUT_S", "10"))
@@ -578,6 +578,14 @@ async def get_scene_view(
     max_dim: int = 1600,
     enhance: str | None = None,
     format: str = "png8",
+    style: str = "standard",
+    target: str | None = None,
+    target_line: str = "none",
+    background_opacity: float | None = None,
+    clean: bool = False,
+    contrast: str = "high",
+    show_relations: str = "required",
+    include_hidden: bool = False,
 ) -> list[ImageContent | TextContent]:
     """Scene image with the three-tier coordinate grid overlay.
 
@@ -609,6 +617,16 @@ async def get_scene_view(
                reads one image per write, so this multiplies how much of
                a drive fits in context. Pass format="png" only when you
                need full-fidelity colour.
+      style:   standard|coordinate_multicolor|coordinate_audit|coordinate_pair.
+               Use coordinate_multicolor for hard coordinate reads: every
+               tier's grid lines cycle through distinct colours and the
+               coordinate labels are colour-matched to their lines, making
+               it easier to trace a point back to its x/y labels.
+      background_opacity:
+               Optional source drawing opacity in (0,1]. Use about 0.5 for
+               labeling/placement and 0.2 for QA when you want labels and
+               grid to dominate. If omitted, enhanced views keep the legacy
+               contrast-preserving fade.
 
     Per H4 (followups-2 tracker): when `region` is given, the output
     keeps 1:1 native resolution up to `max_dim`. A 400×400 crop comes
@@ -622,11 +640,18 @@ async def get_scene_view(
     un-cropped scene.
     """
     started = time.time()
-    params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim, "format": format}
+    params: dict[str, Any] = {
+        "tiers": tiers, "max_dim": max_dim, "format": format,
+        "style": style, "target_line": target_line,
+    }
     if region:
         params["region"] = region
     if enhance:
         params["enhance"] = enhance
+    if target:
+        params["target"] = target
+    if background_opacity is not None:
+        params["background_opacity"] = background_opacity
     try:
         status, content, ctype = await _api_get_bytes(f"/datasets/{key}/{file}/grid", params=params)
     except (httpx.HTTPError, httpx.RequestError):
@@ -675,6 +700,10 @@ async def get_scene_view(
             "max_dim": max_dim,
             "enhance": enhance or "none",
             "format": format,
+            "style": style,
+            "target": target,
+            "target_line": target_line,
+            "background_opacity": background_opacity,
         }, started_at=started, status_code=status), indent=2),
     )
     return [image, text]
@@ -689,6 +718,10 @@ async def get_scene_view_with_labels(
     max_dim: int = 1600,
     enhance: str | None = None,
     format: str = "png8",
+    style: str = "standard",
+    target: str | None = None,
+    target_line: str = "none",
+    background_opacity: float | None = None,
 ) -> list[ImageContent | TextContent]:
     """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
     on top. This is the agent's verify view — call it after every
@@ -722,18 +755,35 @@ async def get_scene_view_with_labels(
       format:  png|png8 (issue #3). Default png8 — the cheaper palette
                PNG. Use it for the verify-after-place loop to keep each
                read affordable; pass format="png" for full-fidelity RGBA.
+      style:   standard|coordinate_multicolor|coordinate_audit|coordinate_pair.
+               coordinate_multicolor is the preferred coordinate-audit
+               style when verifying exact placement because line colours
+               repeat as landmarks and labels match their line colour.
+      background_opacity:
+               Optional source drawing opacity in (0,1]. Use about 0.5 for
+               normal labeling and 0.2 for visual QA so saved labels stand
+               out strongly against faint source ink.
+      clean:   When true, render semantic labels without the coordinate grid.
+               Verification/QA defaults should use clean=True.
+      contrast:
+               normal|high. High contrast keeps the same semantics but makes
+               labels/chips stronger for agent QA.
+      show_relations:
+               required|all|none. Required shows correctness-critical links
+               such as opening→wall and dimension number→distance.
+      include_hidden:
+               When false, respect display.hidden_label_ids like the UI.
 
     Returns: one ImageContent (PNG) + one TextContent envelope.
 
     Render vocabulary:
-      orange thick stroke      — wall
-      magenta outline          — opening (floorplan or view)
-      teal polyline            — component_line
-      dark blue dot + faint H line — height_mark
-      green stroke + arrow caps + value chip — dimensioned_distance
-      red stroke (thicker)     — dimensioned_distance with is_reference
-      grey text chip           — dimension_number
-      orange ring around endpoint — label with status='uncertain'
+      wall body band + axis    — wall (thickness_mm is rendered)
+      opening body + internals — opening (door swing/window sash when known)
+      polyline/region          — component_line
+      datum marker + line      — height_mark (Bezug is visually distinct)
+      dimension + caps + value — dimensioned_distance
+      text chip / bbox         — dimension_number
+      warning chips/rings      — uncertain/missing/not_readable
 
     Per the H5 verify loop (followups-2-tracker), the agent should
     inspect this image after EVERY geometry write. If the rendered
@@ -742,11 +792,24 @@ async def get_scene_view_with_labels(
     `status: uncertain` on the closest if it still misses.
     """
     started = time.time()
-    params: dict[str, Any] = {"tiers": tiers, "max_dim": max_dim, "format": format}
+    effective_background_opacity = background_opacity
+    if clean and effective_background_opacity is None:
+        effective_background_opacity = 0.2
+    params: dict[str, Any] = {
+        "tiers": tiers, "max_dim": max_dim, "format": format,
+        "style": style, "target_line": target_line,
+        "clean": clean, "contrast": contrast,
+        "show_relations": show_relations,
+        "include_hidden": include_hidden,
+    }
     if region:
         params["region"] = region
     if enhance:
         params["enhance"] = enhance
+    if target:
+        params["target"] = target
+    if effective_background_opacity is not None:
+        params["background_opacity"] = effective_background_opacity
     try:
         status, content, ctype = await _api_get_bytes(
             f"/datasets/{key}/{file}/grid-with-labels", params=params,
@@ -792,6 +855,15 @@ async def get_scene_view_with_labels(
             "labels_in_view": label_summaries,
             "region": region,
             "tiers": tiers.split(","),
+            "style": style,
+            "target": target,
+            "target_line": target_line,
+            "background_opacity": effective_background_opacity,
+            "clean": clean,
+            "contrast": contrast,
+            "show_relations": show_relations,
+            "include_hidden": include_hidden,
+            "render_contract_version": "labeling-render-contract/2026-05-31",
             "hint": (
                 "Verify the rendered geometry lands on the intended feature. "
                 "If a label is off, update_label_attrs (preferred for small "
@@ -814,6 +886,10 @@ async def verify_label_placement(
     enhance: str | None = None,
     format: str = "png8",
     snap_radius_px: int = 18,
+    background_opacity: float | None = None,
+    contrast: str = "high",
+    show_relations: str = "required",
+    include_hidden: bool = False,
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
     a single label so the agent doesn't have to compute the region.
@@ -843,6 +919,15 @@ async def verify_label_placement(
                  none|auto|clahe|threshold (default none).
       format:    png|png8 (issue #3). Default png8 — the cheaper palette
                  PNG; ideal for the verify-after-place loop.
+      background_opacity:
+                 Optional source drawing opacity in (0,1]. For placement
+                 verification use 0.2 to make saved geometry dominate while
+                 retaining enough source ink to spot misses.
+      contrast:  normal|high. Defaults high for QA.
+      show_relations:
+                 required|all|none relation cues. Defaults required.
+      include_hidden:
+                 Include labels hidden in the UI display preferences.
       snap_radius_px: search radius for the numeric offset check (issue
                  #10). The envelope reports `offset_px` — the vector from
                  the label's anchor to the nearest drawn feature — so you
@@ -911,6 +996,11 @@ async def verify_label_placement(
         key=key, file=file, region=region, tiers=tiers, max_dim=max_dim,
         enhance=enhance,
         format=format,
+        background_opacity=background_opacity,
+        clean=True,
+        contrast=contrast,
+        show_relations=show_relations,
+        include_hidden=include_hidden,
     )
 
     # Issue #10: numeric offset feedback. How far is the label's anchor
@@ -1786,6 +1876,128 @@ async def score_measurements(
     started = time.time()
     params: dict = {"tol_px": tol_px, "axis_tol_px": axis_tol_px}
     return await _cv_get(f"/datasets/{key}/{file}/score-measurements", params, started)
+
+
+@mcp.tool()
+async def dimension_chain_candidates(
+    key: str,
+    file: str,
+    region: str | None = None,
+    orientation: str | None = None,
+    thresh: int = 205,
+    min_line_frac: float = 0.25,
+    min_tick_px: int = 12,
+    tick_search_px: int = 45,
+    pad_px: int = 80,
+) -> dict:
+    """Dimension-chain context-gatherer for measurement-first labeling.
+
+    USE before wall placement on Grundriss scenes:
+      - Pass a region around a visible dimension chain.
+      - The tool returns a likely running line, tick positions, and a tight
+        crop_region for the harness vision model to read the printed values.
+
+    IMPORTANT: this is CV-as-prior only. It never reads text/OCR and is not
+    authoritative. The agent reads values from the returned crop, then writes
+    dimensioned_distance + dimension_number labels via upsert_label or
+    add_reference_dim.
+    """
+    started = time.time()
+    params: dict = {
+        "thresh": thresh,
+        "min_line_frac": min_line_frac,
+        "min_tick_px": min_tick_px,
+        "tick_search_px": tick_search_px,
+        "pad_px": pad_px,
+    }
+    if region is not None:
+        params["region"] = region
+    if orientation is not None:
+        params["orientation"] = orientation
+    return await _cv_get(f"/datasets/{key}/{file}/dimension-chain-candidates", params, started)
+
+
+@mcp.tool()
+async def dimension_chain_context(
+    key: str,
+    file: str,
+    region: str | None = None,
+    orientation: str | None = None,
+    thresh: int = 205,
+    min_line_frac: float = 0.25,
+    min_tick_px: int = 12,
+    tick_search_px: int = 45,
+    pad_px: int = 80,
+    tiers: str = "finer,detail",
+    max_dim: int = 1600,
+    enhance: str | None = "auto",
+    format: str = "png8",
+) -> list[ImageContent | TextContent]:
+    """Find a dimension chain and return the tight crop image + tick metadata.
+
+    This is the one-call measurement-first context gatherer:
+      MCP prepares a crop and tick priors; the harness vision-LLM reads the
+      printed values from the returned image; then the agent writes
+      dimensioned_distance + dimension_number labels.
+
+    No OCR/text reading happens here.
+    """
+    started = time.time()
+    params: dict = {
+        "thresh": thresh,
+        "min_line_frac": min_line_frac,
+        "min_tick_px": min_tick_px,
+        "tick_search_px": tick_search_px,
+        "pad_px": pad_px,
+    }
+    if region is not None:
+        params["region"] = region
+    if orientation is not None:
+        params["orientation"] = orientation
+    status, body = await _api_get(f"/datasets/{key}/{file}/dimension-chain-candidates", params)
+    if status >= 400 or not (body or {}).get("ok"):
+        return _wrap_text(_http_status_to_error(status, body or {}, started))
+    data = body.get("data") or {}
+    crop = data.get("crop_region")
+    if not data.get("found") or not crop:
+        return _wrap_text(_ok(data, started_at=started, status_code=status))
+
+    crop_region = ",".join(str(int(v)) for v in crop)
+    grid_params: dict[str, Any] = {
+        "region": crop_region,
+        "tiers": tiers,
+        "max_dim": max_dim,
+        "format": format,
+    }
+    if enhance:
+        grid_params["enhance"] = enhance
+    img_status, content, ctype = await _api_get_bytes(f"/datasets/{key}/{file}/grid", params=grid_params)
+    if img_status >= 400:
+        try:
+            err_body = json.loads(content) if content else {}
+        except json.JSONDecodeError:
+            err_body = {}
+        return _wrap_text(_http_status_to_error(img_status, err_body, started))
+
+    image = ImageContent(
+        type="image",
+        data=base64.b64encode(content).decode("ascii"),
+        mimeType=ctype or "image/png",
+    )
+    text = TextContent(
+        type="text",
+        text=json.dumps(_ok({
+            **data,
+            "image_format": "PNG",
+            "image_bytes": len(content),
+            "region": crop_region,
+            "tiers": tiers.split(","),
+            "max_dim": max_dim,
+            "enhance": enhance or "none",
+            "format": format,
+        }, started_at=started, status_code=img_status), indent=2),
+    )
+    return [image, text]
 
 
 @mcp.tool()

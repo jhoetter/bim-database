@@ -8,17 +8,35 @@ import { useState } from 'react';
 // image + this grid, so it's a spot-check tool for when agent labels look off.
 
 export type GridTiers = { broad: boolean; finer: boolean; detail: boolean };
+export type GridStyle = 'standard' | 'coordinate_audit' | 'coordinate_pair' | 'coordinate_multicolor';
+
+const MULTICOLOR_SWATCH = [
+  '#e63946',
+  '#f48c06',
+  '#ffca28',
+  '#2ecc71',
+  '#009688',
+  '#00bcd4',
+  '#2196f3',
+  '#673ab7',
+  '#9c27b0',
+  '#e91e63',
+];
 
 export function GridToggle({
   showGrid,
   setShowGrid,
   gridTiers,
   setGridTiers,
+  gridStyle = 'standard',
+  setGridStyle,
 }: {
   showGrid: boolean;
   setShowGrid: (v: boolean) => void;
   gridTiers: GridTiers;
   setGridTiers: (v: GridTiers) => void;
+  gridStyle?: GridStyle;
+  setGridStyle?: (v: GridStyle) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -81,6 +99,60 @@ export function GridToggle({
             <p className="text-[0.62rem] text-zinc-500 leading-snug">
               Default = broad + finer. Detail nur im Zoom nützlich.
             </p>
+            {setGridStyle && (
+              <div className="pt-2 border-t border-zinc-200 space-y-1.5">
+                <div className="text-[0.62rem] uppercase tracking-wider text-muted font-semibold">
+                  Farben
+                </div>
+                {([
+                  ['coordinate_multicolor', 'Mehrfarbiges Suchraster'],
+                  ['standard', 'Standard'],
+                  ['coordinate_audit', 'Blau / Magenta'],
+                  ['coordinate_pair', 'Grün X / Rot Y'],
+                ] as const).map(([style, label]) => (
+                  <label key={style} className="flex items-center gap-2 text-[0.72rem]">
+                    <input
+                      type="radio"
+                      name="grid-style"
+                      checked={gridStyle === style}
+                      onChange={() => setGridStyle(style)}
+                    />
+                    <span>{label}</span>
+                    {style === 'coordinate_multicolor' ? (
+                      <span
+                        className="ml-auto grid h-4 w-16 grid-cols-10 overflow-hidden rounded-sm border border-zinc-200"
+                        title="10 wiederkehrende Linienfarben in einem Raster"
+                      >
+                        {MULTICOLOR_SWATCH.map((color) => (
+                          <span key={color} style={{ backgroundColor: color }} />
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="ml-auto inline-flex overflow-hidden rounded-sm border border-zinc-200">
+                        <span className={`h-3 w-4 ${
+                          style === 'coordinate_pair'
+                            ? 'bg-emerald-500'
+                            : style === 'coordinate_audit'
+                              ? 'bg-cyan-500'
+                            : 'bg-zinc-700'
+                        }`} />
+                        <span className={`h-3 w-4 ${
+                          style === 'coordinate_pair'
+                            ? 'bg-red-500'
+                            : style === 'coordinate_audit'
+                              ? 'bg-fuchsia-500'
+                              : 'bg-zinc-400'
+                        }`} />
+                      </span>
+                    )}
+                  </label>
+                ))}
+                <p className="text-[0.62rem] text-zinc-500 leading-snug">
+                  Mehrfarbig färbt jede n-te X/Y-Linie anders, damit man Punkte
+                  zur passenden Randkoordinate zurückverfolgen kann.
+                </p>
+              </div>
+            )}
           </div>
         </>
       )}

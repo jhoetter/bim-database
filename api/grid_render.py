@@ -26,7 +26,7 @@ tier is visual noise and only earns its keep on zoomed crops.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Literal, Sequence
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -39,6 +39,8 @@ DEFAULT_TIERS = ("broad", "finer")  # detail is opt-in
 # position — so SOURCE-pixel coordinates stay valid.
 ENHANCE_MODES = ("none", "auto", "clahe", "threshold")
 DEFAULT_ENHANCE = "none"
+GRID_STYLES = ("standard", "coordinate_audit", "coordinate_pair", "coordinate_multicolor")
+TargetLine = Literal["vertical", "horizontal", "none"]
 
 # Cell-size fraction of the long edge. 10 broad cells / 50 finer / 200 detail.
 _TIER_FRACTION = {"broad": 1 / 10, "finer": 1 / 50, "detail": 1 / 200}
@@ -54,6 +56,42 @@ _LABEL_PAD = 2
 
 _LEGEND_BG = (255, 255, 255, 200)
 _LEGEND_FG = (40, 40, 40, 255)
+
+_AUDIT_VERTICAL = {
+    "broad": (0, 118, 255, 235),
+    "finer": (0, 190, 255, 165),
+    "detail": (56, 210, 255, 75),
+}
+_AUDIT_HORIZONTAL = {
+    "broad": (220, 0, 95, 235),
+    "finer": (255, 50, 185, 165),
+    "detail": (255, 120, 205, 75),
+}
+_PAIR_VERTICAL = {
+    "broad": (0, 150, 80, 240),
+    "finer": (22, 190, 115, 170),
+    "detail": (110, 225, 170, 80),
+}
+_PAIR_HORIZONTAL = {
+    "broad": (230, 35, 35, 240),
+    "finer": (255, 95, 95, 170),
+    "detail": (255, 160, 160, 80),
+}
+_MULTI_PALETTE = [
+    (230, 57, 70, 235),    # red
+    (244, 140, 6, 235),    # orange
+    (255, 202, 40, 235),   # yellow
+    (46, 204, 113, 235),   # green
+    (0, 150, 136, 235),    # teal
+    (0, 188, 212, 235),    # cyan
+    (33, 150, 243, 235),   # blue
+    (103, 58, 183, 235),   # violet
+    (156, 39, 176, 235),   # purple
+    (233, 30, 99, 235),    # pink
+]
+_TARGET_COLOR = (255, 190, 0, 255)
+_TARGET_BG = (20, 20, 20, 230)
+_TARGET_FG = (255, 255, 255, 255)
 
 
 @dataclass
@@ -97,8 +135,12 @@ def render_grid_overlay(
     region: tuple[int, int, int, int] | None = None,
     max_dim: int = 1600,
     background_opacity: float = 0.5,
+    background_opacity_explicit: bool = False,
     enhance: str | None = DEFAULT_ENHANCE,
     source_dpi: int | None = None,
+    style: str = "standard",
+    target: tuple[int, int] | None = None,
+    target_line: TargetLine = "none",
 ) -> Image.Image:
     """Composite the source image with a coordinate-anchored grid overlay.
 
@@ -110,9 +152,10 @@ def render_grid_overlay(
                             output reference SOURCE pixels regardless.
         max_dim:            cap on longest side of the OUTPUT image.
         background_opacity: 0.5 by default; image fades to half so the
-                            grid stays legible. When `enhance` is active the
+                            grid stays legible. When `enhance` is active and
+                            the opacity was not explicitly requested, the
                             fade floor is raised so the lifted contrast
-                            survives the composite.
+                            survives the composite. Explicit opacity wins.
         enhance:            contrast lift for faint freehand/pencil scans
                             (issue #2): one of ENHANCE_MODES. "none"
                             (default) is a no-op. "clahe"/"auto" apply
@@ -136,6 +179,12 @@ def render_grid_overlay(
     enhance = (enhance or DEFAULT_ENHANCE).lower()
     if enhance not in ENHANCE_MODES:
         raise ValueError(f"unknown enhance mode {enhance!r}; allowed {list(ENHANCE_MODES)}")
+    style = (style or "standard").lower()
+    if style not in GRID_STYLES:
+        raise ValueError(f"unknown grid style {style!r}; allowed {list(GRID_STYLES)}")
+    target_line = target_line or "none"
+    if target_line not in ("vertical", "horizontal", "none"):
+        raise ValueError("target_line must be vertical, horizontal, or none")
 
     src_w, src_h = image.size
 
@@ -175,8 +224,10 @@ def render_grid_overlay(
     # cropped + downscaled) image; positions are untouched.
     if enhance != "none":
         cropped = _enhance_image(cropped, enhance)
-        # Don't let the half-fade swallow the contrast we just added.
-        background_opacity = max(background_opacity, 0.85)
+        # Don't let the half-fade swallow the contrast we just added unless
+        # the caller intentionally requested a QA/labeling fade.
+        if not background_opacity_explicit:
+            background_opacity = max(background_opacity, 0.85)
 
     # Canvas == image dims; no margin. Grid + labels drawn ON the image.
     canvas = Image.new("RGBA", (cw, ch), (255, 255, 255, 255))
@@ -219,17 +270,20 @@ def render_grid_overlay(
     # Order: detail → finer → broad so darker tiers overdraw lighter ones.
     # Labels go in a SECOND pass after all lines so they sit on top.
     if "detail" in tiers:
-        _draw_tier_lines(draw, spec, "detail")
+        _draw_tier_lines(draw, spec, "detail", style=style)
     if "finer" in tiers:
-        _draw_tier_lines(draw, spec, "finer")
+        _draw_tier_lines(draw, spec, "finer", style=style)
     if "broad" in tiers:
-        _draw_tier_lines(draw, spec, "broad")
+        _draw_tier_lines(draw, spec, "broad", style=style)
 
     # Labels — broad first (one per intersection), finer second (every 5th).
     if "broad" in tiers:
-        _draw_tier_labels(draw, label_font, spec, "broad")
+        _draw_tier_labels(draw, label_font, spec, "broad", style=style)
     if "finer" in tiers:
-        _draw_tier_labels(draw, label_font, spec, "finer")
+        _draw_tier_labels(draw, label_font, spec, "finer", style=style)
+
+    if target is not None:
+        _draw_target_guides(draw, label_font, spec, target, target_line)
 
     _draw_top_right_legend(draw, canvas.size, spec, legend_font, source_dpi=source_dpi)
     return canvas
@@ -289,15 +343,62 @@ def _enhance_image(img: Image.Image, mode: str) -> Image.Image:
     return result
 
 
-def _draw_tier_lines(draw: ImageDraw.ImageDraw, spec: _Spec, tier: str) -> None:
+def _with_alpha(color: tuple[int, int, int, int], alpha: int) -> tuple[int, int, int, int]:
+    return (color[0], color[1], color[2], alpha)
+
+
+def _tier_style(tier: str, style: str) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int], int]:
     if tier == "broad":
-        color, width, step_src = _BROAD_COLOR, 2, spec.broad_step
+        color, width = _BROAD_COLOR, 2
     elif tier == "finer":
-        color, width, step_src = _FINER_COLOR, 1, spec.finer_step
+        color, width = _FINER_COLOR, 1
     elif tier == "detail":
-        color, width, step_src = _DETAIL_COLOR, 1, spec.detail_step
+        color, width = _DETAIL_COLOR, 1
+    else:
+        color, width = _DETAIL_COLOR, 1
+    if style == "coordinate_audit":
+        return _AUDIT_VERTICAL[tier], _AUDIT_HORIZONTAL[tier], width
+    if style == "coordinate_pair":
+        return _PAIR_VERTICAL[tier], _PAIR_HORIZONTAL[tier], width
+    return color, color, width
+
+
+def _multicolor_line(
+    src_coord: int,
+    step_src: int,
+    *,
+    tier: str,
+    orientation: str,
+) -> tuple[int, int, int, int]:
+    idx = int(round(src_coord / max(1, step_src)))
+    # Offset horizontal colors so an x/y intersection is a recognizable pair,
+    # not the same color twice at equal line indices.
+    if orientation == "horizontal":
+        idx += 3
+    color = _MULTI_PALETTE[idx % len(_MULTI_PALETTE)]
+    if tier == "broad":
+        return _with_alpha(color, 245)
+    if tier == "finer":
+        return _with_alpha(color, 165)
+    return _with_alpha(color, 75)
+
+
+def _draw_tier_lines(
+    draw: ImageDraw.ImageDraw,
+    spec: _Spec,
+    tier: str,
+    *,
+    style: str = "standard",
+) -> None:
+    if tier == "broad":
+        step_src = spec.broad_step
+    elif tier == "finer":
+        step_src = spec.finer_step
+    elif tier == "detail":
+        step_src = spec.detail_step
     else:
         return
+    v_color, h_color, width = _tier_style(tier, style)
 
     # Vertical lines.
     src_x = ((spec.region_origin[0] + step_src - 1) // step_src) * step_src
@@ -305,7 +406,9 @@ def _draw_tier_lines(draw: ImageDraw.ImageDraw, spec: _Spec, tier: str) -> None:
     while src_x <= src_x_end:
         out_x = int((src_x - spec.region_origin[0]) * spec.px_per_src_x)
         if 0 <= out_x < spec.out_w:
-            draw.line([(out_x, 0), (out_x, spec.out_h - 1)], fill=color, width=width)
+            if style == "coordinate_multicolor":
+                v_color = _multicolor_line(src_x, step_src, tier=tier, orientation="vertical")
+            draw.line([(out_x, 0), (out_x, spec.out_h - 1)], fill=v_color, width=width)
         src_x += step_src
 
     # Horizontal lines.
@@ -314,8 +417,52 @@ def _draw_tier_lines(draw: ImageDraw.ImageDraw, spec: _Spec, tier: str) -> None:
     while src_y <= src_y_end:
         out_y = int((src_y - spec.region_origin[1]) * spec.px_per_src_y)
         if 0 <= out_y < spec.out_h:
-            draw.line([(0, out_y), (spec.out_w - 1, out_y)], fill=color, width=width)
+            if style == "coordinate_multicolor":
+                h_color = _multicolor_line(src_y, step_src, tier=tier, orientation="horizontal")
+            draw.line([(0, out_y), (spec.out_w - 1, out_y)], fill=h_color, width=width)
         src_y += step_src
+
+
+def _draw_target_guides(
+    draw: ImageDraw.ImageDraw,
+    font: ImageFont.ImageFont,
+    spec: _Spec,
+    target: tuple[int, int],
+    target_line: TargetLine,
+) -> None:
+    tx, ty = int(target[0]), int(target[1])
+    if not (
+        spec.region_origin[0] <= tx <= spec.region_origin[0] + spec.crop_src_w
+        and spec.region_origin[1] <= ty <= spec.region_origin[1] + spec.crop_src_h
+    ):
+        return
+    ox = int((tx - spec.region_origin[0]) * spec.px_per_src_x)
+    oy = int((ty - spec.region_origin[1]) * spec.px_per_src_y)
+    if target_line in ("vertical", "none"):
+        draw.line([(ox, 0), (ox, spec.out_h - 1)], fill=_TARGET_COLOR, width=2)
+    if target_line in ("horizontal", "none"):
+        draw.line([(0, oy), (spec.out_w - 1, oy)], fill=_TARGET_COLOR, width=2)
+    r = 9
+    draw.ellipse([ox - r, oy - r, ox + r, oy + r], outline=_TARGET_COLOR, width=2)
+    draw.line([(max(0, ox - 24), oy), (min(spec.out_w - 1, ox + 24), oy)], fill=_TARGET_COLOR, width=2)
+    draw.line([(ox, max(0, oy - 24)), (ox, min(spec.out_h - 1, oy + 24))], fill=_TARGET_COLOR, width=2)
+
+    near_x = round(tx / spec.finer_step) * spec.finer_step
+    near_y = round(ty / spec.finer_step) * spec.finer_step
+    if spec.region_origin[0] <= near_x <= spec.region_origin[0] + spec.crop_src_w:
+        nx = int((near_x - spec.region_origin[0]) * spec.px_per_src_x)
+        draw.line([(nx, max(0, oy - 14)), (nx, min(spec.out_h - 1, oy + 14))], fill=(0, 0, 0, 230), width=2)
+    if spec.region_origin[1] <= near_y <= spec.region_origin[1] + spec.crop_src_h:
+        ny = int((near_y - spec.region_origin[1]) * spec.px_per_src_y)
+        draw.line([(max(0, ox - 14), ny), (min(spec.out_w - 1, ox + 14), ny)], fill=(0, 0, 0, 230), width=2)
+
+    text = f"x={tx} y={ty}"
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    x = min(max(4, ox + 12), max(4, spec.out_w - tw - 10))
+    y = min(max(4, oy + 12), max(4, spec.out_h - th - 10))
+    draw.rectangle([x - 4, y - 3, x + tw + 4, y + th + 3], fill=_TARGET_BG)
+    draw.text((x, y), text, font=font, fill=_TARGET_FG)
 
 
 def _draw_tier_labels(
@@ -323,6 +470,8 @@ def _draw_tier_labels(
     font: ImageFont.ImageFont,
     spec: _Spec,
     tier: str,
+    *,
+    style: str = "standard",
 ) -> None:
     """Draw coordinate labels on tier intersections with a white-chip
     background. Stays inside the image bounds; never spills outside."""
@@ -360,17 +509,25 @@ def _draw_tier_labels(
     # X-axis labels along the TOP of the image (just below the top edge).
     for sx in src_xs:
         out_x = int((sx - spec.region_origin[0]) * spec.px_per_src_x)
+        fg = None
+        if style == "coordinate_multicolor":
+            fg = _multicolor_line(sx, step_src, tier=tier, orientation="vertical")
         _draw_label_chip(
             draw, font, str(sx), (out_x, 0),
             anchor="top-center", canvas_w=spec.out_w, canvas_h=spec.out_h,
+            fg=fg,
         )
 
     # Y-axis labels along the LEFT of the image (just inside the left edge).
     for sy in src_ys:
         out_y = int((sy - spec.region_origin[1]) * spec.px_per_src_y)
+        fg = None
+        if style == "coordinate_multicolor":
+            fg = _multicolor_line(sy, step_src, tier=tier, orientation="horizontal")
         _draw_label_chip(
             draw, font, str(sy), (0, out_y),
             anchor="left-middle", canvas_w=spec.out_w, canvas_h=spec.out_h,
+            fg=fg,
         )
 
 
@@ -383,6 +540,7 @@ def _draw_label_chip(
     anchor: str,
     canvas_w: int,
     canvas_h: int,
+    fg: tuple[int, int, int, int] | None = None,
 ) -> None:
     """Draw `text` at `pos` with a white-chip background. Clamps to the
     canvas so labels along the edge are never cut off."""
@@ -407,7 +565,9 @@ def _draw_label_chip(
     x = rx0 + _LABEL_PAD
     y = ry0 + _LABEL_PAD
     draw.rectangle([rx0, ry0, rx1, ry1], fill=_LABEL_BG)
-    draw.text((x, y), text, font=font, fill=_LABEL_FG)
+    if fg is not None:
+        draw.rectangle([rx0, ry0, rx1, ry1], outline=fg, width=2)
+    draw.text((x, y), text, font=font, fill=fg or _LABEL_FG)
 
 
 def _draw_top_right_legend(

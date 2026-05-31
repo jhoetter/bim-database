@@ -60,7 +60,7 @@ import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServe
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT, type CheatsheetSection } from '../components/Cheatsheet';
 import { UndoRedoControls } from '../components/UndoRedoControls';
-import { GridToggle } from '../components/GridToggle';
+import { GridToggle, type GridStyle } from '../components/GridToggle';
 import { useToast } from '../lib/toast';
 import {
   advanceWorkflow,
@@ -696,6 +696,8 @@ export function AnnotatePage() {
   const [sceneOrientation, setSceneOrientation] = useState<SceneOrientation | null>(null);
   const [sceneLevel, setSceneLevel] = useState<SceneLevel | null>(null);
   const [imageSize, setImageSize] = useState<[number, number]>([1024, 1024]);
+  // Pan/zoom on the SVG viewBox.
+  const [view, setView] = useState({ x: 0, y: 0, w: 1024, h: 1024 });
   // Multi-select via Set (M11). Single-label code paths use the helper
   // `primarySelectedId` (the only id when size === 1, else null).
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -803,6 +805,10 @@ export function AnnotatePage() {
     try { return window.localStorage.getItem('bim-db:annotate:img-grayscale') === 'true'; }
     catch { return false; }
   });
+  const [showMcpRender, setShowMcpRender] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bim-db:annotate:mcp-render') === 'true'; }
+    catch { return false; }
+  });
   // Grid overlay — same image the agent sees via the bim-database MCP
   // server's get_scene_view (image @ 0.5 opacity + 3-tier coordinate grid:
   // broad/finer/detail). Useful for sanity-checking what the agent
@@ -830,6 +836,24 @@ export function AnnotatePage() {
     try { return window.localStorage.getItem('bim-db:annotate:show-grid') === 'true'; }
     catch { return false; }
   });
+  const [gridStyle, setGridStyle] = useState<GridStyle>(() => {
+    try {
+      const migrationKey = 'bim-db:annotate:grid-style-migration';
+      if (window.localStorage.getItem(migrationKey) !== 'coordinate-multicolor-v1') {
+        window.localStorage.setItem(migrationKey, 'coordinate-multicolor-v1');
+        window.localStorage.setItem('bim-db:annotate:grid-style', 'coordinate_multicolor');
+        return 'coordinate_multicolor';
+      }
+      const raw = window.localStorage.getItem('bim-db:annotate:grid-style');
+      if (
+        raw === 'coordinate_multicolor' ||
+        raw === 'coordinate_audit' ||
+        raw === 'coordinate_pair' ||
+        raw === 'standard'
+      ) return raw;
+    } catch { /* no-op */ }
+    return 'coordinate_multicolor';
+  });
   // Derive the comma-list query param from the active tiers.
   const gridTiersParam = (Object.entries(gridTiers)
     .filter(([, on]) => on)
@@ -850,9 +874,17 @@ export function AnnotatePage() {
     catch { /* no-op */ }
   }, [imgGrayscale]);
   useEffect(() => {
+    try { window.localStorage.setItem('bim-db:annotate:mcp-render', String(showMcpRender)); }
+    catch { /* no-op */ }
+  }, [showMcpRender]);
+  useEffect(() => {
     try { window.localStorage.setItem('bim-db:annotate:show-grid', String(showGrid)); }
     catch { /* no-op */ }
   }, [showGrid]);
+  useEffect(() => {
+    try { window.localStorage.setItem('bim-db:annotate:grid-style', gridStyle); }
+    catch { /* no-op */ }
+  }, [gridStyle]);
   // Global drag flag — set true during any handle / body drag. The right
   // rail dims to near-invisible while it's true so a wall being dragged
   // doesn't disappear visually behind the inspector overlay.
@@ -990,8 +1022,6 @@ export function AnnotatePage() {
     catch { return false; }
   });
 
-  // Pan/zoom on the SVG viewBox.
-  const [view, setView] = useState({ x: 0, y: 0, w: 1024, h: 1024 });
   const svgRef = useRef<SVGSVGElement | null>(null);
   const panStateRef = useRef<{ startX: number; startY: number; vx: number; vy: number } | null>(null);
 
@@ -2738,6 +2768,17 @@ export function AnnotatePage() {
 
   const selectedLabel = labels.find((l) => l.id === selectedId) ?? null;
   const viewBox = `${view.x} ${view.y} ${view.w} ${view.h}`;
+  const nativeRenderMaxDim = Math.min(8000, Math.max(imageSize[0], imageSize[1]));
+  const mcpRenderHref = `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid-with-labels`
+    + `?tiers=${encodeURIComponent(gridTiersParam)}`
+    + `&max_dim=${nativeRenderMaxDim}`
+    + `&style=${encodeURIComponent(gridStyle)}`
+    + `&background_opacity=${encodeURIComponent(String(imgOpacity))}`
+    + `&clean=${showGrid ? 'false' : 'true'}`
+    + `&contrast=high`
+    + `&show_relations=required`
+    + `&include_hidden=false`
+    + `&v=${encodeURIComponent(String(lastSavedAt ?? labels.length))}`;
 
   return (
     <Shell
@@ -2783,12 +2824,30 @@ export function AnnotatePage() {
             setShowGrid={setShowGrid}
             gridTiers={gridTiers}
             setGridTiers={setGridTiers}
+            gridStyle={gridStyle}
+            setGridStyle={setGridStyle}
           />
+          <button
+            type="button"
+            onClick={() => setShowMcpRender(!showMcpRender)}
+            className={`text-[0.7rem] px-2 py-1 rounded-md border font-semibold ${
+              showMcpRender
+                ? 'bg-sky-700 text-white border-sky-700'
+                : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+            }`}
+            title="Agentenansicht anzeigen: serverseitiger QA-Render mit denselben Pixeln wie die MCP-Werkzeuge"
+            aria-label="Agentenansicht umschalten"
+            aria-pressed={showMcpRender}
+          >
+            Agent View
+          </button>
           <CanvasDisplayPalette
             imgOpacity={imgOpacity}
             setImgOpacity={setImgOpacity}
             imgGrayscale={imgGrayscale}
             setImgGrayscale={setImgGrayscale}
+            showMcpRender={showMcpRender}
+            setShowMcpRender={setShowMcpRender}
             onZoomIn={() => zoomBy(0.7)}
             onZoomOut={() => zoomBy(1.4)}
             onFit={resetView}
@@ -3172,23 +3231,36 @@ export function AnnotatePage() {
               by preserveAspectRatio="none" into the imageSize box — moving the
               ink under the (un-stretched) labels. Keeping the base fixed and
               overlaying the grid removes that drift entirely. */}
-          <image
-            href={imageUrl}
-            x={0} y={0}
-            width={imageSize[0]} height={imageSize[1]}
-            opacity={imgOpacity}
-            style={imgGrayscale ? { filter: 'grayscale(1)' } : undefined}
-            preserveAspectRatio="none"
-          />
-          {showGrid && (
+          {showMcpRender ? (
             <image
-              href={`/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?tiers=${encodeURIComponent(gridTiersParam)}&max_dim=${Math.min(8000, Math.max(imageSize[0], imageSize[1]))}`}
+              href={mcpRenderHref}
               x={0} y={0}
               width={imageSize[0]} height={imageSize[1]}
-              opacity={imgOpacity}
-              style={imgGrayscale ? { filter: 'grayscale(1)' } : undefined}
+              opacity={1}
+              pointerEvents="none"
               preserveAspectRatio="none"
             />
+          ) : (
+            <>
+              <image
+                href={imageUrl}
+                x={0} y={0}
+                width={imageSize[0]} height={imageSize[1]}
+                opacity={imgOpacity}
+                style={imgGrayscale ? { filter: 'grayscale(1)' } : undefined}
+                preserveAspectRatio="none"
+              />
+              {showGrid && (
+                <image
+                  href={`/datasets/${encodeURIComponent(key)}/${encodeURIComponent(decodedFile)}/grid?tiers=${encodeURIComponent(gridTiersParam)}&max_dim=${nativeRenderMaxDim}&style=${encodeURIComponent(gridStyle)}`}
+                  x={0} y={0}
+                  width={imageSize[0]} height={imageSize[1]}
+                  opacity={imgOpacity}
+                  style={imgGrayscale ? { filter: 'grayscale(1)' } : undefined}
+                  preserveAspectRatio="none"
+                />
+              )}
+            </>
           )}
           {/* Implied height-bezugslinien — for every Höhenkote, draw a
               thin dashed horizontal line across the canvas at its
@@ -3198,7 +3270,7 @@ export function AnnotatePage() {
               The Bezugshöhe (value=0) gets a much more prominent line:
               solid amber instead of dashed pink, so the ±0,00 anchor
               reads at a glance. */}
-          {labels.map((l) => {
+          {!showMcpRender && labels.map((l) => {
             if (l.type !== 'height_mark') return null;
             const datum = l.attributes.datum;
             const value = l.attributes.value_mm;
@@ -3239,12 +3311,12 @@ export function AnnotatePage() {
             );
           })}
           {/* Linking visuals — dashed lines between number ↔ distance pairs */}
-          <LinkVisuals labels={labels} selectedId={selectedId} />
+          {!showMcpRender && <LinkVisuals labels={labels} selectedId={selectedId} />}
           {/* Closed wall regions — translucent area fill behind the wall
               outlines so the user can read enclosed spaces (rooms,
               footprints) at a glance. Double-click inside one (in select
               mode) selects every wall that forms it. */}
-          {closedRegions.length > 0 && (
+          {!showMcpRender && closedRegions.length > 0 && (
             <g>
               {closedRegions.map((r, i) => {
                 const d = r.polygon.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ') + ' Z';
@@ -3272,7 +3344,7 @@ export function AnnotatePage() {
           {/* V3.3 — Grundriss room badges. Detected wall-cycles get a
               small "Raum" centroid pictogram; classification (kind +
               persistence) is deferred to V9. */}
-          {sceneTag === 'grundriss' && rooms.map((r) => {
+          {!showMcpRender && sceneTag === 'grundriss' && rooms.map((r) => {
             const glyphPx = 18 * (view.w / Math.max(1, svgRef.current?.clientWidth ?? 1));
             return (
               <g key={r.id} pointerEvents="none">
@@ -3295,7 +3367,7 @@ export function AnnotatePage() {
             );
           })}
           {/* Existing labels — W7 hidden_label_ids skipped on canvas. */}
-          {labels.filter((l) => !hiddenLabelIds.has(l.id)).map((l) => (
+          {!showMcpRender && labels.filter((l) => !hiddenLabelIds.has(l.id)).map((l) => (
             <LabelGlyph
               key={l.id}
               label={l}
@@ -4951,12 +5023,15 @@ function SaveStateDot({
 
 function CanvasDisplayPalette({
   imgOpacity, setImgOpacity, imgGrayscale, setImgGrayscale,
+  showMcpRender, setShowMcpRender,
   onZoomIn, onZoomOut, onFit,
 }: {
   imgOpacity: number;
   setImgOpacity: (v: number) => void;
   imgGrayscale: boolean;
   setImgGrayscale: (v: boolean) => void;
+  showMcpRender: boolean;
+  setShowMcpRender: (v: boolean) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
@@ -5030,6 +5105,21 @@ function CanvasDisplayPalette({
                   {imgGrayscale ? 'Grau' : 'Farbe'}
                 </button>
               </label>
+              <label className="flex items-center justify-between gap-3">
+                <span>Agent View</span>
+                <button
+                  type="button"
+                  onClick={() => setShowMcpRender(!showMcpRender)}
+                  className={`text-[0.7rem] px-2 py-0.5 rounded-md border ${
+                    showMcpRender
+                      ? 'bg-sky-700 text-white border-sky-700'
+                      : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+                  }`}
+                  title="Serverseitigen Agenten-QA-Render anzeigen"
+                >
+                  {showMcpRender ? 'An' : 'Aus'}
+                </button>
+              </label>
               <label className="block">
                 <div className="flex items-center justify-between mb-1">
                   <span>Deckkraft</span>
@@ -5045,7 +5135,9 @@ function CanvasDisplayPalette({
                 />
               </label>
               <p className="text-[0.62rem] text-zinc-500 leading-snug">
-                Bild auf Weiß ausblenden, um Labels gegen den leeren Canvas zu prüfen.
+                Agent View zeigt die gespeicherten Labels als serverseitigen
+                QA-Render. Raster an = mit Raster; Raster aus = clean QA.
+                Deckkraft wird serverseitig angewendet.
               </p>
             </div>
           </>

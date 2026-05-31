@@ -34,6 +34,7 @@ export interface WallLabel extends LabelBase {
   geometry: { start: Point; end: Point };
   attributes: { thickness_mm?: number | null };
 }
+
 export interface FloorplanOpeningLabel extends LabelBase {
   type: 'floorplan_opening';
   geometry: { quad: Quad };

@@ -140,6 +140,71 @@ def test_broad_tier_paints_dark_pixels_on_white_background():
     assert dark_pixels > 100, "broad tier should draw at least 100 dark pixels"
 
 
+def test_coordinate_audit_uses_colored_axis_lines():
+    img = Image.new("RGB", (500, 400), (245, 245, 245))
+    out = render_grid_overlay(
+        img,
+        tiers=("broad", "finer"),
+        max_dim=10000,
+        style="coordinate_audit",
+    ).convert("RGB")
+    pixels = list(out.getdata())
+    blueish = sum(1 for r, g, b in pixels if b > 160 and g > 80 and r < 100)
+    reddish = sum(1 for r, g, b in pixels if r > 160 and b > 80 and g < 130)
+    assert blueish > 100
+    assert reddish > 100
+
+
+def test_coordinate_pair_uses_green_columns_and_red_rows():
+    img = Image.new("RGB", (500, 400), (245, 245, 245))
+    out = render_grid_overlay(
+        img,
+        tiers=("broad", "finer"),
+        max_dim=10000,
+        style="coordinate_pair",
+    ).convert("RGB")
+    pixels = list(out.getdata())
+    greenish = sum(1 for r, g, b in pixels if g > 140 and r < 120 and b < 150)
+    reddish = sum(1 for r, g, b in pixels if r > 170 and g < 130 and b < 130)
+    assert greenish > 100
+    assert reddish > 100
+
+
+def test_coordinate_multicolor_uses_many_line_colors():
+    img = Image.new("RGB", (900, 700), (245, 245, 245))
+    out = render_grid_overlay(
+        img,
+        tiers=("finer",),
+        max_dim=10000,
+        style="coordinate_multicolor",
+    ).convert("RGB")
+    # Sample likely grid pixels and count saturated color families. This pins
+    # the "many landmarks in one grid" contract, not exact RGB values.
+    colors = set()
+    for r, g, b in out.getdata():
+      if max(r, g, b) - min(r, g, b) > 70 and max(r, g, b) > 140:
+          colors.add((round(r / 40) * 40, round(g / 40) * 40, round(b / 40) * 40))
+    assert len(colors) >= 6
+
+
+def test_target_crosshair_and_chip_render_inside_bounds():
+    img = Image.new("RGB", (300, 220), (250, 250, 250))
+    out = render_grid_overlay(
+        img,
+        tiers=("broad",),
+        max_dim=10000,
+        style="coordinate_audit",
+        target=(296, 216),
+        target_line="none",
+    )
+    assert out.size == (300, 220)
+    arr = out.convert("RGB")
+    yellow = sum(1 for r, g, b in arr.getdata() if r > 220 and g > 140 and b < 60)
+    dark_chip = sum(1 for r, g, b in arr.getdata() if r < 40 and g < 40 and b < 40)
+    assert yellow > 20
+    assert dark_chip > 20
+
+
 def test_edge_labels_inside_canvas(sample_scene):
     """No label should land outside the canvas (would be invisible)."""
     out = render_grid_overlay(sample_scene, tiers=("broad", "finer"), max_dim=1600)
@@ -215,6 +280,38 @@ def test_enhance_preserves_dimensions_and_coords():
     for mode in ENHANCE_MODES:
         out = render_grid_overlay(src, tiers=("broad",), max_dim=10000, enhance=mode)
         assert out.size == base.size, f"{mode} changed output size"
+
+
+def test_explicit_background_opacity_overrides_enhance_floor():
+    """Low-opacity QA views must remain low-opacity even when enhance=auto.
+
+    The old behavior forced enhanced scans back to 85% source opacity, which
+    made QA overlays too visually heavy. Explicit opacity is the user's choice.
+    """
+    src_l = Image.new("L", (220, 160), 248)
+    px = src_l.load()
+    for x in range(40, 180):
+        for y in range(82, 85):
+            px[x, y] = 120
+    src = src_l.convert("RGB")
+    sample_xy = (103, 83)  # stroke pixel, intentionally off broad grid lines
+
+    implicit = render_grid_overlay(
+        src,
+        tiers=("broad",),
+        max_dim=10000,
+        enhance="auto",
+    ).convert("L")
+    explicit = render_grid_overlay(
+        src,
+        tiers=("broad",),
+        max_dim=10000,
+        enhance="auto",
+        background_opacity=0.2,
+        background_opacity_explicit=True,
+    ).convert("L")
+
+    assert explicit.getpixel(sample_xy) > implicit.getpixel(sample_xy) + 80
 
 
 def test_enhance_increases_contrast_on_faint_scan():
