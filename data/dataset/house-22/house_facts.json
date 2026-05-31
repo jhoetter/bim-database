@@ -23,12 +23,84 @@
   },
   "scene_metadata": {
     "house-22-floorplan-eg.png": {
-      "scene_tag": "nicht_klassifiziert",
+      "scene_tag": "grundriss",
       "orientation": null,
-      "level": null,
+      "level": "eg",
       "image_size_px": [
         4636,
         3445
+      ]
+    },
+    "house-22-floorplan-ug.jpg": {
+      "scene_tag": "grundriss",
+      "orientation": null,
+      "level": "ug",
+      "image_size_px": [
+        2550,
+        1682
+      ]
+    },
+    "house-22-floorplan-dg.jpg": {
+      "scene_tag": "grundriss",
+      "orientation": null,
+      "level": "dg",
+      "image_size_px": [
+        2550,
+        1717
+      ]
+    },
+    "house-22-schnitt-gebaeude.jpg": {
+      "scene_tag": "schnitt",
+      "orientation": null,
+      "level": null,
+      "image_size_px": [
+        2550,
+        1053
+      ]
+    },
+    "house-22-schnitt-garage.jpg": {
+      "scene_tag": "schnitt",
+      "orientation": null,
+      "level": null,
+      "image_size_px": [
+        1896,
+        783
+      ]
+    },
+    "house-22-ansicht-ost.jpg": {
+      "scene_tag": "ansicht",
+      "orientation": "east",
+      "level": null,
+      "image_size_px": [
+        2550,
+        928
+      ]
+    },
+    "house-22-ansicht-nord.jpg": {
+      "scene_tag": "ansicht",
+      "orientation": "north",
+      "level": null,
+      "image_size_px": [
+        2550,
+        814
+      ]
+    },
+    "house-22-ansicht-sued.jpg": {
+      "scene_tag": "ansicht",
+      "orientation": "south",
+      "level": null,
+      "image_size_px": [
+        2550,
+        918
+      ]
+    },
+    "house-22-ansicht-west.jpg": {
+      "scene_tag": "ansicht",
+      "orientation": "west",
+      "level": null,
+      "image_size_px": [
+        2550,
+        866
       ]
     }
   },

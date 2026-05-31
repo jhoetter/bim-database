@@ -20,6 +20,166 @@
         ],
         "dpi": 600
       }
+    },
+    {
+      "file": "house-22-floorplan-ug.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": "ug",
+      "title": "UG-Grundriss",
+      "imported_at": "2026-05-31T22:06:34Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 1,
+        "bbox_pdf_units": [
+          0.0,
+          0.0,
+          612.0,
+          404.0
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-floorplan-dg.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": "dg",
+      "title": "DG-Grundriss",
+      "imported_at": "2026-05-31T22:06:35Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 3,
+        "bbox_pdf_units": [
+          0.0,
+          0.0,
+          612.0,
+          412.0
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-schnitt-gebaeude.jpg",
+      "kind": "section",
+      "source": "pdf",
+      "view": "building",
+      "floor": null,
+      "title": "Schnitt Gebaeude",
+      "imported_at": "2026-05-31T22:06:35Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 4,
+        "bbox_pdf_units": [
+          0.0,
+          20.0,
+          612.0,
+          272.5
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-schnitt-garage.jpg",
+      "kind": "section",
+      "source": "pdf",
+      "view": "garage",
+      "floor": null,
+      "title": "Schnitt Garage",
+      "imported_at": "2026-05-31T22:06:35Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 4,
+        "bbox_pdf_units": [
+          0.0,
+          215.0,
+          455.0,
+          402.5
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-ansicht-ost.jpg",
+      "kind": "elevation",
+      "source": "pdf",
+      "view": "east",
+      "floor": null,
+      "title": "Ostansicht",
+      "imported_at": "2026-05-31T22:06:35Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 5,
+        "bbox_pdf_units": [
+          0.0,
+          15.0,
+          612.0,
+          237.5
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-ansicht-nord.jpg",
+      "kind": "elevation",
+      "source": "pdf",
+      "view": "north",
+      "floor": null,
+      "title": "Nordansicht",
+      "imported_at": "2026-05-31T22:06:35Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 5,
+        "bbox_pdf_units": [
+          0.0,
+          215.0,
+          612.0,
+          410.0
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-ansicht-sued.jpg",
+      "kind": "elevation",
+      "source": "pdf",
+      "view": "south",
+      "floor": null,
+      "title": "Suedansicht",
+      "imported_at": "2026-05-31T22:06:36Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 6,
+        "bbox_pdf_units": [
+          0.0,
+          15.0,
+          612.0,
+          235.0
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-ansicht-west.jpg",
+      "kind": "elevation",
+      "source": "pdf",
+      "view": "west",
+      "floor": null,
+      "title": "Westansicht",
+      "imported_at": "2026-05-31T22:06:36Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 6,
+        "bbox_pdf_units": [
+          0.0,
+          215.0,
+          612.0,
+          422.5
+        ],
+        "dpi": 300
+      }
     }
   ]
 }

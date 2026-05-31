@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-22",
+  "scene_file": "house-22-ansicht-sued.jpg",
+  "scene_tag": "ansicht",
+  "scene_orientation": "south",
+  "scene_level": null,
+  "image_size_px": [
+    2550,
+    918
+  ],
+  "labels": []
+}

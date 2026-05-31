@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-22",
+  "scene_file": "house-22-ansicht-west.jpg",
+  "scene_tag": "ansicht",
+  "scene_orientation": "west",
+  "scene_level": null,
+  "image_size_px": [
+    2550,
+    866
+  ],
+  "labels": []
+}

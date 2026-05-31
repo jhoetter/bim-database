@@ -7,7 +7,88 @@
   ],
   "uploaded_at": "2026-05-29T06:01:09Z",
   "page_count": 6,
-  "state": "partial",
+  "state": "extracted",
   "user_notes": "Seed PDF carried over from data/houses/ during R0 cleanup.",
-  "extracted_scenes": []
+  "extracted_scenes": [
+    {
+      "page": 1,
+      "bbox_pdf_units": [
+        0.0,
+        0.0,
+        612.0,
+        404.0
+      ],
+      "scene_file": "house-22-floorplan-ug.jpg"
+    },
+    {
+      "page": 3,
+      "bbox_pdf_units": [
+        0.0,
+        0.0,
+        612.0,
+        412.0
+      ],
+      "scene_file": "house-22-floorplan-dg.jpg"
+    },
+    {
+      "page": 4,
+      "bbox_pdf_units": [
+        0.0,
+        20.0,
+        612.0,
+        272.5
+      ],
+      "scene_file": "house-22-schnitt-gebaeude.jpg"
+    },
+    {
+      "page": 4,
+      "bbox_pdf_units": [
+        0.0,
+        215.0,
+        455.0,
+        402.5
+      ],
+      "scene_file": "house-22-schnitt-garage.jpg"
+    },
+    {
+      "page": 5,
+      "bbox_pdf_units": [
+        0.0,
+        15.0,
+        612.0,
+        237.5
+      ],
+      "scene_file": "house-22-ansicht-ost.jpg"
+    },
+    {
+      "page": 5,
+      "bbox_pdf_units": [
+        0.0,
+        215.0,
+        612.0,
+        410.0
+      ],
+      "scene_file": "house-22-ansicht-nord.jpg"
+    },
+    {
+      "page": 6,
+      "bbox_pdf_units": [
+        0.0,
+        15.0,
+        612.0,
+        235.0
+      ],
+      "scene_file": "house-22-ansicht-sued.jpg"
+    },
+    {
+      "page": 6,
+      "bbox_pdf_units": [
+        0.0,
+        215.0,
+        612.0,
+        422.5
+      ],
+      "scene_file": "house-22-ansicht-west.jpg"
+    }
+  ]
 }

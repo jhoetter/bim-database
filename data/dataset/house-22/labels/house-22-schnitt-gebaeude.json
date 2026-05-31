@@ -2,13 +2,13 @@
   "schema_version": "1.0",
   "scope": "dataset",
   "scene_key": "house-22",
-  "scene_file": "house-22-floorplan-eg.png",
-  "scene_tag": "grundriss",
+  "scene_file": "house-22-schnitt-gebaeude.jpg",
+  "scene_tag": "schnitt",
   "scene_orientation": null,
-  "scene_level": "eg",
+  "scene_level": null,
   "image_size_px": [
-    4636,
-    3445
+    2550,
+    1053
   ],
   "labels": []
 }
