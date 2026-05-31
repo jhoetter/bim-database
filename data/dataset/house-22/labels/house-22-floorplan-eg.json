@@ -92,6 +92,564 @@
         }
       ],
       "status": "readable"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1140,
+          1160
+        ],
+        "end": [
+          2215,
+          1165
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-8551eb32aa"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2215,
+          1165
+        ],
+        "end": [
+          2140,
+          2145
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-eacb52996e"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2140,
+          2145
+        ],
+        "end": [
+          1230,
+          2145
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-c40ed384c1"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1230,
+          2145
+        ],
+        "end": [
+          1220,
+          1750
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-3de583b7c3"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1220,
+          1750
+        ],
+        "end": [
+          1145,
+          1645
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-b5a1a9ff24"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1145,
+          1645
+        ],
+        "end": [
+          1140,
+          1160
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-ed1e748277"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2210,
+          1510
+        ],
+        "end": [
+          2670,
+          1510
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-5270c20abc"
+    },
+    {
+      "id": "lab-cab34a19d8",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2635,
+          1510
+        ],
+        "end": [
+          2635,
+          2245
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      }
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2635,
+          2245
+        ],
+        "end": [
+          2225,
+          2245
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-ad6d499ee1"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2225,
+          2245
+        ],
+        "end": [
+          2225,
+          1510
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 317
+      },
+      "id": "lab-8137a232e7"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1145,
+          1300
+        ],
+        "end": [
+          1505,
+          1300
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 122
+      },
+      "id": "lab-b53ff62f20"
+    },
+    {
+      "id": "lab-f37d4271c5",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1545,
+          1300
+        ],
+        "end": [
+          1545,
+          1660
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 122
+      }
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1845,
+          1640
+        ],
+        "end": [
+          2160,
+          1640
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 122
+      },
+      "id": "lab-48adcc19b7"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1180,
+          1645
+        ],
+        "end": [
+          1565,
+          1645
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 122
+      },
+      "id": "lab-d8d33f2e41"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1930,
+          1145
+        ],
+        "end": [
+          1930,
+          1548
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "thickness_mm": 122
+      },
+      "id": "lab-8acc193273"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1290,
+            1105
+          ],
+          [
+            1415,
+            1105
+          ],
+          [
+            1415,
+            1205
+          ],
+          [
+            1290,
+            1205
+          ]
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "opening_kind": "window",
+        "swing": "none",
+        "swing_side": "none"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-8551eb32aa"
+        }
+      ],
+      "id": "lab-1af5add644"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1670,
+            1105
+          ],
+          [
+            1745,
+            1105
+          ],
+          [
+            1745,
+            1205
+          ],
+          [
+            1670,
+            1205
+          ]
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "opening_kind": "window",
+        "swing": "none",
+        "swing_side": "none"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-8551eb32aa"
+        }
+      ],
+      "id": "lab-dfcd2d176d"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1290,
+            2105
+          ],
+          [
+            1605,
+            2105
+          ],
+          [
+            1605,
+            2190
+          ],
+          [
+            1290,
+            2190
+          ]
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "opening_kind": "window",
+        "swing": "none",
+        "swing_side": "none"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-c40ed384c1"
+        }
+      ],
+      "id": "lab-62674a2879"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1840,
+            2105
+          ],
+          [
+            2070,
+            2105
+          ],
+          [
+            2070,
+            2190
+          ],
+          [
+            1840,
+            2190
+          ]
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "opening_kind": "window",
+        "swing": "none",
+        "swing_side": "none"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-c40ed384c1"
+        }
+      ],
+      "id": "lab-508d7b4810"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1095,
+            1375
+          ],
+          [
+            1190,
+            1375
+          ],
+          [
+            1190,
+            1525
+          ],
+          [
+            1095,
+            1525
+          ]
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "opening_kind": "window",
+        "swing": "none",
+        "swing_side": "none"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-ed1e748277"
+        }
+      ],
+      "id": "lab-eee28ca5ab"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            2100,
+            1840
+          ],
+          [
+            2190,
+            1840
+          ],
+          [
+            2190,
+            1995
+          ],
+          [
+            2100,
+            1995
+          ]
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "opening_kind": "window",
+        "swing": "none",
+        "swing_side": "none"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-eacb52996e"
+        }
+      ],
+      "id": "lab-9bedfb5170"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            2340,
+            2200
+          ],
+          [
+            2525,
+            2200
+          ],
+          [
+            2525,
+            2290
+          ],
+          [
+            2340,
+            2290
+          ]
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "opening_kind": "garage_door",
+        "swing": "none",
+        "swing_side": "none"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-ad6d499ee1"
+        }
+      ],
+      "id": "lab-1d0c1e2b29"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1515,
+            1545
+          ],
+          [
+            1605,
+            1545
+          ],
+          [
+            1605,
+            1675
+          ],
+          [
+            1515,
+            1675
+          ]
+        ]
+      },
+      "status": "readable",
+      "attributes": {
+        "opening_kind": "door",
+        "swing": "in",
+        "swing_side": "left"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-f37d4271c5"
+        }
+      ],
+      "id": "lab-412855ee3f"
     }
   ]
 }
