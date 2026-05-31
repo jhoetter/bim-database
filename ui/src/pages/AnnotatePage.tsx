@@ -6681,6 +6681,8 @@ function labelBBox(label: Label): [number, number, number, number] | null {
     const a = g.anchor as Point;
     acc.push([a[0] - 14, a[1] - 19], [a[0] + 14, a[1] + 4]);
   } else if (label.type === 'dimension_number') {
+    const bbox = g.bbox as Point[] | undefined;
+    if (bbox) acc.push(...bbox);
     const a = g.anchor as Point | undefined;
     if (a) acc.push(a);
   }
@@ -6764,6 +6766,47 @@ function LabelKindPill({
         fontFamily="ui-sans-serif, system-ui"
         fontSize={fontPx}
         fontWeight={700}
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
+
+function WarningPill({
+  cx, cy, label, screenScale,
+}: {
+  cx: number;
+  cy: number;
+  label: string;
+  screenScale: number;
+}) {
+  const fontPx = 11 * screenScale;
+  const padPx = 5 * screenScale;
+  const textW = label.length * fontPx * 0.58;
+  const pillW = textW + padPx * 2.2;
+  const pillH = fontPx + padPx * 1.6;
+  const x = cx - pillW / 2;
+  const y = cy - pillH / 2;
+  return (
+    <g pointerEvents="none">
+      <rect
+        x={x} y={y}
+        width={pillW} height={pillH}
+        rx={pillH / 2}
+        fill="#fef2f2"
+        stroke="#dc2626"
+        strokeWidth={1.2}
+        opacity={0.95}
+      />
+      <text
+        x={cx}
+        y={cy + fontPx * 0.34}
+        textAnchor="middle"
+        fill="#b91c1c"
+        fontFamily="ui-sans-serif, system-ui"
+        fontSize={fontPx}
+        fontWeight={800}
       >
         {label}
       </text>
@@ -7097,14 +7140,26 @@ function LabelGlyph({
     }
     case 'dimension_number': {
       const anchor = label.geometry.anchor;
-      if (!anchor) break;
-      const [x, y] = anchor;
+      const bbox = label.geometry.bbox;
+      if (!anchor && !bbox) break;
+      const [x, y] = anchor ?? polygonCentroid(bbox ?? []);
+      const bboxPts = bbox?.map((p) => p.join(',')).join(' ');
       body = (
         <g {...bodyProps}>
+          {bboxPts && (
+            <polygon
+              points={bboxPts}
+              fill={`${baseColor}18`}
+              stroke={stroke}
+              strokeWidth={sw}
+              strokeDasharray="4,3"
+            />
+          )}
           <circle cx={x} cy={y} r={6} fill={fill} stroke={stroke} strokeWidth={sw} />
           <text x={x + 10} y={y - 6} fill={stroke} fontFamily="ui-monospace, monospace"
                 fontSize={14} style={{ paintOrder: 'stroke', stroke: 'white', strokeWidth: 3 }}>
             {label.attributes.text}
+            {label.attributes.parsed_value_mm != null ? ` (${(label.attributes.parsed_value_mm / 1000).toFixed(2).replace('.', ',')} m)` : ''}
           </text>
         </g>
       );
@@ -7170,6 +7225,14 @@ function LabelGlyph({
               color={stroke}
               Glyph={Glyph}
               label={openingKindLabel(kind)}
+              screenScale={screenScale}
+            />
+          )}
+          {!attached && (
+            <WarningPill
+              cx={cx}
+              cy={cy + 18 * screenScale}
+              label="keine Wand"
               screenScale={screenScale}
             />
           )}
@@ -7475,7 +7538,8 @@ function LabelGlyph({
   };
 
   // V3 — cross-cutting decorations (provenance + refine).
-  const v3Bbox = (inheritedFromOtherScene || refineKind) ? labelBBox(label) : null;
+  const hasStatusWarning = label.status !== 'readable';
+  const v3Bbox = (inheritedFromOtherScene || refineKind || hasStatusWarning) ? labelBBox(label) : null;
   const v3GlyphPx = 14 * screenScale;
   const v3Pad = 4 * screenScale;
   // refineKind → display config.
@@ -7484,6 +7548,15 @@ function LabelGlyph({
   // ? corner-badge (less alarming).
   const isLoudIssue = refineKind === 'height_conflict';
   const showQBadge = refineKind != null && refineKind !== 'height_conflict';
+  const statusStyle = hasStatusWarning
+    ? (
+        label.status === 'missing'
+          ? { color: '#dc2626', text: 'missing' }
+          : label.status === 'not_readable'
+            ? { color: '#7c3aed', text: 'not readable' }
+            : { color: '#d97706', text: '?' }
+      )
+    : null;
 
   return (
     <g>
@@ -7569,6 +7642,46 @@ function LabelGlyph({
                 {isLoudIssue ? '!' : '?'}
               </text>
             </g>
+          )}
+          {statusStyle && (
+            <>
+              <rect
+                x={v3Bbox[0] - v3Pad * 1.2}
+                y={v3Bbox[1] - v3Pad * 1.2}
+                width={v3Bbox[2] - v3Bbox[0] + v3Pad * 2.4}
+                height={v3Bbox[3] - v3Bbox[1] + v3Pad * 2.4}
+                fill="none"
+                stroke={statusStyle.color}
+                strokeWidth={2}
+                strokeDasharray={label.status === 'uncertain' ? '4,3' : undefined}
+                opacity={0.82}
+                rx={3}
+              />
+              <g pointerEvents="none">
+                <rect
+                  x={v3Bbox[2] + v3Pad}
+                  y={v3Bbox[3] + v3Pad}
+                  width={Math.max(22 * screenScale, statusStyle.text.length * 7 * screenScale)}
+                  height={16 * screenScale}
+                  rx={8 * screenScale}
+                  fill="white"
+                  stroke={statusStyle.color}
+                  strokeWidth={1.2}
+                  opacity={0.96}
+                />
+                <text
+                  x={v3Bbox[2] + v3Pad + Math.max(22 * screenScale, statusStyle.text.length * 7 * screenScale) / 2}
+                  y={v3Bbox[3] + v3Pad + 11.5 * screenScale}
+                  textAnchor="middle"
+                  fontSize={9.5 * screenScale}
+                  fontFamily="ui-sans-serif, system-ui"
+                  fill={statusStyle.color}
+                  fontWeight={800}
+                >
+                  {statusStyle.text}
+                </text>
+              </g>
+            </>
           )}
         </g>
       )}
