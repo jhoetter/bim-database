@@ -75,25 +75,6 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1160,
-          569
-        ],
-        "end": [
-          1129,
-          860
-        ]
-      },
-      "attributes": {
-        "thickness_mm": 240
-      },
-      "notes": "exterior right-upper",
-      "id": "lab-601874a6e6"
-    },
-    {
-      "type": "wall",
-      "status": "readable",
-      "geometry": {
-        "start": [
           1151,
           862
         ],
