@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.1",
+  "scene_metadata": {
+    "house-22-floorplan-eg.jpg": {
+      "scene_tag": "grundriss",
+      "orientation": null,
+      "level": "eg",
+      "image_size_px": [
+        2318,
+        1723
+      ]
+    }
+  },
+  "calibration_per_scene": {
+    "house-22-floorplan-eg.jpg": {
+      "px_per_mm": 0.0732236147370626,
+      "computed_from": "M1-both"
+    }
+  },
+  "openings_catalog": [],
+  "extent": {
+    "sources": {},
+    "width_mm": 9860,
+    "height_mm": 8444,
+    "depth_mm": 9084
+  },
+  "heights": {
+    "sources": {},
+    "ok_ffb_eg_mm": 0,
+    "first_mm": 7210,
+    "bezug_mm": 0
+  },
+  "wall_thickness": {
+    "outer_mm": 300
+  },
+  "workflow": {
+    "driven_by": "bim-agent",
+    "driven_by_run_id": "validation-run-1",
+    "driven_by_started_at": "2026-05-29T17:00:00Z",
+    "schema_version": "1.1",
+    "phase": "inventory",
+    "phase_completed_at": {
+      "inventory": null,
+      "height_anchor": null,
+      "footprint": null,
+      "orientation": null,
+      "bezugsmasse": null,
+      "detail": null
+    },
+    "source_scene": {
+      "inventory": null,
+      "height_anchor": null,
+      "footprint": null,
+      "orientation": null,
+      "bezugsmasse": null,
+      "detail": null
+    },
+    "user_skipped": {}
+  },
+  "orientation": {
+    "north_angle_deg": 30,
+    "assumed": true
+  },
+  "derived_facts": {}
+}
