@@ -11,10 +11,23 @@
       ]
     }
   },
-  "calibration_per_scene": {},
+  "calibration_per_scene": {
+    "house-22-floorplan-eg.png": {
+      "px_per_mm": 0.13475122431790554,
+      "computed_from": "M1-both",
+      "single_ref_assumed_isotropic": false
+    }
+  },
   "openings_catalog": [],
   "extent": {
-    "sources": {},
+    "sources": {
+      "width_mm": [
+        "house-22-floorplan-eg.png#dim:lab-f57de491d3"
+      ],
+      "depth_mm": [
+        "house-22-floorplan-eg.png#dim:lab-e5dda1ab93"
+      ]
+    },
     "width_mm": 9860,
     "height_mm": 8444,
     "depth_mm": 9084

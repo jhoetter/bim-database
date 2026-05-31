@@ -1,0 +1,611 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-22",
+  "scene_file": "house-22-floorplan-eg.png",
+  "scene_tag": "grundriss",
+  "scene_orientation": null,
+  "scene_level": "eg",
+  "image_size_px": [
+    4636,
+    3445
+  ],
+  "annotated_by": "jhoetter",
+  "annotated_at": "2026-05-31T20:05:59.801Z",
+  "labels": [
+    {
+      "id": "lab-f57de491d3",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          1123,
+          224
+        ],
+        "end": [
+          2633,
+          224
+        ]
+      },
+      "attributes": {
+        "value_mm": 9860,
+        "is_reference": true,
+        "target_orientation": "horizontal"
+      },
+      "status": "readable"
+    },
+    {
+      "id": "lab-83b616b6f4",
+      "type": "dimension_number",
+      "geometry": {
+        "anchor": [
+          1878,
+          238
+        ]
+      },
+      "attributes": {
+        "text": "9,86 m",
+        "parsed_value_mm": 9860
+      },
+      "relations": [
+        {
+          "kind": "labels",
+          "other_id": "lab-f57de491d3"
+        }
+      ],
+      "status": "readable"
+    },
+    {
+      "id": "lab-e5dda1ab93",
+      "type": "dimensioned_distance",
+      "geometry": {
+        "start": [
+          342,
+          1085
+        ],
+        "end": [
+          342,
+          2142
+        ]
+      },
+      "attributes": {
+        "value_mm": 9084,
+        "is_reference": true,
+        "target_orientation": "vertical"
+      },
+      "status": "readable"
+    },
+    {
+      "id": "lab-2318da59c3",
+      "type": "dimension_number",
+      "geometry": {
+        "anchor": [
+          328,
+          1613.5
+        ]
+      },
+      "attributes": {
+        "text": "9,06 m",
+        "parsed_value_mm": 9084
+      },
+      "relations": [
+        {
+          "kind": "labels",
+          "other_id": "lab-e5dda1ab93"
+        }
+      ],
+      "status": "readable"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1150,
+          1168
+        ],
+        "end": [
+          1868,
+          1172
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "North exterior wall, left house mass; continuous through small window opening.",
+      "id": "lab-98351800ff"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1882,
+          1167
+        ],
+        "end": [
+          2200,
+          1160
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "North exterior wall over stair/diele mass.",
+      "id": "lab-c49f1be301"
+    },
+    {
+      "id": "lab-a735d3a4ab",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2210,
+          1160
+        ],
+        "end": [
+          2475,
+          1150
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "North exterior wall over guest room."
+    },
+    {
+      "id": "lab-f9255990df",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2475,
+          1150
+        ],
+        "end": [
+          2488,
+          1740
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "East exterior wall of house mass."
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1970,
+          1740
+        ],
+        "end": [
+          2495,
+          1740
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "South wall of guest/east house wing, continuous through small symbols.",
+      "id": "lab-480b0101dc"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2485,
+          1740
+        ],
+        "end": [
+          2488,
+          2240
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "East exterior wall of living/dining house leg.",
+      "id": "lab-babce8e637"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1300,
+          2220
+        ],
+        "end": [
+          2488,
+          2210
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "South exterior wall of living/dining leg; continuous through window openings.",
+      "id": "lab-eb7ebd2bb6"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1300,
+          1850
+        ],
+        "end": [
+          1300,
+          2220
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "West exterior lower living/dining leg.",
+      "id": "lab-690c78f0ca"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1165,
+          1600
+        ],
+        "end": [
+          1300,
+          1850
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "Diagonal southwest exterior/notch wall.",
+      "id": "lab-93f9a91d24"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1150,
+          1168
+        ],
+        "end": [
+          1158,
+          1600
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "West exterior upper kitchen/bath wall.",
+      "id": "lab-fdebc13b49"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1152,
+          1335
+        ],
+        "end": [
+          1740,
+          1340
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "status": "readable",
+      "notes": "Interior partition between DU/WC and kitchen.",
+      "id": "lab-5f92c6e447"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1740,
+          1340
+        ],
+        "end": [
+          1742,
+          1772
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "status": "readable",
+      "notes": "Interior partition between kitchen and Diele/living.",
+      "id": "lab-a4b702a354"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2035,
+          1170
+        ],
+        "end": [
+          2035,
+          1580
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "status": "readable",
+      "notes": "Interior wall at stair/Diele left side.",
+      "id": "lab-0319381ca5"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2205,
+          1160
+        ],
+        "end": [
+          2205,
+          1580
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "status": "readable",
+      "notes": "Interior wall at stair/Diele right side.",
+      "id": "lab-d8aa77ad32"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2535,
+          1680
+        ],
+        "end": [
+          2915,
+          1682
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "Garage north exterior wall.",
+      "id": "lab-dcfacf5271"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2915,
+          1682
+        ],
+        "end": [
+          2915,
+          2355
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "Garage east exterior wall.",
+      "id": "lab-6478f556b0"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2535,
+          2355
+        ],
+        "end": [
+          2915,
+          2355
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "Garage south exterior wall.",
+      "id": "lab-f619f41b8e"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2535,
+          1680
+        ],
+        "end": [
+          2535,
+          2355
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "status": "readable",
+      "notes": "Garage west exterior wall.",
+      "id": "lab-bd7d7ed75b"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1410,
+            1125
+          ],
+          [
+            1538,
+            1125
+          ],
+          [
+            1538,
+            1212
+          ],
+          [
+            1410,
+            1212
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "window"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-98351800ff"
+        }
+      ],
+      "status": "readable",
+      "id": "lab-835b6c3fcf"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            2220,
+            1115
+          ],
+          [
+            2375,
+            1115
+          ],
+          [
+            2375,
+            1195
+          ],
+          [
+            2220,
+            1195
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "window"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-a735d3a4ab"
+        }
+      ],
+      "status": "readable",
+      "id": "lab-c3724efed9"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1118,
+            1425
+          ],
+          [
+            1200,
+            1425
+          ],
+          [
+            1200,
+            1585
+          ],
+          [
+            1118,
+            1585
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "window"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-fdebc13b49"
+        }
+      ],
+      "status": "readable",
+      "id": "lab-82f2609577"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1695,
+            2174
+          ],
+          [
+            2350,
+            2174
+          ],
+          [
+            2350,
+            2248
+          ],
+          [
+            1695,
+            2248
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "window"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-eb7ebd2bb6"
+        }
+      ],
+      "status": "readable",
+      "id": "lab-5d4b0f180c"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            2680,
+            2310
+          ],
+          [
+            2870,
+            2310
+          ],
+          [
+            2870,
+            2395
+          ],
+          [
+            2680,
+            2395
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "garage_door"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-f619f41b8e"
+        }
+      ],
+      "status": "readable",
+      "id": "lab-8109c7cee4"
+    }
+  ]
+}
