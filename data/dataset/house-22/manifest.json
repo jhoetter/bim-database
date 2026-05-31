@@ -2,13 +2,13 @@
   "key": "house-22",
   "drawings": [
     {
-      "file": "house-22-floorplan-eg.jpg",
+      "file": "house-22-floorplan-eg.png",
       "kind": "floorplan",
       "source": "pdf",
       "view": null,
       "floor": "eg",
       "title": "EG-Grundriss",
-      "imported_at": "2026-05-31T10:36:20Z",
+      "imported_at": "2026-05-31T11:27:39Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 2,
