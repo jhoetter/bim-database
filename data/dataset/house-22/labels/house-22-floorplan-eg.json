@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "scope": "dataset",
+  "scene_key": "house-22",
+  "scene_file": "house-22-floorplan-eg.png",
+  "scene_tag": "grundriss",
+  "scene_orientation": null,
+  "scene_level": "eg",
+  "image_size_px": [
+    4636,
+    3445
+  ],
+  "annotated_by": "agent",
+  "annotated_at": "2026-05-31T12:00:00Z",
+  "labels": [
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1270,
+          1132
+        ],
+        "end": [
+          2045,
+          1117
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "shell top",
+      "id": "lab-sh1"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          2045,
+          1117
+        ],
+        "end": [
+          2050,
+          2300
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "shell right (main)",
+      "id": "lab-sh2"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          2050,
+          2300
+        ],
+        "end": [
+          1276,
+          2300
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "shell bottom",
+      "id": "lab-sh3"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1276,
+          2300
+        ],
+        "end": [
+          1270,
+          1132
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "notes": "shell left (west)",
+      "id": "lab-sh4"
+    }
+  ]
+}
