@@ -41,8 +41,8 @@
           584
         ],
         "end": [
-          662,
-          1108
+          660,
+          1088
         ]
       },
       "attributes": {
@@ -95,7 +95,7 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1322,
+          1422,
           732
         ],
         "end": [
@@ -265,7 +265,7 @@
       "status": "readable",
       "geometry": {
         "start": [
-          1045,
+          1135,
           611
         ],
         "end": [
