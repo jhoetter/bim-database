@@ -316,6 +316,25 @@
       },
       "notes": "exterior right-upper added cycle3",
       "id": "lab-c3a1right1"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          644,
+          655
+        ],
+        "end": [
+          828,
+          643
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 150
+      },
+      "notes": "interior c5 horiz",
+      "id": "lab-c5c1"
     }
   ]
 }
