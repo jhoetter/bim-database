@@ -4329,10 +4329,138 @@ from mcp_metadata import register_metadata
 register_metadata(mcp, server_version=SERVER_VERSION)
 
 
+CORE_CONTEXT_TOOLS = {
+    "list_houses",
+    "get_workflow_state",
+    "get_house_context_summary",
+    "get_scene_context_summary",
+    "write_scene_handoff_summary",
+    "get_scene_handoff_summary",
+    "list_house_handoff_summaries",
+    "get_recommended_next_action",
+}
+
+VISUAL_TOOLS = {
+    "get_scene_view",
+    "get_scene_view_with_labels",
+    "verify_label_placement",
+    "resolve_scene_point",
+}
+
+SCENE_PLAN_TOOLS = {
+    "get_scene_plan_state",
+    "get_scene_plan_status",
+    "create_scene_plan_state_from_template",
+    "add_scene_plan_evidence",
+    "evaluate_scene_plan_gates",
+    "get_scene_plan_next_actions",
+    "get_scene_plan_next_action",
+    "start_scene_plan_action",
+    "record_scene_plan_attempt",
+    "finish_scene_plan_action",
+    "classify_plan_defect",
+    "evaluate_scene_plan_terminality",
+}
+
+TOOL_PROFILES: dict[str, set[str] | None] = {
+    "all": None,
+    "inventory": CORE_CONTEXT_TOOLS | {
+        "get_house",
+        "get_pdf_page_view",
+        "list_pdfs",
+        "get_pdf_info",
+        "extract_scenes",
+        "split_scene",
+        "get_scene_meta",
+        "set_scene_tag",
+        "set_scene_orientation",
+        "set_scene_level",
+        "dump_run_summary",
+    },
+    "floorplan": CORE_CONTEXT_TOOLS | VISUAL_TOOLS | SCENE_PLAN_TOOLS | {
+        "list_scene_labels",
+        "detect_wall_corners",
+        "check_corner",
+        "wall_outline",
+        "building_silhouette",
+        "outer_wall_topology_context",
+        "wall_topology_qa",
+        "wall_continuity_check",
+        "ambiguous_line_context",
+        "refine_wall",
+        "score_walls",
+        "score_measurements",
+        "dimension_chain_candidates",
+        "dimension_chain_context",
+        "propose_wall_edit",
+        "connect_corners",
+        "get_label",
+        "upsert_label",
+        "delete_label",
+        "update_label_attrs",
+        "set_label_status",
+        "add_reference_dim",
+        "recompute_homography",
+        "dump_run_summary",
+    },
+    "view": CORE_CONTEXT_TOOLS | VISUAL_TOOLS | SCENE_PLAN_TOOLS | {
+        "list_scene_labels",
+        "get_label",
+        "upsert_label",
+        "delete_label",
+        "update_label_attrs",
+        "set_label_status",
+        "add_reference_dim",
+        "recompute_homography",
+        "get_building_global_facts",
+        "set_building_global_fact",
+        "dump_run_summary",
+    },
+    "review": CORE_CONTEXT_TOOLS | VISUAL_TOOLS | {
+        "list_scene_labels",
+        "get_label",
+        "get_house_facts",
+        "validate_export_readiness",
+        "list_anomalies",
+        "export_house",
+        "dump_run_summary",
+    },
+}
+
+
+def tool_profile_names() -> list[str]:
+    return sorted(TOOL_PROFILES)
+
+
+async def apply_tool_profile(profile: str | None = None) -> dict:
+    selected = (profile or os.environ.get("BIM_MCP_TOOL_PROFILE") or "all").strip().lower()
+    if selected not in TOOL_PROFILES:
+        selected = "all"
+    allowed = TOOL_PROFILES[selected]
+    before = [tool.name for tool in await mcp.list_tools()]
+    removed: list[str] = []
+    if allowed is not None:
+        for name in before:
+            if name not in allowed:
+                mcp.remove_tool(name)
+                removed.append(name)
+    after = [tool.name for tool in await mcp.list_tools()]
+    return {
+        "profile": selected,
+        "before_count": len(before),
+        "after_count": len(after),
+        "removed_count": len(removed),
+        "removed": removed,
+    }
+
+
 # ── entry point ──────────────────────────────────────────────────────────
 
 
 def main() -> None:
+    profile = asyncio.get_event_loop().run_until_complete(apply_tool_profile())
+    if profile["profile"] != "all":
+        log.info("tool_profile: %s", profile)
     log.info("running mcp.run(stdio)")
     try:
         mcp.run(transport="stdio")
