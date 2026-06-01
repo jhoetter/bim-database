@@ -39,6 +39,11 @@ from mcp_envelope import (
     ok as _ok,
     wrap_text as _wrap_text,
 )
+from mcp_context_summary import (
+    compact_plan_status as _compact_plan_status,
+    compact_scene_row as _compact_scene_row,
+    label_summary as _label_summary,
+)
 from mcp_image_delivery import IMAGE_ARTIFACT_DIR, image_response
 from api.workflow_state import (
     REQUIRED_GEOMETRY as _REQUIRED_GEOMETRY,
@@ -319,37 +324,6 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
         else:
             scene_meta_by_file[f] = {"scene_tag": None}
     return facts or {}, scene_meta_by_file
-
-
-def _compact_scene_row(drawing: dict, meta: dict) -> dict:
-    return {
-        "file": drawing.get("file"),
-        "title": drawing.get("title"),
-        "extraction_kind": drawing.get("kind"),
-        "manifest_floor": drawing.get("floor"),
-        "manifest_view": drawing.get("view"),
-        "scene_tag": meta.get("scene_tag"),
-        "scene_level": meta.get("scene_level"),
-        "scene_orientation": meta.get("scene_orientation"),
-        "labeled": bool(drawing.get("labeled")),
-        "label_count": meta.get("label_count", drawing.get("label_count", 0)),
-        "label_types": meta.get("label_types") or [],
-    }
-
-
-def _compact_plan_status(plan_status: dict, max_blockers: int = 3) -> dict:
-    blockers = plan_status.get("blockers") or plan_status.get("blocking_defects") or []
-    if not isinstance(blockers, list):
-        blockers = []
-    return {
-        "exists": bool(plan_status.get("exists", True)),
-        "status": plan_status.get("status") or plan_status.get("terminality") or plan_status.get("state"),
-        "summary": plan_status.get("summary") or plan_status.get("current_summary"),
-        "next_action": plan_status.get("next_action"),
-        "blocker_count": len(blockers),
-        "blockers": blockers[:max_blockers],
-        "truncated": len(blockers) > max_blockers,
-    }
 
 
 @mcp.tool()
@@ -2665,29 +2639,6 @@ async def connect_corners(edges: list, closed: bool = True) -> dict:
     started = time.time()
     return await _cv_post("/geometry/connect-corners",
                           {"edges": edges, "closed": closed}, started)
-
-
-def _label_summary(label: dict) -> str:
-    """One-line human description for the summary view."""
-    t = label.get("type")
-    attrs = label.get("attributes") or {}
-    geom = label.get("geometry") or {}
-    if t == "wall":
-        return f"thickness={attrs.get('thickness_mm')}mm"
-    if t in ("floorplan_opening", "view_opening"):
-        kind = attrs.get("opening_kind")
-        return f"{kind} width={attrs.get('width_mm', '?')}mm"
-    if t == "component_line":
-        n = len(geom.get("points") or [])
-        return f"{attrs.get('line_kind', 'unknown')} ({n} pts)"
-    if t == "height_mark":
-        return f"value={attrs.get('value_mm')}mm datum={attrs.get('datum')}"
-    if t == "dimensioned_distance":
-        ref = " (REF)" if attrs.get("is_reference") else ""
-        return f"value={attrs.get('value_mm')}mm{ref}"
-    if t == "dimension_number":
-        return f"text={attrs.get('text')!r}"
-    return ""
 
 
 @mcp.tool()

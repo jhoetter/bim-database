@@ -155,9 +155,10 @@ test without importing the whole FastAPI app.
 **Severity:** High
 
 `mcp_server.py` was approximately 4,628 LOC at the initial audit and is still
-approximately 4,227 LOC after workflow, metadata, image-delivery, and envelope
-extractions. It owns transport wrappers, tool definitions, export readiness
-checks, label mutation helpers, summaries, and many tool contracts.
+approximately 4,178 LOC after workflow, metadata, image-delivery, envelope,
+and context-summary helper extractions. It owns transport wrappers, tool
+definitions, export readiness checks, label mutation helpers, summaries, and
+many tool contracts.
 
 Evidence:
 
@@ -168,6 +169,8 @@ Evidence:
   `mcp_image_delivery.py`
 - response envelope construction and HTTP error mapping used to live directly
   in `mcp_server.py`; they now delegate to `mcp_envelope.py`
+- compact context-summary row/label/plan formatting used to live directly in
+  `mcp_server.py`; it now delegates to `mcp_context_summary.py`
 - prompt/resource registration used to live directly in `mcp_server.py`; it now
   delegates to `mcp_metadata.py`
 - `scripts/code_quality_inventory.py` currently finds 75 MCP tools:
@@ -616,6 +619,15 @@ Progress:
   `51 passed, 1 warning`.
 - Added `scripts/code_quality_inventory.py` to generate MCP tool counts,
   rough categories, and large-payload classifications for future CQ3 splits.
+- Added `mcp_context_summary.py` and moved compact scene-row, plan-status, and
+  label-summary formatting helpers out of `mcp_server.py`.
+- Focused context-summary helper tests passed: `5 passed`.
+- MCP smoke tests passed in a separate process after the extraction:
+  `49 passed, 1 warning`.
+  Note: running `tests/test_mcp_context_summary.py` and
+  `tests/test_mcp_smoke.py` in one pytest process currently fails because
+  the former uses `asyncio.run()`, closing the default event loop expected by
+  the latter. That is test harness debt, not an extraction behavior failure.
 
 ### CQ4 — Break up `AnnotatePage.tsx`
 
@@ -957,6 +969,8 @@ Progress snapshots:
   `mcp_image_delivery.py` ~118 LOC.
 - After envelope extraction: `mcp_server.py` ~4,227 LOC,
   `mcp_envelope.py` ~95 LOC.
+- After context-summary helper extraction: `mcp_server.py` ~4,178 LOC,
+  `mcp_context_summary.py` ~56 LOC.
 
 ---
 
