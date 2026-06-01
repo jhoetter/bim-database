@@ -1,7 +1,7 @@
 # MCP context bloat (MCB) tracker
 
-**Status:** 2026-06-01. Initial investigation captured. No mitigation
-items shipped yet.
+**Status:** 2026-06-01. Initial investigation captured. Implementation
+started on branch `mcp-context-bloat-reduction-impl`.
 
 **Owner:** jhoetter
 **Scope:** MCP tool schema size, MCP tool result size, visual-inspection
@@ -242,6 +242,56 @@ tools." The limiting factor was the combination of:
 4. non-trivial but secondary schema overhead.
 
 ---
+
+## 3.1 Implementation progress
+
+Current branch: `mcp-context-bloat-reduction-impl`.
+
+Shipped checkpoints:
+
+- **MCB0 measurement harness:** `scripts/mcp_context_report.py` parses MCP
+  tool catalogs, Claude JSONL transcripts, and MCP server logs. Focused tests:
+  `tests/test_mcp_context_report.py`.
+- **MCB1 compact summaries:** added `get_house_context_summary` and
+  `get_scene_context_summary` MCP tools so routing/resume turns can avoid
+  full labels + full plan-state reads. Focused tests:
+  `tests/test_mcp_context_summary.py`.
+- **MCB2 image handles/resources:** image tools now support
+  `image_delivery="inline"|"handle"|"both"|"auto"` and persist handle-mode
+  renders under `tmp/mcp-images/`. Focused tests:
+  `tests/test_mcp_image_delivery.py`.
+- **MCB3 crop/auto visual policy support:** `image_delivery="auto"` keeps
+  small crops inline but switches larger renders to handles above
+  `max_inline_bytes` (default 250 KB, configurable with
+  `BIM_MCP_IMAGE_MAX_INLINE_BYTES`). A live sample crop in the dirty
+  house-22 worktree reduced returned payload from ~58.6k chars to ~1.5k
+  chars in handle mode, about **38.6x**.
+- **MCB5 toolset split:** `BIM_MCP_TOOL_PROFILE` can expose role-specific
+  catalogs (`inventory`, `floorplan`, `view`, `review`, `all`). The
+  `floorplan` profile reduced visible tools from 78 to 48 in the focused
+  check. Focused tests: `tests/test_mcp_tool_profiles.py`.
+- **MCB8 handoff summaries:** added durable compact handoff storage
+  (`mcp_handoff.py`) plus MCP tools to write/read/list handoff summaries.
+  Focused tests: `tests/test_mcp_handoff.py`.
+
+Focused verification command:
+
+```bash
+/home/jhoetter/repos/bim-database/.venv/bin/python -m pytest \
+  tests/test_mcp_context_report.py \
+  tests/test_mcp_image_delivery.py \
+  tests/test_mcp_context_summary.py \
+  tests/test_mcp_handoff.py \
+  tests/test_mcp_tool_profiles.py
+```
+
+Still open:
+
+- MCB4 output budgets/truncation on high-cardinality scoring/QA tools.
+- MCB6 docstring/schema compression.
+- MCB7 deeper API-side repeated-read fan-out cleanup.
+- MCB9 prompt/skill policy updates outside this repository, if the production
+  agent prompts live in `bim-agent`.
 
 ## 4. Expected efficiency gain
 
