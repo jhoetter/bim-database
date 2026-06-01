@@ -1,10 +1,10 @@
 """Pure export-readiness + completeness helpers (V5.2 / V5.3).
 
-These build on the geometry contract that the V5.1 Wgeo gate already enforces
-(`_REQUIRED_GEOMETRY` / `_missing_geometry`, defined in `mcp_server.py`). They
-are PURE — no I/O, no rendering — so they unit-test deterministically on
-synthetic scene dicts and are cheap to call as cross-checks during a run. The
-vision-LLM still decides what to do with a failed check.
+These build on the geometry contract that the scene-class gates already
+enforce in `api.workflow_state`. They are PURE — no I/O, no rendering — so
+they unit-test deterministically on synthetic scene dicts and are cheap to
+call as cross-checks during a run. The vision-LLM still decides what to do
+with a failed check.
 
 A `scene` dict here is the same shape the gate consumes, with optional extra
 evidence fields the caller fills in from the live state:
@@ -22,10 +22,8 @@ _ORIENTED_TAGS = {"grundriss", "schnitt", "ansicht"}
 
 
 def _required_geometry():
-    """Lazy import so this module stays import-cheap and avoids a load-time
-    dependency cycle with mcp_server."""
-    from mcp_server import _REQUIRED_GEOMETRY, _missing_geometry
-    return _REQUIRED_GEOMETRY, _missing_geometry
+    from .workflow_state import REQUIRED_GEOMETRY, missing_geometry
+    return REQUIRED_GEOMETRY, missing_geometry
 
 
 def _label_types(labels) -> list[str]:

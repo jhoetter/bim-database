@@ -32,6 +32,12 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ImageContent, TextContent
 
+from api.workflow_state import (
+    REQUIRED_GEOMETRY as _REQUIRED_GEOMETRY,
+    derive_workflow_state as _derive_workflow_state,
+    missing_geometry as _missing_geometry,
+)
+
 # Server identity — version is read by the skill at startup to verify
 # compatibility (tracker §6.3). Bump MAJOR on any tool signature break.
 SERVER_VERSION = "0.1.1"
@@ -320,8 +326,8 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
                 "scene_tag": lbl.get("scene_tag"),
                 "scene_orientation": lbl.get("scene_orientation"),
                 "scene_level": lbl.get("scene_level"),
-                # Issue #23: W1 may also be satisfied by the presence of a
-                # height_mark label, not only by heights facts on disk.
+                # Height labels still matter for section/elevation stages,
+                # but they no longer form a standalone house-level phase.
                 "has_height_mark": any(
                     isinstance(la, dict) and la.get("type") == "height_mark"
                     for la in labels
@@ -330,6 +336,7 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
                 # the workflow gate can require real polygons (walls, roof,
                 # openings) — not just facts — before a scene is "done".
                 "label_types": sorted(t for t in label_types if t),
+                "label_count": len(labels),
             }
         else:
             scene_meta_by_file[f] = {"scene_tag": None}
@@ -338,7 +345,7 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
 
 @mcp.tool()
 async def get_workflow_state(key: str) -> dict:
-    """Per-phase status (W0–W5) derived from on-disk facts.
+    """Class-stage status derived from on-disk labels/facts.
 
     USE when:
       - At the start of a labeling run to see where the agent picks up.
@@ -352,7 +359,7 @@ async def get_workflow_state(key: str) -> dict:
       `data` = {phase: {status: "done"|"in_progress"|"pending",
                         predicate_value: ...,
                         blockers: [...]},
-                next_phase: "W4",
+                next_phase: "floorplans",
                 exportable: bool,
                 blockers: [...]}
 
@@ -384,188 +391,6 @@ async def get_workflow_state(key: str) -> dict:
     return _ok(state, next_tool=next_tool, started_at=started, status_code=status)
 
 
-# V5.1 — geometry the honest gate requires, per scene type. A scene is
-# "geometry-complete" when it carries at least one label of EACH required
-# kind. This is what stops a facts-only scene (tagged + an assumed
-# orientation, ZERO polygons) from passing as export-ready.
-_REQUIRED_GEOMETRY: dict[str, list[str]] = {
-    # Grundriss: walls define the footprint; openings are windows/doors.
-    "grundriss": ["wall", "floorplan_opening"],
-    # Schnitt: component lines carry roof planes / slabs / storey lines.
-    "schnitt": ["component_line"],
-    # Ansicht: façade openings (windows/doors/dormers) + roof/outline lines.
-    "ansicht": ["view_opening"],
-}
-
-
-def _missing_geometry(scene_tag: str | None, label_types) -> list[str]:
-    """Return the required geometry kinds this scene is MISSING (empty list
-    = geometry-complete). Pure helper for the V5.1 gate."""
-    req = _REQUIRED_GEOMETRY.get(scene_tag or "", [])
-    have = set(label_types or [])
-    return [k for k in req if k not in have]
-
-
-def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dict]) -> dict:
-    """Server-side approximation of ui/src/lib/workflow.ts predicates.
-
-    Keep deliberately conservative: when in doubt, return `pending` and
-    let the skill's actual labeling behavior drive the SPA to fill in
-    the gaps. The status flips only on clear, observable conditions.
-
-    Args:
-      dataset: dataset manifest (drawings list).
-      facts: HouseFacts (heights, extent, wall_thickness, orientation,
-             calibration_per_scene, workflow).
-      scene_meta: per-file labels-JSON projection {file: {scene_tag,
-                  scene_orientation, scene_level}}. Reading the
-                  workflow-vocabulary values from labels JSON, not from
-                  the manifest's extraction-time kind/view/floor.
-    """
-    drawings = dataset.get("drawings") or []
-    scenes_by_file = {d.get("file"): d for d in drawings}
-
-    # W0: every scene has a non-null scene_tag + Ansicht/Schnitt have
-    # scene_orientation + Grundriss have scene_level.
-    w0_blockers: list[str] = []
-    if not drawings:
-        w0_blockers.append("no scenes extracted yet")
-    # H3 (followups-2 tracker): orientation is OPTIONAL on ansicht/
-    # schnitt. Missing orientation surfaces in list_anomalies as a
-    # warning, not a W0 blocker.
-    for d in drawings:
-        f = d.get("file")
-        meta = scene_meta.get(f, {})
-        tag = meta.get("scene_tag")
-        if tag in (None, "nicht_klassifiziert"):
-            w0_blockers.append(f"{f}: untagged")
-            continue
-        if tag == "grundriss" and not meta.get("scene_level"):
-            w0_blockers.append(f"{f}: missing level")
-    w0_status = "done" if drawings and not w0_blockers else "pending"
-
-    # Issue #20 + #23: no scenes means no labels, so any heights/extent/
-    # orientation facts on disk are orphaned/stale (e.g. left behind by a
-    # reset, or a workflow-only stub on a brand-new house). The
-    # substantive phases W1–W4 (and W5) can only be `done` when scenes
-    # actually exist — otherwise a house with `scenes_total: 0` (and
-    # possibly null house_facts) falsely reports them complete, the SPA
-    # progress bar lights up green before any work is done, and a labeling
-    # agent reading get_workflow_state SKIPS the height anchor (W1) and
-    # orientation (W3). The `has_scenes` short-circuit below is applied
-    # UNIFORMLY to W1–W4 (and W5), not just W2.
-    has_scenes = bool(drawings)
-    has_height_mark = any(m.get("has_height_mark") for m in scene_meta.values())
-
-    # W1: heights anchored — bezug_mm == 0 AND first_mm set, OR (issue #23)
-    # at least one height_mark label has been placed on a scene.
-    heights = (facts.get("heights") or {})
-    w1_status = "done" if has_scenes and (
-        (heights.get("bezug_mm") == 0 and heights.get("first_mm") not in (None, ""))
-        or has_height_mark
-    ) else "pending"
-
-    # W2: extent.width_mm + depth_mm + wall_thickness.outer_mm
-    extent = facts.get("extent") or {}
-    wt = facts.get("wall_thickness") or {}
-    w2_status = "done" if (
-        has_scenes and extent.get("width_mm") and extent.get("depth_mm")
-        and wt.get("outer_mm")
-    ) else "pending"
-
-    # W3: orientation set (either north_edge_label_id or north_angle_deg)
-    orient = facts.get("orientation") or {}
-    w3_status = "done" if (
-        has_scenes and (
-            orient.get("north_edge_label_id")
-            or orient.get("north_angle_deg") is not None
-        )
-    ) else "pending"
-
-    # W4: every Ansicht/Schnitt has facts.calibration_per_scene[file].
-    # Issue #27: a single axis-aligned ref dim DOES calibrate the scene
-    # under the square-pixel (isotropic) assumption (#26) — the persisted
-    # calibration carries single_ref_assumed_isotropic. Such a scene counts
-    # as calibrated, but we SURFACE the assumption so reviewers see W4
-    # rests on it (vs a measured two-axis M1-both calibration).
-    cps = facts.get("calibration_per_scene") or {}
-    w4_blockers: list[str] = []
-    w4_assumed_isotropic: list[str] = []
-    has_calibration_targets = False
-    for d in drawings:
-        f = d.get("file")
-        tag = scene_meta.get(f, {}).get("scene_tag")
-        if tag in ("ansicht", "schnitt"):
-            has_calibration_targets = True
-            calib = cps.get(f)
-            if not calib:
-                w4_blockers.append(f"{f}: not calibrated")
-            elif isinstance(calib, dict) and calib.get("single_ref_assumed_isotropic"):
-                w4_assumed_isotropic.append(f)
-    w4_status = "done" if has_calibration_targets and not w4_blockers else "pending"
-
-    # Wgeo (V5.1): every scene of a geometry-bearing type carries the
-    # required polygons (walls/openings/component lines), not just facts.
-    # This is the honest-gate fix — a facts-only scene with zero geometry
-    # is NOT complete. Only scenes whose tag is in _REQUIRED_GEOMETRY are
-    # checked; sonstiges/detail/nicht_klassifiziert are exempt.
-    wgeo_blockers: list[str] = []
-    has_geometry_targets = False
-    for d in drawings:
-        f = d.get("file")
-        meta = scene_meta.get(f, {})
-        tag = meta.get("scene_tag")
-        if tag in _REQUIRED_GEOMETRY:
-            has_geometry_targets = True
-            missing = _missing_geometry(tag, meta.get("label_types"))
-            if missing:
-                wgeo_blockers.append(f"{f}: missing geometry {missing}")
-    wgeo_status = "done" if has_geometry_targets and not wgeo_blockers else (
-        "pending" if has_scenes else "pending"
-    )
-
-    # W5: manual; user_skipped or phase_completed_at.detail
-    wf = (facts.get("workflow") or {})
-    w5_status = "done" if has_scenes and (
-        (wf.get("phase_completed_at") or {}).get("detail")
-        or (wf.get("user_skipped") or {}).get("detail")
-    ) else "pending"
-
-    # Issue #20: when there are no scenes, the substantive phases are
-    # blocked on that, not on a missing field — say so plainly.
-    no_scenes_blocker = "no scenes extracted yet"
-    phases = {
-        "W0": {"status": w0_status, "blockers": w0_blockers},
-        "W1": {"status": w1_status, "blockers": [] if w1_status == "done"
-               else ([no_scenes_blocker] if not has_scenes else ["heights.bezug_mm or first_mm missing"])},
-        "W2": {"status": w2_status, "blockers": [] if w2_status == "done"
-               else ([no_scenes_blocker] if not has_scenes else ["extent or wall_thickness missing"])},
-        "W3": {"status": w3_status, "blockers": [] if w3_status == "done"
-               else ([no_scenes_blocker] if not has_scenes else ["orientation not set"])},
-        "W4": {"status": w4_status, "blockers": w4_blockers,
-               "assumed_isotropic_scenes": w4_assumed_isotropic},
-        "Wgeo": {"status": wgeo_status, "blockers": [] if wgeo_status == "done"
-                 else ([no_scenes_blocker] if not has_scenes else wgeo_blockers)},
-        "W5": {"status": w5_status, "blockers": ["W5 not marked complete"] if w5_status != "done" else []},
-    }
-    next_phase = None
-    for p in ("W0", "W1", "W2", "W3", "W4"):
-        if phases[p]["status"] != "done":
-            next_phase = p
-            break
-    # Export gating: ≥1 drawing with labels (mirrors api/main._sanity_check_house).
-    labeled_count = sum(1 for d in scenes_by_file.values() if d.get("labeled"))
-    exportable = bool(drawings) and labeled_count > 0
-    return {
-        "phases": phases,
-        "next_phase": next_phase,
-        "exportable": exportable,
-        "blockers_total": sum(len(p["blockers"]) for p in phases.values()),
-        "scenes_total": len(drawings),
-        "labeled_scenes": labeled_count,
-    }
-
-
 # ── §5.3 Scene inspection (image tools — A5) ──────────────────────────────
 
 
@@ -588,7 +413,7 @@ async def get_scene_view(
     USE when:
       - Labeling a scene — every coordinate-setting decision should
         consult a fresh grid view first.
-      - Identifying scene_tag at W0 (without region; full image).
+      - Identifying scene_tag during inventory (without region; full image).
       - Reading a faint freehand/pencil scan — pass enhance="auto" (or
         "threshold" for the faintest) to lift contrast before you read.
 
@@ -1156,7 +981,7 @@ async def get_pdf_page_view(
     """PDF page render with grid overlay — used for scene identification.
 
     USE when:
-      - Identifying scenes at W0 / extract-time: render each page,
+      - Identifying scenes at inventory / extract-time: render each page,
         emit bboxes, call `extract_scenes`.
       - Debugging a misextracted scene by viewing the source PDF page.
 
@@ -1248,16 +1073,55 @@ async def get_recommended_next_action(key: str) -> dict:
     state = state_env["data"]
     if state.get("exportable") and not state.get("blockers_total"):
         return _ok({"done": True, "reason": "all phases done; ready to export"}, started_at=started)
-    phase = state.get("next_phase") or "W0"
-    suggestions = {
-        "W0": ("get_house", {"key": key}, "list scenes + their current tags; then set_scene_tag for each untagged"),
-        "W1": ("get_house", {"key": key}, "pick an Ansicht with visible bezug + ridge; label height_marks; set_house_facts heights"),
-        "W2": ("get_house", {"key": key}, "pick EG-Grundriss; add_reference_dim horizontal + vertical; set_house_facts extent + wall_thickness"),
-        "W3": ("get_house", {"key": key}, "pick EG-Grundriss; identify north wall; set_house_facts orientation"),
-        "W4": ("get_house", {"key": key}, "for each uncalibrated Ansicht/Schnitt: add_reference_dim h+v, recompute_homography"),
-        "W5": ("get_workflow_state", {"key": key}, "W5 is opt-in; if --with-detail, label view_openings + component_lines"),
-    }
-    tool_name, tool_args, reason = suggestions[phase]
+    phase = state.get("next_phase") or "inventory"
+
+    async def first_incomplete_scene(tag: str) -> str | None:
+        ds_status, ds_body = await _api_get(f"/datasets/{key}")
+        if ds_status >= 400:
+            return None
+        _facts, meta_by_file = await _load_facts_and_scene_meta(key, ds_body or {})
+        for d in (ds_body or {}).get("drawings") or []:
+            f = d.get("file")
+            meta = meta_by_file.get(f, {})
+            if meta.get("scene_tag") != tag:
+                continue
+            if _missing_geometry(tag, meta.get("label_types")):
+                return f
+        return None
+
+    if phase == "inventory":
+        tool_name, tool_args, reason = (
+            "get_house",
+            {"key": key},
+            "extract/split as needed, then classify every scene; set levels on grundriss scenes",
+        )
+    elif phase == "floorplans":
+        file = await first_incomplete_scene("grundriss")
+        tool_name, tool_args, reason = (
+            "get_scene_plan_next_action" if file else "get_house",
+            {"key": key, "file": file} if file else {"key": key},
+            "label the next incomplete Grundriss first: silhouette/walls, openings, measurements",
+        )
+    elif phase == "sections":
+        file = await first_incomplete_scene("schnitt")
+        tool_name, tool_args, reason = (
+            "get_scene_plan_next_action" if file else "get_house",
+            {"key": key, "file": file} if file else {"key": key},
+            "label Schnitt scenes after floorplans: heights, datum, structure, reference dims",
+        )
+    elif phase == "elevations":
+        file = await first_incomplete_scene("ansicht")
+        tool_name, tool_args, reason = (
+            "get_scene_plan_next_action" if file else "get_house",
+            {"key": key, "file": file} if file else {"key": key},
+            "label Ansicht scenes after sections: facade openings, component lines, reference dims",
+        )
+    else:
+        tool_name, tool_args, reason = (
+            "get_workflow_state",
+            {"key": key},
+            "review is opt-in; inspect anomalies and export readiness",
+        )
     return _ok({
         "phase": phase,
         "suggested_tool": tool_name,
@@ -1329,7 +1193,7 @@ async def extract_scenes(
 
     USE when:
       - The agent has identified scene bboxes from `get_pdf_page_view`
-        renders (W0/extract phase).
+        renders (inventory/extract stage).
       - Re-extracting after adjusting a bbox (idempotent on (page, slug);
         re-extract overwrites the JPG and updates the manifest entry but
         preserves any existing labels.json).
@@ -1429,7 +1293,7 @@ async def extract_scenes(
                next_tool={
                    "name": "get_workflow_state",
                    "args": {"key": key},
-                   "reason": "see what W0 needs next now that scenes exist",
+                   "reason": "see what inventory needs next now that scenes exist",
                })
 
 
@@ -1616,6 +1480,535 @@ async def get_scene_meta(key: str, file: str) -> dict:
         "label_count": target.get("label_count", 0),
         "calibration_status": "calibrated" if calibration else "not_calibrated",
     }, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_plan(key: str, file: str) -> dict:
+    """Read the per-scene Markdown plan.
+
+    USE when:
+      - Starting or resuming a scene subagent.
+      - Checking whether analysis/edit/verification tasks already exist.
+
+    Returns: `data` = {exists, markdown, version, status, path, last_updated}.
+    """
+    started = time.time()
+    return await _cv_get(f"/datasets/{key}/{file}/plan", {}, started)
+
+
+@mcp.tool()
+async def create_scene_plan_from_template(
+    key: str,
+    file: str,
+    scene_tag: str = "nicht_klassifiziert",
+    level_or_orientation: str | None = None,
+    created_by: str | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """Create the standard plan.md for one scene.
+
+    USE at the start of every scene subagent BEFORE geometry labels. The plan
+    records analysis, editing tasks, verification results, and ambiguity.
+    """
+    started = time.time()
+    body = {
+        "scene_tag": scene_tag,
+        "level_or_orientation": level_or_orientation,
+        "created_by": created_by,
+        "overwrite": overwrite,
+    }
+    return await _cv_post(f"/datasets/{key}/{file}/plan/template", body, started)
+
+
+@mcp.tool()
+async def update_scene_plan(
+    key: str,
+    file: str,
+    markdown: str,
+    expected_version: str | None = None,
+    create_only: bool = False,
+) -> dict:
+    """Create or replace the scene plan Markdown.
+
+    Use `expected_version` from `get_scene_plan` to avoid clobbering another
+    worker's update. With `create_only=true`, an existing plan is rejected.
+    """
+    started = time.time()
+    body = {
+        "markdown": markdown,
+        "expected_version": expected_version,
+        "create_only": create_only,
+    }
+    try:
+        status, resp = await _api_put(f"/datasets/{key}/{file}/plan", body)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, resp = await _api_put(f"/datasets/{key}/{file}/plan", body)
+    if status >= 400:
+        return _http_status_to_error(status, resp, started)
+    return _ok(resp.get("data", resp), started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def append_scene_plan_log(
+    key: str,
+    file: str,
+    mode: str,
+    evidence: str,
+    decision: str,
+    result: str,
+    expected_version: str | None = None,
+) -> dict:
+    """Append a row to the scene plan Decision Log.
+
+    `mode` should be analysis, editing, or verification. Use this after every
+    meaningful reasoning/edit/QA step so the plan remains reviewable.
+    """
+    started = time.time()
+    body = {
+        "mode": mode,
+        "evidence": evidence,
+        "decision": decision,
+        "result": result,
+        "expected_version": expected_version,
+    }
+    return await _cv_post(f"/datasets/{key}/{file}/plan/log", body, started)
+
+
+@mcp.tool()
+async def set_scene_plan_task(
+    key: str,
+    file: str,
+    task_id: str,
+    status: str,
+    note: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Update one checkbox-style task in the scene plan.
+
+    status: pending|in_progress|done|blocked. Task IDs are the leading tokens
+    in the standard template, e.g. A2, E2, V2.
+    """
+    started = time.time()
+    body = {"status": status, "note": note, "expected_version": expected_version}
+    try:
+        err = await _api_patch(f"/datasets/{key}/{file}/plan/tasks/{task_id}", body, started)
+        if err:
+            return err
+        status_code, resp = await _api_get(f"/datasets/{key}/{file}/plan")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        err = await _api_patch(f"/datasets/{key}/{file}/plan/tasks/{task_id}", body, started)
+        if err:
+            return err
+        status_code, resp = await _api_get(f"/datasets/{key}/{file}/plan")
+    if status_code >= 400:
+        return _http_status_to_error(status_code, resp, started)
+    return _ok(resp.get("data", resp), started_at=started, status_code=status_code)
+
+
+@mcp.tool()
+async def get_scene_plan_state(key: str, file: str) -> dict:
+    """Read the structured per-scene plan state sidecar.
+
+    USE when starting or resuming a scene subagent. Returns `data` with
+    `{exists, state, version, markdown, path, markdown_path}`.
+    """
+    started = time.time()
+    return await _cv_get(f"/datasets/{key}/{file}/plan-state", {}, started)
+
+
+@mcp.tool()
+async def get_scene_plan_status(key: str, file: str) -> dict:
+    """Return concise terminality/progress status for a scene plan.
+
+    USE before spawning/resuming a scene subagent. Distinguishes actionable
+    `needs_repair` from terminal `blocked_external`.
+    """
+    started = time.time()
+    return await _cv_get(f"/datasets/{key}/{file}/plan-state/status", {}, started)
+
+
+@mcp.tool()
+async def create_scene_plan_state_from_template(
+    key: str,
+    file: str,
+    scene_tag: str = "nicht_klassifiziert",
+    level_or_orientation: str | None = None,
+    created_by: str | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """Create authoritative plan-state JSON plus rendered Markdown.
+
+    USE at the start of every scene subagent BEFORE geometry labels.
+    """
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/template",
+        {
+            "scene_tag": scene_tag,
+            "level_or_orientation": level_or_orientation,
+            "created_by": created_by,
+            "overwrite": overwrite,
+        },
+        started,
+    )
+
+
+@mcp.tool()
+async def add_scene_plan_evidence(
+    key: str,
+    file: str,
+    kind: str,
+    mode: str,
+    summary: str,
+    tool: str | None = None,
+    params: dict | None = None,
+    result: dict | None = None,
+    observation_id: str | None = None,
+    image_url: str | None = None,
+    task_ids: list[str] | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Add evidence to the structured scene plan.
+
+    Evidence is required for verified/rejected/accepted_incomplete task states.
+    """
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        {
+            "kind": kind,
+            "mode": mode,
+            "summary": summary,
+            "tool": tool,
+            "params": params or {},
+            "result": result or {},
+            "observation_id": observation_id,
+            "image_url": image_url,
+            "task_ids": task_ids or [],
+            "expected_version": expected_version,
+        },
+        started,
+    )
+
+
+@mcp.tool()
+async def upsert_scene_plan_defect(
+    key: str,
+    file: str,
+    title: str,
+    severity: str,
+    category: str,
+    description: str,
+    expected_resolution: str,
+    defect_id: str | None = None,
+    status: str = "open",
+    region: list | None = None,
+    evidence_ids: list[str] | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Create or update a first-class plan defect."""
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/defects",
+        {
+            "id": defect_id,
+            "title": title,
+            "status": status,
+            "severity": severity,
+            "category": category,
+            "region": region,
+            "description": description,
+            "expected_resolution": expected_resolution,
+            "evidence_ids": evidence_ids or [],
+            "expected_version": expected_version,
+        },
+        started,
+    )
+
+
+@mcp.tool()
+async def update_scene_plan_defect(
+    key: str,
+    file: str,
+    defect_id: str,
+    status: str | None = None,
+    severity: str | None = None,
+    category: str | None = None,
+    description: str | None = None,
+    expected_resolution: str | None = None,
+    region: list | None = None,
+    evidence_ids: list[str] | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Patch one structured scene-plan defect.
+
+    Valid statuses: open|in_progress|fixed|rejected|accepted_uncertain.
+    """
+    started = time.time()
+    body = {"expected_version": expected_version}
+    for k, v in {
+        "status": status,
+        "severity": severity,
+        "category": category,
+        "description": description,
+        "expected_resolution": expected_resolution,
+        "region": region,
+        "evidence_ids": evidence_ids,
+    }.items():
+        if v is not None:
+            body[k] = v
+    try:
+        err = await _api_patch(f"/datasets/{key}/{file}/plan-state/defects/{defect_id}", body, started)
+        if err:
+            return err
+        status_code, resp = await _api_get(f"/datasets/{key}/{file}/plan-state")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        err = await _api_patch(f"/datasets/{key}/{file}/plan-state/defects/{defect_id}", body, started)
+        if err:
+            return err
+        status_code, resp = await _api_get(f"/datasets/{key}/{file}/plan-state")
+    if status_code >= 400:
+        return _http_status_to_error(status_code, resp, started)
+    return _ok(resp.get("data", resp), started_at=started, status_code=status_code)
+
+
+@mcp.tool()
+async def set_scene_plan_task_state(
+    key: str,
+    file: str,
+    task_id: str,
+    status: str,
+    evidence_ids: list[str] | None = None,
+    blocked_by: list[str] | None = None,
+    gate_updates: list[dict] | None = None,
+    note: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Set one structured task state.
+
+    Valid statuses: todo|in_progress|blocked|rejected|verified|
+    accepted_incomplete. Prefer evaluate_scene_plan_gates for verification.
+    """
+    started = time.time()
+    body = {
+        "status": status,
+        "evidence_ids": evidence_ids,
+        "blocked_by": blocked_by,
+        "gate_updates": gate_updates,
+        "note": note,
+        "expected_version": expected_version,
+    }
+    try:
+        err = await _api_patch(f"/datasets/{key}/{file}/plan-state/tasks/{task_id}", body, started)
+        if err:
+            return err
+        status_code, resp = await _api_get(f"/datasets/{key}/{file}/plan-state")
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        err = await _api_patch(f"/datasets/{key}/{file}/plan-state/tasks/{task_id}", body, started)
+        if err:
+            return err
+        status_code, resp = await _api_get(f"/datasets/{key}/{file}/plan-state")
+    if status_code >= 400:
+        return _http_status_to_error(status_code, resp, started)
+    return _ok(resp.get("data", resp), started_at=started, status_code=status_code)
+
+
+@mcp.tool()
+async def evaluate_scene_plan_gates(
+    key: str,
+    file: str,
+    run_score_walls: bool = True,
+    run_score_measurements: bool = True,
+    run_topology_qa: bool = True,
+    run_continuity_check: bool = True,
+    visual_evidence: bool = False,
+    expected_version: str | None = None,
+) -> dict:
+    """Evaluate deterministic plan gates and update defects/tasks/status."""
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        {
+            "run_score_walls": run_score_walls,
+            "run_score_measurements": run_score_measurements,
+            "run_topology_qa": run_topology_qa,
+            "run_continuity_check": run_continuity_check,
+            "visual_evidence": visual_evidence,
+            "expected_version": expected_version,
+        },
+        started,
+    )
+
+
+@mcp.tool()
+async def get_scene_plan_next_actions(key: str, file: str, limit: int = 3) -> dict:
+    """Return blocker-first, subagent-ready next actions for one scene."""
+    started = time.time()
+    return await _cv_get(f"/datasets/{key}/{file}/plan-state/next-actions", {"limit": limit}, started)
+
+
+@mcp.tool()
+async def get_scene_plan_next_action(key: str, file: str) -> dict:
+    """Return exactly one blocker-first, subagent-ready next action."""
+    started = time.time()
+    return await _cv_get(f"/datasets/{key}/{file}/plan-state/next-action", {}, started)
+
+
+@mcp.tool()
+async def start_scene_plan_action(
+    key: str,
+    file: str,
+    action_id: str,
+    agent_id: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Claim a scene-plan action and mark its task/defect in progress."""
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/actions/{action_id}/start",
+        {"agent_id": agent_id, "expected_version": expected_version},
+        started,
+    )
+
+
+@mcp.tool()
+async def record_scene_plan_attempt(
+    key: str,
+    file: str,
+    action_id: str,
+    hypothesis: str,
+    edits: list[dict] | None = None,
+    evidence_ids: list[str] | None = None,
+    attempt_id: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Record one coherent edit/review attempt for the current action."""
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/actions/{action_id}/attempts",
+        {
+            "id": attempt_id,
+            "hypothesis": hypothesis,
+            "edits": edits or [],
+            "evidence_ids": evidence_ids or [],
+            "expected_version": expected_version,
+        },
+        started,
+    )
+
+
+@mcp.tool()
+async def finish_scene_plan_action(
+    key: str,
+    file: str,
+    action_id: str,
+    outcome: str,
+    attempt_id: str | None = None,
+    evidence_ids: list[str] | None = None,
+    reason: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Finish one plan action after verification.
+
+    outcome: fixed|still_open|rejected|accepted_uncertain|regressed|blocked_external.
+    """
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/actions/{action_id}/finish",
+        {
+            "outcome": outcome,
+            "attempt_id": attempt_id,
+            "evidence_ids": evidence_ids or [],
+            "reason": reason,
+            "expected_version": expected_version,
+        },
+        started,
+    )
+
+
+@mcp.tool()
+async def reopen_scene_plan_task(
+    key: str,
+    file: str,
+    task_id: str,
+    reason: str,
+    evidence_ids: list[str] | None = None,
+    invalidate_dependents: bool = True,
+    expected_version: str | None = None,
+) -> dict:
+    """Backtrack: reopen a task and optionally invalidate dependent tasks."""
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/tasks/{task_id}/reopen",
+        {
+            "reason": reason,
+            "evidence_ids": evidence_ids or [],
+            "invalidate_dependents": invalidate_dependents,
+            "expected_version": expected_version,
+        },
+        started,
+    )
+
+
+@mcp.tool()
+async def classify_plan_defect(
+    key: str,
+    file: str,
+    defect_id: str,
+    classification: str,
+    evidence_ids: list[str] | None = None,
+    note: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Classify an ambiguous/auto-generated defect before closure.
+
+    Use for wall score missing/off-ink defects before fixed/rejected/
+    accepted_uncertain. Classifications include real_missing_wall,
+    bad_existing_wall, door_swing_or_hint, furniture_or_fixture,
+    dimension_or_annotation, separate_structure, false_positive, ambiguous.
+    """
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/defects/{defect_id}/classify",
+        {
+            "classification": classification,
+            "evidence_ids": evidence_ids or [],
+            "note": note,
+            "expected_version": expected_version,
+        },
+        started,
+    )
+
+
+@mcp.tool()
+async def evaluate_scene_plan_terminality(key: str, file: str) -> dict:
+    """Return deterministic terminality: verified, needs_repair, blocked_external, or accepted_incomplete."""
+    started = time.time()
+    return await _cv_post(f"/datasets/{key}/{file}/plan-state/evaluate-terminality", {}, started)
+
+
+@mcp.tool()
+async def render_scene_plan_markdown(
+    key: str,
+    file: str,
+    sync: bool = True,
+    expected_version: str | None = None,
+) -> dict:
+    """Render structured plan state to Markdown and optionally sync to disk."""
+    started = time.time()
+    return await _cv_post(
+        f"/datasets/{key}/{file}/plan-state/render-markdown",
+        {"sync": sync, "expected_version": expected_version},
+        started,
+    )
 
 
 @mcp.tool()
@@ -1824,6 +2217,105 @@ async def building_silhouette(
     if thresh is not None:
         params["thresh"] = thresh
     return await _cv_get(f"/datasets/{key}/{file}/building-silhouette", params, started)
+
+
+@mcp.tool()
+async def outer_wall_topology_context(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 12,
+    thresh: int | None = None,
+) -> dict:
+    """Scene-plan context gatherer for the silhouette-first pass.
+
+    Returns wall_outline/building_silhouette priors when available plus the
+    questions the vision agent must answer in the plan before wall placement.
+    Empty CV priors are normal on pencil scans and are not a blocker.
+    """
+    started = time.time()
+    params: dict = {"min_wall_px": min_wall_px}
+    if region is not None:
+        params["region"] = region
+    if thresh is not None:
+        params["thresh"] = thresh
+    return await _cv_get(f"/datasets/{key}/{file}/outer-wall-topology-context", params, started)
+
+
+@mcp.tool()
+async def wall_topology_qa(
+    key: str,
+    file: str,
+    endpoint_tol_px: float = 18.0,
+    near_miss_px: float = 60.0,
+    collinear_tol_deg: float = 8.0,
+    collinear_gap_px: float = 140.0,
+    short_stub_px: float = 80.0,
+) -> dict:
+    """Whole-wall-system verification after wall placement.
+
+    Flags dangling endpoints, near-miss corners, mergeable collinear fragments,
+    suspicious short stubs, and connected components/masses. Required after
+    outer walls and after interior walls before openings are placed.
+    """
+    started = time.time()
+    params = {
+        "endpoint_tol_px": endpoint_tol_px,
+        "near_miss_px": near_miss_px,
+        "collinear_tol_deg": collinear_tol_deg,
+        "collinear_gap_px": collinear_gap_px,
+        "short_stub_px": short_stub_px,
+    }
+    return await _cv_get(f"/datasets/{key}/{file}/wall-topology-qa", params, started)
+
+
+@mcp.tool()
+async def wall_continuity_check(
+    key: str,
+    file: str,
+    collinear_tol_deg: float = 8.0,
+    gap_px: float = 180.0,
+    line_tol_px: float = 24.0,
+    opening_near_px: float = 80.0,
+) -> dict:
+    """Detect likely walls split at openings.
+
+    Returns collinear wall fragments separated by short gaps, with nearby
+    opening symbols when present. Advisory only: the vision agent decides
+    whether to merge/extend in the next edit cycle.
+    """
+    started = time.time()
+    params = {
+        "collinear_tol_deg": collinear_tol_deg,
+        "gap_px": gap_px,
+        "line_tol_px": line_tol_px,
+        "opening_near_px": opening_near_px,
+    }
+    return await _cv_get(f"/datasets/{key}/{file}/wall-continuity-check", params, started)
+
+
+@mcp.tool()
+async def ambiguous_line_context(
+    key: str,
+    file: str,
+    bbox: str | None = None,
+    line: str | None = None,
+    pad_px: float = 120.0,
+) -> dict:
+    """Context checklist for suspicious line continuations.
+
+    Use before treating a questionable stroke as a wall. `bbox` and `line` are
+    comma-separated source-pixel coordinates. The result names non-wall classes
+    to consider: door hints, dashed projections, furniture, stairs, dimensions,
+    site/garage/car/landscape, or unknown.
+    """
+    started = time.time()
+    params: dict = {"pad_px": pad_px}
+    if bbox is not None:
+        params["bbox"] = bbox
+    if line is not None:
+        params["line"] = line
+    return await _cv_get(f"/datasets/{key}/{file}/ambiguous-line-context", params, started)
 
 
 @mcp.tool()
@@ -2218,6 +2710,7 @@ async def set_scene_level(
 async def reset_scene_labels(
     key: str,
     file: str,
+    reset_plan: bool = False,
     idempotency_key: str | None = None,
 ) -> dict:
     """Reset ONE scene's labels and scene metadata, keeping the scene image.
@@ -2232,18 +2725,23 @@ async def reset_scene_labels(
       - Removes every saved label for that scene.
       - Rebuilds house_facts from scratch so stale calibration/extent facts
         from deleted labels do not leak into the next run.
+      - Preserves the scene plan by default. Pass reset_plan=true only when
+        simulating a totally fresh scene-planning run too.
 
     DON'T USE when:
       - You want to remove extracted scenes and return to PDF extraction;
         call `reset_house_dataset` instead.
     """
     started = time.time()
+    path = f"/labels/dataset/{key}/{file}"
+    if reset_plan:
+        path += "?reset_plan=true"
     try:
-        status, body = await _api_delete(f"/labels/dataset/{key}/{file}")
+        status, body = await _api_delete(path)
     except (httpx.HTTPError, httpx.RequestError):
         if not await _wait_for_api():
             return _api_unreachable_error(started)
-        status, body = await _api_delete(f"/labels/dataset/{key}/{file}")
+        status, body = await _api_delete(path)
     if status >= 400:
         return _http_status_to_error(status, body, started)
     return _ok(body, started_at=started, status_code=status)
@@ -2252,6 +2750,7 @@ async def reset_scene_labels(
 @mcp.tool()
 async def reset_house_labeling(
     key: str,
+    reset_plans: bool = False,
     idempotency_key: str | None = None,
 ) -> dict:
     """Reset ALL labels for a house while keeping extracted scenes.
@@ -2265,18 +2764,23 @@ async def reset_house_labeling(
       - Clears scene tags/orientations/levels back to unclassified metadata.
       - Rebuilds house_facts from scratch so required phases become pending.
       - Keeps data/dataset/<key> images and manifest intact.
+      - Preserves scene plans by default. Pass reset_plans=true to delete
+        `data/dataset/<key>/plans/*.md` as part of a fresh plan simulation.
 
     DON'T USE when:
       - You need to re-extract scenes from the incoming PDF. Use
         `reset_house_dataset` for that stronger reset.
     """
     started = time.time()
+    path = f"/datasets/{key}/labels"
+    if reset_plans:
+        path += "?reset_plans=true"
     try:
-        status, body = await _api_delete(f"/datasets/{key}/labels")
+        status, body = await _api_delete(path)
     except (httpx.HTTPError, httpx.RequestError):
         if not await _wait_for_api():
             return _api_unreachable_error(started)
-        status, body = await _api_delete(f"/datasets/{key}/labels")
+        status, body = await _api_delete(path)
     if status >= 400:
         return _http_status_to_error(status, body, started)
     return _ok(body, started_at=started, status_code=status)
@@ -2292,7 +2796,7 @@ async def reset_house_dataset(
     USE when:
       - The scene extraction/cropping itself is bad.
       - You want to return the incoming PDF bundle to the "ready to extract"
-        state and start over from W0 extraction.
+        state and start over from inventory extraction.
 
     EFFECT:
       - Deletes data/dataset/<key>/ entirely.
@@ -2379,6 +2883,10 @@ async def upsert_label(
              Geometry uses [x, y] ARRAYS, not {x, y} objects:
                wall:                 {start: [x,y], end: [x,y]}
                floorplan_opening:    {quad: [[x,y],[x,y],[x,y],[x,y]]}
+                                      Requires relations:
+                                      [{kind:"belongs_to", other_id:<wall_id>}]
+                                      to an existing wall; the quad centerline
+                                      must sit on that wall.
                view_opening:         one of
                                        {top_edge: [[x,y],...], bottom_edge: [[x,y],...]}
                                        {circle: {center: [x,y], radius_px: N}}
@@ -2387,6 +2895,8 @@ async def upsert_label(
                height_mark:          {anchor: [x,y]}
                dimensioned_distance: {start: [x,y], end: [x,y]}
                dimension_number:     {anchor: [x,y]} XOR {bbox: [[x,y]*4]}
+                                      Requires relations:
+                                      [{kind:"labels", other_id:<dimensioned_distance_id>}]
       idempotency_key: optional driver-supplied key.
 
     Returns: `data.label_id` = the (new or existing) label id.
@@ -2538,10 +3048,9 @@ async def add_reference_dim(
     AND a paired `dimension_number` at the midpoint.
 
     USE when:
-      - W4 calibration: every Ansicht/Schnitt needs ≥1 horizontal +
-        ≥1 vertical reference dim.
-      - W2 footprint: horizontal + vertical reference dims along the
-        outer edges of EG-Grundriss.
+      - section/elevation calibration: every Ansicht/Schnitt needs reference dims.
+      - floorplan measurement QA: horizontal + vertical reference dims along
+        outer edges of EG-Grundriss where readable.
 
     Args:
       key: house key.
@@ -2846,10 +3355,9 @@ async def set_house_facts(
     this tool reads-merges-writes to give patch semantics on top).
 
     USE when:
-      - W1: set `heights = {bezug_mm, first_mm}`.
-      - W2: set `extent = {width_mm, depth_mm}`, `wall_thickness = {outer_mm}`.
-      - W3: set `orientation = {north_edge_label_id} or {north_angle_deg}`.
-      - W4: the per-scene `calibration_per_scene[file]` is auto-populated
+      - floorplans: set derived extent/wall_thickness/orientation facts only
+        after backing labels exist.
+      - sections/elevations: the per-scene `calibration_per_scene[file]` is auto-populated
         by `add_reference_dim` + `recompute_homography`; do not set it
         manually.
 
@@ -2936,7 +3444,7 @@ async def set_house_facts(
                         msg,
                         hint=(
                             "drop the height_mark labels first (via upsert_label "
-                            "or follow the W1-height-anchor MCP prompt). "
+                            "or follow the section/elevation stage prompt). "
                             "HOUSE_FACTS_STRICT=1 blocks this write."
                         ),
                         retry=False,
@@ -3060,7 +3568,7 @@ async def get_building_global_facts(key: str) -> dict:
     USE when:
       - At the start of labeling any Ansicht/Schnitt: pull the shared
         heights/datum/roof so you don't re-read what's already known.
-      - Before W1/W4 to see which building-wide anchors exist and which
+      - Before section/elevation stages to see which building-wide anchors exist and which
         derived values follow from them.
 
     Returns: `data` = {
@@ -3113,26 +3621,24 @@ async def validate_export_readiness(key: str) -> dict:
     Why this is stricter than the export pipeline's own gate (issue #6):
     `export_house`'s sanity check (api/main._sanity_check_house) only
     requires ≥1 drawing + ≥1 labeled scene. Because every scene gets the
-    `labeled` flag at W0 tagging time, a house with W0 tags + an assumed
-    orientation and ZERO geometry (no heights, no extent, no calibration)
-    used to pass `ready:true` — inviting an honest agent to export an
-    empty dataset. `ready` now reflects honest completeness instead.
+    `labeled` flag at inventory tagging time, a house with tags + an assumed
+    orientation and ZERO geometry used to pass `ready:true` — inviting
+    an honest agent to export an empty dataset. `ready` now reflects
+    honest scene-class completeness instead.
 
     Required phases for `ready`/`honest_complete`:
-      - W0 (every scene tagged; grundriss carry a level)
-      - W1 (heights: bezug_mm == 0 and first_mm set)
-      - W2 (extent width+depth and wall_thickness.outer)
-      - W3 (orientation set — assumed is fine, absent is not)
-      - W4 (calibration per ansicht/schnitt) — only when the house has
-        any ansicht/schnitt scenes; skipped for floorplan-only houses.
-    W5 (detail) is optional and never blocks.
+      - inventory (every scene tagged; grundriss carry a level)
+      - floorplans (all grundriss scenes have required floorplan labels)
+      - sections (required only when schnitt scenes exist)
+      - elevations (required only when ansicht scenes exist)
+    review/detail is optional and never blocks.
 
     Returns: `data` = {
       ready: bool,                # == honest_complete
       honest_complete: bool,      # all required phases done
       minimal_export_ok: bool,    # the permissive gate export_house enforces
       blockers: [str, …],         # missing required phases + their reasons
-      phase_completeness: {Wn: {status, required, blockers}},
+      phase_completeness: {phase: {status, required, blockers}},
       required_phases: [str, …],
       scenes_total, labeled_scenes,
     }
@@ -3151,26 +3657,19 @@ async def validate_export_readiness(key: str) -> dict:
     state = _derive_workflow_state(body or {}, facts, scene_meta)
     phases = state["phases"]
 
-    # W4 only applies when the house actually has scenes that need
-    # calibration. Floorplan-only houses have nothing to calibrate, so
-    # requiring W4 there would make `ready` unreachable. This mirrors the
-    # has_calibration_targets gate inside _derive_workflow_state.
-    has_calibration_targets = any(
-        scene_meta.get(d.get("file"), {}).get("scene_tag") in ("ansicht", "schnitt")
+    has_sections = any(
+        scene_meta.get(d.get("file"), {}).get("scene_tag") == "schnitt"
         for d in drawings
     )
-    required = ["W0", "W1", "W2", "W3"]
-    if has_calibration_targets:
-        required.append("W4")
-    # V5.1: require real geometry whenever the house has any
-    # geometry-bearing scene (grundriss/schnitt/ansicht). This is the
-    # honest-gate fix — facts present but zero polygons is NOT ready.
-    has_geometry_targets = any(
-        scene_meta.get(d.get("file"), {}).get("scene_tag") in _REQUIRED_GEOMETRY
+    has_elevations = any(
+        scene_meta.get(d.get("file"), {}).get("scene_tag") == "ansicht"
         for d in drawings
     )
-    if has_geometry_targets:
-        required.append("Wgeo")
+    required = ["inventory", "floorplans"]
+    if has_sections:
+        required.append("sections")
+    if has_elevations:
+        required.append("elevations")
 
     phase_completeness = {
         p: {
@@ -3178,7 +3677,7 @@ async def validate_export_readiness(key: str) -> dict:
             "required": p in required,
             "blockers": phases[p]["blockers"],
         }
-        for p in ("W0", "W1", "W2", "W3", "W4", "Wgeo", "W5")
+        for p in ("inventory", "floorplans", "sections", "elevations", "review")
     }
 
     # Honest blockers: every required phase that isn't done, with its own
@@ -3201,10 +3700,52 @@ async def validate_export_readiness(key: str) -> dict:
     all_blockers = list(dict.fromkeys(honest_blockers + minimal_blockers))
     honest_complete = not all_blockers
 
-    # Issue #27: surface scenes whose W4 calibration rests on the
+    # Issue #27: surface scenes whose calibration rests on the
     # single-ref isotropic (square-pixel) assumption — they count as
     # calibrated, but an honest export should record the assumption.
-    assumed_isotropic_scenes = phases["W4"].get("assumed_isotropic_scenes") or []
+    assumed_isotropic_scenes = state.get("assumed_isotropic_scenes") or []
+
+    plan_state_blockers: list[str] = []
+    accepted_incomplete: list[dict[str, Any]] = []
+    for d in drawings:
+        f = d.get("file")
+        if not f:
+            continue
+        meta = scene_meta.get(f, {})
+        if meta.get("scene_tag") not in _REQUIRED_GEOMETRY:
+            continue
+        plan_status, plan_body = await _api_get(f"/datasets/{key}/{f}/plan-state")
+        plan = (plan_body or {}).get("data") if plan_status == 200 and isinstance(plan_body, dict) else None
+        if not plan or not plan.get("exists"):
+            if meta.get("label_count", 0) > 0:
+                plan_state_blockers.append(f"{f}: labels exist but structured scene plan is missing")
+            continue
+        state_doc = plan.get("state") or {}
+        blockers = [
+            defect for defect in state_doc.get("defects") or []
+            if defect.get("status") in ("open", "in_progress") and defect.get("severity") == "blocker"
+        ]
+        if blockers:
+            plan_state_blockers.append(
+                f"{f}: {len(blockers)} blocker plan defect(s): "
+                + ", ".join(str(b.get("id")) for b in blockers)
+            )
+        for defect in state_doc.get("defects") or []:
+            if defect.get("status") == "accepted_uncertain":
+                accepted_incomplete.append({
+                    "file": f,
+                    "defect_id": defect.get("id"),
+                    "title": defect.get("title"),
+                    "severity": defect.get("severity"),
+                })
+        for task in state_doc.get("tasks") or []:
+            if task.get("status") == "accepted_incomplete":
+                accepted_incomplete.append({
+                    "file": f,
+                    "task_id": task.get("id"),
+                    "title": task.get("title"),
+                    "severity": "warning",
+                })
 
     return _ok({
         "ready": honest_complete,
@@ -3218,6 +3759,9 @@ async def validate_export_readiness(key: str) -> dict:
         "calibration_assumptions": {
             "single_ref_assumed_isotropic": assumed_isotropic_scenes,
         },
+        "plan_state_complete": not plan_state_blockers,
+        "plan_state_blockers": plan_state_blockers,
+        "accepted_incomplete": accepted_incomplete,
     }, started_at=started, status_code=status)
 
 
@@ -3331,7 +3875,7 @@ async def list_anomalies(key: str) -> dict:
         if isinstance(orient.get("north_angle_deg"), (int, float)):
             msg += f" — north_angle_deg={orient['north_angle_deg']}"
         anomalies.append({
-            "phase": "W3", "kind": "assumed_orientation",
+            "phase": "floorplans", "kind": "assumed_orientation",
             "message": msg, "severity": "warning",
         })
 
@@ -3346,8 +3890,9 @@ async def list_anomalies(key: str) -> dict:
             lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{f}")
             if lbl_status != 200 or not isinstance(lbl, dict):
                 continue
+            scene_labels = lbl.get("labels") or []
             uncertain = sum(
-                1 for lab in (lbl.get("labels") or [])
+                1 for lab in scene_labels
                 if lab.get("status") == "uncertain"
             )
             if uncertain:
@@ -3358,15 +3903,106 @@ async def list_anomalies(key: str) -> dict:
                     "details": {"file": f, "count": uncertain},
                 })
             # H3: missing orientation on ansicht/schnitt is now a warning,
-            # not a W0 blocker. Surface for reviewer triage.
+            # not an inventory blocker. Surface for reviewer triage.
             tag = lbl.get("scene_tag")
             if tag in ("ansicht", "schnitt") and not lbl.get("scene_orientation"):
                 anomalies.append({
-                    "phase": "W0", "kind": "missing_orientation",
-                    "message": f"{f}: scene_orientation not set (was previously a blocker; now a warning so reviewers can spot-check)",
+                    "phase": "inventory", "kind": "missing_orientation",
+                    "message": f"{f}: scene_orientation not set (warning only; spot-check if facade direction matters)",
                     "severity": "warning",
                     "details": {"file": f, "scene_tag": tag},
                 })
+            # Scene-plan framework: structured sidecar is authoritative. The
+            # legacy Markdown plan remains a compatibility surface only.
+            plan_status, plan_body = await _api_get(f"/datasets/{key}/{f}/plan-state")
+            plan = (plan_body or {}).get("data") if plan_status == 200 and isinstance(plan_body, dict) else None
+            plan_exists = bool(plan and plan.get("exists"))
+            if scene_labels and not plan_exists:
+                anomalies.append({
+                    "phase": "plan", "kind": "missing_scene_plan",
+                    "message": f"{f}: scene has labels but no structured scene plan",
+                    "severity": "warning",
+                    "details": {"file": f, "label_count": len(scene_labels)},
+                })
+            if plan_exists:
+                from api.scene_plans import plan_has_analysis_summary, task_done
+                md = str(plan.get("markdown") or "")
+                state = plan.get("state") or {}
+                open_defects = [
+                    d for d in state.get("defects") or []
+                    if d.get("status") in ("open", "in_progress")
+                ]
+                blockers = [d for d in open_defects if d.get("severity") == "blocker"]
+                if blockers:
+                    anomalies.append({
+                        "phase": "plan", "kind": "plan_state_blockers",
+                        "message": f"{f}: {len(blockers)} blocker scene-plan defect(s) open",
+                        "severity": "warning",
+                        "details": {"file": f, "defect_ids": [d.get("id") for d in blockers]},
+                    })
+                bad_verified = [
+                    t for t in state.get("tasks") or []
+                    if t.get("status") == "verified"
+                    and any((g or {}).get("status") in ("failed", "pending") for g in t.get("gates") or [])
+                ]
+                if bad_verified:
+                    anomalies.append({
+                        "phase": "plan", "kind": "verified_task_with_failed_gate",
+                        "message": f"{f}: {len(bad_verified)} verified task(s) still have failed/pending gates",
+                        "severity": "warning",
+                        "details": {"file": f, "task_ids": [t.get("id") for t in bad_verified]},
+                    })
+                final_qa = next((t for t in state.get("tasks") or [] if t.get("id") == "FINAL_QA"), None)
+                if final_qa and final_qa.get("status") == "verified" and blockers:
+                    anomalies.append({
+                        "phase": "plan", "kind": "final_qa_verified_with_blockers",
+                        "message": f"{f}: FINAL_QA is verified while blocker defects remain open",
+                        "severity": "warning",
+                        "details": {"file": f, "defect_ids": [d.get("id") for d in blockers]},
+                    })
+                if tag == "grundriss":
+                    opening_task = next((t for t in state.get("tasks") or [] if t.get("id") in ("PLACE_OPENINGS", "VERIFY_OPENINGS") and t.get("status") == "verified"), None)
+                    has_openings = any(lab.get("type") == "floorplan_opening" for lab in scene_labels)
+                    if opening_task and not has_openings:
+                        anomalies.append({
+                            "phase": "plan", "kind": "opening_task_verified_with_zero_openings",
+                            "message": f"{f}: opening task is verified but the scene has zero floorplan_opening labels",
+                            "severity": "warning",
+                            "details": {"file": f, "task_id": opening_task.get("id")},
+                        })
+                if scene_labels and not plan_has_analysis_summary(md):
+                    anomalies.append({
+                        "phase": "plan", "kind": "plan_missing_analysis",
+                        "message": f"{f}: plan exists but Analysis Summary is still blank",
+                        "severity": "warning",
+                        "details": {"file": f},
+                    })
+                has_walls = any(lab.get("type") == "wall" for lab in scene_labels)
+                has_openings = any(lab.get("type") == "floorplan_opening" for lab in scene_labels)
+                if has_walls and not task_done(md, "A2"):
+                    anomalies.append({
+                        "phase": "plan", "kind": "walls_before_silhouette_plan",
+                        "message": f"{f}: wall labels exist but A2 outer silhouette analysis is not complete",
+                        "severity": "warning",
+                        "details": {"file": f},
+                    })
+                if has_openings and not (task_done(md, "V2") or task_done(md, "V3")):
+                    anomalies.append({
+                        "phase": "plan", "kind": "openings_before_wall_topology_qa",
+                        "message": f"{f}: openings exist but wall topology verification task is not complete",
+                        "severity": "warning",
+                        "details": {"file": f},
+                    })
+                lower = md.lower()
+                last_failed = max(lower.rfind("verification"), lower.rfind("verify"))
+                last_analysis = lower.rfind("analysis")
+                if last_failed >= 0 and "fail" in lower[last_failed:last_failed + 240] and last_analysis < last_failed:
+                    anomalies.append({
+                        "phase": "plan", "kind": "failed_verification_without_followup_analysis",
+                        "message": f"{f}: plan records a failed verification without later analysis",
+                        "severity": "warning",
+                        "details": {"file": f},
+                    })
     except Exception:  # noqa: BLE001
         pass
 
@@ -3524,13 +4160,15 @@ appear there immediately.
 
 ## Tools you'll use (from the bim-database MCP server)
 
-| Phase | Primary tools                                                                |
+| Stage | Primary tools                                                                |
 |-------|------------------------------------------------------------------------------|
-| W0    | get_house, get_scene_view, set_scene_tag, set_scene_orientation, set_scene_level |
-| W1    | get_scene_view, upsert_label (height_mark), set_house_facts                  |
-| W2    | get_scene_view, add_reference_dim, upsert_label (wall), set_house_facts      |
-| W3    | get_scene_view, set_house_facts                                              |
-| W4    | get_scene_view, add_reference_dim, recompute_homography                      |
+| inventory | get_house, get_pdf_page_view, extract_scenes, split_scene, set_scene_tag, set_scene_level |
+| floorplans | create_scene_plan_state_from_template, get_scene_plan_next_action, upsert_label, score_walls, score_measurements |
+| sections | create_scene_plan_state_from_template, get_scene_plan_next_action, height_mark/component_line labels, add_reference_dim |
+| elevations | create_scene_plan_state_from_template, get_scene_plan_next_action, view_opening/component_line labels, add_reference_dim |
+| review | list_anomalies, validate_export_readiness, export_house |
+| scene | create_scene_plan_state_from_template, get_scene_plan_next_actions, add_scene_plan_evidence, evaluate_scene_plan_gates |
+| QA    | get_scene_view_with_labels, verify_label_placement, wall_topology_qa, wall_continuity_check, ambiguous_line_context |
 | any   | get_workflow_state, get_recommended_next_action, validate_export_readiness, export_house |
 
 ## Resources to read first
@@ -3562,7 +4200,11 @@ set_house_facts(key="{key}", patch={{
 state = get_workflow_state(key="{key}")
 while not state.exportable:
     phase = state.next_phase
-    follow the prompt named  bim-database.<phase>-playbook
+    follow the prompt named for the stage:
+      inventory -> inventory-classify-scenes
+      floorplans -> floorplan-scene-pass
+      sections -> section-scene-pass
+      elevations -> elevation-scene-pass
     state = get_workflow_state(key="{key}")
 validate_export_readiness then export_house
 ```
@@ -3582,11 +4224,10 @@ validate_export_readiness then export_house
    has touched the house, halt.
 5. **Honest reporting.** When you halt or finish, call `dump_run_summary`
    so the developer sees what you did.
-6. **Labels before facts.** For W1 + W2 specifically: drop the
-   geometry-bearing labels (height_mark, dimensioned_distance with
-   is_reference) BEFORE setting facts. Server-side derivation will
-   populate facts automatically. Setting facts without labels makes
-   the SPA's overlay rendering go blank — reviewers can't trust it.
+6. **Labels before facts.** Drop geometry-bearing labels before setting
+   derived facts. Server-side derivation should populate facts from labels
+   where possible. Setting facts without labels makes the SPA's overlay
+   rendering go blank — reviewers can't trust it.
 7. **Stamp your run** (Step 0 above).
 8. **VERIFY EVERY GEOMETRY WRITE (per §H5).** After every
    `upsert_label` / `add_reference_dim` / `update_label_attrs`, call
@@ -3596,18 +4237,35 @@ validate_export_readiness then export_house
    placing labels off-feature and never noticing — the verify view is
    the fix. Budget: 3 placement attempts per label; if the third still
    misses, `set_label_status(..., "uncertain")` and move on.
+9. **Scene plan first.** Once scenes are classified, every scene subagent
+   starts with `create_scene_plan_state_from_template` / `get_scene_plan_state`
+   and keeps tasks, evidence, defects, and rendered Markdown current. Work in
+   Analysis View (read/prose/evidence), Editing View (one write), then
+   Verification View (labels rendered + scores), followed by
+   `evaluate_scene_plan_gates`. Failed verification creates a defect and
+   returns to analysis before another edit.
+10. **Walls before openings, with endpoint reasons.** On Grundriss
+   scenes, identify the outer silhouette/masses first, place continuous
+   walls through door/window symbols, run `wall_topology_qa` and
+   `wall_continuity_check`, then place openings. Every wall endpoint
+   must be justified as corner, T-junction, real endpoint, separate-mass
+   boundary, or uncertainty; an opening alone is not a valid endpoint.
+11. **Scene-subagent final report.** When a scene worker finishes, report
+    the plan path, final task states, label counts by type, wall/topology
+    scores, measurement score, and unresolved uncertain/blocking items.
 
 Start now: call `get_workflow_state(key="{key}")` and follow the
-appropriate phase playbook.
+appropriate stage playbook.
 """
 
 
-@mcp.prompt(name="W0-inventory")
-def prompt_w0_inventory(key: str) -> str:
-    return f"""# W0 · Inventory — categorise every scene of `{key}`
+@mcp.prompt(name="inventory-classify-scenes")
+def prompt_inventory_classify_scenes(key: str) -> str:
+    return f"""# Inventory · extract and classify every scene of `{key}`
 
-Goal: every scene has a non-null `scene_tag`, Ansicht/Schnitt have
-`scene_orientation`, Grundriss have `scene_level`.
+Goal: every source drawing is represented as one extracted scene, every
+scene has a non-null `scene_tag`, and every Grundriss has `scene_level`.
+Ansicht/Schnitt orientation is optional unless clearly visible.
 
 ## DEFAULT MAPPING (per §G3-1)
 
@@ -3622,7 +4280,7 @@ evidence:
 | `section`     | `schnitt`         | almost never                                        |
 | `detail`      | **`sonstiges`**   | only set `schnitt` if you can point at VISIBLE evidence: floor heights spanning multiple stories, cutaway hatching across the FULL building width, OR a title-block label like "Schnitt A-A". A close-up of a roof corner or eave is NOT a Schnitt — it's `sonstiges`. |
 
-This default mapping prevents the most common W0 mis-tag (a detail
+This default mapping prevents the most common inventory mis-tag (a detail
 crop tagged `schnitt` because the cutaway-ish lines looked sectional
 at a glance).
 
@@ -3637,12 +4295,12 @@ For each scene returned by `get_house(key="{key}").drawings`:
    "EG-Grundriss", "Süd-Ansicht", "Schnitt A-A" — best ground truth.
    Override the default only when the title block contradicts it.
 4. `set_scene_tag(key="{key}", file=<file>, tag=<tag>)`.
-5. **scene_orientation (per §G3-2 + §H3): OPTIONAL.** If
+5. **scene_orientation: OPTIONAL.** If
    Ansicht/Schnitt with a CLEAR cardinal face (elevation labeled
    "Süd"/"South"; compass mark visible AND the wall it points to is
    the wall this scene shows), call `set_scene_orientation(...)`.
    **If unclear, leave null — DO NOT GUESS.** Per §H3 missing
-   orientation does NOT block W0 anymore; it surfaces as a `warning`
+   orientation does NOT block inventory; it surfaces as a `warning`
    in `list_anomalies` so a human reviewer knows to spot-check.
    Detail crops never have a cardinal orientation; leave null always.
 6. If Grundriss: identify the floor level (kg/ug/eg/og/dg/spitzboden)
@@ -3659,338 +4317,99 @@ For each scene returned by `get_house(key="{key}").drawings`:
 
 ## Exit
 
-`get_workflow_state(key="{key}")["phases"]["W0"]["status"] == "done"`
+`get_workflow_state(key="{key}")["phases"]["inventory"]["status"] == "done"`
 
-If W0 still has blockers after one full pass, re-call `get_scene_view`
+If inventory still has blockers after one full pass, re-call `get_scene_view`
 on the blocked scene with `region=` zoom to inspect the title block.
 """
 
 
-@mcp.prompt(name="W1-height-anchor")
-def prompt_w1_height_anchor(key: str) -> str:
-    return f"""# W1 · Height anchor — establish ±0.00 + Firsthöhe for `{key}`
+@mcp.prompt(name="floorplan-scene-pass")
+def prompt_floorplan_scene_pass(key: str) -> str:
+    return f"""# Floorplans · label Grundriss scenes for `{key}`
 
-Goal: `facts.heights.bezug_mm == 0` and `facts.heights.first_mm != null`.
+Goal: every `grundriss` scene is terminal or accepted incomplete. Work
+only on Grundriss scenes in this stage; do not start Schnitt/Ansicht
+workers until `get_workflow_state(...).phases.floorplans.status == "done"`.
 
-## ORDER MATTERS (per §G3-3)
+## Order inside each Grundriss
 
-**Drop the height_mark LABELS first, then optionally confirm via
-`set_house_facts`.** Server-side derivation (G1) auto-populates
-`facts.heights` from `height_mark` labels with `datum` + `value_mm`
-set — calling `set_house_facts` afterwards is usually redundant.
-SKIPPING the labels and just setting facts is the WRONG shortcut: the
-SPA's Höhenkote rendering reads the LABELS, not the facts. A scene
-with `facts.heights.first_mm = 8500` but no height_mark label shows
-nothing on the canvas. Reviewers can't trust it.
+1. Create or resume the structured plan state.
+2. Analyze the full scene and write the silhouette/mass hypothesis.
+3. Place outer and interior walls first; verify each write.
+4. Run wall topology/continuity and wall score gates.
+5. Place doors/windows/passages only after parent walls exist.
+6. Label dimension chains/reference dimensions third, then run measurement QA.
+7. Finish the scene-plan action and evaluate terminality.
 
-## Steps
-
-1. `get_house(key="{key}")` — pick an Ansicht with the most visible
-   vertical dimension lines (usually the one labeled "Süd-Ansicht" or
-   "Hauptansicht").
-2. `get_scene_view(key="{key}", file=<ansicht>, tiers="broad,finer")`
-   — find the `±0,00` reference line at the ground floor and the
-   Firsthöhe (ridge) line at the top.
-3. For the bezug (±0.00) line:
-   `get_scene_view(file=<ansicht>, region="<tight crop around the ±0 mark>")`
-   to identify its exact pixel position. Then:
-   ```
-   upsert_label(key="{key}", file=<ansicht>, label={{
-     "type": "height_mark",
-     "geometry": {{"anchor": [x, y]}},
-     "attributes": {{"value_mm": 0, "datum": "ok_ffb"}},
-     "status": "readable"
-   }})
-   ```
-4. For the Firsthöhe: same workflow. Read the value from the drawing
-   (e.g. "8,50 m" → 8500 mm). Then:
-   ```
-   upsert_label(key="{key}", file=<ansicht>, label={{
-     "type": "height_mark",
-     "geometry": {{"anchor": [x, y]}},
-     "attributes": {{"value_mm": 8500, "datum": "first"}},
-     "status": "readable"
-   }})
-   ```
-5. **VERIFY THE PLACEMENT (per §H5).** Immediately after each
-   `upsert_label`, call:
-   ```
-   get_scene_view_with_labels(key="{key}", file=<ansicht>,
-                              region=<crop around the just-placed mark>,
-                              tiers="finer,detail")
-   ```
-   The dot + faint Bezugslinie + value chip must visibly sit on the
-   `±0,00` / Firsthöhe line you intended. If it floats above/below, the
-   anchor is wrong: `update_label_attrs` with corrected `anchor`, then
-   re-verify. Budget 3 attempts per height_mark — if the third still
-   misses, `set_label_status(..., "uncertain")` and move on.
-6. `get_house_facts(key="{key}")` — confirm `heights.bezug_mm == 0`
-   and `heights.first_mm == <expected>` BOTH appear. If they do, you're
-   done; the server-side derivation already filled them in. If not, the
-   `datum` on your height_mark labels is probably wrong (`datum: "first"`
-   is required for first_mm; `value_mm: 0` is required for bezug_mm).
-   Fix the labels and re-check — DO NOT just set facts manually.
+Use `get_recommended_next_action(key="{key}")` to pick the next incomplete
+Grundriss. For each scene, drive `get_scene_plan_next_action` until
+`get_scene_plan_status` is `verified`, `accepted_incomplete`, or
+`blocked_external`.
 
 ## Exit
 
-`get_workflow_state[...]["W1"]["status"] == "done"` AND
-`get_house_facts.heights.sources` references at least one `hm:` source
-for each populated key (proves labels back the facts).
+`get_workflow_state(key="{key}")["phases"]["floorplans"]["status"] == "done"`
 """
 
 
-@mcp.prompt(name="W2-footprint")
-def prompt_w2_footprint(key: str) -> str:
-    return f"""# W2 · Footprint — width + depth + outer wall thickness for `{key}`
+@mcp.prompt(name="section-scene-pass")
+def prompt_section_scene_pass(key: str) -> str:
+    return f"""# Sections · label Schnitt scenes for `{key}`
 
-Goal: `facts.extent.width_mm`, `facts.extent.depth_mm`, and
-`facts.wall_thickness.outer_mm` all set.
+Goal: every `schnitt` scene is terminal or accepted incomplete after the
+floorplans stage. Sections read heights, datum, storey/roof component
+lines, section openings/components, and their reference dimensions.
 
-## Axis convention (per §H2)
+For each Schnitt scene:
 
-On a Grundriss (plan view), the building's dimensions are:
-- **horizontal dim → `extent.width_mm`** (Gebäudebreite)
-- **vertical dim → `extent.depth_mm`** (Gebäudetiefe)
-
-So adding ONE horizontal + ONE vertical reference dim on an EG-
-Grundriss populates BOTH `width_mm` AND `depth_mm` via server-side
-derivation. No need for a follow-up `set_house_facts` patch on
-extent — just label the dims and confirm via `get_house_facts`.
-
-## Steps
-
-1. Pick EG-Grundriss (the one with `scene_level == "eg"`).
-2. `get_scene_view(key="{key}", file=<eg-grundriss>, tiers="broad,finer")`
-   — find a horizontal dim along the outer edge (full façade length;
-   typically the longest dim on the sheet) and a vertical one along
-   the depth.
-3. Read both dim values from the drawing (e.g. "12,40 m" → 12400 mm).
-4. For each, call:
-   ```
-   add_reference_dim(key="{key}", file=<eg>, orientation="horizontal",
-                     start=[x1, y1], end=[x2, y2],
-                     value_mm=12400, dimension_text="12,40 m")
-   ```
-   The tool returns `homography.rms_residual_px`. **Reject if > 8 px**
-   — delete the dim and try a more-clearly-outer edge. (Use
-   `delete_label(label_id=data.distance_id)` and the partner dim_number.)
-
-   **VERIFY (per §H5).** Then immediately:
-   ```
-   get_scene_view_with_labels(key="{key}", file=<eg>,
-                              region=<crop around the dim line>,
-                              tiers="finer,detail")
-   ```
-   The green/red dim stroke must sit ON the building's outer edge, not
-   on an interior wall or an unrelated line of text. Endpoint caps must
-   line up with the corners. If it's wrong: `delete_label` and re-place;
-   3-attempt budget then `status="uncertain"`.
-5. Once both pass: identify an outer wall on the drawing — typically
-   30-40 cm thick (drawn as a thick double line). Read its thickness:
-   ```
-   upsert_label(key="{key}", file=<eg>, label={{
-     "type": "wall",
-     "geometry": {{"start": [x1,y1], "end": [x2,y2]}},
-     "attributes": {{"thickness_mm": 365}},
-     "status": "readable"
-   }})
-   ```
-   **VERIFY (per §H5)** — `get_scene_view_with_labels` with a tight
-   region; the orange wall stroke must lie along the drawn wall, not
-   floating in empty space or crossing through openings.
-6. Confirm via `get_house_facts(key="{key}")`:
-   - `extent.width_mm` = horizontal dim value
-   - `extent.depth_mm` = vertical dim value
-   - `wall_thickness.outer_mm` set
-   You should NOT need to call `set_house_facts` for extent — derivation
-   handles it. The only manual `set_house_facts` is for
-   `wall_thickness.outer_mm` (since walls don't derive that
-   automatically yet).
+1. Create or resume the structured scene plan.
+2. Read/label height marks and component lines with verify-after-place.
+3. Add section openings/components where visible.
+4. Add reference dimensions and recompute homography.
+5. Evaluate scene-plan gates and terminality.
 
 ## Exit
 
-`get_workflow_state[...]["W2"]["status"] == "done"` AND the auto-derived
-`facts.extent` matches the dim values within 2 %.
+`get_workflow_state(key="{key}")["phases"]["sections"]["status"] == "done"`
 """
 
 
-@mcp.prompt(name="W3-orientation")
-def prompt_w3_orientation(key: str) -> str:
-    return f"""# W3 · Orientation — pick the north edge for `{key}`
+@mcp.prompt(name="elevation-scene-pass")
+def prompt_elevation_scene_pass(key: str) -> str:
+    return f"""# Elevations · label Ansicht scenes for `{key}`
 
-Goal: `facts.orientation.north_edge_label_id` set (or
-`north_angle_deg` as fallback).
+Goal: every `ansicht` scene is terminal or accepted incomplete after
+floorplans and sections. Elevations label facade openings, facade/roof
+component lines, visible height marks, and reference dimensions.
 
-## HONESTY RULE (per §G3-4)
+For each Ansicht scene:
 
-The `assumed` flag MUST reflect reality. Only set `assumed: false` when
-there's an EXPLICIT on-drawing compass — a "N" arrow, a "Norden" label,
-a compass rose. Everything else is a guess, and a guess MUST carry
-`assumed: true`. A human reviewer scans for `assumed: true` rows to
-prioritize what to spot-check.
-
-## Steps
-
-1. EG-Grundriss again. `get_scene_view(tiers="broad")`.
-2. Look for a compass mark or "Norden" label. Look carefully — small
-   compass arrows often hide in corners or near the title block.
-3. **If you see an explicit compass mark:**
-   - Identify the wall that aligns with north (the wall the compass
-     arrow points along, or the wall labeled with "N"). Take its
-     label_id from `list_scene_labels`.
-   - ```
-     set_house_facts(patch={{"orientation": {{
-       "north_edge_label_id": <wall_id>,
-       "assumed": false
-     }}}})
-     ```
-4. **If NO compass mark visible:**
-   - Default to north_angle_deg=0 (most catalog houses face the street,
-     which is often south — so the back wall points roughly north).
-   - You MUST mark this as a guess:
-     ```
-     set_house_facts(patch={{"orientation": {{
-       "north_angle_deg": 0,
-       "assumed": true
-     }}}})
-     ```
-   - The server-side guard (§G4-3) will auto-correct `assumed: false`
-     to `assumed: true` if you forget — but don't rely on that.
+1. Create or resume the structured scene plan.
+2. Classify facade orientation only when visible; do not guess.
+3. Place facade/roof component lines and view openings with verification.
+4. Add reference dimensions and recompute homography.
+5. Evaluate scene-plan gates and terminality.
 
 ## Exit
 
-`get_workflow_state[...]["W3"]["status"] == "done"`
+`get_workflow_state(key="{key}")["phases"]["elevations"]["status"] == "done"`
 """
 
 
-@mcp.prompt(name="W4-calibration")
-def prompt_w4_calibration(key: str) -> str:
-    return f"""# W4 · Calibration — per-scene reference dims for `{key}`
+@mcp.prompt(name="review-house")
+def prompt_review_house(key: str) -> str:
+    return f"""# Review · final optional pass for `{key}`
 
-Goal: every Ansicht/Schnitt has `facts.calibration_per_scene[file]`
-populated (one horizontal + one vertical reference dim, homography
-RMS ≤ 8 px).
+Review is opt-in. Use it for `list_anomalies`, accepted-incomplete items,
+uncertain labels, and a final `validate_export_readiness` check. It must
+not be used to start substantive labeling before floorplans, sections, and
+elevations have run in order.
 
-## ZOOM-BEFORE-NAMING DISCIPLINE (per §G3-5)
-
-Every `add_reference_dim` call MUST be preceded by a
-`get_scene_view(region=…)` call cropping to a tight bbox around the
-dim line + its numeric label. Reading endpoints off the BROAD-tier
-full-image view is what causes building-scale values to land on
-detail-crop scenes (the 9084 mm horizontal ref on a roof-corner
-detail bug, §B4). The plan.yaml the driver writes records every
-zoom region used — if a plan step adds a ref dim without a paired
-zoom call, the reviewer rejects the run.
-
-## Steps per scene
-
-For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
-`get_house_facts.calibration_per_scene[file]` is absent:
-
-1. `get_scene_view(key="{key}", file=<scene>, tiers="broad,finer")`
-   — full image.
-2. Apply the **is_reference selection ladder**
-   (per agentic-labeling-tracker §8 decision 3):
-   a. Identify the title-block bbox (usually bottom-right; it's the
-      densest-text region). Exclude this half of the image.
-   b. Find the **longest clearly-labeled horizontal** dim line in the
-      remaining area — typically along the eaves or the foundation. The
-      grid overlay's broad tier (~100-200 px cells) tells you the gross
-      length.
-   c. Find the **longest clearly-labeled vertical** dim — typically
-      ground-to-eaves or ground-to-ridge.
-3. **ZOOM FIRST — REQUIRED.** Pick a tight rectangle that includes
-   BOTH the dim line's endpoints AND the numeric label text. Call:
-   ```
-   get_scene_view(file=<scene>,
-                  region="<x0>,<y0>,<x1>,<y1>",
-                  tiers="finer,detail")
-   ```
-   Read off the endpoint coords from the GRID LABELS IN THE ZOOM (they
-   still reference source pixels) and read the numeric value from the
-   visible text.
-4. Sanity check the value: does the value match the scene's expected
-   scale? A 9000+ mm dim on a 600-px-wide detail crop is almost
-   certainly a building-scale dim that bled into the crop frame —
-   reject and pick a smaller candidate.
-5. ```
-   add_reference_dim(key="{key}", file=<scene>, orientation="horizontal",
-                     start=[x1,y1], end=[x2,y2],
-                     value_mm=<value>, dimension_text="<as written>")
-   ```
-   Check `homography.rms_residual_px` in the response:
-     - ≤ 8: keep going.
-     - > 8: delete this dim + its partner dim_number, try the
-       second-best candidate. Repeat up to 3 times.
-6. **VERIFY THE PLACEMENT (per §H5).** Immediately call:
-   ```
-   get_scene_view_with_labels(key="{key}", file=<scene>,
-                              region="<same zoom region as step 3>",
-                              tiers="finer,detail")
-   ```
-   - The red REF-dim stroke (reference dims render red) must visibly
-     span the dim line you read the value off of, with endpoint caps
-     on the exact corners.
-   - The value chip must show `REF <value>m`.
-   - If the stroke floats next to / beside / through the dim instead
-     of along it: `delete_label(label_id=data.distance_id)` + delete
-     the dim_number partner, then re-place using the corrected
-     endpoint reads. 3-attempt budget per scene per orientation.
-   - After the third miss: `set_label_status(..., "uncertain")` on
-     the closest attempt, log via `dump_run_summary`, move on.
-7. Repeat for vertical (including a fresh verify pass).
-8. Confirm `get_house_facts.calibration_per_scene` now has the file.
-
-## Hard caps (per scene budget)
-
-- 6 tool calls including all `get_scene_view`s.
-- If still failing after 3 ref-dim attempts: `set_label_status(...,
-  "uncertain")` on whichever dim came closest, then call
-  `dump_run_summary` with `notes="W4 calibration failed on <scene>;
-  human review needed"` and move to the next scene.
-
-## Exit
-
-`get_workflow_state[...]["W4"]["status"] == "done"`
-"""
-
-
-@mcp.prompt(name="W5-detail")
-def prompt_w5_detail(key: str) -> str:
-    return f"""# W5 · Detail (OPT-IN) — labels for `{key}`
-
-W5 is off by default; the driver invokes this playbook only when
-`--with-detail` is set. The export gate passes without it.
-
-Goal: per scene, label what's visible:
-- Grundriss: walls + openings (doors, windows, garage_doors).
-- Ansicht: view_openings (windows, doors), height_marks at floor
-  divisions, component_lines at roof edges (first/traufe/dachschraege).
-- Schnitt: component_lines at floor slabs + roof edges, height_marks.
-
-## Per-scene budget
-
-20 tool calls. The agent stops on budget exhaustion and moves on; the
-SKILL never blocks on perfect W5.
-
-## Steps per scene
-
-For each scene:
-
-1. `get_scene_view(key="{key}", file=<scene>, tiers="broad,finer")`.
-2. Enumerate visible features the scene_tag supports (see
-   `bim-db://ontology/scene_tags` for the tool palette).
-3. For each: zoom (`region=`), draw with `upsert_label`, mark
-   `status="uncertain"` if you can't read the type / dimension
-   confidently.
-4. Run `recompute_homography` periodically (every ~5 labels) so the
-   per-scene calibration stays valid.
-
-## Exit
+To mark review complete:
 
 `set_house_facts(patch={{"workflow": {{"phase_completed_at":
-                                       {{"detail": "<ISO timestamp>"}}}}}})`
-to mark W5 manually complete.
+                                       {{"review": "<ISO timestamp>"}}}}}})`
 """
 
 
@@ -3998,15 +4417,15 @@ to mark W5 manually complete.
 def prompt_diagnose_failed_export(key: str) -> str:
     return f"""# Diagnose why `{key}` won't export
 
-The agent exited W4 but `export_house` returned 409. Find what's blocking.
+The agent exited the required scene stages but `export_house` returned 409. Find what's blocking.
 
 ## Steps
 
 1. `validate_export_readiness(key="{key}")` — read the blockers list.
 2. Common causes + fixes:
-   - **"no annotated scenes"** → no scene has labels. Re-run W4 (it
-     adds dim labels) or run a W5 pass.
-   - **"house has zero drawings"** → re-run extract_scenes via the W0
+   - **"no annotated scenes"** → no scene has labels. Re-run the current
+     scene-class stage or review pass.
+   - **"house has zero drawings"** → re-run extract_scenes via the inventory
      bootstrap.
    - **homography degenerate on Scene X** → call `recompute_homography`
      on that scene; the error tells you which ref dims are degenerate.
@@ -4041,7 +4460,7 @@ def prompt_diagnose_degenerate_homography(key: str, file: str) -> str:
      image? Compute angle; if > 10° off-axis, the dim is mis-drawn.
      Delete it.
 3. If only one ref dim survives: add a new one in the missing
-   orientation per the W4 playbook.
+   orientation per the current stage playbook.
 4. `recompute_homography(key="{key}", file="{file}")` — confirm
    `status="ok"` with `rms_residual_px ≤ 8`.
 
