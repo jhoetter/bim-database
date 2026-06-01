@@ -1,9 +1,11 @@
 # Code quality + technical debt (CQ) tracker
 
-**Status:** 2026-06-01. Initial audit captured. CQ0 is shipped
+**Status:** 2026-06-01. Audit is ongoing; this tracker is not yet exhaustive.
+CQ0 is shipped
 (`make test`: 385 passed, 3 skipped). CQ1 is in progress: workflow and
 geometry contracts now live in `api/workflow_state.py`. CQ3 is in progress:
-MCP resources/prompts now register from `mcp_metadata.py`.
+MCP resources/prompts now register from `mcp_metadata.py`, and image payload
+delivery now lives in `mcp_image_delivery.py`.
 
 **Owner:** jhoetter
 **Scope:** maintainability, architectural boundaries, test/contract drift,
@@ -16,6 +18,17 @@ repo hygiene, and debt that increases the cost/risk of future feature work.
 The annotation pipeline has grown into a working product, but several
 surfaces have accumulated too much responsibility. This tracker turns the
 audit into concrete work items with severity, evidence, and target outcomes.
+
+Current exhaustiveness standard:
+
+- every source file above 2,000 LOC must have an owner work item or an explicit
+  reason it is acceptable;
+- every business-critical duplicated contract must have a canonical owner or a
+  drift-test work item;
+- every mutable persistence surface must be classified as fixture, generated
+  artifact, or live corpus state;
+- every high-severity item needs evidence, impact, and an acceptance test or
+  verification command.
 
 North-stars for this tracker:
 
@@ -141,17 +154,20 @@ test without importing the whole FastAPI app.
 
 **Severity:** High
 
-`mcp_server.py` is approximately 4,628 LOC. It owns transport wrappers,
-tool definitions, workflow derivation, export readiness checks, label
-mutation helpers, summaries, and prompts.
+`mcp_server.py` was approximately 4,628 LOC at the initial audit and is still
+approximately 4,277 LOC after workflow, metadata, and image-delivery
+extractions. It owns transport wrappers, tool definitions, export readiness
+checks, label mutation helpers, summaries, and many tool contracts.
 
 Evidence:
 
 - tool registration starts at `mcp_server.py:219`
-- `_derive_workflow_state()` starts at `mcp_server.py:410`
 - label mutation helpers start around `mcp_server.py:2964`
 - export readiness starts at `mcp_server.py:3751`
-- prompt definitions start around `mcp_server.py:4293`
+- image delivery used to live directly in `mcp_server.py`; it now delegates to
+  `mcp_image_delivery.py`
+- prompt/resource registration used to live directly in `mcp_server.py`; it now
+  delegates to `mcp_metadata.py`
 
 Risk:
 
@@ -578,6 +594,10 @@ Progress:
 - Added `mcp_metadata.py` and moved resource/prompt registration out of
   `mcp_server.py`.
 - `tests/test_mcp_smoke.py` passed after the extraction.
+- Added `mcp_image_delivery.py` and moved inline/handle/both image payload
+  delivery policy plus artifact writing out of `mcp_server.py`.
+- Focused MCP regression suite passed after image-delivery extraction:
+  `51 passed, 1 warning`.
 
 ### CQ4 — Break up `AnnotatePage.tsx`
 
@@ -876,6 +896,14 @@ Commands run during the initial audit:
 - schema/TypeScript type comparison
 - test-file size/count scan
 
+Additional deep-audit commands/work completed:
+
+- shared workflow/geometry contract extraction into `api/workflow_state.py`
+- MCP prompt/resource extraction into `mcp_metadata.py`
+- MCP image payload delivery extraction into `mcp_image_delivery.py`
+- focused MCP regression run:
+  `.venv/bin/python -m pytest tests/test_mcp_image_delivery.py tests/test_mcp_smoke.py -q`
+
 Baseline from 2026-06-01:
 
 - Frontend typecheck passed.
@@ -894,3 +922,6 @@ Progress snapshots:
 
 - After CQ1 workflow extraction: `mcp_server.py` ~4,488 LOC.
 - After CQ3 metadata extraction: `mcp_server.py` ~4,100 LOC.
+- After dirty image-delivery work was present: `mcp_server.py` ~4,328 LOC.
+- After image-delivery extraction: `mcp_server.py` ~4,277 LOC,
+  `mcp_image_delivery.py` ~118 LOC.
