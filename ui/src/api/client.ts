@@ -315,6 +315,7 @@ export function useResource<T>(loader: () => Promise<T>, deps: unknown[]) {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setData(null);
     loader()
       .then((d) => {
         if (!cancelled) setData(d);

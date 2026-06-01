@@ -194,34 +194,70 @@ function _migrateV1_0(facts: HouseFacts): HouseFacts {
   return facts;
 }
 
+function normalizeHouseFacts(raw: unknown): HouseFacts {
+  if (raw == null || typeof raw !== 'object') return defaultFacts();
+  const parsed = raw as Partial<HouseFacts> & Record<string, unknown>;
+  if (parsed.schema_version !== '1.0' && parsed.schema_version !== '1.1') {
+    return defaultFacts();
+  }
+
+  const def = defaultFacts();
+  const workflow = parsed.workflow ?? def.workflow;
+  const facts: HouseFacts = {
+    ...parsed,
+    schema_version: parsed.schema_version,
+    extent: {
+      ...def.extent,
+      ...(parsed.extent ?? {}),
+      sources: {
+        ...def.extent.sources,
+        ...(parsed.extent?.sources ?? {}),
+      },
+    },
+    heights: {
+      ...def.heights,
+      ...(parsed.heights ?? {}),
+      sources: {
+        ...def.heights.sources,
+        ...(parsed.heights?.sources ?? {}),
+      },
+    },
+    wall_thickness: parsed.wall_thickness ?? def.wall_thickness,
+    openings_catalog: Array.isArray(parsed.openings_catalog)
+      ? parsed.openings_catalog
+      : def.openings_catalog,
+    calibration_per_scene: parsed.calibration_per_scene ?? def.calibration_per_scene,
+    scene_metadata: parsed.scene_metadata ?? def.scene_metadata,
+    orientation: parsed.orientation === undefined ? def.orientation : parsed.orientation,
+    workflow: workflow
+      ? {
+          ...def.workflow!,
+          ...workflow,
+          phase_completed_at: {
+            ...def.workflow!.phase_completed_at,
+            ...(workflow.phase_completed_at ?? {}),
+          },
+          source_scene: {
+            ...def.workflow!.source_scene,
+            ...(workflow.source_scene ?? {}),
+          },
+          user_skipped: {
+            ...def.workflow!.user_skipped,
+            ...(workflow.user_skipped ?? {}),
+          },
+        }
+      : def.workflow,
+    derived_facts: parsed.derived_facts ?? def.derived_facts,
+  };
+  return _migrateV1_0(facts);
+}
+
 export function loadHouseFacts(scope: LabelScope, houseKey: string): HouseFacts {
   try {
     const raw = window.localStorage.getItem(storageKey(scope, houseKey));
     if (!raw) return defaultFacts();
     const parsed = JSON.parse(raw);
-    if (parsed?.schema_version !== '1.0' && parsed?.schema_version !== '1.1') {
-      return defaultFacts();
-    }
-    // W0 forward-compat: old caches may lack orientation/workflow/derived_facts.
-    const facts = parsed as HouseFacts;
-    if (facts.orientation === undefined) facts.orientation = null;
-    if (!facts.workflow) {
-      facts.workflow = defaultWorkflowState();
-    } else {
-      // Defensive: the workflow object may be partial (e.g. an agent's
-      // set_house_facts deep-merged only `driven_by` and friends and the
-      // server's merge dropped the other fields). Backfill the required
-      // bookkeeping sub-fields so readers don't crash on undefined.
-      const def = defaultWorkflowState();
-      const wf = facts.workflow;
-      if (!wf.schema_version) wf.schema_version = '1.1';
-      if (!wf.phase) wf.phase = def.phase;
-      if (!wf.phase_completed_at) wf.phase_completed_at = { ...def.phase_completed_at };
-      if (!wf.source_scene) wf.source_scene = { ...def.source_scene };
-      if (!wf.user_skipped) wf.user_skipped = {};
-    }
-    if (!facts.derived_facts) facts.derived_facts = {};
-    return _migrateV1_0(facts);
+    return normalizeHouseFacts(parsed);
   } catch {
     return defaultFacts();
   }
@@ -270,9 +306,11 @@ export async function syncHouseFactsFromServer(scope: LabelScope, houseKey: stri
     const remote = await fetchHouseFactsRaw(houseKey);
     const v = (remote as HouseFacts | undefined)?.schema_version;
     if (remote && typeof remote === 'object' && (v === '1.0' || v === '1.1')) {
-      // Server wins.
-      window.localStorage.setItem(storageKey(scope, houseKey), JSON.stringify(remote));
-      return remote as HouseFacts;
+      // Server wins, then gets normalized so partial legacy/agent files
+      // still satisfy the HouseFacts reader contract.
+      const normalized = normalizeHouseFacts(remote);
+      window.localStorage.setItem(storageKey(scope, houseKey), JSON.stringify(normalized));
+      return normalized;
     }
     // First-time migration: push our local copy if it has anything.
     const local = loadHouseFacts(scope, houseKey);

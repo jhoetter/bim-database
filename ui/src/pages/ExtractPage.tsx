@@ -52,10 +52,10 @@ const FLOOR_LABEL: Record<typeof FLOORS[number], string> = {
   kg: 'KG', ug: 'UG', eg: 'EG', og: 'OG', dg: 'DG', spitzboden: 'Spitzboden',
 };
 const DRAFT_KEY = (key: string) => `bim-db:extract-draft:dataset:${key}`;
-// Render the page at the server's max-quality dpi (>= the ~429 dpi native
-// scan) so the extraction view shows ACTUAL quality, never a downsampled
-// proxy. No magic number: this is the server's render cap.
-const PAGE_DPI = 600;
+// Render the page at a preview DPI high enough for bbox placement without
+// forcing every navigation to decode a multi-megapixel 600-DPI JPEG.
+const PAGE_DPI = 240;
+const PAGE_IMAGE_NAV_DEBOUNCE_MS = 250;
 
 interface DraftBbox {
   id: string;
@@ -326,18 +326,22 @@ export function ExtractPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const [i, b, d] = await Promise.all([
-          getPdfInfo(key),
-          getIncomingPdf(key).catch(() => null),
-          fetchDataset(key).catch(() => null),
-        ]);
-        if (cancelled) return;
-        setInfo(i);
-        setIntake(b);
-        setDataset(d);
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
+      setError(null);
+      const [infoRes, intakeRes, datasetRes] = await Promise.allSettled([
+        getPdfInfo(key),
+        getIncomingPdf(key),
+        fetchDataset(key),
+      ]);
+      if (cancelled) return;
+      setInfo(infoRes.status === 'fulfilled' ? infoRes.value : null);
+      setIntake(intakeRes.status === 'fulfilled' ? intakeRes.value : null);
+      setDataset(datasetRes.status === 'fulfilled' ? datasetRes.value : null);
+
+      const messages: string[] = [];
+      if (infoRes.status === 'rejected') messages.push(`PDF-Info: ${(infoRes.reason as Error).message}`);
+      if (datasetRes.status === 'rejected') messages.push(`Datensatz: ${(datasetRes.reason as Error).message}`);
+      if (messages.length > 0) {
+        setError(messages.join(' · '));
       }
     })();
     return () => { cancelled = true; };
@@ -348,6 +352,12 @@ export function ExtractPage() {
 
   const setPage = useCallback((n: number) => {
     setDraft((d) => ({ ...d, current_page: Math.max(1, Math.min(n, info?.page_count ?? 1)) }));
+  }, [info]);
+  const shiftPage = useCallback((delta: number) => {
+    setDraft((d) => ({
+      ...d,
+      current_page: Math.max(1, Math.min(d.current_page + delta, info?.page_count ?? 1)),
+    }));
   }, [info]);
 
   useEffect(() => {
@@ -424,10 +434,26 @@ export function ExtractPage() {
         return;
       }
       // L5 — page nav on both axes plus Home/End/Page Up/Down.
-      if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp'   || e.key === 'PageUp')   setPage(currentPage - 1);
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') setPage(currentPage + 1);
-      if (e.key === 'Home') setPage(1);
-      if (e.key === 'End')  setPage(info?.page_count ?? 1);
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        shiftPage(-1);
+        return;
+      }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown') {
+        e.preventDefault();
+        shiftPage(1);
+        return;
+      }
+      if (e.key === 'Home') {
+        e.preventDefault();
+        setPage(1);
+        return;
+      }
+      if (e.key === 'End') {
+        e.preventDefault();
+        setPage(info?.page_count ?? 1);
+        return;
+      }
       // L5 — open the shared cheatsheet from this page too.
       if (e.key === '?' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
@@ -445,7 +471,7 @@ export function ExtractPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, setPage, selectedId, postDraw, runUndo, runRedo, info]);
+  }, [setPage, shiftPage, selectedId, postDraw, runUndo, runRedo, info]);
 
   const onCommitBbox = useCallback((bbox: [number, number, number, number]) => {
     const id = uuid();
@@ -1339,6 +1365,24 @@ function PageCanvas({
   // horizontal margin the centering (mx-auto) introduces.
   const pageRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ start: [number, number]; end: [number, number] } | null>(null);
+  const imageSrc = showGrid
+    ? pdfPageGridUrl(pdfKey, page, PAGE_DPI, gridTiers)
+    : pdfPageUrl(pdfKey, page, PAGE_DPI);
+  const [requestedImageSrc, setRequestedImageSrc] = useState(imageSrc);
+  const [loadedImageSrc, setLoadedImageSrc] = useState<string | null>(null);
+  const [failedImageSrc, setFailedImageSrc] = useState<string | null>(null);
+  const imageState: 'loading' | 'loaded' | 'error' =
+    requestedImageSrc !== imageSrc ? 'loading' :
+    failedImageSrc === requestedImageSrc ? 'error' :
+    loadedImageSrc === requestedImageSrc ? 'loaded' :
+    'loading';
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setRequestedImageSrc(imageSrc);
+    }, PAGE_IMAGE_NAV_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [imageSrc]);
 
   const ptToPdf = (clientX: number, clientY: number): [number, number] => {
     const rect = pageRef.current?.getBoundingClientRect();
@@ -1413,21 +1457,40 @@ function PageCanvas({
           width: 'auto',
         }}
       >
-        {/* First-use hint, fades to opacity-0 once a draft bbox exists. */}
-        {draftBboxes.length === 0 && extracted.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-zinc-400">
+        {/* First-use hint only appears once the page image itself is ready. */}
+        {imageState === 'loaded' && draftBboxes.length === 0 && extracted.length === 0 && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none text-zinc-400">
             <div className="bg-white/85 px-4 py-2 rounded-md text-[0.75rem] shadow-sm">
               🖱 Click-drag um eine Szene zu ziehen
             </div>
           </div>
         )}
+        {imageState !== 'loaded' && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none text-zinc-600">
+            {imageState === 'error' ? (
+              <div className="bg-white/90 px-3 py-1.5 rounded-md border border-zinc-200 shadow-sm text-[0.72rem]">
+                Seite konnte nicht geladen werden
+              </div>
+            ) : (
+              <div
+                className="h-7 w-7 rounded-full border-2 border-zinc-300 border-t-accent animate-spin bg-white/70 shadow-sm"
+                aria-label="Seite wird geladen"
+              />
+            )}
+          </div>
+        )}
         <img
-          src={showGrid
-            ? pdfPageGridUrl(pdfKey, page, PAGE_DPI, gridTiers)
-            : pdfPageUrl(pdfKey, page, PAGE_DPI)}
+          src={requestedImageSrc}
           alt={`Seite ${page}`}
           className="block w-full h-full select-none pointer-events-none"
           draggable={false}
+          decoding="async"
+          onLoad={(e) => {
+            const src = e.currentTarget.getAttribute('src') ?? requestedImageSrc;
+            setFailedImageSrc((prev) => prev === src ? null : prev);
+            setLoadedImageSrc(src);
+          }}
+          onError={(e) => setFailedImageSrc(e.currentTarget.getAttribute('src') ?? requestedImageSrc)}
         />
         <svg
           className="absolute inset-0 w-full h-full pointer-events-none"
@@ -1661,8 +1724,10 @@ function HouseFactsCard({
   const outerWall = facts.wall_thickness?.outer_mm ?? null;
   const orientationLabel = facts.orientation
     ? (facts.orientation.north_angle_deg != null
-        ? `${facts.orientation.north_angle_deg.toFixed(0)}° (${facts.orientation.source_grundriss_file})`
-        : `gesetzt (${facts.orientation.source_grundriss_file})`)
+        ? `${facts.orientation.north_angle_deg.toFixed(0)}°${
+            facts.orientation.source_grundriss_file ? ` (${facts.orientation.source_grundriss_file})` : ''
+          }`
+        : `gesetzt${facts.orientation.source_grundriss_file ? ` (${facts.orientation.source_grundriss_file})` : ''}`)
     : null;
   const wf = facts.workflow;
   const phaseIdx = wf ? PHASE_IDS.indexOf(wf.phase) : -1;
