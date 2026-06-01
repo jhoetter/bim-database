@@ -13,6 +13,7 @@ from mcp.types import ImageContent, TextContent
 
 IMAGE_ARTIFACT_DIR = Path(os.environ.get("BIM_MCP_IMAGE_ARTIFACT_DIR", Path(__file__).parent / "tmp" / "mcp-images"))
 DEFAULT_IMAGE_DELIVERY = os.environ.get("BIM_MCP_IMAGE_DELIVERY_DEFAULT", "inline").strip().lower() or "inline"
+DEFAULT_MAX_INLINE_BYTES = int(os.environ.get("BIM_MCP_IMAGE_MAX_INLINE_BYTES", "250000"))
 
 
 def image_response(
@@ -24,15 +25,21 @@ def image_response(
     status_code: int,
     server_version: str,
     delivery: str | None = None,
+    max_inline_bytes: int = DEFAULT_MAX_INLINE_BYTES,
     artifact_meta: dict | None = None,
     artifact_dir: Path | None = None,
 ) -> list[ImageContent | TextContent]:
     """Return image content inline, as a persisted handle, or both."""
-    mode = _normalize_image_delivery(delivery)
+    requested_mode = _normalize_image_delivery(delivery)
+    mode = "handle" if requested_mode == "auto" and len(content) > max_inline_bytes else requested_mode
+    if mode == "auto":
+        mode = "inline"
     data = {
         **data,
         "image_bytes": len(content),
         "image_delivery": mode,
+        "image_delivery_requested": requested_mode,
+        "max_inline_bytes": max_inline_bytes,
     }
     parts: list[ImageContent | TextContent] = []
     if mode in ("handle", "both"):
@@ -84,8 +91,8 @@ def _meta(started_at: float | None, status_code: int | None, server_version: str
 
 def _normalize_image_delivery(delivery: str | None) -> str:
     mode = (delivery or DEFAULT_IMAGE_DELIVERY).strip().lower()
-    if mode not in {"inline", "handle", "both"}:
-        return DEFAULT_IMAGE_DELIVERY if DEFAULT_IMAGE_DELIVERY in {"inline", "handle", "both"} else "inline"
+    if mode not in {"inline", "handle", "both", "auto"}:
+        return DEFAULT_IMAGE_DELIVERY if DEFAULT_IMAGE_DELIVERY in {"inline", "handle", "both", "auto"} else "inline"
     return mode
 
 

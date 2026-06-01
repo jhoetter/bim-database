@@ -116,6 +116,7 @@ def _image_response(
     started_at: float,
     status_code: int,
     delivery: str | None = None,
+    max_inline_bytes: int = 250_000,
     artifact_meta: dict | None = None,
 ) -> list[ImageContent | TextContent]:
     return image_response(
@@ -126,6 +127,7 @@ def _image_response(
         status_code=status_code,
         server_version=SERVER_VERSION,
         delivery=delivery,
+        max_inline_bytes=max_inline_bytes,
         artifact_meta=artifact_meta,
         artifact_dir=IMAGE_ARTIFACT_DIR,
     )
@@ -647,6 +649,7 @@ async def get_scene_view(
     target_line: str = "none",
     background_opacity: float | None = None,
     image_delivery: str | None = None,
+    max_inline_bytes: int = 250_000,
 ) -> list[ImageContent | TextContent]:
     """Scene image with the three-tier coordinate grid overlay.
 
@@ -765,6 +768,7 @@ async def get_scene_view(
         started_at=started,
         status_code=status,
         delivery=image_delivery,
+        max_inline_bytes=max_inline_bytes,
         artifact_meta={"tool": "get_scene_view", "key": key, "file": file, "region": region, "params": params},
     )
 
@@ -788,6 +792,7 @@ async def get_scene_view_with_labels(
     show_height_guides: str = "auto",
     include_hidden: bool = False,
     image_delivery: str | None = None,
+    max_inline_bytes: int = 250_000,
 ) -> list[ImageContent | TextContent]:
     """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
     on top. This is the agent's verify view — call it after every
@@ -940,6 +945,7 @@ async def get_scene_view_with_labels(
         started_at=started,
         status_code=status,
         delivery=image_delivery,
+        max_inline_bytes=max_inline_bytes,
         artifact_meta={"tool": "get_scene_view_with_labels", "key": key, "file": file, "region": region, "params": params},
     )
 
@@ -961,6 +967,7 @@ async def verify_label_placement(
     show_height_guides: str = "auto",
     include_hidden: bool = False,
     image_delivery: str | None = None,
+    max_inline_bytes: int = 250_000,
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
     a single label so the agent doesn't have to compute the region.
@@ -1076,6 +1083,7 @@ async def verify_label_placement(
         show_height_guides=show_height_guides,
         include_hidden=include_hidden,
         image_delivery=image_delivery,
+        max_inline_bytes=max_inline_bytes,
     )
 
     # Issue #10: numeric offset feedback. How far is the label's anchor
@@ -1215,6 +1223,7 @@ async def get_pdf_page_view(
     tiers: str = "broad,finer,detail",
     max_dim: int = 1600,
     image_delivery: str | None = None,
+    max_inline_bytes: int = 250_000,
 ) -> list[ImageContent | TextContent]:
     """PDF page render with grid overlay — used for scene identification.
 
@@ -1274,6 +1283,7 @@ async def get_pdf_page_view(
         started_at=started,
         status_code=status,
         delivery=image_delivery,
+        max_inline_bytes=max_inline_bytes,
         artifact_meta={"tool": "get_pdf_page_view", "key": key, "page": page, "region": region, "params": params},
     )
 
@@ -2673,6 +2683,7 @@ async def dimension_chain_context(
     enhance: str | None = "auto",
     format: str = "png8",
     image_delivery: str | None = None,
+    max_inline_bytes: int = 250_000,
 ) -> list[ImageContent | TextContent]:
     """Find a dimension chain and return the tight crop image + tick metadata.
 
@@ -2734,6 +2745,7 @@ async def dimension_chain_context(
         started_at=started,
         status_code=img_status,
         delivery=image_delivery,
+        max_inline_bytes=max_inline_bytes,
         artifact_meta={"tool": "dimension_chain_context", "key": key, "file": file, "region": crop_region, "params": grid_params},
     )
 

@@ -50,3 +50,42 @@ def test_image_response_inline_preserves_image_content(tmp_path, monkeypatch) ->
     env = json.loads(parts[1].text)
     assert env["data"]["image_delivery"] == "inline"
     assert "image_artifact" not in env["data"]
+
+
+def test_image_response_auto_keeps_small_images_inline(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(mcp_server, "IMAGE_ARTIFACT_DIR", tmp_path)
+
+    parts = mcp_server._image_response(
+        b"small",
+        "image/png",
+        {"image_format": "PNG"},
+        started_at=1.0,
+        status_code=200,
+        delivery="auto",
+        max_inline_bytes=10,
+    )
+
+    assert isinstance(parts[0], ImageContent)
+    env = json.loads(parts[1].text)
+    assert env["data"]["image_delivery_requested"] == "auto"
+    assert env["data"]["image_delivery"] == "inline"
+
+
+def test_image_response_auto_handles_large_images(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(mcp_server, "IMAGE_ARTIFACT_DIR", tmp_path)
+
+    parts = mcp_server._image_response(
+        b"too-large",
+        "image/png",
+        {"image_format": "PNG"},
+        started_at=1.0,
+        status_code=200,
+        delivery="auto",
+        max_inline_bytes=3,
+    )
+
+    assert len(parts) == 1
+    env = json.loads(parts[0].text)
+    assert env["data"]["image_delivery_requested"] == "auto"
+    assert env["data"]["image_delivery"] == "handle"
+    assert env["data"]["inline_image_omitted"] is True
