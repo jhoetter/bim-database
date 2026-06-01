@@ -925,3 +925,33 @@ Progress snapshots:
 - After dirty image-delivery work was present: `mcp_server.py` ~4,328 LOC.
 - After image-delivery extraction: `mcp_server.py` ~4,277 LOC,
   `mcp_image_delivery.py` ~118 LOC.
+
+---
+
+## 5. Exhaustiveness gaps
+
+This tracker is intentionally conservative: it records confirmed findings,
+not guesses. The audit is not yet exhaustive until these areas have been
+covered with the same evidence/severity/acceptance structure as section 1.
+
+| Area | Current coverage | Remaining audit work |
+|---|---|---|
+| Python module boundaries | Large files and several duplicated contracts identified. | Build an import/dependency map and identify cycles or inverted dependencies. |
+| FastAPI routes | Route count and broad categories identified. | Produce a route-by-route inventory with method, mutation risk, auth assumption, and target router. |
+| MCP tools | God-file, prompt/resource metadata, and image delivery covered. | Inventory every tool by domain, payload size, transport behavior, and whether it owns business logic. |
+| Frontend editor | `AnnotatePage.tsx` and `ExtractPage.tsx` sizes and responsibilities identified. | Map state clusters/hooks/components and define a safe extraction sequence with typecheck checkpoints. |
+| Persistence | Scattered JSON writes and corpus churn identified. | Enumerate every write path and classify it as fixture, live corpus, generated cache, or export artifact. |
+| Schema/contracts | Label schema/type drift identified. | Add explicit drift tests or generation plan for JSON schema, TS types, backend palette rules, and MCP docs. |
+| Error handling | Broad-catch pattern identified. | Classify each broad catch by boundary/domain use and decide log/raise/user-visible behavior. |
+| Tests | Large smoke files identified. | Map tests to contracts and identify high-risk modules without focused unit coverage. |
+| Tooling | Missing Python lint/type gates identified. | Choose exact tooling, rollout scope, and initial ignored violations. |
+| Security/deployment | CORS/destructive route risk identified. | Audit every destructive route and document localhost/dev token assumptions. |
+
+Minimum next audit pass:
+
+1. Generate route/tool inventories and append them under CQ15/CQ3.
+2. Generate a Python write-path inventory and append it under CQ6/CQ7.
+3. Generate a frontend state/responsibility map for `AnnotatePage.tsx` and
+   `ExtractPage.tsx` before moving code.
+4. Re-run the full backend and frontend verification commands after each
+   extraction wave.
