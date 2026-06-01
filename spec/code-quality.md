@@ -155,10 +155,10 @@ test without importing the whole FastAPI app.
 **Severity:** High
 
 `mcp_server.py` was approximately 4,628 LOC at the initial audit and is still
-approximately 4,178 LOC after workflow, metadata, image-delivery, envelope,
-and context-summary helper extractions. It owns transport wrappers, tool
-definitions, export readiness checks, label mutation helpers, summaries, and
-many tool contracts.
+approximately 3,733 LOC after workflow, metadata, image-delivery, envelope,
+context-summary helper, and geometry/CV tool extractions. It owns transport
+wrappers, many tool definitions, export readiness checks, label mutation
+helpers, summaries, and many tool contracts.
 
 Evidence:
 
@@ -171,6 +171,8 @@ Evidence:
   in `mcp_server.py`; they now delegate to `mcp_envelope.py`
 - compact context-summary row/label/plan formatting used to live directly in
   `mcp_server.py`; it now delegates to `mcp_context_summary.py`
+- geometry/CV tool definitions used to live directly in `mcp_server.py`; they
+  now register from `mcp_geometry_tools.py`
 - prompt/resource registration used to live directly in `mcp_server.py`; it now
   delegates to `mcp_metadata.py`
 - `scripts/code_quality_inventory.py` currently finds 75 MCP tools:
@@ -628,6 +630,13 @@ Progress:
   `tests/test_mcp_smoke.py` in one pytest process currently fails because
   the former uses `asyncio.run()`, closing the default event loop expected by
   the latter. That is test harness debt, not an extraction behavior failure.
+- Added `mcp_geometry_tools.py` and moved the geometry/CV MCP tool cluster out
+  of `mcp_server.py`, while re-exporting registered functions through
+  `mcp_server.py` for compatibility.
+- Updated `scripts/code_quality_inventory.py` so registered tool modules are
+  counted alongside direct `@mcp.tool()` decorators.
+- Inventory script tests passed after the module-aware update: `5 passed`.
+- MCP smoke tests passed after geometry extraction: `49 passed, 1 warning`.
 
 ### CQ4 — Break up `AnnotatePage.tsx`
 
@@ -971,6 +980,8 @@ Progress snapshots:
   `mcp_envelope.py` ~95 LOC.
 - After context-summary helper extraction: `mcp_server.py` ~4,178 LOC,
   `mcp_context_summary.py` ~56 LOC.
+- After geometry/CV tool extraction: `mcp_server.py` ~3,733 LOC,
+  `mcp_geometry_tools.py` ~523 LOC.
 
 ---
 

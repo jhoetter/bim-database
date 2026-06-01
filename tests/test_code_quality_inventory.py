@@ -74,6 +74,28 @@ async def update_label_attrs(key: str, file: str, label_id: str):
     assert report["items"][1]["category"] == "labels"
 
 
+def test_analyze_mcp_tools_counts_registered_tool_modules(tmp_path: Path) -> None:
+    module = tmp_path / "mcp_geometry_tools.py"
+    module.write_text(
+        '''
+async def score_walls(key: str, file: str):
+    """Scores wall labels."""
+
+async def helper():
+    pass
+
+_GEOMETRY_TOOL_NAMES = ["score_walls"]
+''',
+        encoding="utf-8",
+    )
+
+    report = analyze_mcp_tools(module)
+
+    assert report["count"] == 1
+    assert report["items"][0]["name"] == "score_walls"
+    assert report["items"][0]["category"] == "geometry_cv"
+
+
 def test_render_markdown_includes_route_and_tool_counts(tmp_path: Path) -> None:
     markdown = render_markdown(
         {

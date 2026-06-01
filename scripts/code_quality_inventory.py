@@ -40,26 +40,30 @@ def analyze_fastapi_routes(path: Path) -> dict[str, Any]:
     return _summarize_routes(sorted(routes, key=lambda item: item["line"]))
 
 
-def analyze_mcp_tools(path: Path) -> dict[str, Any]:
+def analyze_mcp_tools(path: Path | list[Path]) -> dict[str, Any]:
+    paths = path if isinstance(path, list) else [path]
     tools: list[dict[str, Any]] = []
-    tree = ast.parse(path.read_text(errors="ignore"))
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if not any(_is_mcp_tool_decorator(decorator) for decorator in node.decorator_list):
-            continue
-        doc = ast.get_docstring(node) or ""
-        tools.append(
-            {
-                "source": str(path),
-                "name": node.name,
-                "line": node.lineno,
-                "arg_count": len(node.args.args),
-                "doc_chars": len(doc),
-                "category": classify_tool_category(node.name),
-                "payload": classify_tool_payload(node.name, doc),
-            }
-        )
+    for source_path in paths:
+        tree = ast.parse(source_path.read_text(errors="ignore"))
+        registered_names = _registered_tool_names(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            is_decorated = any(_is_mcp_tool_decorator(decorator) for decorator in node.decorator_list)
+            if not is_decorated and node.name not in registered_names:
+                continue
+            doc = ast.get_docstring(node) or ""
+            tools.append(
+                {
+                    "source": str(source_path),
+                    "name": node.name,
+                    "line": node.lineno,
+                    "arg_count": len(node.args.args),
+                    "doc_chars": len(doc),
+                    "category": classify_tool_category(node.name),
+                    "payload": classify_tool_payload(node.name, doc),
+                }
+            )
     return _summarize_tools(sorted(tools, key=lambda item: item["line"]))
 
 
@@ -159,9 +163,13 @@ def render_markdown(report: dict[str, Any]) -> str:
 
 
 def build_report(api_path: Path, mcp_path: Path) -> dict[str, Any]:
+    mcp_paths = [mcp_path]
+    for path in sorted(mcp_path.parent.glob("mcp_*tools.py")):
+        if path != mcp_path:
+            mcp_paths.append(path)
     return {
         "fastapi_routes": analyze_fastapi_routes(api_path),
-        "mcp_tools": analyze_mcp_tools(mcp_path),
+        "mcp_tools": analyze_mcp_tools(mcp_paths),
     }
 
 
@@ -217,6 +225,21 @@ def _is_mcp_tool_decorator(decorator: ast.expr) -> bool:
         and isinstance(decorator.func.value, ast.Name)
         and decorator.func.value.id == "mcp"
     )
+
+
+def _registered_tool_names(tree: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id.endswith("_TOOL_NAMES") for target in node.targets):
+            continue
+        if not isinstance(node.value, ast.List):
+            continue
+        for item in node.value.elts:
+            if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                names.add(item.value)
+    return names
 
 
 def _summarize_routes(routes: list[dict[str, Any]]) -> dict[str, Any]:
