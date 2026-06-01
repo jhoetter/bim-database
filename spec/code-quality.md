@@ -170,6 +170,11 @@ Evidence:
   in `mcp_server.py`; they now delegate to `mcp_envelope.py`
 - prompt/resource registration used to live directly in `mcp_server.py`; it now
   delegates to `mcp_metadata.py`
+- `scripts/code_quality_inventory.py` currently finds 75 MCP tools:
+  22 `scene_plans`, 16 `datasets`, 14 `geometry_cv`, 13 `labels`,
+  5 `workflow_export`, and 5 `misc`
+- the same inventory classifies 22 MCP tools as `image_or_large` payload
+  surfaces and 10 as `large_text`
 
 Risk:
 
@@ -394,13 +399,18 @@ new gate to accidentally change terminality or task reopening behavior.
 
 **Severity:** Medium-high
 
-`api/main.py` registers roughly 70 routes in one module, spanning metadata,
+`api/main.py` registers 74 routes in one module, spanning metadata,
 datasets, house facts, plans, labels, submissions, incoming PDFs, rendering,
 CV helpers, geometry editing, extraction, exports, reset, recycle, restore,
 and SPA fallback.
 
 Evidence:
 
+- `scripts/code_quality_inventory.py` found 74 FastAPI routes:
+  35 read-only, 32 mutating, and 7 destructive
+- by generated category: `scene_plans=23`, `pdfs=19`, `geometry_cv=12`,
+  `dataset=7`, `labels=5`, `meta=3`, `export=2`, `rendering=2`,
+  `uncategorized=1`
 - route scan found endpoints from `/datasets` through
   `/datasets/{key}/{file}/plan-state/...`, `/labels/...`, `/pdfs/...`,
   `/datasets/{key}/{file}/score-walls`, `/geometry/connect-corners`,
@@ -604,6 +614,8 @@ Progress:
   HTTP status mapping out of `mcp_server.py`.
 - Focused MCP regression suite passed after envelope extraction:
   `51 passed, 1 warning`.
+- Added `scripts/code_quality_inventory.py` to generate MCP tool counts,
+  rough categories, and large-payload classifications for future CQ3 splits.
 
 ### CQ4 — Break up `AnnotatePage.tsx`
 
@@ -795,7 +807,7 @@ Acceptance:
 ### CQ15 — Inventory and classify API routes
 
 **Severity:** Medium-high
-**Status:** Open
+**Status:** In progress
 
 Before splitting routers, create a route inventory with categories:
 
@@ -812,6 +824,15 @@ Acceptance:
 - The inventory lives in this tracker or a generated doc.
 - Destructive routes have explicit auth/deployment assumptions.
 - Router split in CQ2 follows this classification.
+
+Progress:
+
+- Added `scripts/code_quality_inventory.py`.
+- Current generated API inventory: 74 routes total; 35 read-only,
+  32 mutating, 7 destructive.
+- Current generated category totals: scene plans 23, PDFs 19, geometry/CV 12,
+  dataset 7, labels 5, meta 3, export 2, rendering 2, uncategorized 1.
+- Focused script tests passed: `4 passed`.
 
 ### CQ16 — Generate or validate TS types from JSON schema
 
@@ -909,6 +930,9 @@ Additional deep-audit commands/work completed:
 - MCP image payload delivery extraction into `mcp_image_delivery.py`
 - focused MCP regression run:
   `.venv/bin/python -m pytest tests/test_mcp_image_delivery.py tests/test_mcp_smoke.py -q`
+- route/tool inventory generation via `scripts/code_quality_inventory.py`
+- focused inventory tests:
+  `.venv/bin/python -m pytest tests/test_code_quality_inventory.py -q`
 
 Baseline from 2026-06-01:
 
@@ -946,7 +970,7 @@ covered with the same evidence/severity/acceptance structure as section 1.
 |---|---|---|
 | Python module boundaries | Large files and several duplicated contracts identified. | Build an import/dependency map and identify cycles or inverted dependencies. |
 | FastAPI routes | Route count and broad categories identified. | Produce a route-by-route inventory with method, mutation risk, auth assumption, and target router. |
-| MCP tools | God-file, prompt/resource metadata, and image delivery covered. | Inventory every tool by domain, payload size, transport behavior, and whether it owns business logic. |
+| MCP tools | God-file, prompt/resource metadata, image delivery, and generated category/payload counts covered. | Inventory every tool by transport behavior and whether it owns business logic. |
 | Frontend editor | `AnnotatePage.tsx` and `ExtractPage.tsx` sizes and responsibilities identified. | Map state clusters/hooks/components and define a safe extraction sequence with typecheck checkpoints. |
 | Persistence | Scattered JSON writes and corpus churn identified. | Enumerate every write path and classify it as fixture, live corpus, generated cache, or export artifact. |
 | Schema/contracts | Label schema/type drift identified. | Add explicit drift tests or generation plan for JSON schema, TS types, backend palette rules, and MCP docs. |
