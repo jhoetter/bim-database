@@ -29,10 +29,9 @@ def image_response(
 ) -> list[ImageContent | TextContent]:
     """Return image content inline, as a persisted handle, or both."""
     mode = _normalize_image_delivery(delivery)
-    image_bytes = len(content)
     data = {
         **data,
-        "image_bytes": image_bytes,
+        "image_bytes": len(content),
         "image_delivery": mode,
     }
     parts: list[ImageContent | TextContent] = []
