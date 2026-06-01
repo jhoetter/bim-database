@@ -32,6 +32,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ImageContent, TextContent
 
+from mcp_handoff import list_house_handoffs, read_scene_handoff, write_scene_handoff
 from mcp_image_delivery import IMAGE_ARTIFACT_DIR, image_response
 from api.workflow_state import (
     REQUIRED_GEOMETRY as _REQUIRED_GEOMETRY,
@@ -572,6 +573,61 @@ async def get_scene_context_summary(
         else:
             data["plan"] = {"exists": False, "status": "missing"}
     return _ok(data, started_at=started, status_code=lbl_status)
+
+
+@mcp.tool()
+async def write_scene_handoff_summary(
+    key: str,
+    file: str,
+    phase: str,
+    status: str,
+    summary: str,
+    labels_added: int = 0,
+    labels_changed: int = 0,
+    open_defects: list[dict] | None = None,
+    uncertain_labels: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Persist a compact scene/phase handoff summary.
+
+    Use at scene-worker boundaries so parent/next workers read this summary
+    instead of carrying the full visual/tool transcript forward.
+    """
+    started = time.time()
+    result = write_scene_handoff(key, file, {
+        "phase": phase,
+        "status": status,
+        "summary": summary,
+        "labels_added": labels_added,
+        "labels_changed": labels_changed,
+        "open_defects": open_defects or [],
+        "uncertain_labels": uncertain_labels or [],
+        "evidence_refs": evidence_refs or [],
+        "notes": notes,
+    })
+    return _ok(result, started_at=started, status_code=200)
+
+
+@mcp.tool()
+async def get_scene_handoff_summary(key: str, file: str) -> dict:
+    """Read one compact scene/phase handoff summary."""
+    started = time.time()
+    handoff = read_scene_handoff(key, file)
+    if handoff is None:
+        return _err("not_found", f"no handoff summary for {key}/{file}", started_at=started, status_code=404)
+    return _ok(handoff, started_at=started, status_code=200)
+
+
+@mcp.tool()
+async def list_house_handoff_summaries(key: str) -> dict:
+    """List compact handoff summaries for a house without full transcripts."""
+    started = time.time()
+    return _ok({
+        "key": key,
+        "handoffs": list_house_handoffs(key),
+        "summary_contract": "mcp-context-bloat/house-handoff-list-v1",
+    }, started_at=started, status_code=200)
 
 
 # ── §5.3 Scene inspection (image tools — A5) ──────────────────────────────
