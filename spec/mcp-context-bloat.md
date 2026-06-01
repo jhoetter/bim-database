@@ -273,6 +273,23 @@ Shipped checkpoints:
 - **MCB8 handoff summaries:** added durable compact handoff storage
   (`mcp_handoff.py`) plus MCP tools to write/read/list handoff summaries.
   Focused tests: `tests/test_mcp_handoff.py`.
+- **MCB4 output budgets/truncation:** added bounded payload metadata for
+  wall/topology/measurement QA tools, compact `list_scene_labels(max_labels=)`,
+  and bounded `list_anomalies(max_items=)`. Focused tests:
+  `tests/test_mcp_output_bounds.py`.
+- **MCB6 schema compression:** startup compaction shortens exposed MCP tool
+  descriptions by default (`BIM_MCP_COMPACT_DESCRIPTIONS=1`). Focused
+  measurement: description chars dropped from ~48.4k to ~8.1k, saving
+  ~40.4k chars before role-profile filtering. Focused tests:
+  `tests/test_mcp_description_compaction.py`.
+- **MCB7 fan-out cleanup:** `get_house_context_summary`/`get_scene_context_summary`
+  provide compact dashboard/state reads, and `list_anomalies` now uses
+  `plan-state/status` by default; full plan/Markdown deep checks are opt-in
+  with `include_plan_deep_checks=true`.
+- **MCB9 prompt policy:** MCP `label-house` prompt now instructs agents to use
+  context summaries, `image_delivery="auto"`, bounded QA output, and
+  `write_scene_handoff_summary`. Focused tests:
+  `tests/test_mcp_prompt_policy.py`.
 
 Focused verification command:
 
@@ -282,16 +299,20 @@ Focused verification command:
   tests/test_mcp_image_delivery.py \
   tests/test_mcp_context_summary.py \
   tests/test_mcp_handoff.py \
-  tests/test_mcp_tool_profiles.py
+  tests/test_mcp_tool_profiles.py \
+  tests/test_mcp_description_compaction.py \
+  tests/test_mcp_output_bounds.py \
+  tests/test_mcp_prompt_policy.py
 ```
 
 Still open:
 
-- MCB4 output budgets/truncation on high-cardinality scoring/QA tools.
-- MCB6 docstring/schema compression.
-- MCB7 deeper API-side repeated-read fan-out cleanup.
-- MCB9 prompt/skill policy updates outside this repository, if the production
-  agent prompts live in `bim-agent`.
+- Production-agent prompt mirrors outside this repository, if the operational
+  `bim-agent` skill/prompt duplicates the MCP `label-house` policy instead of
+  consuming it.
+- A fresh long house-labeling replay to produce before/after transcript
+  metrics. Focused checks prove payload and schema reductions, but a full
+  autonomous drive is still the final integration proof.
 
 ## 4. Expected efficiency gain
 
@@ -484,6 +505,7 @@ uses tight crops:
 ### MCB4 - Add output budgets and truncation metadata
 
 **Severity:** High
+**Status:** Shipped in `mcp-context-bloat-reduction-impl`.
 
 Tools that can return large lists should accept explicit limits and report
 truncation:
@@ -514,6 +536,7 @@ Affected areas:
 ### MCB5 - Split MCP toolsets by phase
 
 **Severity:** Medium-high
+**Status:** Shipped in `mcp-context-bloat-reduction-impl`.
 
 Expose smaller tool groups for common worker roles:
 
@@ -538,6 +561,7 @@ filters, or a gateway/proxy that exposes only phase-relevant tools.
 ### MCB6 - Compress and shorten tool descriptions
 
 **Severity:** Medium
+**Status:** Shipped in `mcp-context-bloat-reduction-impl`.
 
 Move long procedural guidance out of tool docstrings and into:
 
@@ -562,6 +586,8 @@ Keep tool descriptions focused on:
 ### MCB7 - Avoid repeated full-state fan-out
 
 **Severity:** Medium-high
+**Status:** Partially shipped in `mcp-context-bloat-reduction-impl`; remaining
+proof requires a fresh house-22-style replay and MCP log comparison.
 
 Audit orchestration paths that repeatedly fetch:
 
