@@ -4428,8 +4428,84 @@ TOOL_PROFILES: dict[str, set[str] | None] = {
 }
 
 
+TOOL_DESCRIPTION_OVERRIDES = {
+    "get_scene_view": (
+        "Render a scene grid image. Use tight region crops for coordinate reading. "
+        "Set image_delivery='auto' or 'handle' to avoid large inline base64."
+    ),
+    "get_scene_view_with_labels": (
+        "Render saved labels over a scene/crop for QA. Prefer tight regions or "
+        "verify_label_placement after writes; use image_delivery='auto' for large renders."
+    ),
+    "verify_label_placement": (
+        "Auto-crop around one label and render QA view with snap-offset metadata. "
+        "Use after geometry writes; use image_delivery='auto' for bounded payloads."
+    ),
+    "get_pdf_page_view": (
+        "Render one PDF page with grid for scene extraction/debugging. Use regions "
+        "for zooms and image_delivery='auto' or 'handle' for full pages."
+    ),
+    "dimension_chain_context": (
+        "Find a dimension-chain crop and return tick priors plus a crop render. "
+        "Use image_delivery='auto' or 'handle' for payload control."
+    ),
+    "upsert_label": (
+        "Create/replace one scene label. Geometry uses [x,y] arrays; opening labels "
+        "must relate to an existing wall. Use verify_label_placement after writes."
+    ),
+    "extract_scenes": (
+        "Crop one or more PDF scene regions into dataset images. Pass the same dpi "
+        "used by get_pdf_page_view and one drawing per scene."
+    ),
+    "split_scene": (
+        "Split an over-broad extracted scene into one child scene per drawing. "
+        "Use only when a scene visibly contains multiple drawings."
+    ),
+    "resolve_scene_point": (
+        "Map a crop-local/source point to precise source pixels, optionally snapping "
+        "to nearby ink. Use before coordinate-bearing writes."
+    ),
+}
+
+
 def tool_profile_names() -> list[str]:
     return sorted(TOOL_PROFILES)
+
+
+def compact_tool_descriptions(enabled: bool | None = None) -> dict:
+    if enabled is None:
+        enabled = os.environ.get("BIM_MCP_COMPACT_DESCRIPTIONS", "1").strip().lower() not in {"0", "false", "no"}
+    tools = mcp._tool_manager._tools  # FastMCP stores transport schema here.
+    before_chars = sum(len(tool.description or "") for tool in tools.values())
+    changed = 0
+    if enabled:
+        for name, tool in tools.items():
+            compact = TOOL_DESCRIPTION_OVERRIDES.get(name) or _compact_description(tool.description or "")
+            if compact and compact != tool.description:
+                tool.description = compact
+                changed += 1
+    after_chars = sum(len(tool.description or "") for tool in tools.values())
+    return {
+        "enabled": enabled,
+        "tool_count": len(tools),
+        "changed": changed,
+        "before_chars": before_chars,
+        "after_chars": after_chars,
+        "saved_chars": before_chars - after_chars,
+    }
+
+
+def _compact_description(description: str, max_chars: int = 220) -> str:
+    lines = [line.strip() for line in description.strip().splitlines() if line.strip()]
+    if not lines:
+        return ""
+    text = " ".join(lines)
+    first_sentence = text.split(". ")[0].strip()
+    if len(first_sentence) >= max_chars:
+        return first_sentence[: max_chars - 1].rstrip() + "…"
+    if len(text) <= max_chars:
+        return text
+    return first_sentence + "."
 
 
 async def apply_tool_profile(profile: str | None = None) -> dict:
@@ -4458,6 +4534,9 @@ async def apply_tool_profile(profile: str | None = None) -> dict:
 
 
 def main() -> None:
+    compaction = compact_tool_descriptions()
+    if compaction["enabled"]:
+        log.info("tool_description_compaction: %s", compaction)
     profile = asyncio.get_event_loop().run_until_complete(apply_tool_profile())
     if profile["profile"] != "all":
         log.info("tool_profile: %s", profile)
