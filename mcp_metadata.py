@@ -92,14 +92,14 @@ def register_metadata(mcp, *, server_version: str) -> None:
 
     | Stage | Primary tools                                                                |
     |-------|------------------------------------------------------------------------------|
-    | inventory | get_house, get_pdf_page_view, extract_scenes, split_scene, set_scene_tag, set_scene_level |
-    | floorplans | create_scene_plan_state_from_template, get_scene_plan_next_action, upsert_label, score_walls, score_measurements |
+    | inventory | get_house_context_summary, get_pdf_page_view, extract_scenes, split_scene, set_scene_tag, set_scene_level |
+    | floorplans | get_scene_context_summary, create_scene_plan_state_from_template, get_scene_plan_next_action, upsert_label, score_walls, score_measurements |
     | sections | create_scene_plan_state_from_template, get_scene_plan_next_action, height_mark/component_line labels, add_reference_dim |
     | elevations | create_scene_plan_state_from_template, get_scene_plan_next_action, view_opening/component_line labels, add_reference_dim |
-    | review | list_anomalies, validate_export_readiness, export_house |
+    | review | get_house_context_summary, list_house_handoff_summaries, list_anomalies, validate_export_readiness, export_house |
     | scene | create_scene_plan_state_from_template, get_scene_plan_next_actions, add_scene_plan_evidence, evaluate_scene_plan_gates |
-    | QA    | get_scene_view_with_labels, verify_label_placement, wall_topology_qa, wall_continuity_check, ambiguous_line_context |
-    | any   | get_workflow_state, get_recommended_next_action, validate_export_readiness, export_house |
+    | QA    | verify_label_placement, get_scene_view_with_labels, wall_topology_qa, wall_continuity_check, ambiguous_line_context |
+    | any   | get_house_context_summary, get_scene_context_summary, get_recommended_next_action, write_scene_handoff_summary |
 
     ## Resources to read first
 
@@ -127,7 +127,7 @@ def register_metadata(mcp, *, server_version: str) -> None:
     ## Operating loop
 
     ```
-    state = get_workflow_state(key="{key}")
+    state = get_house_context_summary(key="{key}")
     while not state.exportable:
         phase = state.next_phase
         follow the prompt named for the stage:
@@ -135,7 +135,8 @@ def register_metadata(mcp, *, server_version: str) -> None:
           floorplans -> floorplan-scene-pass
           sections -> section-scene-pass
           elevations -> elevation-scene-pass
-        state = get_workflow_state(key="{key}")
+        write_scene_handoff_summary(...) after each scene worker
+        state = get_house_context_summary(key="{key}")
     validate_export_readiness then export_house
     ```
 
@@ -144,7 +145,10 @@ def register_metadata(mcp, *, server_version: str) -> None:
     1. **Always look at the grid before naming coordinates.** Call
        `get_scene_view` (with `region=` zoom for precision) before EVERY
        label. The labels in the overlay show source pixels — feed them
-       directly into tool calls.
+       directly into tool calls. Use `image_delivery="auto"` for routine
+       views; use `image_delivery="inline"` only when you need pixels in the
+       current model turn; use `image_delivery="handle"` for full-scene QA
+       snapshots you do not need to inspect immediately.
     2. **Honest values.** If you can't read a dim number confidently, set
        `status="uncertain"` on the label. Never invent.
     3. **One reference dim at a time.** Add → call `recompute_homography`.
@@ -161,12 +165,13 @@ def register_metadata(mcp, *, server_version: str) -> None:
     7. **Stamp your run** (Step 0 above).
     8. **VERIFY EVERY GEOMETRY WRITE (per §H5).** After every
        `upsert_label` / `add_reference_dim` / `update_label_attrs`, call
-       `get_scene_view_with_labels(key, file, region=<tight crop>)` and
-       check the rendered stroke / dot / chip sits on the feature you
-       meant. The agent's single biggest historical failure mode was
-       placing labels off-feature and never noticing — the verify view is
-       the fix. Budget: 3 placement attempts per label; if the third still
-       misses, `set_label_status(..., "uncertain")` and move on.
+       `verify_label_placement(..., image_delivery="auto")` or
+       `get_scene_view_with_labels(key, file, region=<tight crop>,
+       image_delivery="auto")` and check the rendered stroke / dot / chip
+       sits on the feature you meant. Prefer tight crops under 250 KB; full
+       labeled views are for overview/final QA only. Budget: 3 placement
+       attempts per label; if the third still misses,
+       `set_label_status(..., "uncertain")` and move on.
     9. **Scene plan first.** Once scenes are classified, every scene subagent
        starts with `create_scene_plan_state_from_template` / `get_scene_plan_state`
        and keeps tasks, evidence, defects, and rendered Markdown current. Work in
@@ -180,11 +185,16 @@ def register_metadata(mcp, *, server_version: str) -> None:
        `wall_continuity_check`, then place openings. Every wall endpoint
        must be justified as corner, T-junction, real endpoint, separate-mass
        boundary, or uncertainty; an opening alone is not a valid endpoint.
-    11. **Scene-subagent final report.** When a scene worker finishes, report
-        the plan path, final task states, label counts by type, wall/topology
-        scores, measurement score, and unresolved uncertain/blocking items.
+    11. **Scene-subagent final report.** When a scene worker finishes, call
+        `write_scene_handoff_summary` with the plan path, final task states,
+        label counts by type, wall/topology scores, measurement score, and
+        unresolved uncertain/blocking items. Parent/next workers read this
+        summary instead of carrying the full visual/tool transcript forward.
+    12. **Bound bulky QA output.** Use `max_items` and `summary_only=true`
+        on wall/measurement/topology QA tools for routing. Re-run with a
+        larger limit only for the specific defect you are repairing.
 
-    Start now: call `get_workflow_state(key="{key}")` and follow the
+    Start now: call `get_house_context_summary(key="{key}")` and follow the
     appropriate stage playbook.
     """
 
