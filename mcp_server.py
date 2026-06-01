@@ -401,6 +401,84 @@ def _compact_plan_status(plan_status: dict, max_blockers: int = 3) -> dict:
     }
 
 
+HIGH_CARDINALITY_KEYS = {
+    "missing_regions",
+    "off_ink_segments",
+    "dangling_endpoints",
+    "near_miss_corners",
+    "near_misses",
+    "mergeable_collinear",
+    "short_stubs",
+    "connected_components",
+    "masses",
+    "unmatched_ticks",
+    "chain_results",
+    "chains",
+    "candidates",
+    "candidate_lines",
+    "corners",
+    "outlines",
+    "defects",
+    "actions",
+    "evidence",
+    "tasks",
+    "anomalies",
+}
+
+GEOMETRY_HEAVY_KEYS = {
+    "mask",
+    "debug",
+    "debug_image",
+    "crop_image",
+    "pixels",
+    "raw",
+    "markdown",
+}
+
+
+def _bounded_payload(data: Any, max_items: int = 20, summary_only: bool = False) -> tuple[Any, dict]:
+    max_items = max(0, int(max_items))
+    omitted: dict[str, int] = {}
+
+    def walk(value: Any, path: str = "") -> Any:
+        if isinstance(value, dict):
+            out: dict[str, Any] = {}
+            for key, child in value.items():
+                child_path = f"{path}.{key}" if path else str(key)
+                if summary_only and key in GEOMETRY_HEAVY_KEYS:
+                    omitted[child_path] = _payload_size_hint(child)
+                    continue
+                if key in HIGH_CARDINALITY_KEYS and isinstance(child, list):
+                    omitted_count = max(0, len(child) - max_items)
+                    if omitted_count:
+                        omitted[child_path] = omitted_count
+                    out[key] = [walk(item, f"{child_path}[]") for item in child[:max_items]]
+                else:
+                    out[key] = walk(child, child_path)
+            return out
+        if isinstance(value, list):
+            return [walk(item, f"{path}[]") for item in value]
+        return value
+
+    bounded = walk(data)
+    meta = {
+        "bounded": True,
+        "max_items": max_items,
+        "summary_only": summary_only,
+        "truncated": bool(omitted),
+        "omitted_counts": omitted,
+    }
+    if isinstance(bounded, dict):
+        bounded = {**bounded, "_bounds": meta}
+    return bounded, meta
+
+
+def _payload_size_hint(value: Any) -> int:
+    if isinstance(value, (list, dict, str)):
+        return len(value)
+    return 1
+
+
 @mcp.tool()
 async def get_workflow_state(key: str) -> dict:
     """Class-stage status derived from on-disk labels/facts.
@@ -2257,7 +2335,7 @@ async def render_scene_plan_markdown(
 
 
 @mcp.tool()
-async def list_scene_labels(key: str, file: str) -> dict:
+async def list_scene_labels(key: str, file: str, max_labels: int = 80) -> dict:
     """Compact list of labels on one scene — id, type, status, summary.
 
     USE when:
@@ -2278,8 +2356,10 @@ async def list_scene_labels(key: str, file: str) -> dict:
         status, body = await _api_get(f"/labels/dataset/{key}/{file}")
     if status >= 400:
         return _http_status_to_error(status, body, started)
+    labels = body.get("labels") or []
     summaries = []
-    for lab in (body.get("labels") or []):
+    limit = max(0, int(max_labels))
+    for lab in labels[:limit]:
         summaries.append({
             "id": lab.get("id"),
             "type": lab.get("type"),
@@ -2290,9 +2370,12 @@ async def list_scene_labels(key: str, file: str) -> dict:
         "scene_tag": body.get("scene_tag"),
         "scene_orientation": body.get("scene_orientation"),
         "scene_level": body.get("scene_level"),
-        "image_size_px": body.get("image_size_px"),
-        "labels": summaries,
-    }, started_at=started, status_code=status)
+            "image_size_px": body.get("image_size_px"),
+            "labels": summaries,
+            "count": len(labels),
+            "returned": len(summaries),
+            "truncated": len(labels) > limit,
+        }, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -2302,6 +2385,8 @@ async def detect_wall_corners(
     region: str | None = None,
     min_wall_px: int = 8,
     thresh: int | None = None,
+    max_items: int = 80,
+    summary_only: bool = False,
 ) -> dict:
     """Detect candidate WALL-corner coordinates (classic-CV positional prior).
 
@@ -2342,6 +2427,7 @@ async def detect_wall_corners(
     if status >= 400:
         return _http_status_to_error(status, body, started)
     data = body.get("data", body) if isinstance(body, dict) else body
+    data, _ = _bounded_payload(data, max_items=max_items, summary_only=summary_only)
     return _ok(data, started_at=started, status_code=status)
 
 
@@ -2387,7 +2473,14 @@ async def check_corner(
     return _ok(data, started_at=started, status_code=status)
 
 
-async def _cv_get(path: str, params: dict, started: float) -> dict:
+async def _cv_get(
+    path: str,
+    params: dict,
+    started: float,
+    *,
+    max_items: int | None = None,
+    summary_only: bool = False,
+) -> dict:
     """Shared GET->envelope helper for the CV tools (retry once on transport
     error; surface HTTP errors; unwrap + wrap success in _ok)."""
     try:
@@ -2399,6 +2492,8 @@ async def _cv_get(path: str, params: dict, started: float) -> dict:
     if status >= 400:
         return _http_status_to_error(status, body, started)
     data = body.get("data", body) if isinstance(body, dict) else body
+    if max_items is not None or summary_only:
+        data, _ = _bounded_payload(data, max_items=max_items or 20, summary_only=summary_only)
     return _ok(data, started_at=started, status_code=status)
 
 
@@ -2425,6 +2520,8 @@ async def wall_outline(
     thresh: int | None = None,
     n_outlines: int = 2,
     epsilon_px: float = 8.0,
+    max_items: int = 20,
+    summary_only: bool = False,
 ) -> dict:
     """Ordered outer-boundary polygon(s) of the thick-wall ink (TOPOLOGY/shape).
     Each consecutive vertex pair is a wall; disjoint structures (house vs garage)
@@ -2437,7 +2534,7 @@ async def wall_outline(
         params["region"] = region
     if thresh is not None:
         params["thresh"] = thresh
-    return await _cv_get(f"/datasets/{key}/{file}/wall-outline", params, started)
+    return await _cv_get(f"/datasets/{key}/{file}/wall-outline", params, started, max_items=max_items, summary_only=summary_only)
 
 
 @mcp.tool()
@@ -2449,6 +2546,8 @@ async def building_silhouette(
     thresh: int | None = None,
     angle_tol_deg: float = 18.0,
     min_area_frac: float = 0.02,
+    max_items: int = 20,
+    summary_only: bool = False,
 ) -> dict:
     """Shape-first decomposition (do this BEFORE placing coordinates): outer
     silhouette as ORDERED stepped polygon(s), one per connected mass (house vs
@@ -2461,7 +2560,7 @@ async def building_silhouette(
         params["region"] = region
     if thresh is not None:
         params["thresh"] = thresh
-    return await _cv_get(f"/datasets/{key}/{file}/building-silhouette", params, started)
+    return await _cv_get(f"/datasets/{key}/{file}/building-silhouette", params, started, max_items=max_items, summary_only=summary_only)
 
 
 @mcp.tool()
@@ -2471,6 +2570,8 @@ async def outer_wall_topology_context(
     region: str | None = None,
     min_wall_px: int = 12,
     thresh: int | None = None,
+    max_items: int = 20,
+    summary_only: bool = False,
 ) -> dict:
     """Scene-plan context gatherer for the silhouette-first pass.
 
@@ -2484,7 +2585,7 @@ async def outer_wall_topology_context(
         params["region"] = region
     if thresh is not None:
         params["thresh"] = thresh
-    return await _cv_get(f"/datasets/{key}/{file}/outer-wall-topology-context", params, started)
+    return await _cv_get(f"/datasets/{key}/{file}/outer-wall-topology-context", params, started, max_items=max_items, summary_only=summary_only)
 
 
 @mcp.tool()
@@ -2496,6 +2597,8 @@ async def wall_topology_qa(
     collinear_tol_deg: float = 8.0,
     collinear_gap_px: float = 140.0,
     short_stub_px: float = 80.0,
+    max_items: int = 20,
+    summary_only: bool = False,
 ) -> dict:
     """Whole-wall-system verification after wall placement.
 
@@ -2511,7 +2614,7 @@ async def wall_topology_qa(
         "collinear_gap_px": collinear_gap_px,
         "short_stub_px": short_stub_px,
     }
-    return await _cv_get(f"/datasets/{key}/{file}/wall-topology-qa", params, started)
+    return await _cv_get(f"/datasets/{key}/{file}/wall-topology-qa", params, started, max_items=max_items, summary_only=summary_only)
 
 
 @mcp.tool()
@@ -2522,6 +2625,8 @@ async def wall_continuity_check(
     gap_px: float = 180.0,
     line_tol_px: float = 24.0,
     opening_near_px: float = 80.0,
+    max_items: int = 20,
+    summary_only: bool = False,
 ) -> dict:
     """Detect likely walls split at openings.
 
@@ -2536,7 +2641,7 @@ async def wall_continuity_check(
         "line_tol_px": line_tol_px,
         "opening_near_px": opening_near_px,
     }
-    return await _cv_get(f"/datasets/{key}/{file}/wall-continuity-check", params, started)
+    return await _cv_get(f"/datasets/{key}/{file}/wall-continuity-check", params, started, max_items=max_items, summary_only=summary_only)
 
 
 @mcp.tool()
@@ -2597,6 +2702,8 @@ async def score_walls(
     thresh: int | None = None,
     thin_aware: bool = False,
     close_px: int = 82,
+    max_items: int = 20,
+    summary_only: bool = False,
 ) -> dict:
     """THE self-QA signal. Scores the CURRENTLY SAVED wall labels vs the ink:
     precision, recall, f1, plus missing_regions ('add a wall here') and
@@ -2610,7 +2717,7 @@ async def score_walls(
         params["region"] = region
     if thresh is not None:
         params["thresh"] = thresh
-    return await _cv_get(f"/datasets/{key}/{file}/score-walls", params, started)
+    return await _cv_get(f"/datasets/{key}/{file}/score-walls", params, started, max_items=max_items, summary_only=summary_only)
 
 
 @mcp.tool()
@@ -2619,13 +2726,15 @@ async def score_measurements(
     file: str,
     tol_px: int = 8,
     axis_tol_px: int = 14,
+    max_items: int = 20,
+    summary_only: bool = False,
 ) -> dict:
     """Metric-correctness QA over score-walls: checks each dimension tick is the
     projection of a wall face (unmatched_ticks = misplaced/missing wall + nearest
     + delta) and per-chain collinearity + part-sum vs the printed overall."""
     started = time.time()
     params: dict = {"tol_px": tol_px, "axis_tol_px": axis_tol_px}
-    return await _cv_get(f"/datasets/{key}/{file}/score-measurements", params, started)
+    return await _cv_get(f"/datasets/{key}/{file}/score-measurements", params, started, max_items=max_items, summary_only=summary_only)
 
 
 @mcp.tool()
@@ -2639,6 +2748,8 @@ async def dimension_chain_candidates(
     min_tick_px: int = 12,
     tick_search_px: int = 45,
     pad_px: int = 80,
+    max_items: int = 20,
+    summary_only: bool = False,
 ) -> dict:
     """Dimension-chain context-gatherer for measurement-first labeling.
 
@@ -2664,7 +2775,7 @@ async def dimension_chain_candidates(
         params["region"] = region
     if orientation is not None:
         params["orientation"] = orientation
-    return await _cv_get(f"/datasets/{key}/{file}/dimension-chain-candidates", params, started)
+    return await _cv_get(f"/datasets/{key}/{file}/dimension-chain-candidates", params, started, max_items=max_items, summary_only=summary_only)
 
 
 @mcp.tool()
@@ -4061,7 +4172,11 @@ async def export_house(
 
 
 @mcp.tool()
-async def list_anomalies(key: str) -> dict:
+async def list_anomalies(
+    key: str,
+    max_items: int = 80,
+    include_plan_deep_checks: bool = False,
+) -> dict:
     """List validator-flagged issues for a house — everything blocking
     a clean export plus per-phase predicate failures, server-side
     derivation warnings, and any assumed/uncertain rows the agent
@@ -4159,9 +4274,10 @@ async def list_anomalies(key: str) -> dict:
                 })
             # Scene-plan framework: structured sidecar is authoritative. The
             # legacy Markdown plan remains a compatibility surface only.
-            plan_status, plan_body = await _api_get(f"/datasets/{key}/{f}/plan-state")
+            plan_path = "plan-state" if include_plan_deep_checks else "plan-state/status"
+            plan_status, plan_body = await _api_get(f"/datasets/{key}/{f}/{plan_path}")
             plan = (plan_body or {}).get("data") if plan_status == 200 and isinstance(plan_body, dict) else None
-            plan_exists = bool(plan and plan.get("exists"))
+            plan_exists = bool(plan and plan.get("exists", True))
             if scene_labels and not plan_exists:
                 anomalies.append({
                     "phase": "plan", "kind": "missing_scene_plan",
@@ -4169,7 +4285,7 @@ async def list_anomalies(key: str) -> dict:
                     "severity": "warning",
                     "details": {"file": f, "label_count": len(scene_labels)},
                 })
-            if plan_exists:
+            if plan_exists and include_plan_deep_checks:
                 from api.scene_plans import plan_has_analysis_summary, task_done
                 md = str(plan.get("markdown") or "")
                 state = plan.get("state") or {}
@@ -4270,8 +4386,16 @@ async def list_anomalies(key: str) -> dict:
         "warning": sum(1 for a in anomalies if a["severity"] == "warning"),
         "info": sum(1 for a in anomalies if a["severity"] == "info"),
     }
-    return _ok({"anomalies": anomalies, "count": len(anomalies), "by_severity": counts},
-               started_at=started)
+    limit = max(0, int(max_items))
+    returned = anomalies[:limit]
+    return _ok({
+        "anomalies": returned,
+        "count": len(anomalies),
+        "returned": len(returned),
+        "truncated": len(anomalies) > limit,
+        "by_severity": counts,
+        "include_plan_deep_checks": include_plan_deep_checks,
+    }, started_at=started)
 
 
 @mcp.tool()
