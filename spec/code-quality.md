@@ -1,6 +1,9 @@
 # Code quality + technical debt (CQ) tracker
 
-**Status:** 2026-06-01. Initial audit captured. No CQ items shipped yet.
+**Status:** 2026-06-01. Initial audit captured. CQ0 is shipped
+(`make test`: 385 passed, 3 skipped). CQ1 is in progress: workflow and
+geometry contracts now live in `api/workflow_state.py`. CQ3 is in progress:
+MCP resources/prompts now register from `mcp_metadata.py`.
 
 **Owner:** jhoetter
 **Scope:** maintainability, architectural boundaries, test/contract drift,
@@ -480,7 +483,7 @@ Work item IDs (`CQ*`) are remediation tasks. They intentionally do not map one-t
 ### CQ0 — Restore a green test baseline
 
 **Severity:** Blocker
-**Status:** Open
+**Status:** Done — 2026-06-01
 
 Fix the stale `tests/test_honest_gate.py` expectations or intentionally
 restore compatibility aliases for the old phase vocabulary.
@@ -493,10 +496,16 @@ Acceptance:
 - The fixed tests still prove the original bug: facts-only scenes cannot pass
   as geometry-complete.
 
+Implementation note:
+
+- `tests/test_honest_gate.py` now asserts the current
+  `inventory/floorplans/sections` vocabulary.
+- Full backend suite passed after the fix: `385 passed, 3 skipped`.
+
 ### CQ1 — Extract workflow/geometry contracts from `mcp_server.py`
 
 **Severity:** High
-**Status:** Open
+**Status:** In progress
 
 Create a pure shared module, likely `api/workflow_state.py` or
 `api/workflow_contracts.py`, to own:
@@ -512,6 +521,12 @@ Acceptance:
   backend contract instead of importing from `mcp_server.py`.
 - `api/export_gate.py` no longer imports from `mcp_server.py`.
 - Tests cover the pure module directly.
+
+Progress:
+
+- Added `api/workflow_state.py`.
+- `mcp_server.py`, `api/export_gate.py`, `tests/test_honest_gate.py`, and
+  `tests/test_geometry_required.py` now import the shared backend contract.
 
 ### CQ2 — Split `api/main.py` into routers and storage helpers
 
@@ -539,7 +554,7 @@ Acceptance:
 ### CQ3 — Split `mcp_server.py` into thin tool modules
 
 **Severity:** High
-**Status:** Open
+**Status:** In progress
 
 Target structure:
 
@@ -557,6 +572,12 @@ Acceptance:
 - Tool behavior remains unchanged.
 - Shared envelope/error handling lives in one helper module.
 - Domain logic moves out of MCP tools into API/domain modules where possible.
+
+Progress:
+
+- Added `mcp_metadata.py` and moved resource/prompt registration out of
+  `mcp_server.py`.
+- `tests/test_mcp_smoke.py` passed after the extraction.
 
 ### CQ4 — Break up `AnnotatePage.tsx`
 
@@ -868,3 +889,8 @@ Baseline from 2026-06-01:
 - `api/main.py` exposes roughly 70 routes.
 - `api/scene_plan_state.evaluate_gates()` is ~378 LOC.
 - `tests/test_mcp_smoke.py` is ~1,271 LOC.
+
+Progress snapshots:
+
+- After CQ1 workflow extraction: `mcp_server.py` ~4,488 LOC.
+- After CQ3 metadata extraction: `mcp_server.py` ~4,100 LOC.
