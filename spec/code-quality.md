@@ -5,7 +5,7 @@ CQ0 is shipped
 (`make test`: 385 passed, 3 skipped). CQ1 is in progress: workflow and
 geometry contracts now live in `api/workflow_state.py`. CQ3 is in progress:
 MCP resources/prompts now register from `mcp_metadata.py`, and image payload
-delivery now lives in `mcp_image_delivery.py`.
+delivery plus response envelopes now live outside `mcp_server.py`.
 
 **Owner:** jhoetter
 **Scope:** maintainability, architectural boundaries, test/contract drift,
@@ -155,7 +155,7 @@ test without importing the whole FastAPI app.
 **Severity:** High
 
 `mcp_server.py` was approximately 4,628 LOC at the initial audit and is still
-approximately 4,277 LOC after workflow, metadata, and image-delivery
+approximately 4,227 LOC after workflow, metadata, image-delivery, and envelope
 extractions. It owns transport wrappers, tool definitions, export readiness
 checks, label mutation helpers, summaries, and many tool contracts.
 
@@ -166,6 +166,8 @@ Evidence:
 - export readiness starts at `mcp_server.py:3751`
 - image delivery used to live directly in `mcp_server.py`; it now delegates to
   `mcp_image_delivery.py`
+- response envelope construction and HTTP error mapping used to live directly
+  in `mcp_server.py`; they now delegate to `mcp_envelope.py`
 - prompt/resource registration used to live directly in `mcp_server.py`; it now
   delegates to `mcp_metadata.py`
 
@@ -598,6 +600,10 @@ Progress:
   delivery policy plus artifact writing out of `mcp_server.py`.
 - Focused MCP regression suite passed after image-delivery extraction:
   `51 passed, 1 warning`.
+- Added `mcp_envelope.py` and moved MCP ok/error/text-envelope helpers plus
+  HTTP status mapping out of `mcp_server.py`.
+- Focused MCP regression suite passed after envelope extraction:
+  `51 passed, 1 warning`.
 
 ### CQ4 — Break up `AnnotatePage.tsx`
 
@@ -925,6 +931,8 @@ Progress snapshots:
 - After dirty image-delivery work was present: `mcp_server.py` ~4,328 LOC.
 - After image-delivery extraction: `mcp_server.py` ~4,277 LOC,
   `mcp_image_delivery.py` ~118 LOC.
+- After envelope extraction: `mcp_server.py` ~4,227 LOC,
+  `mcp_envelope.py` ~95 LOC.
 
 ---
 

@@ -32,6 +32,13 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ImageContent, TextContent
 
+from mcp_envelope import (
+    configure_envelope,
+    err as _err,
+    http_status_to_error as _http_status_to_error,
+    ok as _ok,
+    wrap_text as _wrap_text,
+)
 from mcp_image_delivery import IMAGE_ARTIFACT_DIR, image_response
 from api.workflow_state import (
     REQUIRED_GEOMETRY as _REQUIRED_GEOMETRY,
@@ -42,6 +49,7 @@ from api.workflow_state import (
 # Server identity — version is read by the skill at startup to verify
 # compatibility (tracker §6.3). Bump MAJOR on any tool signature break.
 SERVER_VERSION = "0.1.1"
+configure_envelope(SERVER_VERSION)
 
 API_BASE = os.environ.get("BIM_DATABASE_API_BASE", "http://127.0.0.1:12500").rstrip("/")
 HEALTH_PROBE_TIMEOUT_S = float(os.environ.get("BIM_MCP_HEALTH_TIMEOUT_S", "10"))
@@ -68,43 +76,6 @@ def _client() -> httpx.AsyncClient:
     if _http is None:
         _http = httpx.AsyncClient(base_url=API_BASE, timeout=httpx.Timeout(30.0))
     return _http
-
-
-# ── envelope ───────────────────────────────────────────────────────────────
-# Every tool returns this shape (tracker §5.0) so the agent post-processes
-# uniformly. The MCP runtime serialises dicts to JSON for the model.
-
-
-def _ok(data: Any, *, next_tool: dict | None = None, started_at: float | None = None, status_code: int | None = None) -> dict:
-    return {
-        "ok": True,
-        "data": data,
-        "next_recommended_tool": next_tool,
-        "_meta": _meta(started_at, status_code),
-    }
-
-
-def _err(code: str, message: str, *, hint: str = "", retry: bool = False, details: dict | None = None, started_at: float | None = None, status_code: int | None = None) -> dict:
-    return {
-        "ok": False,
-        "error": {
-            "code": code,
-            "message": message,
-            "hint": hint,
-            "retry_advisable": retry,
-            "details": details or {},
-        },
-        "_meta": _meta(started_at, status_code),
-    }
-
-
-def _meta(started_at: float | None, status_code: int | None) -> dict:
-    return {
-        "tool_call_id": f"tc-{int(time.time() * 1000):x}",
-        "api_status_code": status_code,
-        "latency_ms": int((time.time() - started_at) * 1000) if started_at else None,
-        "server_version": SERVER_VERSION,
-    }
 
 
 def _image_response(
@@ -224,23 +195,6 @@ def _api_unreachable_error(started_at: float) -> dict:
         retry=True,
         started_at=started_at,
     )
-
-
-# Helper: an API 4xx becomes an MCP error envelope so the agent can read
-# the underlying detail without parsing HTTP semantics.
-def _http_status_to_error(status: int, body: Any, started_at: float) -> dict:
-    detail = body
-    if isinstance(body, dict) and "detail" in body:
-        detail = body["detail"]
-    if status == 404:
-        return _err("not_found", str(detail), retry=False, started_at=started_at, status_code=status)
-    if status == 409:
-        return _err("conflict", str(detail), hint="re-fetch state and retry", retry=False, started_at=started_at, status_code=status)
-    if status == 422 or status == 400:
-        return _err("schema_invalid", str(detail), hint="fix the payload", retry=False, started_at=started_at, status_code=status)
-    if 400 <= status < 500:
-        return _err(f"http_{status}", str(detail), retry=False, started_at=started_at, status_code=status)
-    return _err("api_5xx", str(detail), retry=True, started_at=started_at, status_code=status)
 
 
 # ── §5.1 Discovery ────────────────────────────────────────────────────────
@@ -1220,10 +1174,6 @@ async def get_pdf_page_view(
         delivery=image_delivery,
         artifact_meta={"tool": "get_pdf_page_view", "key": key, "page": page, "region": region, "params": params},
     )
-
-
-def _wrap_text(envelope: dict) -> list[TextContent]:
-    return [TextContent(type="text", text=json.dumps(envelope, indent=2))]
 
 
 # ── §5.1 Discovery (cont.) ────────────────────────────────────────────────
