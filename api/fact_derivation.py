@@ -21,6 +21,8 @@ labels exist. Off by default so the SPA flow is unchanged.
 """
 from __future__ import annotations
 
+from .persistence import atomic_write_json
+
 import json
 import math
 import os
@@ -613,7 +615,7 @@ def recompute_facts_after_label_write(
 
     # Persist.
     house_dir.mkdir(parents=True, exist_ok=True)
-    facts_path.write_text(json.dumps(facts, indent=2, ensure_ascii=False))
+    atomic_write_json(facts_path, facts)
     return facts
 
 
@@ -636,7 +638,7 @@ def prune_scene_from_facts(
         return
     facts.get("scene_metadata", {}).pop(scene_file, None)
     facts.get("calibration_per_scene", {}).pop(scene_file, None)
-    facts_path.write_text(json.dumps(facts, indent=2, ensure_ascii=False))
+    atomic_write_json(facts_path, facts)
     # Full recompute picks up the cascade — extent could have been
     # derived from this scene's ref dims; let it re-derive from what's left.
     recompute_facts_after_label_write(key, dataset_root=dataset_root)

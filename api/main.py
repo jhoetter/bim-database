@@ -26,6 +26,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from .persistence import atomic_write_json, atomic_write_text
+
 BASE = Path(__file__).parent.parent
 DATASET_DIR = BASE / "data" / "dataset"
 PDFS_DIR = BASE / "data" / "pdfs"
@@ -238,7 +240,7 @@ def put_house_facts(key: str, body: dict = Body(...)):
         raise HTTPException(status_code=400, detail="payload must be a JSON object with schema_version")
     p = DATASET_DIR / key / "house_facts.json"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(body, indent=2, ensure_ascii=False))
+    atomic_write_json(p, body)
     return {"ok": True, "bytes": p.stat().st_size}
 
 
@@ -297,7 +299,7 @@ def patch_scene_attrs(key: str, file: str, body: dict = Body(...)):
             target.pop(k, None)
         else:
             target[k] = v
-    mp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    atomic_write_json(mp, data)
     return _load_dataset_manifest(key)
 
 
@@ -1419,7 +1421,7 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
                                 ),
                             )
     label_path.parent.mkdir(parents=True, exist_ok=True)
-    label_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    atomic_write_json(label_path, payload)
     # G1 (agentic-labeling-followups-tracker): server-side fact derivation.
     # Every label write triggers a full recompute of facts.calibration_per_scene
     # + scene_metadata + extent + heights + openings_catalog. Single source of
@@ -1454,7 +1456,7 @@ def reset_scene_labels(scope: str, key: str, file: str, reset_plan: bool = False
     payload = _label_skeleton(scope, key, file)
     label_path = _safe_label_path(scope, key, file)
     label_path.parent.mkdir(parents=True, exist_ok=True)
-    label_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    atomic_write_json(label_path, payload)
     plan_deleted = False
     if reset_plan:
         from .scene_plan_state import delete_plan_state_files
@@ -1499,9 +1501,7 @@ def reset_house_labeling(key: str, reset_plans: bool = False):
     for d in drawings:
         file = d["file"]
         payload = _label_skeleton("dataset", key, file)
-        (_safe_label_path("dataset", key, file)).write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False)
-        )
+        atomic_write_json(_safe_label_path("dataset", key, file), payload)
         reset_files.append(file)
     plans_deleted = 0
     if reset_plans:
@@ -1814,16 +1814,12 @@ def promote_submission(
         new_manifest["extracted_scenes"] = []
         if payload.get("user_notes"):
             new_manifest["user_notes"] = payload["user_notes"]
-        (target / "manifest.json").write_text(
-            json.dumps(new_manifest, indent=2, ensure_ascii=False)
-        )
+        atomic_write_json(target / "manifest.json", new_manifest)
 
     # Stamp the source submission so the audit trail is durable.
     submission_manifest["promoted_to"] = house_key
     submission_manifest["promoted_at"] = _now_iso()
-    src_manifest_path.write_text(
-        json.dumps(submission_manifest, indent=2, ensure_ascii=False)
-    )
+    atomic_write_json(src_manifest_path, submission_manifest)
 
     return {
         "promoted_to": house_key,
@@ -1905,7 +1901,7 @@ def _pdf_page_count(path: Path) -> int | None:
 def _write_manifest(key: str, m: dict) -> None:
     bundle = INCOMING_DIR / key
     bundle.mkdir(parents=True, exist_ok=True)
-    (bundle / "manifest.json").write_text(json.dumps(m, indent=2, ensure_ascii=False))
+    atomic_write_json(bundle / "manifest.json", m)
 
 
 def _read_manifest(key: str) -> dict | None:
@@ -4189,7 +4185,7 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
                 drawings.append(entry)
             out_entries.append(entry)
 
-    ds_manifest_path.write_text(json.dumps(ds_manifest, indent=2, ensure_ascii=False))
+    atomic_write_json(ds_manifest_path, ds_manifest)
 
     # Update intake state.
     intake = _read_manifest(key) or {}
@@ -4289,10 +4285,10 @@ def _export_one_house(key: str) -> dict:
         # Set A: raw image + only dimensioned strokes / numbers.
         shutil.copyfile(img_path, set_a_dir / file)
         set_a_labels = [l for l in labels if l.get("type") in SET_A_TYPES]
-        (set_a_dir / f"{stem}.json").write_text(json.dumps({
+        atomic_write_json(set_a_dir / f"{stem}.json", {
             **{k: v for k, v in scene.items() if k != "labels"},
             "labels": set_a_labels,
-        }, indent=2, ensure_ascii=False))
+        })
 
         # Set B: rectified image + every label transformed. When rectification
         # is degenerate we still write the unrectified image so the export
@@ -4312,18 +4308,18 @@ def _export_one_house(key: str) -> dict:
             [transform_label(rect.affine, l) for l in labels]
             if rect.status == "ok" else labels
         )
-        (set_b_dir / f"{stem}.json").write_text(json.dumps({
+        atomic_write_json(set_b_dir / f"{stem}.json", {
             **{k: v for k, v in scene.items() if k != "labels"},
             "labels": set_b_labels,
-        }, indent=2, ensure_ascii=False))
-        (set_b_dir / f"{stem}.homography.json").write_text(json.dumps({
+        })
+        atomic_write_json(set_b_dir / f"{stem}.homography.json", {
             "matrix": rect.matrix,
             "computed_from": rect.computed_from,
             "rectified_size_px": list(rect.rectified_size_px),
             "rms_residual_px": rect.rms_residual_px,
             "status": rect.status,
             "reason": rect.reason,
-        }, indent=2, ensure_ascii=False))
+        })
         exported.append(file)
 
     # Manifest
@@ -4336,15 +4332,16 @@ def _export_one_house(key: str) -> dict:
         "anomalies": issues,
         "house_facts_note": HOUSE_FACTS_DUMP_NOTE,
     }
-    (out_root / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
-    (diag_dir / "coverage.txt").write_text(
+    atomic_write_json(out_root / "manifest.json", manifest)
+    atomic_write_text(
+        diag_dir / "coverage.txt",
         f"exported: {len(exported)}/{len(drawings)}\n"
         + "\n".join(f"  ✓ {f}" for f in exported)
         + "\n"
-        + "\n".join(f"  ⊘ {f}: {r}" for f, r in skipped)
+        + "\n".join(f"  ⊘ {f}: {r}" for f, r in skipped),
     )
     if issues:
-        (diag_dir / "anomalies.txt").write_text("\n".join(f"- {i}" for i in issues))
+        atomic_write_text(diag_dir / "anomalies.txt", "\n".join(f"- {i}" for i in issues))
     return {
         "key": key,
         "scenes_exported": len(exported),
@@ -4437,7 +4434,7 @@ def _persist_scene_calibration(key: str, file: str, calib: dict) -> None:
         facts["calibration_per_scene"] = cps
     cps[file] = calib
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(facts, indent=2, ensure_ascii=False))
+    atomic_write_json(p, facts)
 
 
 @app.post("/exports/{key}/{file}/preview", tags=["exports"])
@@ -4648,15 +4645,13 @@ def delete_extracted_scene(key: str, file: str):
         raise HTTPException(status_code=404, detail=f"scene {file!r} not in dataset manifest")
     drawings = [d for d in drawings if d.get("file") != file]
     ds_manifest["drawings"] = drawings
-    ds_manifest_path.write_text(json.dumps(ds_manifest, indent=2, ensure_ascii=False))
+    atomic_write_json(ds_manifest_path, ds_manifest)
 
     # A3 recycle bin
     _purge_old_recycle()
     recycle_dir = _safe_recycle_path(key, file)
     recycle_dir.mkdir(parents=True, exist_ok=True)
-    (recycle_dir / "manifest_entry.json").write_text(
-        json.dumps(target_entry, indent=2, ensure_ascii=False)
-    )
+    atomic_write_json(recycle_dir / "manifest_entry.json", target_entry)
     import shutil
     img = ds_dir / file
     if img.exists():
@@ -4680,9 +4675,7 @@ def delete_extracted_scene(key: str, file: str):
         intake["state"] = _bundle_state(key, intake)
         _write_manifest(key, intake)
     if intake_record is not None:
-        (recycle_dir / "intake_record.json").write_text(
-            json.dumps(intake_record, indent=2, ensure_ascii=False)
-        )
+        atomic_write_json(recycle_dir / "intake_record.json", intake_record)
     # G1-7 (agentic-labeling-followups-tracker): prune the scene's
     # facts row + re-derive the rest. The deleted scene may have
     # contributed to extent / openings_catalog; recompute picks up
@@ -4718,7 +4711,7 @@ def restore_extracted_scene(key: str, file: str):
         raise HTTPException(status_code=409, detail=f"scene {file!r} already exists")
     drawings.append(entry)
     ds_manifest["drawings"] = drawings
-    ds_manifest_path.write_text(json.dumps(ds_manifest, indent=2, ensure_ascii=False))
+    atomic_write_json(ds_manifest_path, ds_manifest)
     import shutil
     bundled_img = recycle_dir / file
     if bundled_img.exists():

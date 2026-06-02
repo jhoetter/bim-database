@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .persistence import atomic_write_text
+
 
 PLAN_TEMPLATE_VERSION = "scene-plan-v1"
 PLAN_STATUSES = {"draft", "active", "blocked", "complete"}
@@ -198,7 +200,7 @@ def write_plan(
             raise PlanConflictError("plan version conflict")
     markdown = _touch_last_updated(markdown)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(markdown)
+    atomic_write_text(p, markdown)
     return read_plan(dataset_root, key, file)
 
 

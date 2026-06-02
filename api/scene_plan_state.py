@@ -14,6 +14,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from .persistence import atomic_write_json, atomic_write_text
+
 SCHEMA_VERSION = "scene-plan-state-v1"
 MARKDOWN_TEMPLATE_VERSION = "scene-plan-v2"
 MAX_ACTION_ATTEMPTS = 3
@@ -314,11 +316,11 @@ def write_plan_state(
             raise PlanStateConflictError("plan state version conflict")
     state["updated_at"] = _now_iso()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True) + "\n")
+    atomic_write_json(p, state, sort_keys=True, trailing_newline=True)
     if sync_markdown:
         mp = markdown_path(dataset_root, key, file)
         mp.parent.mkdir(parents=True, exist_ok=True)
-        mp.write_text(render_markdown(state), encoding="utf-8")
+        atomic_write_text(mp, render_markdown(state))
     return read_plan_state(dataset_root, key, file)
 
 
@@ -1726,7 +1728,7 @@ def evaluate_gates(
         if labels_changed:
             label_path = dataset_root / key / "labels" / f"{Path(file).stem}.json"
             if label_path.exists():
-                label_path.write_text(json.dumps(labels_doc, indent=2, ensure_ascii=False))
+                atomic_write_json(label_path, labels_doc)
         for idx, finding in enumerate([f for f in score_findings if f.get("category") == "missing_region"], start=1):
             region = finding.get("region")
             _upsert_auto_defect(
