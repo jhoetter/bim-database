@@ -13,6 +13,21 @@ def test_truncate_lists_reports_omitted_counts() -> None:
     assert data["truncation"]["items"] == {"returned": 2, "total": 3, "omitted": 1}
 
 
+def test_compact_workflow_for_summary_bounds_phase_blockers() -> None:
+    workflow = {
+        "next_phase": "W2",
+        "exportable": False,
+        "blockers_total": 3,
+        "phases": {"W2": {"status": "pending", "blockers": ["a", "b", "c"]}},
+    }
+
+    compact = mcp_server._compact_workflow_for_summary(workflow, max_blockers=2)
+
+    assert compact["phases"]["W2"]["blocker_count"] == 3
+    assert compact["phases"]["W2"]["blockers"] == ["a", "b"]
+    assert compact["phases"]["W2"]["truncated"] is True
+
+
 def test_score_walls_truncates_large_region_lists(monkeypatch) -> None:
     async def fake_get(path: str, params: dict, started: float):
         assert path == "/datasets/house-x/eg.jpg/score-walls"

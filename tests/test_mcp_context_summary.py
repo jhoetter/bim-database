@@ -63,7 +63,7 @@ def test_get_house_context_summary_is_bounded(monkeypatch) -> None:
 
     monkeypatch.setattr(mcp_server, "_api_get", fake_get)
 
-    result = asyncio.run(mcp_server.get_house_context_summary("house-x"))
+    result = asyncio.run(mcp_server.get_house_context_summary("house-x", include_plan_status=True))
 
     assert result["ok"], result
     data = result["data"]

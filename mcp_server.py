@@ -1791,7 +1791,7 @@ async def get_scene_context_summary(
 @mcp.tool()
 async def get_house_context_summary(
     key: str,
-    include_plan_status: bool = True,
+    include_plan_status: bool = False,
     max_blockers_per_scene: int = 3,
 ) -> dict:
     """Compact house dashboard for routing.
@@ -1828,12 +1828,7 @@ async def get_house_context_summary(
         "key": key,
         "scene_count": len(scenes),
         "total_labels": total_labels,
-        "workflow": {
-            "next_phase": workflow.get("next_phase"),
-            "exportable": workflow.get("exportable"),
-            "blockers_total": workflow.get("blockers_total"),
-            "phases": workflow.get("phases"),
-        },
+        "workflow": _compact_workflow_for_summary(workflow, max_blockers=max_blockers_per_scene),
         "scenes": scenes,
     }, started_at=started, status_code=status)
 
@@ -1979,6 +1974,30 @@ def _truncate_lists(data: Any, limits: dict[str, int]) -> Any:
     else:
         out.setdefault("truncated", False)
     return out
+
+
+def _compact_workflow_for_summary(workflow: dict[str, Any], max_blockers: int = 2) -> dict[str, Any]:
+    phases = {}
+    for phase, data in (workflow.get("phases") or {}).items():
+        blockers = data.get("blockers") or []
+        if not isinstance(blockers, list):
+            blockers = []
+        phases[phase] = {
+            "status": data.get("status"),
+            "blocker_count": len(blockers),
+            "blockers": blockers[:max_blockers],
+            "truncated": len(blockers) > max_blockers,
+        }
+        if data.get("assumed_isotropic_scenes"):
+            phases[phase]["assumed_isotropic_scene_count"] = len(data["assumed_isotropic_scenes"])
+    return {
+        "next_phase": workflow.get("next_phase"),
+        "exportable": workflow.get("exportable"),
+        "blockers_total": workflow.get("blockers_total"),
+        "scenes_total": workflow.get("scenes_total"),
+        "labeled_scenes": workflow.get("labeled_scenes"),
+        "phases": phases,
+    }
 
 
 @mcp.tool()

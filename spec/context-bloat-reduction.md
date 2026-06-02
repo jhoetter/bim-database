@@ -689,6 +689,10 @@ Current implementation artifacts on `main`:
   reports tool catalog size, profile schema estimates, transcript result
   bytes, inline image counts, quality signals, repeated full-state reads, and
   dataset payload samples.
+- **Before/after benchmark:** `scripts/context_bloat_benchmark.py` compares
+  representative full/inline paths against compact/handle/bounded paths on a
+  real dataset scene and verifies image bytes, label counts, and score scalar
+  quality are preserved.
 - **MCB1 Crop-first verification:** `verify_label_placement` is documented
   as the routine verify-after-write path and defaults to compact auto-crops.
   The full labeled view remains available for global/topology/final QA.
@@ -733,7 +737,9 @@ Current rough schema estimates before JSON Schema overhead:
 
 Current verification evidence:
 
+- `scripts/context_bloat_benchmark.py --key house-22`
 - `tests/test_mcp_context_report.py`
+- `tests/test_context_bloat_benchmark.py`
 - `tests/test_mcp_context_summary.py`
 - `tests/test_mcp_context_summary_helpers.py`
 - `tests/test_mcp_image_delivery.py`
@@ -741,3 +747,31 @@ Current verification evidence:
 - `tests/test_mcp_handoff_summary.py`
 - `tests/test_mcp_tool_profiles.py`
 - broader smoke/plan/render tests covering existing behavior.
+
+House-22 benchmark evidence from:
+
+```bash
+.venv/bin/python scripts/context_bloat_benchmark.py \
+  --key house-22 \
+  --format markdown \
+  --output tmp/context-bloat-benchmark-house-22.md
+```
+
+Representative result on `house-22-floorplan-eg.png`:
+
+| Path | Before bytes | After bytes | Reduction |
+|---|---:|---:|---:|
+| House routing | 7,696 | 4,221 | 1.823x |
+| Label routing | 6,077 | 2,385 | 2.548x |
+| Scene view | 109,875 | 1,486 | 73.94x |
+| Score walls | 1,404 | 664 | 2.114x |
+
+Quality checks in the same benchmark:
+
+- inline image bytes and handle image bytes are identical (`81,643` bytes);
+- image SHA-256 equality is `true`;
+- full label count, compact label count, and scene-summary label count all
+  equal `27`;
+- score scalar quality is equal before/after;
+- score scalar sample:
+  `precision=0.332`, `recall=0.294`, `f1=0.312`, `n_walls=15`.
