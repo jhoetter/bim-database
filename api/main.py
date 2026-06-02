@@ -28,8 +28,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from .fact_derivation import _recompute_facts_impl, recompute_facts_after_label_write
+from .geometry_checks import floorplan_opening_quality
 from .geometry_util import as_point as _as_point, wall_segment as _wall_segment
+from .grid_render import ENHANCE_MODES
 from .persistence import atomic_write_json, atomic_write_text, locked_path
+from .scene_plan_state import (
+    PlanStateConflictError,
+    delete_plan_state_files,
+    mark_state_stale_after_reset,
+)
+from .scene_plans import PlanConflictError
+from .wall_score import score_walls
 
 BASE = Path(__file__).parent.parent
 DATASET_DIR = BASE / "data" / "dataset"
@@ -288,7 +298,6 @@ def recompute_facts(key: str):
     house_dir = DATASET_DIR / key
     if not house_dir.exists():
         raise HTTPException(status_code=404, detail=f"no dataset for {key!r}")
-    from .fact_derivation import recompute_facts_after_label_write
     facts = recompute_facts_after_label_write(key, dataset_root=DATASET_DIR)
     return facts
 
@@ -342,8 +351,6 @@ def _ensure_dataset_scene(key: str, file: str) -> None:
 
 
 def _plan_http_error(e: Exception):
-    from .scene_plans import PlanConflictError
-    from .scene_plan_state import PlanStateConflictError
     if isinstance(e, (PlanConflictError, PlanStateConflictError)):
         raise HTTPException(status_code=409, detail=str(e)) from e
     if isinstance(e, FileNotFoundError):
@@ -423,7 +430,6 @@ def _recompute_facts_from_scratch(key: str, *, lock_held: bool = False) -> dict:
     rmtree's labels/ under the same lock), pass ``lock_held=True`` to call the
     unlocked impl and avoid re-entering the (non-reentrant) lock.
     """
-    from .fact_derivation import _recompute_facts_impl
     facts_path = DATASET_DIR / key / "house_facts.json"
 
     def _do() -> dict:
@@ -568,7 +574,6 @@ def _wall_ink_overlap(
     thresh: int | None = None,
     region: tuple[int, int, int, int] | None = None,
 ) -> dict[str, Any]:
-    from .wall_score import score_walls
 
     if region is None:
         region = _wall_bbox_region(start, end, image_size=getattr(image, "size", None))
@@ -667,7 +672,6 @@ def _validate_dependent_labels(payload: dict[str, Any]) -> None:
             parent_wall = _wall_segment(parent)
             if opening_axis is None or parent_wall is None:
                 continue
-            from .geometry_checks import floorplan_opening_quality
 
             quality = floorplan_opening_quality(
                 opening_axis,
@@ -794,7 +798,6 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
     derivation_note: str | None = None
     if scope == "dataset":
         try:
-            from .fact_derivation import recompute_facts_after_label_write
             recompute_facts_after_label_write(key, dataset_root=DATASET_DIR)
         except Exception as e:  # noqa: BLE001
             derivation_note = f"label saved; fact derivation failed: {e!s}"
@@ -823,10 +826,8 @@ def reset_scene_labels(scope: str, key: str, file: str, reset_plan: bool = False
     atomic_write_json(label_path, payload)
     plan_deleted = False
     if reset_plan:
-        from .scene_plan_state import delete_plan_state_files
         plan_deleted = delete_plan_state_files(DATASET_DIR, key, file) > 0
     else:
-        from .scene_plan_state import mark_state_stale_after_reset
         mark_state_stale_after_reset(DATASET_DIR, key, file)
     facts = _recompute_facts_from_scratch(key)
     return {
@@ -876,10 +877,8 @@ def reset_house_labeling(key: str, reset_plans: bool = False):
         facts = _recompute_facts_from_scratch(key, lock_held=True)
     plans_deleted = 0
     if reset_plans:
-        from .scene_plan_state import delete_plan_state_files
         plans_deleted = delete_plan_state_files(DATASET_DIR, key)
     else:
-        from .scene_plan_state import mark_state_stale_after_reset
         for file in reset_files:
             mark_state_stale_after_reset(DATASET_DIR, key, file)
     return {
@@ -970,7 +969,6 @@ def _parse_tiers(tiers: str) -> tuple[str, ...]:
 def _parse_enhance(enhance: str | None) -> str:
     """Validate the `enhance` query arg (issue #2). Returns a normalized
     mode; defaults to 'none'."""
-    from .grid_render import ENHANCE_MODES
     mode = (enhance or "none").strip().lower()
     if mode not in ENHANCE_MODES:
         raise HTTPException(
