@@ -102,7 +102,7 @@ async def submit_localhost(
     license_notes: str | None = None,
     training_use: bool = True,
     user_notes: str | None = None,
-):
+) -> dict:
     """Local-only customer-form endpoint. Mirrors form_api/main.py's
     /submit but without the API-key + rate limit since this whole API
     is single-user-localhost. Production deployments should use the
@@ -250,7 +250,7 @@ def get_submission(submission_id: str):
 def promote_submission(
     submission_id: str,
     payload: dict[str, Any] = Body(default_factory=dict),
-):
+) -> dict:
     """Promote a quarantined submission into the corpus.
 
     Body (all optional):
@@ -353,7 +353,7 @@ def promote_submission(
 
 
 @router.delete("/pdfs/submissions/{submission_id}", tags=["pdfs"], status_code=204)
-def delete_submission(submission_id: str):
+def delete_submission(submission_id: str) -> None:
     """Drop a quarantined submission outright. Use for clear-spam / GDPR
     erasure. Refuses if the submission has already been promoted —
     delete the resulting incoming bundle separately if needed."""
@@ -532,7 +532,7 @@ def update_incoming_manifest(key: str, payload: dict[str, Any] = Body(...)):
 
 
 @router.delete("/pdfs/incoming/{key}", tags=["pdfs"], status_code=204)
-def delete_incoming_bundle(key: str):
+def delete_incoming_bundle(key: str) -> None:
     """R1 — remove an entire intake bundle (source PDFs, consolidated
     PDF, manifest). Does NOT touch data/dataset/<key>/. The user has to
     delete extracted dataset scenes separately."""
@@ -559,7 +559,7 @@ def _consolidated_path(key: str) -> Path:
 
 
 @router.get("/pdfs/{key}/page/{n}", tags=["pdfs"])
-def render_pdf_page(key: str, n: int, dpi: int = 300):
+def render_pdf_page(key: str, n: int, dpi: int = 300) -> Response:
     """R2 — render PDF page `n` (1-indexed) at the given DPI as a JPEG.
     Cached on disk under tmp/pdf-cache/<key>/page-<n>-<dpi>.jpg keyed on
     the source PDF's mtime so edits invalidate stale crops.
@@ -606,7 +606,7 @@ def render_pdf_page_grid(
     tiers: str = "broad,finer,detail",
     region: str | None = None,
     max_dim: int = 1600,
-):
+) -> Response:
     """Same as /datasets/.../grid but for a PDF page (used for scene
     identification at inventory / extract). The grid coordinate labels are in
     pixels at the rendered DPI; downstream `extract_scenes` MCP tool
@@ -660,7 +660,7 @@ def render_pdf_page_grid(
 
 
 @router.get("/pdfs/{key}/info", tags=["pdfs"])
-def pdf_info(key: str):
+def pdf_info(key: str) -> dict:
     """R2 — quick metadata: page count, per-page width/height in PDF
     units (1 unit = 1/72 inch). The extractor needs page geometry to
     convert client bboxes (image pixels) back to PDF coordinates."""
@@ -888,7 +888,7 @@ def _render_page_poppler(pdf, n: int, dpi: int, clip_pdf_units=None):
 
 
 @router.post("/pdfs/{key}/extract", tags=["pdfs"], status_code=201)
-def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
+def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
     """R2 — crop scenes out of the consolidated PDF.
 
     Body: {"items": [{
@@ -1166,7 +1166,7 @@ def _safe_recycle_path(key: str, file: str) -> Path:
 
 
 @router.delete("/pdfs/{key}/extract/{file}", tags=["pdfs"], status_code=204)
-def delete_extracted_scene(key: str, file: str):
+def delete_extracted_scene(key: str, file: str) -> None:
     """R2 — drop one extracted scene (image + dataset manifest entry +
     intake record). The deleted scene goes into a 1-hour recycle bin
     at tmp/recycle/<key>/<file>/ so A3 undo can restore it. The labels
@@ -1229,7 +1229,7 @@ def delete_extracted_scene(key: str, file: str):
 
 
 @router.post("/pdfs/{key}/extract/{file}/restore", tags=["pdfs"])
-def restore_extracted_scene(key: str, file: str):
+def restore_extracted_scene(key: str, file: str) -> dict:
     """A3 — restore a soft-deleted scene from the recycle bin. Looks for
     tmp/recycle/<key>/<file>/ and moves the contents back into the
     dataset + intake. 410 Gone if the bundle has been pruned."""

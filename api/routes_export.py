@@ -188,7 +188,7 @@ def export_house(key: str, force: bool = False):
 
 
 @router.post("/exports", tags=["exports"], status_code=201)
-def export_all(force: bool = False):
+def export_all(force: bool = False) -> dict:
     """R6.3 — export every house in the dataset. Returns a per-house
     summary. Skips houses that fail sanity unless force=true."""
     if not DATASET_DIR.exists():
@@ -246,7 +246,7 @@ def _persist_scene_calibration(key: str, file: str, calib: dict) -> None:
 
 
 @router.post("/exports/{key}/{file}/preview", tags=["exports"])
-def export_preview(key: str, file: str, assume_isotropic: bool = False):
+def export_preview(key: str, file: str, assume_isotropic: bool = False) -> dict:
     """R4 — return the two ground-truth views for one scene:
        Set A = raw image + dimensioned strokes only
        Set B = rectified image + every label, geometry transformed through H

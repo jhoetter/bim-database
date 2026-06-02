@@ -104,7 +104,7 @@ app.mount("/assets", StaticFiles(directory=str(UI_DIST / "assets")),
 # ── meta / SPA fallback ────────────────────────────────────────────────────
 
 @app.get("/", tags=["meta"], response_class=FileResponse)
-def root():
+def root() -> Response:
     """Serve the built React bundle's index.html. If `ui/dist/` is absent,
     return a 503 with the build command — typically run `make web` in a
     second shell during development (Vite on :5173 proxies to here)."""
@@ -126,12 +126,12 @@ def root():
 # above this catchall so /datasets, /labels, /pdfs, /exports etc. still
 # hit their handlers.
 @app.get("/dataset", tags=["meta"], response_class=FileResponse, include_in_schema=False)
-def _spa_legacy_dataset_root():
+def _spa_legacy_dataset_root() -> Response:
     return root()
 
 
 @app.get("/dataset/{rest:path}", tags=["meta"], response_class=FileResponse, include_in_schema=False)
-def _spa_legacy_dataset(rest: str):
+def _spa_legacy_dataset(rest: str) -> Response:
     del rest
     return root()
 
@@ -268,7 +268,7 @@ def get_house_facts(key: str):
 
 
 @app.put("/datasets/{key}/house_facts", tags=["dataset"])
-def put_house_facts(key: str, body: dict = Body(...)):
+def put_house_facts(key: str, body: dict = Body(...)) -> dict:
     if not isinstance(body, dict) or "schema_version" not in body:
         raise HTTPException(status_code=400, detail="payload must be a JSON object with schema_version")
     p = DATASET_DIR / key / "house_facts.json"
@@ -313,7 +313,7 @@ _SCENE_PATCH_KEYS = {"kind", "floor", "view", "title"}
 
 
 @app.patch("/datasets/{key}/drawings/{file}", tags=["dataset"])
-def patch_scene_attrs(key: str, file: str, body: dict = Body(...)):
+def patch_scene_attrs(key: str, file: str, body: dict = Body(...)) -> dict:
     if not isinstance(body, dict) or not body:
         raise HTTPException(status_code=400, detail="patch body must be a non-empty object")
     unknown = set(body) - _SCENE_PATCH_KEYS
@@ -811,7 +811,7 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
 
 
 @app.delete("/labels/{scope}/{key}/{file}", tags=["labels"])
-def reset_scene_labels(scope: str, key: str, file: str, reset_plan: bool = False):
+def reset_scene_labels(scope: str, key: str, file: str, reset_plan: bool = False) -> dict:
     """Reset one scene's labels and workflow metadata, keeping the scene image.
 
     Mirrors the AnnotatePage "Labels zurücksetzen" action, but also rebuilds
@@ -841,7 +841,7 @@ def reset_scene_labels(scope: str, key: str, file: str, reset_plan: bool = False
 
 
 @app.delete("/datasets/{key}/labels", tags=["dataset"])
-def reset_house_labeling(key: str, reset_plans: bool = False):
+def reset_house_labeling(key: str, reset_plans: bool = False) -> dict:
     """Reset every scene's labels for a house, keeping extracted scenes.
 
     This is the MCP/automation counterpart to scene-level UI resets when the
@@ -1175,7 +1175,7 @@ SET_A_TYPES = {"dimensioned_distance", "dimension_number"}
 
 
 @app.delete("/datasets/{key}", tags=["dataset"], status_code=204)
-def reset_house(key: str):
+def reset_house(key: str) -> None:
     """Wipe every extracted scene + every label for a house, BUT keep the
     intake bundle so the user can re-extract from the same PDF.
 
@@ -1233,7 +1233,7 @@ app.include_router(_plan_state_router)
 # /house-21/extract, /intake, /house-21/3d). Known API prefixes are
 # rejected with 404 so genuine wrong calls still surface.
 @app.get("/{rest:path}", response_class=FileResponse, include_in_schema=False)
-def _spa_root_catchall(rest: str):
+def _spa_root_catchall(rest: str) -> Response:
     head = rest.split("/", 1)[0]
     if head in {"datasets", "labels", "pdfs", "exports", "static", "assets",
                 "docs", "redoc", "openapi.json"}:

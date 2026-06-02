@@ -29,7 +29,7 @@ router = APIRouter()
 
 
 @router.get("/datasets/{key}/{file}/plan", tags=["dataset"])
-def get_scene_plan(key: str, file: str):
+def get_scene_plan(key: str, file: str) -> dict:
     """Read the per-scene Markdown plan used by the labeling agent."""
     _ensure_dataset_scene(key, file)
     from .scene_plans import read_plan
@@ -37,7 +37,7 @@ def get_scene_plan(key: str, file: str):
 
 
 @router.post("/datasets/{key}/{file}/plan/template", tags=["dataset"])
-def create_scene_plan_from_template_route(key: str, file: str, body: dict[str, Any] = Body(default={})):
+def create_scene_plan_from_template_route(key: str, file: str, body: dict[str, Any] = Body(default={})) -> dict:
     """Create a scene plan from the standard template. Rejects overwrite unless
     `overwrite:true` is passed."""
     _ensure_dataset_scene(key, file)
@@ -58,7 +58,7 @@ def create_scene_plan_from_template_route(key: str, file: str, body: dict[str, A
 
 
 @router.put("/datasets/{key}/{file}/plan", tags=["dataset"])
-def put_scene_plan(key: str, file: str, body: dict[str, Any] = Body(...)):
+def put_scene_plan(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
     """Create/update a scene plan. `expected_version` enables optimistic
     concurrency; `create_only:true` rejects overwrite."""
     _ensure_dataset_scene(key, file)
@@ -81,7 +81,7 @@ def put_scene_plan(key: str, file: str, body: dict[str, Any] = Body(...)):
 
 
 @router.post("/datasets/{key}/{file}/plan/log", tags=["dataset"])
-def append_scene_plan_log_route(key: str, file: str, body: dict[str, Any] = Body(...)):
+def append_scene_plan_log_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plans import append_log
     try:
@@ -101,7 +101,7 @@ def append_scene_plan_log_route(key: str, file: str, body: dict[str, Any] = Body
 
 
 @router.patch("/datasets/{key}/{file}/plan/tasks/{task_id}", tags=["dataset"])
-def patch_scene_plan_task_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)):
+def patch_scene_plan_task_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plans import set_task_status
     try:
@@ -122,21 +122,21 @@ def patch_scene_plan_task_route(key: str, file: str, task_id: str, body: dict[st
 # ── per-scene structured plan state ──────────────────────────────────────
 
 @router.get("/datasets/{key}/{file}/plan-state", tags=["dataset"])
-def get_scene_plan_state_route(key: str, file: str):
+def get_scene_plan_state_route(key: str, file: str) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import read_plan_state
     return {"ok": True, "data": read_plan_state(DATASET_DIR, key, file)}
 
 
 @router.get("/datasets/{key}/{file}/plan-state/status", tags=["dataset"])
-def get_scene_plan_status_route(key: str, file: str):
+def get_scene_plan_status_route(key: str, file: str) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import plan_status
     return {"ok": True, "data": plan_status(DATASET_DIR, key, file)}
 
 
 @router.post("/datasets/{key}/{file}/plan-state/template", tags=["dataset"])
-def create_scene_plan_state_from_template_route(key: str, file: str, body: dict[str, Any] = Body(default={})):
+def create_scene_plan_state_from_template_route(key: str, file: str, body: dict[str, Any] = Body(default={})) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import create_plan_state_from_template
     try:
@@ -155,7 +155,7 @@ def create_scene_plan_state_from_template_route(key: str, file: str, body: dict[
 
 
 @router.put("/datasets/{key}/{file}/plan-state", tags=["dataset"])
-def put_scene_plan_state_route(key: str, file: str, body: dict[str, Any] = Body(...)):
+def put_scene_plan_state_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     state = body.get("state")
     if not isinstance(state, dict):
@@ -176,7 +176,7 @@ def put_scene_plan_state_route(key: str, file: str, body: dict[str, Any] = Body(
 
 
 @router.post("/datasets/{key}/{file}/plan-state/evidence", tags=["dataset"])
-def add_scene_plan_evidence_route(key: str, file: str, body: dict[str, Any] = Body(...)):
+def add_scene_plan_evidence_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import add_evidence
     try:
@@ -193,7 +193,7 @@ def add_scene_plan_evidence_route(key: str, file: str, body: dict[str, Any] = Bo
 
 
 @router.post("/datasets/{key}/{file}/plan-state/defects", tags=["dataset"])
-def upsert_scene_plan_defect_route(key: str, file: str, body: dict[str, Any] = Body(...)):
+def upsert_scene_plan_defect_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import upsert_defect
     try:
@@ -210,7 +210,7 @@ def upsert_scene_plan_defect_route(key: str, file: str, body: dict[str, Any] = B
 
 
 @router.patch("/datasets/{key}/{file}/plan-state/defects/{defect_id}", tags=["dataset"])
-def update_scene_plan_defect_route(key: str, file: str, defect_id: str, body: dict[str, Any] = Body(...)):
+def update_scene_plan_defect_route(key: str, file: str, defect_id: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import update_defect
     try:
@@ -228,7 +228,7 @@ def update_scene_plan_defect_route(key: str, file: str, defect_id: str, body: di
 
 
 @router.patch("/datasets/{key}/{file}/plan-state/tasks/{task_id}", tags=["dataset"])
-def set_scene_plan_task_state_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)):
+def set_scene_plan_task_state_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import set_task_state
     try:
@@ -327,7 +327,7 @@ def _compute_plan_state_gate_inputs(key: str, file: str, body: dict[str, Any]) -
 
 
 @router.post("/datasets/{key}/{file}/plan-state/evaluate-gates", tags=["dataset"])
-def evaluate_scene_plan_gates_route(key: str, file: str, body: dict[str, Any] = Body(default={})):
+def evaluate_scene_plan_gates_route(key: str, file: str, body: dict[str, Any] = Body(default={})) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import evaluate_gates
     try:
@@ -351,7 +351,7 @@ def evaluate_scene_plan_gates_route(key: str, file: str, body: dict[str, Any] = 
 
 
 @router.get("/datasets/{key}/{file}/plan-state/next-actions", tags=["dataset"])
-def get_scene_plan_next_actions_route(key: str, file: str, limit: int = 3):
+def get_scene_plan_next_actions_route(key: str, file: str, limit: int = 3) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import next_actions_from_state, read_plan_state
     data = read_plan_state(DATASET_DIR, key, file)
@@ -360,14 +360,14 @@ def get_scene_plan_next_actions_route(key: str, file: str, limit: int = 3):
 
 
 @router.get("/datasets/{key}/{file}/plan-state/next-action", tags=["dataset"])
-def get_scene_plan_next_action_route(key: str, file: str):
+def get_scene_plan_next_action_route(key: str, file: str) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import next_action
     return {"ok": True, "data": next_action(DATASET_DIR, key, file)}
 
 
 @router.post("/datasets/{key}/{file}/plan-state/actions/{action_id}/start", tags=["dataset"])
-def start_scene_plan_action_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(default={})):
+def start_scene_plan_action_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(default={})) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import start_action
     try:
@@ -385,7 +385,7 @@ def start_scene_plan_action_route(key: str, file: str, action_id: str, body: dic
 
 
 @router.post("/datasets/{key}/{file}/plan-state/actions/{action_id}/attempts", tags=["dataset"])
-def record_scene_plan_attempt_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(default={})):
+def record_scene_plan_attempt_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(default={})) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import record_attempt
     try:
@@ -403,7 +403,7 @@ def record_scene_plan_attempt_route(key: str, file: str, action_id: str, body: d
 
 
 @router.post("/datasets/{key}/{file}/plan-state/actions/{action_id}/finish", tags=["dataset"])
-def finish_scene_plan_action_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(...)):
+def finish_scene_plan_action_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import finish_action
     try:
@@ -424,7 +424,7 @@ def finish_scene_plan_action_route(key: str, file: str, action_id: str, body: di
 
 
 @router.post("/datasets/{key}/{file}/plan-state/tasks/{task_id}/reopen", tags=["dataset"])
-def reopen_scene_plan_task_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)):
+def reopen_scene_plan_task_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import reopen_task
     try:
@@ -444,7 +444,7 @@ def reopen_scene_plan_task_route(key: str, file: str, task_id: str, body: dict[s
 
 
 @router.post("/datasets/{key}/{file}/plan-state/defects/{defect_id}/classify", tags=["dataset"])
-def classify_scene_plan_defect_route(key: str, file: str, defect_id: str, body: dict[str, Any] = Body(...)):
+def classify_scene_plan_defect_route(key: str, file: str, defect_id: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import classify_defect
     try:
@@ -464,14 +464,14 @@ def classify_scene_plan_defect_route(key: str, file: str, defect_id: str, body: 
 
 
 @router.post("/datasets/{key}/{file}/plan-state/evaluate-terminality", tags=["dataset"])
-def evaluate_scene_plan_terminality_route(key: str, file: str):
+def evaluate_scene_plan_terminality_route(key: str, file: str) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import evaluate_terminality
     return {"ok": True, "data": evaluate_terminality(DATASET_DIR, key, file)}
 
 
 @router.get("/datasets/{key}/{file}/plan-state/repair-candidates", tags=["dataset"])
-def get_scene_repair_candidates_route(key: str, file: str, limit: int = 20):
+def get_scene_repair_candidates_route(key: str, file: str, limit: int = 20) -> dict:
     _ensure_dataset_scene(key, file)
     labels_doc = get_labels("dataset", key, file)
     from .topology_repair import repair_candidate_report
@@ -499,7 +499,7 @@ def _find_repair_candidate(labels_doc: dict[str, Any], candidate_id: str, key: s
 
 
 @router.post("/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/apply", tags=["dataset"])
-def apply_repair_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(default={})):
+def apply_repair_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(default={})) -> dict:
     _ensure_dataset_scene(key, file)
     labels_doc = get_labels("dataset", key, file)
     try:
@@ -543,7 +543,7 @@ def apply_repair_candidate_route(key: str, file: str, candidate_id: str, body: d
 
 
 @router.post("/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/decision", tags=["dataset"])
-def decide_repair_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(...)):
+def decide_repair_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(...)) -> dict:
     _ensure_dataset_scene(key, file)
     labels_doc = get_labels("dataset", key, file)
     try:
@@ -571,7 +571,7 @@ def decide_repair_candidate_route(key: str, file: str, candidate_id: str, body: 
 
 
 @router.get("/datasets/{key}/{file}/plan-state/quality-report", tags=["dataset"])
-def get_scene_plan_quality_report_route(key: str, file: str):
+def get_scene_plan_quality_report_route(key: str, file: str) -> dict:
     _ensure_dataset_scene(key, file)
     labels_doc = get_labels("dataset", key, file)
     try:
@@ -587,7 +587,7 @@ def get_scene_plan_quality_report_route(key: str, file: str):
 
 
 @router.get("/datasets/{key}/{file}/plan-state/topology-snapshot", tags=["dataset"])
-def get_scene_plan_topology_snapshot_route(key: str, file: str):
+def get_scene_plan_topology_snapshot_route(key: str, file: str) -> dict:
     _ensure_dataset_scene(key, file)
     labels_doc = get_labels("dataset", key, file)
     try:
@@ -685,7 +685,7 @@ def render_repair_candidate_overlay_route(
 
 
 @router.post("/datasets/{key}/{file}/plan-state/render-markdown", tags=["dataset"])
-def render_scene_plan_markdown_route(key: str, file: str, body: dict[str, Any] = Body(default={})):
+def render_scene_plan_markdown_route(key: str, file: str, body: dict[str, Any] = Body(default={})) -> dict:
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import read_plan_state, render_markdown, write_plan_state
     try:

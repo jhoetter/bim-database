@@ -66,7 +66,7 @@ def render_scene_grid(
     target: str | None = None,
     target_line: str | None = None,
     background_opacity: float | None = None,
-):
+) -> Response:
     """Agent vision aid: scene image + coordinate-anchored grid overlay.
 
     Query args:
@@ -238,7 +238,7 @@ def check_corner_route(
     y: int,
     search_px: int = 40,
     min_wall_px: int = 8,
-):
+) -> dict:
     """Nearest detected wall corner to (x,y) with a snap/move hint.
     dx>0 => true corner is RIGHT of (x,y); dy>0 => BELOW (y grows down)."""
     _safe_key(key)
@@ -266,7 +266,7 @@ def wall_outline(
     thresh: int | None = None,
     n_outlines: int = 2,
     epsilon_px: float = 8.0,
-):
+) -> dict:
     """Ordered outer-boundary polygon(s) of the thick-wall ink (full-image
     source px). Each consecutive vertex pair is one wall segment; disjoint
     structures (main block vs. garage) return as separate polygons. Use a
@@ -313,7 +313,7 @@ def refine_wall(
     search_px: int = 22,
     n_samples: int = 25,
     thresh: int | None = None,
-):
+) -> dict:
     """Sub-pixel refine a candidate wall segment to the measured ink BAND.
 
     Samples perpendicular profiles along (x0,y0)->(x1,y1), finds the dark
@@ -345,7 +345,7 @@ def upsert_wall_anchored_route(
     key: str,
     file: str,
     body: dict[str, Any] = Body(...),
-):
+) -> dict:
     """Create/replace a floorplan wall only after measuring it against ink.
 
     The route treats the input as a draft centerline, refines it with the same
@@ -482,7 +482,7 @@ def wall_label_anchoring_check_route(
     key: str,
     file: str,
     body: dict[str, Any] = Body(...),
-):
+) -> dict:
     _safe_key(key)
     if "/" in file or ".." in file:
         raise HTTPException(status_code=400, detail="bad file")
@@ -525,7 +525,7 @@ def score_walls_route(
     thresh: int | None = None,
     thin_aware: bool = False,
     close_px: int = 0,
-):
+) -> dict:
     """Objective QA of the CURRENTLY SAVED wall labels vs the ink.
 
     Returns precision (labels on ink), recall (ink covered by labels), f1,
@@ -566,7 +566,7 @@ def score_measurements_route(
     file: str,
     tol_px: int = 8,
     axis_tol_px: int = 14,
-):
+) -> dict:
     """Metric-correctness QA of the saved geometry against the saved
     dimension chains — the oracle layer over score-walls.
 
@@ -611,7 +611,7 @@ def dimension_chain_candidates_route(
     min_tick_px: int = 12,
     tick_search_px: int = 45,
     pad_px: int = 80,
-):
+) -> dict:
     """Dimension-chain context-gatherer for measurement-first labeling.
 
     Given an optional scene region, returns a deterministic positional prior:
@@ -658,7 +658,7 @@ def dimension_station_graph_route(
     tick_search_px: int = 45,
     pad_px: int = 80,
     wall_anchor_tol_px: float = 28.0,
-):
+) -> dict:
     """Dimension-chain station graph.
 
     This keeps the existing no-OCR contract but returns stable station/span
@@ -704,7 +704,7 @@ def opening_candidates_route(
     endpoint_margin_px: float = 18.0,
     thresh: int = 180,
     limit: int = 40,
-):
+) -> dict:
     """Return deterministic floorplan opening candidates from wall gaps."""
     _safe_key(key)
     if "/" in file or ".." in file:
@@ -739,7 +739,7 @@ def view_geometry_candidates_route(
     min_line_px: int = 80,
     min_rect_px: int = 18,
     max_candidates: int = 40,
-):
+) -> dict:
     """Return component/opening candidates for Ansicht/Schnitt scenes."""
     _safe_key(key)
     if "/" in file or ".." in file:
@@ -882,7 +882,7 @@ def _apply_opening_candidate_to_labels(
 
 
 @router.post("/datasets/{key}/{file}/opening-candidates/{candidate_id}/apply", tags=["pdfs"])
-def apply_opening_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(default={})):
+def apply_opening_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(default={})) -> dict:
     _safe_key(key)
     if "/" in file or ".." in file:
         raise HTTPException(status_code=400, detail="bad file")
@@ -927,7 +927,7 @@ def apply_opening_candidate_route(key: str, file: str, candidate_id: str, body: 
 
 
 @router.post("/datasets/{key}/{file}/opening-candidates/{candidate_id}/decision", tags=["pdfs"])
-def decide_opening_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(...)):
+def decide_opening_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(...)) -> dict:
     _safe_key(key)
     if "/" in file or ".." in file:
         raise HTTPException(status_code=400, detail="bad file")
@@ -964,7 +964,7 @@ def building_silhouette_route(
     thresh: int | None = None,
     angle_tol_deg: float = 18.0,
     min_area_frac: float = 0.02,
-):
+) -> dict:
     """Shape-first decomposition (methodology §2): the outer silhouette as
     ORDERED stepped polygon(s), one per connected mass (house vs detached garage
     auto-separate), edges snapped to axis-aligned steps, non-wall specks dropped.
@@ -1000,7 +1000,7 @@ def outer_wall_topology_context_route(
     region: str | None = None,
     min_wall_px: int = 12,
     thresh: int | None = None,
-):
+) -> dict:
     """Context package for the required silhouette-first analysis pass.
 
     Deterministic CV priors may be empty on pencil scans; the returned prompts
@@ -1055,7 +1055,7 @@ def wall_topology_qa_route(
     collinear_tol_deg: float = 8.0,
     collinear_gap_px: float = 140.0,
     short_stub_px: float = 80.0,
-):
+) -> dict:
     _ensure_dataset_scene(key, file)
     doc = get_labels("dataset", key, file)
     from .wall_topology import wall_topology_qa
@@ -1078,7 +1078,7 @@ def wall_continuity_check_route(
     gap_px: float = 180.0,
     line_tol_px: float = 24.0,
     opening_near_px: float = 80.0,
-):
+) -> dict:
     _ensure_dataset_scene(key, file)
     doc = get_labels("dataset", key, file)
     from .wall_topology import wall_continuity_check
@@ -1099,7 +1099,7 @@ def ambiguous_line_context_route(
     bbox: str | None = None,
     line: str | None = None,
     pad_px: float = 120.0,
-):
+) -> dict:
     """Return a context checklist for a suspicious stroke/continuation.
 
     `bbox` is x0,y0,x1,y1. `line` is x0,y0,x1,y1. The route does not classify;
@@ -1131,7 +1131,7 @@ def propose_wall_edit_route(
     key: str,
     file: str,
     body: dict[str, Any] = Body(...),
-):
+) -> dict:
     """Atomic test-and-apply for ONE wall edit (methodology §5). Body:
       {"candidate": {"op":"add|move|delete", ...}, "params": {..score-walls..},
        "region": "x0,y0,x1,y1"|null, "apply": false}
@@ -1188,7 +1188,7 @@ def propose_wall_edit_route(
 
 
 @router.post("/geometry/connect-corners", tags=["pdfs"])
-def connect_corners_route(body: dict[str, Any] = Body(...)):
+def connect_corners_route(body: dict[str, Any] = Body(...)) -> dict:
     """Pure geometry (methodology §3): given ORDERED fitted edges
     [[[x0,y0],[x1,y1]], ...] (each ~a refine-wall band centerline), return walls
     whose shared corners are the INTERSECTIONS of adjacent edges' lines, so the
@@ -1229,7 +1229,7 @@ def render_scene_grid_with_labels(
     show_height_guides: str | None = None,
     show_openings: str | None = None,
     include_hidden: bool = False,
-):
+) -> Response:
     """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
     SAVED labels rendered on top. Used by `get_scene_view_with_labels`
     so an agent can verify a label landed on the intended feature.
