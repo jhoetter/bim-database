@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import api.main as api_main  # noqa: E402
-from api.main import (  # noqa: E402
+from api.routes_pdf import (  # noqa: E402
     _clipped_borders,
     _expand_bbox_for_clip,
     _image_is_blank,
@@ -174,7 +174,7 @@ def test_extract_recovers_pymupdf_blank_via_poppler(
     forcing the PyMuPDF pixmap to always read as blank; the content page 2
     must still be written from the poppler fallback."""
     key = blank_and_content_house
-    monkeypatch.setattr(api_main, "_pixmap_is_blank", lambda pix: True)
+    monkeypatch.setattr("api.routes_pdf._pixmap_is_blank", lambda pix: True)
     client = TestClient(api_main.app)
     r = client.post(f"/pdfs/{key}/extract", json={"items": [{
         "page": 2, "bbox_pdf_units": [0, 0, 600, 400], "kind": "floorplan",
@@ -196,7 +196,7 @@ def test_extract_422_when_both_renderers_blank(
     """Page 1 is genuinely empty: both PyMuPDF and poppler render blank,
     so the #12 guard still fires even with the #24 fallback in place."""
     key = blank_and_content_house
-    monkeypatch.setattr(api_main, "_pixmap_is_blank", lambda pix: True)
+    monkeypatch.setattr("api.routes_pdf._pixmap_is_blank", lambda pix: True)
     client = TestClient(api_main.app)
     r = client.post(f"/pdfs/{key}/extract", json={"items": [{
         "page": 1, "bbox_pdf_units": [0, 0, 600, 400], "kind": "floorplan",

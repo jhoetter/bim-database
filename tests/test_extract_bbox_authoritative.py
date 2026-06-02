@@ -44,7 +44,7 @@ def install_pdf(tmp_path, monkeypatch):
         doc.close()
         return pdf_path
 
-    monkeypatch.setattr("api.main._consolidated_path", lambda key: pdf_path)
+    monkeypatch.setattr("api.routes_pdf._consolidated_path", lambda key: pdf_path)
     return _install
 
 
