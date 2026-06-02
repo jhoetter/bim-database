@@ -962,6 +962,137 @@ def test_scene_plan_measurement_unmatched_ticks_create_dimension_defects(scene):
     assert defect["category"] == "dimension"
 
 
+def test_scene_plan_zero_dimension_measurement_result_does_not_verify_dimension_tasks(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+    evaluated = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": False,
+            "run_continuity_check": False,
+            "score_measurements": {
+                "ok": True,
+                "n_dims": 0,
+                "n_walls": 1,
+                "total_ticks": 0,
+                "matched_ticks": 0,
+                "match_frac": 1.0,
+                "unmatched_ticks": [],
+                "chains": [],
+            },
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    tasks = {t["id"]: t for t in evaluated.json()["data"]["state"]["tasks"]}
+    assert tasks["READ_DIMENSIONS"]["status"] != "verified"
+    assert tasks["VERIFY_MEASUREMENTS"]["status"] != "verified"
+    assert tasks["READ_DIMENSIONS"]["gates"][0]["status"] == "pending"
+    assert tasks["VERIFY_MEASUREMENTS"]["gates"][0]["status"] == "pending"
+
+
+def test_scene_plan_wall_blockers_keep_topology_tasks_in_repair(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["labels"] = [
+        {
+            "id": "wall-1",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [20, 20], "end": [200, 20]},
+            "attributes": {},
+        }
+    ]
+    assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+    evaluated = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": False,
+            "run_continuity_check": False,
+            "score_walls": {
+                "precision": 0.8,
+                "recall": 0.8,
+                "f1": 0.8,
+                "missing_regions": [[10, 20, 30, 40, 1200]],
+                "off_ink_segments": [],
+            },
+            "topology_qa": {
+                "wall_count": 1,
+                "endpoint_count": 2,
+                "dangling_endpoints": [],
+                "near_miss_corners": [],
+                "collinear_fragments": [],
+                "short_stubs": [],
+                "components": [],
+            },
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    tasks = {t["id"]: t for t in evaluated.json()["data"]["state"]["tasks"]}
+    for task_id in ("VERIFY_OUTER_TOPOLOGY", "VERIFY_INTERIOR_TOPOLOGY"):
+        assert tasks[task_id]["status"] == "needs_repair"
+        assert {g["id"]: g["status"] for g in tasks[task_id]["gates"]} == {
+            "TOPOLOGY_REVIEWED": "failed",
+            "WALL_SCORE_REVIEWED": "failed",
+        }
+
+
+def test_scene_plan_wall_score_missing_region_uses_review_bbox_not_xywh(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["labels"] = [
+        {
+            "id": "wall-1",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [20, 20], "end": [200, 20]},
+            "attributes": {},
+        }
+    ]
+    assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+    evaluated = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": False,
+            "run_continuity_check": False,
+            "score_walls": {
+                "precision": 0.8,
+                "recall": 0.8,
+                "f1": 0.8,
+                "missing_regions": [[10, 20, 30, 40, 1200]],
+                "off_ink_segments": [],
+            },
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    state = evaluated.json()["data"]["state"]
+    defect = next(d for d in state["defects"] if d["category"] == "wall_missing_region")
+    assert defect["region"] == [10, 20, 40, 60]
+    finding = next(f for f in state["current_state"]["findings"]["items"] if f["category"] == "missing_region")
+    assert finding["region"] == [10, 20, 40, 60]
+
+
 def _put_near_miss_wall_labels(client: TestClient, key: str, file: str) -> None:
     labels = api_main._label_skeleton("dataset", key, file)
     labels["scene_tag"] = "grundriss"

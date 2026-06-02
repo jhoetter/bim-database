@@ -38,6 +38,16 @@ def _norm_region(region: Any, step: int = 16) -> list[int]:
     return [0, 0, 0, 0]
 
 
+def _score_missing_region_bbox(region: Any) -> list[int] | None:
+    """Convert score_walls [x, y, width, height, area] regions to review bboxes."""
+    if not (isinstance(region, (list, tuple)) and len(region) >= 4):
+        return None
+    if not all(isinstance(v, (int, float)) for v in region[:4]):
+        return None
+    x, y, width, height = [float(v) for v in region[:4]]
+    return [int(round(x)), int(round(y)), int(round(x + max(0.0, width))), int(round(y + max(0.0, height)))]
+
+
 def _stable_hash(payload: Any, length: int = 12) -> str:
     body = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha1(body.encode("utf-8")).hexdigest()[:length]
@@ -166,14 +176,17 @@ def current_findings_from_results(
     findings: list[dict[str, Any]] = []
     if score_walls_result:
         for idx, region in enumerate(score_walls_result.get("missing_regions") or [], start=1):
-            payload = {"region": region, "review_region": region}
+            review_region = _score_missing_region_bbox(region) or region
+            payload = {"region": region, "review_region": review_region}
+            if isinstance(region, (list, tuple)) and len(region) >= 5 and isinstance(region[4], (int, float)):
+                payload["area_px"] = region[4]
             fp = finding_fingerprint(file, "score_walls", "missing_region", payload)
             findings.append({
                 "fingerprint": fp,
                 "source": "score_walls",
                 "category": "missing_region",
                 "severity": "blocker",
-                "region": region,
+                "region": review_region,
                 "title": f"Wall score missing region {idx}",
                 "payload": payload,
             })

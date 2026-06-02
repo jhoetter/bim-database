@@ -1425,6 +1425,11 @@ def evaluate_gates(
     )
     latest_score_walls = score_walls_result or ((_latest_evidence(state, "score_walls") or {}).get("result") or None)
     latest_measurements = score_measurements_result or ((_latest_evidence(state, "score_measurements") or {}).get("result") or None)
+    measurement_label_count = len(dim_labels)
+    if isinstance(latest_measurements, dict):
+        n_dims = latest_measurements.get("n_dims")
+        if isinstance(n_dims, (int, float)):
+            measurement_label_count = max(measurement_label_count, int(n_dims))
     latest_topology = topology_result or ((_latest_evidence(state, "topology_qa") or {}).get("result") or None)
     no_openings_accepted = (
         not openings
@@ -1741,18 +1746,36 @@ def evaluate_gates(
             if passed and task.get("status") in {"todo", "in_progress"}:
                 task["status"] = "verified"
         elif task_id == "READ_DIMENSIONS":
-            passed = bool(dim_labels or latest_measurements or has_dimension_defect)
+            passed = bool(dim_labels or has_dimension_defect)
             _set_gate(task, "DIMENSIONS_REVIEWED", "passed" if passed else "pending", [evidence_ids_by_kind["score_measurements"]] if "score_measurements" in evidence_ids_by_kind else [])
+            if not passed and task.get("status") == "verified":
+                task["status"] = "needs_repair"
         elif task_id == "VERIFY_MEASUREMENTS":
-            passed = bool(latest_measurements or has_dimension_defect)
+            measurements_have_labeled_dims = bool(latest_measurements and measurement_label_count > 0)
+            passed = bool(measurements_have_labeled_dims or has_dimension_defect)
             _set_gate(task, "MEASUREMENTS_REVIEWED", "passed" if passed else "pending", [evidence_ids_by_kind["score_measurements"]] if "score_measurements" in evidence_ids_by_kind else [])
+            if not passed and task.get("status") == "verified":
+                task["status"] = "needs_repair"
         elif task_id == "ANALYZE_SILHOUETTE":
             _set_gate(task, "HAS_SILHOUETTE_HYPOTHESIS", "passed" if has_analysis_evidence else "pending")
         elif task_id in {"TRACE_OUTER_WALLS", "TRACE_INTERIOR_WALLS"}:
             _set_gate(task, "WALLS_EXIST", "passed" if walls else "failed")
         elif task_id in {"VERIFY_OUTER_TOPOLOGY", "VERIFY_INTERIOR_TOPOLOGY"}:
-            _set_gate(task, "TOPOLOGY_REVIEWED", "passed" if latest_topology else "pending", [evidence_ids_by_kind["topology_qa"]] if "topology_qa" in evidence_ids_by_kind else [])
-            _set_gate(task, "WALL_SCORE_REVIEWED", "passed" if latest_score_walls else "pending", [evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [])
+            _set_gate(
+                task,
+                "TOPOLOGY_REVIEWED",
+                "failed" if wall_blockers else "passed" if latest_topology else "pending",
+                [evidence_ids_by_kind["topology_qa"]] if "topology_qa" in evidence_ids_by_kind else [],
+            )
+            _set_gate(
+                task,
+                "WALL_SCORE_REVIEWED",
+                "failed" if wall_blockers else "passed" if latest_score_walls else "pending",
+                [evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
+            )
+            if wall_blockers and task.get("status") != "accepted_incomplete":
+                task["status"] = "needs_repair"
+                task["blocked_by"] = [d["id"] for d in wall_blockers]
         elif task_id == "PLACE_OPENINGS":
             opening_parent_ok = bool(openings and all(any((r or {}).get("kind") == "belongs_to" for r in op.get("relations") or []) for op in openings))
             _set_gate(
