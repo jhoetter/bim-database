@@ -701,7 +701,8 @@ Current implementation artifacts on `main`:
   geometry-free routing summaries with truncation metadata.
 - **MCB3 Image handles:** image-producing MCP tools support
   `image_delivery="inline" | "handle" | "auto"`. Handle mode writes local
-  files under `tmp/mcp-image-handles` and omits inline base64.
+  files under `tmp/mcp-image-handles` and omits inline base64. The
+  `cleanup_image_handles` tool garbage-collects handle files by age.
 - **MCB4 Bounded results:** wall score, measurement score, topology QA,
   continuity check, ambiguous-line context, label summaries, and handoff
   summaries return bounded lists with explicit truncation/omitted counts.

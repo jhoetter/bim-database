@@ -1296,6 +1296,42 @@ def _image_delivery_payload(
     return [TextContent(type="text", text=json.dumps(_ok(payload, started_at=started_at, status_code=status_code), indent=2))]
 
 
+@mcp.tool()
+async def cleanup_image_handles(max_age_seconds: int = 86_400) -> dict:
+    """Garbage-collect rendered image handles by age.
+
+    USE when:
+      - A long labeling run used `image_delivery="handle"` and you want to
+        remove old handle files from `tmp/mcp-image-handles`.
+
+    DON'T USE when:
+      - A current worker may still need recently returned handle paths.
+        Increase `max_age_seconds` or wait until the run handoff is written.
+    """
+    started = time.time()
+    cutoff = time.time() - max(0, int(max_age_seconds))
+    removed = []
+    kept = 0
+    for path in IMAGE_HANDLE_DIR.glob("*"):
+        if not path.is_file():
+            continue
+        if path.stat().st_mtime < cutoff:
+            size = path.stat().st_size
+            path.unlink()
+            removed.append({"path": str(path), "bytes": size})
+        else:
+            kept += 1
+    return _ok({
+        "directory": str(IMAGE_HANDLE_DIR),
+        "max_age_seconds": max_age_seconds,
+        "removed_count": len(removed),
+        "removed_bytes": sum(item["bytes"] for item in removed),
+        "kept_count": kept,
+        "removed": removed[:20],
+        "truncated": len(removed) > 20,
+    }, started_at=started)
+
+
 # ── §5.1 Discovery (cont.) ────────────────────────────────────────────────
 
 

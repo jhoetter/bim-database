@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import asyncio
+import os
+import time
 
 import mcp_server
 
@@ -66,3 +69,20 @@ def test_image_delivery_auto_uses_handle_above_threshold(tmp_path: Path, monkeyp
 
     env = json.loads(result[-1].text)
     assert env["data"]["image_delivery"] == "handle"
+
+
+def test_cleanup_image_handles_removes_old_files(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(mcp_server, "IMAGE_HANDLE_DIR", tmp_path)
+    old = tmp_path / "old.png"
+    new = tmp_path / "new.png"
+    old.write_bytes(b"old")
+    new.write_bytes(b"new")
+    old_time = time.time() - 10
+    os.utime(old, (old_time, old_time))
+
+    result = asyncio.run(mcp_server.cleanup_image_handles(max_age_seconds=5))
+
+    assert result["ok"], result
+    assert result["data"]["removed_count"] == 1
+    assert not old.exists()
+    assert new.exists()
