@@ -25,10 +25,10 @@ Criticality is **risk-to-the-system**, not effort. An item can be Critical *and*
 | C1 | Non-atomic JSON writes → corruption on crash | 🔴 Critical | S | ✅ DONE (80f4a5f) |
 | C2 | No locking → lost updates on concurrent writes | 🔴 Critical | M | ✅ DONE (dd9f98e) |
 | H1 | TOCTOU in optimistic plan-state version check | 🟠 High | S | ✅ DONE (dd9f98e, via C2) |
-| H2 | Full-house fact recompute on every label write | 🟠 High | M | OPEN |
-| H3 | MCP transport-error contract honored by only ~half the tools | 🟠 High | M | OPEN |
-| H4 | Destructive reset tools have zero test coverage | 🟠 High | S | OPEN |
-| H5 | `api/main.py` is a 4,758-line god router | 🟠 High | L | OPEN |
+| H2 | Full-house fact recompute on every label write | 🟠 High | M | ✅ DONE (295b9cc) |
+| H3 | MCP transport-error contract honored by only ~half the tools | 🟠 High | M | ✅ DONE (5638ae3) |
+| H4 | Destructive reset tools have zero test coverage | 🟠 High | S | ✅ DONE (12cc56d) |
+| H5 | `api/main.py` is a 4,758-line god router | 🟠 High | L | 🟡 PARTIAL (c81d000, c20f5e1) |
 | M1 | Broad `except Exception` swallowing corruption | 🟡 Medium | M | OPEN |
 | M2 | Geometry utilities duplicated across 3–4 modules | 🟡 Medium | S | OPEN |
 | M3 | Inconsistent magic constants for the same operation | 🟡 Medium | M | OPEN |
@@ -222,7 +222,19 @@ clients).
 ---
 
 ## H2 — Full-house fact recompute on every single-scene label write
-**Severity:** 🟠 High · **Effort:** M · **Status:** OPEN · **Related:** C1, C2
+**Severity:** 🟠 High · **Effort:** M · **Status:** ✅ DONE (295b9cc) · **Related:** C1, C2
+
+> **Resolution.** Two parts. (1) Correctness — `reset_house_labeling` and
+> `reset_house` now hold the house_facts lock across their `rmtree` +
+> reskeleton + rebuild, so a concurrent label-write recompute (which locks
+> house_facts) can no longer read the labels dir mid-deletion;
+> `_recompute_facts_from_scratch` grows a `lock_held` flag to call the unlocked
+> impl when the caller already holds the lock (no re-entrant deadlock).
+> (2) Performance — `put_labels` returns `{unchanged: true}` without writing or
+> recomputing when the payload is byte-identical to disk and house_facts
+> already exists. Test: `tests/test_label_recompute_noop.py`. *Note:* the
+> O(scenes) cost of a genuine cross-scene recompute is inherent to SPA-parity
+> and was not scoped away.
 
 **Locations:** `api/main.py:1432` (`recompute_facts_after_label_write` call on every `PUT /labels`) →
 `api/fact_derivation.py:481–619`.
@@ -250,7 +262,15 @@ recompute must stay, at minimum make it read-consistent under a lock and atomic 
 ---
 
 ## H3 — MCP transport-error contract honored by only ~half the tools
-**Severity:** 🟠 High · **Effort:** M · **Status:** OPEN · **Related:** M4
+**Severity:** 🟠 High · **Effort:** M · **Status:** ✅ DONE (5638ae3) · **Related:** M4
+
+> **Resolution.** Rather than hand-patch every tool, `mcp.tool` is wrapped once
+> (`_transport_guard` + `_guarded_tool` reassignment in `mcp_server.py`): any
+> httpx transport error escaping a tool body is converted to the uniform
+> `api_unreachable` envelope at registration, for all current and future tools.
+> `functools.wraps` preserves FastMCP's introspected schema (verified — all 78
+> tools still register correctly). Tools with inline retry handle the error
+> first, so their behavior is unchanged. Tests in `tests/test_mcp_smoke.py`.
 
 **Locations:**
 - Guard **present** (30 sites): e.g. `mcp_server.py:250` (`list_houses`), `mcp_server.py:293` (`get_house`)
@@ -291,7 +311,13 @@ talks to the backend, and migrate all 78 tools onto it. Removes the inline retry
 ---
 
 ## H4 — Destructive reset tools have zero test coverage
-**Severity:** 🟠 High · **Effort:** S · **Status:** OPEN
+**Severity:** 🟠 High · **Effort:** S · **Status:** ✅ DONE (12cc56d)
+
+> **Resolution.** Added smoke tests (`tests/test_mcp_smoke.py`) for
+> `reset_scene_labels` / `reset_house_labeling` / `reset_house_dataset`:
+> per-tool scope (one scene vs whole house vs whole dataset), idempotency,
+> image/manifest retention, and that unsafe / path-traversal keys (`..`,
+> `a/b`, `../other`) return `ok:false` without touching a bystander house.
 
 **Locations:** `mcp_server.py:3695` (`reset_scene_labels`), `3730` (`reset_house_labeling`),
 `3763` (`reset_house_dataset`). Backing route `reset_house_labeling` does `shutil.rmtree(labels/)` at
@@ -319,7 +345,27 @@ already-empty target, and assert a malicious `key`/`file` cannot escape the data
 ---
 
 ## H5 — `api/main.py` is a 4,758-line god router
-**Severity:** 🟠 High · **Effort:** L · **Status:** OPEN · **Related:** M1, M2, M5, L4
+**Severity:** 🟠 High · **Effort:** L · **Status:** 🟡 PARTIAL (c81d000, c20f5e1) · **Related:** M1, M2, M5, L4
+
+> **Progress.** The two largest cohesive families have been carved into their
+> own `APIRouter` modules, behavior-preserving (routes moved verbatim,
+> `@app`→`@router`, shared helpers imported from `api.main`, routers included
+> before the SPA catch-all so order is unchanged; full suite green after each):
+> - `api/routes_plan_state.py` — ~30 plan + plan-state + repair-candidate routes (c81d000)
+> - `api/routes_geometry.py` — ~24 grid/CV/wall/dimension/opening routes (c20f5e1)
+>
+> **Result so far:** `api/main.py` 4,758 → ~2,790 lines (-41%).
+>
+> **Remaining (deliberately deferred — needs a prerequisite step):** the
+> pdf/intake, exports, and labels families share foundational helpers that
+> physically live in the pdf/export region but are used across families
+> (`_safe_key`, `_read_manifest`, `_write_manifest`, `_bundle_state`,
+> `_sanity_check_house`, `_export_one_house`, `SET_A_TYPES`). Cleanly carving
+> these requires **first** extracting those shared helpers + path constants
+> into a base module (e.g. `api/_shared.py` / `api/deps.py`) imported by
+> `main.py` and all routers. That base-module extraction is the next unit of
+> work; until then, moving the pdf/export/labels routes would require fragile
+> back-imports and was judged not worth the regression risk.
 
 **Location:** `api/main.py` (entire); 88 route decorators, 150 function definitions, one `@app` instance, no
 `APIRouter` split.
