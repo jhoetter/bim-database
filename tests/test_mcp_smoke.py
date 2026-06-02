@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+import shutil
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -51,6 +54,46 @@ def _patch_mcp_client_to_use_in_process_fastapi():
 
 def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_mcp_scratch_scenes():
+    yield
+    for path in api_main.DATASET_DIR.glob("house-zzmcp*"):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def _write_scratch_scene(
+    key: str,
+    *,
+    scene_tag: str = "grundriss",
+    level: str | None = "eg",
+) -> tuple[str, str]:
+    file = f"{key}-scene.jpg"
+    root = api_main.DATASET_DIR / key
+    shutil.rmtree(root, ignore_errors=True)
+    labels_dir = root / "labels"
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (400, 300), (255, 255, 255)).save(root / file)
+    kind = "floorplan" if scene_tag == "grundriss" else scene_tag
+    (root / "manifest.json").write_text(json.dumps({
+        "key": key,
+        "drawings": [{
+            "file": file,
+            "kind": kind,
+            "source": "test",
+            "view": None,
+            "floor": level if scene_tag == "grundriss" else None,
+            "title": "MCP scratch scene",
+            "imported_at": "2026-01-01T00:00:00Z",
+        }],
+    }))
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = scene_tag
+    labels["scene_level"] = level if scene_tag == "grundriss" else None
+    labels["image_size_px"] = [400, 300]
+    (labels_dir / f"{Path(file).stem}.json").write_text(json.dumps(labels))
+    return key, file
 
 
 # ── §5.1 Discovery ────────────────────────────────────────────────────────
@@ -268,9 +311,7 @@ def test_list_scene_labels_smoke():
 
 
 def test_set_scene_tag_round_trip():
-    key, file = _first_scene_with_label_file()
-    if key is None:
-        pytest.skip("no scene")
+    key, file = _write_scratch_scene("house-zzmcptag")
     # Save original
     m = _run(mcp_server.get_scene_meta(key=key, file=file))
     original = m["data"]["scene_tag"]
@@ -295,9 +336,7 @@ def test_set_scene_tag_rejects_bad_tag():
 
 
 def test_upsert_label_round_trip():
-    key, file = _first_scene_with_label_file()
-    if key is None:
-        pytest.skip("no scene")
+    key, file = _write_scratch_scene("house-zzmcplabel")
     # Create a small test wall, then delete it on cleanup.
     # Use `notes` (free-form on the envelope) to mark it so a manual
     # cleanup can find leftovers if the test crashes mid-flight.
@@ -609,16 +648,8 @@ def test_add_reference_dim_unlocks_w4_via_server_derivation():
 
 
 def _scratch_scene_for_guards():
-    """Pick a scene we can safely write+revert against."""
-    rs = _run(mcp_server.list_houses())
-    if not rs["data"]["houses"]:
-        pytest.skip("no houses")
-    for h in rs["data"]["houses"]:
-        gh = _run(mcp_server.get_house(key=h["key"]))
-        for d in gh["data"]["drawings"]:
-            if d.get("kind") in ("elevation", "section"):
-                return h["key"], d["file"]
-    pytest.skip("no elevation/section in corpus")
+    """Create a scene we can safely write+revert against."""
+    return _write_scratch_scene("house-zzmcpguards")
 
 
 def test_g4_2_add_reference_dim_rejects_out_of_bounds_endpoints():

@@ -142,6 +142,146 @@ export interface SceneLabels {
   };
 }
 
+export interface ScenePlan {
+  exists: boolean;
+  key: string;
+  file: string;
+  path: string;
+  markdown: string;
+  version: string | null;
+  status: 'draft' | 'active' | 'blocked' | 'needs_repair' | 'blocked_external' | 'review' | 'verified' | 'accepted_incomplete' | 'complete' | string | null;
+  template_version: string;
+  last_updated: string | null;
+  markdown_path?: string;
+  state?: ScenePlanState | null;
+  legacy_markdown_exists?: boolean;
+}
+
+export type ScenePlanTaskStatus =
+  | 'todo'
+  | 'in_progress'
+  | 'blocked'
+  | 'needs_repair'
+  | 'rejected'
+  | 'verified'
+  | 'accepted_incomplete';
+export type ScenePlanDefectStatus = 'open' | 'in_progress' | 'fixed' | 'rejected' | 'accepted_uncertain';
+export type ScenePlanDefectSeverity = 'blocker' | 'warning' | 'info';
+
+export interface ScenePlanGate {
+  id: string;
+  status: 'pending' | 'passed' | 'failed' | 'waived' | string;
+  evidence_ids?: string[];
+  waiver_reason?: string | null;
+}
+
+export interface ScenePlanTask {
+  id: string;
+  title: string;
+  phase: 'analysis' | 'editing' | 'verification' | string;
+  category: string;
+  status: ScenePlanTaskStatus | string;
+  required: boolean;
+  blocked_by?: string[];
+  depends_on?: string[];
+  invalidates?: string[];
+  gates?: ScenePlanGate[];
+  evidence_ids?: string[];
+  updated_at?: string;
+}
+
+export interface ScenePlanDefect {
+  id: string;
+  title: string;
+  status: ScenePlanDefectStatus | string;
+  severity: ScenePlanDefectSeverity | string;
+  category: string;
+  region?: unknown;
+  description?: string;
+  expected_resolution?: string;
+  classification?: string;
+  evidence_ids?: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ScenePlanEvidence {
+  id: string;
+  kind: string;
+  mode: 'analysis' | 'editing' | 'verification' | string;
+  summary: string;
+  tool?: string | null;
+  params?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  observation_id?: string | null;
+  image_url?: string | null;
+  created_at?: string;
+}
+
+export interface ScenePlanAction {
+  kind: 'defect' | 'task' | string;
+  action_id?: string;
+  mode?: string;
+  task_id?: string | null;
+  defect_id?: string | null;
+  id: string;
+  title: string;
+  severity?: string;
+  category?: string;
+  phase?: string;
+  region?: unknown;
+  allowed_label_types?: string[];
+  forbidden_label_types?: string[];
+  allowed_tools?: string[];
+  required_evidence?: string[];
+  success_gates?: string[];
+  rejected_attempts?: Array<Record<string, unknown>>;
+  instruction: string;
+}
+
+export interface ScenePlanTerminality {
+  terminal?: boolean;
+  status?: string;
+  summary?: string;
+  required_complete?: boolean;
+  percent_complete?: number;
+  open_blockers?: number;
+  open_warnings?: number;
+  current_action_id?: string | null;
+  final_qa_allowed?: boolean;
+  stale_evidence?: string[];
+  next_action_available?: boolean;
+  next_action?: ScenePlanAction | null;
+  terminality_reasons?: string[];
+}
+
+export interface ScenePlanState {
+  schema_version: 'scene-plan-state-v1' | string;
+  key: string;
+  file: string;
+  scene_tag: SceneTag | string;
+  level_or_orientation?: string | null;
+  status: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  current_state?: {
+    summary?: string;
+    label_counts?: Record<string, number>;
+    scores?: Record<string, unknown>;
+    topology?: Record<string, unknown>;
+    blockers?: string[];
+    stale_evidence?: string[];
+    current_action_id?: string | null;
+    terminality?: ScenePlanTerminality;
+  };
+  tasks?: ScenePlanTask[];
+  defects?: ScenePlanDefect[];
+  evidence?: ScenePlanEvidence[];
+  decision_log?: Array<Record<string, unknown>>;
+  actions?: Array<Record<string, unknown>>;
+}
+
 // Dataset (supervised-learning corpus) — drawings come from two sources:
 // AI image-models (scripts/generate_drawings) and real scanned plans
 // (scripts/include_real_plans.py from houses flagged dataset_starred=true).

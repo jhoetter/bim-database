@@ -301,6 +301,471 @@ def patch_scene_attrs(key: str, file: str, body: dict = Body(...)):
     return _load_dataset_manifest(key)
 
 
+# ── per-scene agent plan Markdown ─────────────────────────────────────────
+
+def _ensure_dataset_scene(key: str, file: str) -> None:
+    _safe_key(key)
+    if "/" in file or "\\" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    if not _scene_image_path("dataset", key, file).exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+
+
+def _plan_http_error(e: Exception):
+    from .scene_plans import PlanConflictError
+    from .scene_plan_state import PlanStateConflictError
+    if isinstance(e, (PlanConflictError, PlanStateConflictError)):
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    if isinstance(e, FileNotFoundError):
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    if isinstance(e, (KeyError, ValueError)):
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    raise e
+
+
+@app.get("/datasets/{key}/{file}/plan", tags=["dataset"])
+def get_scene_plan(key: str, file: str):
+    """Read the per-scene Markdown plan used by the labeling agent."""
+    _ensure_dataset_scene(key, file)
+    from .scene_plans import read_plan
+    return {"ok": True, "data": read_plan(DATASET_DIR, key, file)}
+
+
+@app.post("/datasets/{key}/{file}/plan/template", tags=["dataset"])
+def create_scene_plan_from_template_route(key: str, file: str, body: dict[str, Any] = Body(default={})):
+    """Create a scene plan from the standard template. Rejects overwrite unless
+    `overwrite:true` is passed."""
+    _ensure_dataset_scene(key, file)
+    from .scene_plans import create_plan_from_template
+    try:
+        data = create_plan_from_template(
+            DATASET_DIR,
+            key,
+            file,
+            scene_tag=str(body.get("scene_tag") or "nicht_klassifiziert"),
+            level_or_orientation=body.get("level_or_orientation"),
+            created_by=body.get("created_by"),
+            overwrite=bool(body.get("overwrite", False)),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.put("/datasets/{key}/{file}/plan", tags=["dataset"])
+def put_scene_plan(key: str, file: str, body: dict[str, Any] = Body(...)):
+    """Create/update a scene plan. `expected_version` enables optimistic
+    concurrency; `create_only:true` rejects overwrite."""
+    _ensure_dataset_scene(key, file)
+    markdown = body.get("markdown")
+    if not isinstance(markdown, str):
+        raise HTTPException(status_code=400, detail="markdown must be a string")
+    from .scene_plans import write_plan
+    try:
+        data = write_plan(
+            DATASET_DIR,
+            key,
+            file,
+            markdown,
+            expected_version=body.get("expected_version"),
+            create_only=bool(body.get("create_only", False)),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan/log", tags=["dataset"])
+def append_scene_plan_log_route(key: str, file: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plans import append_log
+    try:
+        data = append_log(
+            DATASET_DIR,
+            key,
+            file,
+            mode=str(body.get("mode") or ""),
+            evidence=str(body.get("evidence") or ""),
+            decision=str(body.get("decision") or ""),
+            result=str(body.get("result") or ""),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.patch("/datasets/{key}/{file}/plan/tasks/{task_id}", tags=["dataset"])
+def patch_scene_plan_task_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plans import set_task_status
+    try:
+        data = set_task_status(
+            DATASET_DIR,
+            key,
+            file,
+            task_id=task_id,
+            status=str(body.get("status") or ""),
+            note=body.get("note"),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+# ── per-scene structured plan state ──────────────────────────────────────
+
+@app.get("/datasets/{key}/{file}/plan-state", tags=["dataset"])
+def get_scene_plan_state_route(key: str, file: str):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import read_plan_state
+    return {"ok": True, "data": read_plan_state(DATASET_DIR, key, file)}
+
+
+@app.get("/datasets/{key}/{file}/plan-state/status", tags=["dataset"])
+def get_scene_plan_status_route(key: str, file: str):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import plan_status
+    return {"ok": True, "data": plan_status(DATASET_DIR, key, file)}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/template", tags=["dataset"])
+def create_scene_plan_state_from_template_route(key: str, file: str, body: dict[str, Any] = Body(default={})):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import create_plan_state_from_template
+    try:
+        data = create_plan_state_from_template(
+            DATASET_DIR,
+            key,
+            file,
+            scene_tag=str(body.get("scene_tag") or "nicht_klassifiziert"),
+            level_or_orientation=body.get("level_or_orientation"),
+            created_by=body.get("created_by"),
+            overwrite=bool(body.get("overwrite", False)),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.put("/datasets/{key}/{file}/plan-state", tags=["dataset"])
+def put_scene_plan_state_route(key: str, file: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    state = body.get("state")
+    if not isinstance(state, dict):
+        raise HTTPException(status_code=400, detail="state must be an object")
+    state["key"] = key
+    state["file"] = file
+    from .scene_plan_state import write_plan_state
+    try:
+        data = write_plan_state(
+            DATASET_DIR,
+            state,
+            expected_version=body.get("expected_version"),
+            sync_markdown=bool(body.get("sync_markdown", True)),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/evidence", tags=["dataset"])
+def add_scene_plan_evidence_route(key: str, file: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import add_evidence
+    try:
+        data = add_evidence(
+            DATASET_DIR,
+            key,
+            file,
+            body,
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/defects", tags=["dataset"])
+def upsert_scene_plan_defect_route(key: str, file: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import upsert_defect
+    try:
+        data = upsert_defect(
+            DATASET_DIR,
+            key,
+            file,
+            body,
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.patch("/datasets/{key}/{file}/plan-state/defects/{defect_id}", tags=["dataset"])
+def update_scene_plan_defect_route(key: str, file: str, defect_id: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import update_defect
+    try:
+        data = update_defect(
+            DATASET_DIR,
+            key,
+            file,
+            defect_id,
+            body,
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.patch("/datasets/{key}/{file}/plan-state/tasks/{task_id}", tags=["dataset"])
+def set_scene_plan_task_state_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import set_task_state
+    try:
+        data = set_task_state(
+            DATASET_DIR,
+            key,
+            file,
+            task_id,
+            str(body.get("status") or ""),
+            evidence_ids=body.get("evidence_ids"),
+            blocked_by=body.get("blocked_by"),
+            gate_updates=body.get("gate_updates"),
+            note=body.get("note"),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+def _compute_plan_state_gate_inputs(key: str, file: str, body: dict[str, Any]) -> dict[str, Any]:
+    labels_doc = get_labels("dataset", key, file)
+    score_walls_result = body.get("score_walls")
+    if score_walls_result is None and bool(body.get("run_score_walls", True)):
+        img_path = _scene_image_path("dataset", key, file)
+        walls = []
+        for lab in (labels_doc.get("labels") or []):
+            if lab.get("type") != "wall":
+                continue
+            g = lab.get("geometry") or {}
+            s, e = g.get("start"), g.get("end")
+            if s and e:
+                walls.append(((float(s[0]), float(s[1])), (float(e[0]), float(e[1]))))
+        from PIL import Image as PILImage
+        from .wall_score import score_walls
+        with PILImage.open(img_path) as src:
+            score_walls_result = score_walls(
+                src.convert("RGB"),
+                walls,
+                min_wall_px=int(body.get("min_wall_px", 16)),
+                tol_px=int(body.get("tol_px", 18)),
+                close_px=int(body.get("close_px", 82)),
+                thin_aware=bool(body.get("thin_aware", False)),
+            )
+        score_walls_result["n_walls"] = len(walls)
+    score_measurements_result = body.get("score_measurements")
+    if score_measurements_result is None and bool(body.get("run_score_measurements", True)):
+        walls, dims = [], []
+        for lab in (labels_doc.get("labels") or []):
+            g = lab.get("geometry") or {}
+            s, e = g.get("start"), g.get("end")
+            if not s or not e:
+                continue
+            if lab.get("type") == "wall":
+                walls.append({"start": s, "end": e})
+            elif lab.get("type") == "dimensioned_distance":
+                attrs = lab.get("attributes") or {}
+                dims.append({"start": s, "end": e, "value_mm": attrs.get("value_mm")})
+        from .measure_check import score_measurements_from_labels
+        score_measurements_result = score_measurements_from_labels(
+            walls,
+            dims,
+            tol_px=float(body.get("measurement_tol_px", 8)),
+            axis_tol_px=float(body.get("axis_tol_px", 14)),
+        )
+    topology_result = body.get("topology_qa")
+    if topology_result is None and bool(body.get("run_topology_qa", True)):
+        from .wall_topology import wall_topology_qa
+        topology_result = wall_topology_qa(labels_doc.get("labels") or [])
+    continuity_result = body.get("continuity_check")
+    if continuity_result is None and bool(body.get("run_continuity_check", True)):
+        from .wall_topology import wall_continuity_check
+        continuity_result = wall_continuity_check(labels_doc.get("labels") or [])
+    return {
+        "labels_doc": labels_doc,
+        "score_walls_result": score_walls_result,
+        "score_measurements_result": score_measurements_result,
+        "topology_result": topology_result,
+        "continuity_result": continuity_result,
+    }
+
+
+@app.post("/datasets/{key}/{file}/plan-state/evaluate-gates", tags=["dataset"])
+def evaluate_scene_plan_gates_route(key: str, file: str, body: dict[str, Any] = Body(default={})):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import evaluate_gates
+    try:
+        inputs = _compute_plan_state_gate_inputs(key, file, body)
+        data = evaluate_gates(
+            DATASET_DIR,
+            key,
+            file,
+            labels_doc=inputs["labels_doc"],
+            score_walls_result=inputs["score_walls_result"],
+            score_measurements_result=inputs["score_measurements_result"],
+            topology_result=inputs["topology_result"],
+            continuity_result=inputs["continuity_result"],
+            visual_evidence=bool(body.get("visual_evidence", False)),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.get("/datasets/{key}/{file}/plan-state/next-actions", tags=["dataset"])
+def get_scene_plan_next_actions_route(key: str, file: str, limit: int = 3):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import next_actions_from_state, read_plan_state
+    data = read_plan_state(DATASET_DIR, key, file)
+    state = data.get("state")
+    return {"ok": True, "data": {"exists": data["exists"], "actions": next_actions_from_state(state, limit=limit) if state else []}}
+
+
+@app.get("/datasets/{key}/{file}/plan-state/next-action", tags=["dataset"])
+def get_scene_plan_next_action_route(key: str, file: str):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import next_action
+    return {"ok": True, "data": next_action(DATASET_DIR, key, file)}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/actions/{action_id}/start", tags=["dataset"])
+def start_scene_plan_action_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(default={})):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import start_action
+    try:
+        data = start_action(
+            DATASET_DIR,
+            key,
+            file,
+            action_id,
+            agent_id=body.get("agent_id"),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/actions/{action_id}/attempts", tags=["dataset"])
+def record_scene_plan_attempt_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(default={})):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import record_attempt
+    try:
+        data = record_attempt(
+            DATASET_DIR,
+            key,
+            file,
+            action_id,
+            body,
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/actions/{action_id}/finish", tags=["dataset"])
+def finish_scene_plan_action_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import finish_action
+    try:
+        data = finish_action(
+            DATASET_DIR,
+            key,
+            file,
+            action_id,
+            outcome=str(body.get("outcome") or ""),
+            attempt_id=body.get("attempt_id"),
+            evidence_ids=body.get("evidence_ids"),
+            reason=body.get("reason"),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/tasks/{task_id}/reopen", tags=["dataset"])
+def reopen_scene_plan_task_route(key: str, file: str, task_id: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import reopen_task
+    try:
+        data = reopen_task(
+            DATASET_DIR,
+            key,
+            file,
+            task_id,
+            reason=str(body.get("reason") or ""),
+            evidence_ids=body.get("evidence_ids"),
+            invalidate_dependents=bool(body.get("invalidate_dependents", True)),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/defects/{defect_id}/classify", tags=["dataset"])
+def classify_scene_plan_defect_route(key: str, file: str, defect_id: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import classify_defect
+    try:
+        data = classify_defect(
+            DATASET_DIR,
+            key,
+            file,
+            defect_id,
+            str(body.get("classification") or ""),
+            evidence_ids=body.get("evidence_ids"),
+            note=body.get("note"),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/evaluate-terminality", tags=["dataset"])
+def evaluate_scene_plan_terminality_route(key: str, file: str):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import evaluate_terminality
+    return {"ok": True, "data": evaluate_terminality(DATASET_DIR, key, file)}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/render-markdown", tags=["dataset"])
+def render_scene_plan_markdown_route(key: str, file: str, body: dict[str, Any] = Body(default={})):
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import read_plan_state, render_markdown, write_plan_state
+    try:
+        data = read_plan_state(DATASET_DIR, key, file)
+        if not data["exists"]:
+            raise FileNotFoundError("plan state does not exist")
+        markdown = render_markdown(data["state"])
+        if bool(body.get("sync", True)):
+            data = write_plan_state(DATASET_DIR, data["state"], expected_version=body.get("expected_version"), sync_markdown=True)
+            markdown = data["markdown"]
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": {"markdown": markdown, "path": data.get("markdown_path"), "version": data.get("version")}}
+
+
 # ── annotation labels ─────────────────────────────────────────────────────
 # Scope-aware so the URL shape stays compatible with the existing UI; the
 # `house` scope is gone — only `dataset` is accepted post-R0.
@@ -432,6 +897,146 @@ def _validate_scene_tag_label_palette(payload: dict[str, Any]) -> None:
         )
 
 
+def _as_point(pt: Any) -> tuple[float, float] | None:
+    if (
+        isinstance(pt, list)
+        and len(pt) == 2
+        and isinstance(pt[0], (int, float))
+        and isinstance(pt[1], (int, float))
+    ):
+        return (float(pt[0]), float(pt[1]))
+    return None
+
+
+def _floorplan_opening_axis(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """Return the opening's along-wall centerline from its quad geometry.
+
+    UI-created floorplan openings store quad corners as [a,b,c,d], with a-b
+    and d-c running along the wall. The semantic placement check should test
+    the centerline, not the quad corners, because the corners are intentionally
+    offset by wall thickness.
+    """
+    quad = ((label.get("geometry") or {}).get("quad") or [])
+    if not isinstance(quad, list) or len(quad) != 4:
+        return None
+    pts = [_as_point(p) for p in quad]
+    if any(p is None for p in pts):
+        return None
+    a, b, c, d = pts  # type: ignore[misc]
+    return (
+        ((a[0] + d[0]) / 2.0, (a[1] + d[1]) / 2.0),
+        ((b[0] + c[0]) / 2.0, (b[1] + c[1]) / 2.0),
+    )
+
+
+def _wall_segment(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    geom = label.get("geometry") or {}
+    start = _as_point(geom.get("start"))
+    end = _as_point(geom.get("end"))
+    if start is None or end is None:
+        return None
+    return (start, end)
+
+
+def _validate_dependent_labels(payload: dict[str, Any]) -> None:
+    """Reject label sets the UI cannot honestly create.
+
+    UI affordances are not enough because MCP/direct HTTP can bypass them. Keep
+    semantic dependency checks here so every writer follows the same rules.
+    """
+    labels = [lab for lab in (payload.get("labels") or []) if isinstance(lab, dict)]
+    by_id: dict[str, dict[str, Any]] = {}
+    for lab in labels:
+        label_id = lab.get("id")
+        if not isinstance(label_id, str) or not label_id:
+            continue
+        if label_id in by_id:
+            raise HTTPException(status_code=422, detail=f"duplicate label id {label_id!r}")
+        by_id[label_id] = lab
+
+    # All declared relations must point at an existing label. This matches the
+    # UI delete path, which strips stale incoming relations when a target goes
+    # away.
+    for lab in labels:
+        label_id = lab.get("id", "<unknown>")
+        for rel in lab.get("relations") or []:
+            if not isinstance(rel, dict):
+                continue
+            other_id = rel.get("other_id")
+            if isinstance(other_id, str) and other_id not in by_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"label {label_id!r} relation target {other_id!r} does not exist",
+                )
+
+    for lab in labels:
+        label_id = lab.get("id", "<unknown>")
+        label_type = lab.get("type")
+
+        if label_type == "floorplan_opening":
+            parent_ids = [
+                rel.get("other_id")
+                for rel in (lab.get("relations") or [])
+                if isinstance(rel, dict) and rel.get("kind") == "belongs_to"
+            ]
+            if not parent_ids:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"floorplan_opening {label_id!r} must belong_to a wall",
+                )
+            parent = next(
+                (
+                    by_id.get(pid)
+                    for pid in parent_ids
+                    if isinstance(pid, str)
+                    and by_id.get(pid, {}).get("type") == "wall"
+                ),
+                None,
+            )
+            if parent is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"floorplan_opening {label_id!r} belongs_to target must be an existing wall",
+                )
+            opening_axis = _floorplan_opening_axis(lab)
+            parent_wall = _wall_segment(parent)
+            if opening_axis is None or parent_wall is None:
+                continue
+            from .geometry_checks import opening_on_wall
+
+            placement = opening_on_wall(opening_axis, [parent_wall], tol_px=30.0)
+            if not placement["on_wall"]:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"floorplan_opening {label_id!r} is not placed on parent wall "
+                        f"{parent.get('id')!r}; max_endpoint_dist="
+                        f"{placement.get('max_endpoint_dist')}px"
+                    ),
+                )
+
+        if label_type == "dimension_number":
+            targets = [
+                by_id.get(rel.get("other_id"))
+                for rel in (lab.get("relations") or [])
+                if isinstance(rel, dict) and rel.get("kind") == "labels"
+            ]
+            if not any(t and t.get("type") == "dimensioned_distance" for t in targets):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"dimension_number {label_id!r} must label an existing dimensioned_distance",
+                )
+
+        ref_line_id = (lab.get("attributes") or {}).get("reference_line_id")
+        if ref_line_id is not None:
+            target = by_id.get(ref_line_id)
+            if target is None or target.get("type") != "component_line":
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"label {label_id!r} reference_line_id must point to an existing component_line",
+                )
+
+
 @app.get("/labels/{scope}/{key}/{file}", tags=["labels"])
 def get_labels(scope: str, key: str, file: str):
     """Return the label set for one scene. If no labels file exists yet,
@@ -463,6 +1068,7 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
             _jsonschema.validate(payload, LABELS_SCHEMA)
         except _jsonschema.ValidationError as e:
             raise HTTPException(status_code=422, detail=f"schema: {e.message} at {list(e.absolute_path)}")
+    _validate_dependent_labels(payload)
     label_path.parent.mkdir(parents=True, exist_ok=True)
     label_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
     # G1 (agentic-labeling-followups-tracker): server-side fact derivation.
@@ -487,7 +1093,7 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
 
 
 @app.delete("/labels/{scope}/{key}/{file}", tags=["labels"])
-def reset_scene_labels(scope: str, key: str, file: str):
+def reset_scene_labels(scope: str, key: str, file: str, reset_plan: bool = False):
     """Reset one scene's labels and workflow metadata, keeping the scene image.
 
     Mirrors the AnnotatePage "Labels zurücksetzen" action, but also rebuilds
@@ -500,18 +1106,26 @@ def reset_scene_labels(scope: str, key: str, file: str):
     label_path = _safe_label_path(scope, key, file)
     label_path.parent.mkdir(parents=True, exist_ok=True)
     label_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    plan_deleted = False
+    if reset_plan:
+        from .scene_plan_state import delete_plan_state_files
+        plan_deleted = delete_plan_state_files(DATASET_DIR, key, file) > 0
+    else:
+        from .scene_plan_state import mark_state_stale_after_reset
+        mark_state_stale_after_reset(DATASET_DIR, key, file)
     facts = _recompute_facts_from_scratch(key)
     return {
         "ok": True,
         "file": file,
         "labels_reset": 1,
         "label_count": 0,
+        "plan_deleted": plan_deleted,
         "house_facts": facts,
     }
 
 
 @app.delete("/datasets/{key}/labels", tags=["dataset"])
-def reset_house_labeling(key: str):
+def reset_house_labeling(key: str, reset_plans: bool = False):
     """Reset every scene's labels for a house, keeping extracted scenes.
 
     This is the MCP/automation counterpart to scene-level UI resets when the
@@ -540,12 +1154,21 @@ def reset_house_labeling(key: str):
             json.dumps(payload, indent=2, ensure_ascii=False)
         )
         reset_files.append(file)
+    plans_deleted = 0
+    if reset_plans:
+        from .scene_plan_state import delete_plan_state_files
+        plans_deleted = delete_plan_state_files(DATASET_DIR, key)
+    else:
+        from .scene_plan_state import mark_state_stale_after_reset
+        for file in reset_files:
+            mark_state_stale_after_reset(DATASET_DIR, key, file)
     facts = _recompute_facts_from_scratch(key)
     return {
         "ok": True,
         "key": key,
         "mode": "labels_only_keep_scenes",
         "labels_reset": len(reset_files),
+        "plans_deleted": plans_deleted,
         "files": reset_files,
         "house_facts": facts,
     }
@@ -1767,6 +2390,139 @@ def building_silhouette_route(
     return {"ok": True, "data": res}
 
 
+@app.get("/datasets/{key}/{file}/outer-wall-topology-context", tags=["pdfs"])
+def outer_wall_topology_context_route(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 12,
+    thresh: int | None = None,
+):
+    """Context package for the required silhouette-first analysis pass.
+
+    Deterministic CV priors may be empty on pencil scans; the returned prompts
+    tell the vision agent what to write into the scene plan before wall edits.
+    """
+    _ensure_dataset_scene(key, file)
+    outline = wall_outline(
+        key,
+        file,
+        region=region,
+        min_wall_px=max(6, min_wall_px - 4),
+        thresh=thresh,
+        n_outlines=3,
+        epsilon_px=10.0,
+    )["data"]
+    silhouette = building_silhouette_route(
+        key,
+        file,
+        region=region,
+        min_wall_px=min_wall_px,
+        thresh=thresh,
+        angle_tol_deg=18.0,
+        min_area_frac=0.02,
+    )["data"]
+    return {
+        "ok": True,
+        "data": {
+            "region": list(_parse_region(region)) if _parse_region(region) else None,
+            "outline_prior": outline,
+            "silhouette_prior": silhouette,
+            "questions": [
+                "List connected masses before placing walls.",
+                "Write the clockwise exterior corner sequence for each mass.",
+                "Name excluded non-walls: balcony, terrace, furniture, dimensions, dashed projections, site lines.",
+                "Identify places where openings interrupt ink but the structural wall should continue.",
+                "Record this in the scene plan's Silhouette And Masses section before edits.",
+            ],
+            "cv_prior_note": (
+                "Empty outline/silhouette priors are normal on faint freehand scans; "
+                "the harness vision agent remains the reader."
+            ),
+        },
+    }
+
+
+@app.get("/datasets/{key}/{file}/wall-topology-qa", tags=["pdfs"])
+def wall_topology_qa_route(
+    key: str,
+    file: str,
+    endpoint_tol_px: float = 18.0,
+    near_miss_px: float = 60.0,
+    collinear_tol_deg: float = 8.0,
+    collinear_gap_px: float = 140.0,
+    short_stub_px: float = 80.0,
+):
+    _ensure_dataset_scene(key, file)
+    doc = get_labels("dataset", key, file)
+    from .wall_topology import wall_topology_qa
+    data = wall_topology_qa(
+        doc.get("labels") or [],
+        endpoint_tol_px=endpoint_tol_px,
+        near_miss_px=near_miss_px,
+        collinear_tol_deg=collinear_tol_deg,
+        collinear_gap_px=collinear_gap_px,
+        short_stub_px=short_stub_px,
+    )
+    return {"ok": True, "data": data}
+
+
+@app.get("/datasets/{key}/{file}/wall-continuity-check", tags=["pdfs"])
+def wall_continuity_check_route(
+    key: str,
+    file: str,
+    collinear_tol_deg: float = 8.0,
+    gap_px: float = 180.0,
+    line_tol_px: float = 24.0,
+    opening_near_px: float = 80.0,
+):
+    _ensure_dataset_scene(key, file)
+    doc = get_labels("dataset", key, file)
+    from .wall_topology import wall_continuity_check
+    data = wall_continuity_check(
+        doc.get("labels") or [],
+        collinear_tol_deg=collinear_tol_deg,
+        gap_px=gap_px,
+        line_tol_px=line_tol_px,
+        opening_near_px=opening_near_px,
+    )
+    return {"ok": True, "data": data}
+
+
+@app.get("/datasets/{key}/{file}/ambiguous-line-context", tags=["pdfs"])
+def ambiguous_line_context_route(
+    key: str,
+    file: str,
+    bbox: str | None = None,
+    line: str | None = None,
+    pad_px: float = 120.0,
+):
+    """Return a context checklist for a suspicious stroke/continuation.
+
+    `bbox` is x0,y0,x1,y1. `line` is x0,y0,x1,y1. The route does not classify;
+    it provides the crop region + checklist for the vision agent.
+    """
+    _ensure_dataset_scene(key, file)
+    parsed_bbox = [float(v) for v in bbox.split(",")] if bbox else None
+    if parsed_bbox is not None and len(parsed_bbox) != 4:
+        raise HTTPException(status_code=400, detail="bbox must be x0,y0,x1,y1")
+    parsed_line = None
+    if line:
+        vals = [float(v) for v in line.split(",")]
+        if len(vals) != 4:
+            raise HTTPException(status_code=400, detail="line must be x0,y0,x1,y1")
+        parsed_line = [[vals[0], vals[1]], [vals[2], vals[3]]]
+    doc = get_labels("dataset", key, file)
+    from .wall_topology import ambiguous_line_context
+    data = ambiguous_line_context(
+        doc.get("labels") or [],
+        bbox=parsed_bbox,
+        line=parsed_line,
+        pad_px=pad_px,
+    )
+    return {"ok": True, "data": data}
+
+
 @app.post("/datasets/{key}/{file}/propose-wall-edit", tags=["pdfs"])
 def propose_wall_edit_route(
     key: str,
@@ -2041,7 +2797,7 @@ def render_pdf_page_grid(
     max_dim: int = 1600,
 ):
     """Same as /datasets/.../grid but for a PDF page (used for scene
-    identification at W0 / extract). The grid coordinate labels are in
+    identification at inventory / extract). The grid coordinate labels are in
     pixels at the rendered DPI; downstream `extract_scenes` MCP tool
     converts to PDF units using the same DPI."""
     _safe_key(key)
@@ -2789,7 +3545,7 @@ def _persist_scene_calibration(key: str, file: str, calib: dict) -> None:
 
     Idempotent — a later `recompute_facts_after_label_write` re-derives the
     same value via `compute_scene_calibration`, so this only makes the
-    derived W4 / export-readiness state stable EARLIER (right after the
+    derived export-readiness state stable EARLIER (right after the
     homography is computed), in particular for the single-ref isotropic
     path whose preview previously persisted nothing. The entry carries the
     `single_ref_assumed_isotropic` honesty flag.
@@ -2835,7 +3591,7 @@ def export_preview(key: str, file: str, assume_isotropic: bool = False):
     Issue #27: when the rectification is valid (status == "ok") the scene's
     calibration is PERSISTED into house_facts.calibration_per_scene (with
     the single_ref_assumed_isotropic flag), returned as
-    `persisted_calibration`. This makes the W4 / export-readiness gate
+    `persisted_calibration`. This makes the export-readiness gate
     stable on the single-ref isotropic path without a separate label-write
     recompute. Degenerate/insufficient results persist nothing.
     """
@@ -2861,7 +3617,7 @@ def export_preview(key: str, file: str, assume_isotropic: bool = False):
     rect = compute_rectification(labels, img_size, assume_isotropic=assume_isotropic)
 
     # Issue #27: persist the scene's calibration when the rectification is
-    # valid, so the derived W4 / export-readiness state is stable without a
+    # valid, so the derived export-readiness state is stable without a
     # separate label-write recompute. In particular the single-ref
     # isotropic path (assume_isotropic=true) now lands in
     # calibration_per_scene with its single_ref_assumed_isotropic flag, so

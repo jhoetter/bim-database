@@ -44,6 +44,13 @@ def test_floorplan_door_renders_swing_arc_and_missing_parent_warning():
 
 
 def test_floorplan_window_renders_internal_sash_lines():
+    wall = {
+        "id": "wall-1",
+        "type": "wall",
+        "geometry": {"start": [60, 160], "end": [260, 160]},
+        "attributes": {"thickness_mm": 200},
+        "status": "readable",
+    }
     label = {
         "id": "window-1",
         "type": "floorplan_opening",
@@ -52,11 +59,13 @@ def test_floorplan_window_renders_internal_sash_lines():
         "relations": [{"kind": "belongs_to", "other_id": "wall-1"}],
         "status": "readable",
     }
-    out = render_grid_with_labels(_blank(), [label], clean=True, max_dim=1000)
+    out = render_grid_with_labels(_blank(), [wall, label], clean=True, max_dim=1000)
     arr = _rgb(out)
     blue = (arr[..., 2] > 130) & (arr[..., 1] > 80) & (arr[..., 0] < 80)
+    red_warning = (arr[..., 0] > 160) & (arr[..., 1] < 100) & (arr[..., 2] < 120)
     # The sash lines add substantial blue signal inside the opening body.
     assert int(blue[148:174, 90:230].sum()) > 250
+    assert int(red_warning.sum()) == 0
 
 
 def test_component_line_polyline_variant_renders_closed_region():

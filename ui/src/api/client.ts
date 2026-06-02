@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import type {
   LabelScope,
   SceneLabels,
+  ScenePlan,
   DatasetHouse,
   IncomingPdf,
   IncomingSubmission,
@@ -303,6 +304,40 @@ export async function saveLabels(
     throw new Error(`${r.status} ${r.statusText}: ${detail}`);
   }
   return r.json();
+}
+
+export async function fetchScenePlan(key: string, file: string): Promise<ScenePlan> {
+  const res = await get<{ ok: boolean; data: ScenePlan }>(
+    `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(file)}/plan-state`,
+  );
+  return {
+    ...res.data,
+    status: res.data.state?.status ?? res.data.status ?? null,
+    template_version: res.data.state?.schema_version ?? res.data.template_version ?? 'scene-plan-state-v1',
+  };
+}
+
+export async function createScenePlanFromTemplate(
+  key: string,
+  file: string,
+  body: {
+    scene_tag?: string;
+    level_or_orientation?: string | null;
+    created_by?: string | null;
+    overwrite?: boolean;
+  } = {},
+): Promise<ScenePlan> {
+  const r = await fetch(`/datasets/${encodeURIComponent(key)}/${encodeURIComponent(file)}/plan-state/template`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}: ${detail}`);
+  }
+  const payload = await r.json() as { ok: boolean; data: ScenePlan };
+  return payload.data;
 }
 
 // Tiny hook helpers — no react-query dep for this scale. Re-fetches when

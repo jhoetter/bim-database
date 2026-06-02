@@ -38,15 +38,12 @@ export interface SceneMetadataEntry {
   bezug_y_px?: number;
 }
 
-// W4 — orientation graph (Phase 3). The user picks one EG-Grundriss wall
-// as the north-facing edge; everything else is derived from that wall's
-// pixel geometry × the Grundriss calibration. The cardinal name is the
-// user's label; the geometry decides which extent dimension a given
-// Ansicht/Schnitt spans (per spec §4.3 — gable-facing-N case must
-// resolve to depth, not width).
+// Optional orientation graph. When a compass/north edge is visible on a
+// Grundriss, the user can pick one wall as the north-facing edge; everything
+// else is derived from that wall's pixel geometry and the plan calibration.
 export interface OrientationGraph {
   /** Wall label id (in the source Grundriss file) the user picked as
-   *  "the north-facing edge". Null until Phase 3 completes. */
+   *  "the north-facing edge". Null when no compass/north edge is set. */
   north_edge_label_id: string | null;
   /** Optional manual rotation for scanned plans not orthogonal to the
    *  page. Defaults to 0; applied as a counter-clockwise rotation of
@@ -57,19 +54,18 @@ export interface OrientationGraph {
   source_grundriss_file: string;
 }
 
-// W0.1 — workflow state machine. Persisted alongside house_facts so it
+// Workflow state machine. Persisted alongside house_facts so it
 // survives sessions. The phase pointer is the *first phase whose
 // completion predicate fails*; once it advances, the phase_completed_at
 // timestamp records when. user_skipped lets a user permanently dismiss
 // a phase ("I've got that upstream — stop telling me").
 export const PHASE_IDS = [
-  'inventory', 'height_anchor', 'footprint',
-  'orientation', 'bezugsmasse', 'detail',
+  'inventory', 'floorplans', 'sections', 'elevations', 'review',
 ] as const;
 export type PhaseId = typeof PHASE_IDS[number];
 
 export interface WorkflowState {
-  schema_version: '1.0' | '1.1';
+  schema_version: '1.0' | '1.1' | '1.2';
   phase: PhaseId;
   phase_completed_at: Record<PhaseId, string | null>;
   source_scene: Record<PhaseId, string | null>;
@@ -88,7 +84,7 @@ export interface WorkflowState {
   touched_by?: string;  // mentioned in skill principle #5; kept here for forward-compat
 }
 
-// W0.2 — generic provenance-tagged fact bag for future extensions
+// Generic provenance-tagged fact bag for future extensions
 // (roof pitch, gable count, chimney count, …). Lives outside the typed
 // fields so new derived facts append without schema churn.
 export interface FactEntry {
@@ -134,7 +130,7 @@ export interface HouseFacts {
   }>;
   calibration_per_scene: Record<string, SceneCalibration>;
   scene_metadata: Record<string, SceneMetadataEntry>;
-  // W0 — optional so older caches load forward without migration.
+  // Optional so older caches load forward without migration.
   orientation?: OrientationGraph | null;
   workflow?: WorkflowState | null;
   derived_facts?: Record<string, FactEntry>;
@@ -142,11 +138,10 @@ export interface HouseFacts {
 
 export function defaultWorkflowState(): WorkflowState {
   const blank: Record<PhaseId, string | null> = {
-    inventory: null, height_anchor: null, footprint: null,
-    orientation: null, bezugsmasse: null, detail: null,
+    inventory: null, floorplans: null, sections: null, elevations: null, review: null,
   };
   return {
-    schema_version: '1.1',
+    schema_version: '1.2',
     phase: 'inventory',
     phase_completed_at: blank,
     source_scene: { ...blank },
@@ -197,12 +192,15 @@ function _migrateV1_0(facts: HouseFacts): HouseFacts {
 function normalizeHouseFacts(raw: unknown): HouseFacts {
   if (raw == null || typeof raw !== 'object') return defaultFacts();
   const parsed = raw as Partial<HouseFacts> & Record<string, unknown>;
-  if (parsed.schema_version !== '1.0' && parsed.schema_version !== '1.1') {
+  if (parsed.schema_version !== '1.0' && parsed.schema_version !== '1.1' && parsed.schema_version !== '1.2') {
     return defaultFacts();
   }
 
   const def = defaultFacts();
   const workflow = parsed.workflow ?? def.workflow;
+  const workflowPhase = workflow && PHASE_IDS.includes(workflow.phase as PhaseId)
+    ? workflow.phase as PhaseId
+    : 'inventory';
   const facts: HouseFacts = {
     ...parsed,
     schema_version: parsed.schema_version,
@@ -230,9 +228,11 @@ function normalizeHouseFacts(raw: unknown): HouseFacts {
     scene_metadata: parsed.scene_metadata ?? def.scene_metadata,
     orientation: parsed.orientation === undefined ? def.orientation : parsed.orientation,
     workflow: workflow
-      ? {
+        ? {
           ...def.workflow!,
           ...workflow,
+          schema_version: '1.2',
+          phase: workflowPhase,
           phase_completed_at: {
             ...def.workflow!.phase_completed_at,
             ...(workflow.phase_completed_at ?? {}),

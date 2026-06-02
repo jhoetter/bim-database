@@ -102,9 +102,9 @@ End-to-end agent-driven labeling lives in
   + `/pdfs/{key}/page/{n}/grid`) — every scene/page image carries a
   three-tier coordinate grid (broad/finer/detail) so the agent can
   point at pixels precisely.
-- **MCP prompts** for each workflow phase (`W0-inventory`,
-  `W1-height-anchor`, `W2-footprint`, `W3-orientation`, `W4-calibration`,
-  `W5-detail`) discoverable via `/mcp prompt bim-database.<name>`.
+- **MCP prompts** for each workflow stage (`inventory-classify-scenes`,
+  `floorplan-scene-pass`, `section-scene-pass`, `elevation-scene-pass`,
+  `review-house`) discoverable via `/mcp prompt bim-database.<name>`.
 
 The agent and driver live in bim-agent (`scripts/label_drive.py` +
 `claude-skills/house-labeling/SKILL.md`). Customer-loop SLA:
@@ -114,7 +114,8 @@ The agent and driver live in bim-agent (`scripts/label_drive.py` +
 > 2. Developer reviews + promotes via the SPA Submissions tab → bundle
 >    lands at `data/pdfs/incoming/house-NN/`.
 > 3. Overnight cron in bim-agent runs `make label-next --autonomous`,
->    which picks up the new house and labels it through W0–W4.
+>    which picks up the new house and labels it through inventory,
+>    floorplans, sections, and elevations.
 > 4. Reviewer spot-checks the next morning — houses with `🤖 Agent`
 >    chip on the SPA card get a closer pass.
 

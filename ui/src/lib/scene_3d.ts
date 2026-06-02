@@ -278,7 +278,7 @@ export function buildScene3D(bundle: SceneBundle): BuiltScene3D {
     // The wall direction is along the face; the outward normal points
     // away from the building. We don't have the centroid here, so use
     // the wall's perpendicular (left-hand normal) — same approximation
-    // as W4's SceneCompass widget.
+    // as the SceneCompass widget.
     north_arrow_angle = Math.atan2(-dx, dy);
   }
 
@@ -311,4 +311,3 @@ export function buildScene3D(bundle: SceneBundle): BuiltScene3D {
     missing,
   };
 }
-

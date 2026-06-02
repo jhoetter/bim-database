@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import { fetchLabels, fetchDataset, saveLabels, useResource } from '../api/client';
+import { createScenePlanFromTemplate, fetchLabels, fetchDataset, fetchScenePlan, saveLabels, useResource } from '../api/client';
 import type {
   ComponentLineLabel,
   DatasetDrawing,
@@ -23,6 +23,10 @@ import type {
   Point,
   Quad,
   SceneLabels,
+  ScenePlan,
+  ScenePlanAction,
+  ScenePlanEvidence,
+  ScenePlanState,
   SceneLevel,
   SceneOrientation,
   SceneTag,
@@ -56,7 +60,7 @@ import { buildConnectivity, endpointPointsOfLabel, jointMembersAt } from '../lib
 import { inferLineKind, inferOpeningKind, inferOpeningWidthMm, inferWallThicknessMm } from '../lib/auto_infer';
 import { dimOrientation, getBuildingDim, rememberBuildingDim } from '../lib/building_dims';
 import { autoTSplit } from '../lib/auto_split';
-import { loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
+import { defaultWorkflowState, loadHouseFacts, promoteToFacts, saveHouseFacts, syncHouseFactsFromServer, type HouseFacts } from '../lib/house_facts';
 import { effectiveWallPxPerMm, wallBandPath } from '../lib/renderGeometry';
 import { SceneDetailsCard } from '../components/scene/SceneDetailsCard';
 import { Cheatsheet, CHEATSHEET_SECTIONS_EXTRACT, type CheatsheetSection } from '../components/Cheatsheet';
@@ -78,6 +82,7 @@ function workflowPhaseLabelDe(p: PhaseId): string {
 }
 import { collectRefineIssues, type RefineIssue } from '../lib/refine';
 import { clearDefaults, getDefaults, rememberDefaults } from '../lib/defaults';
+import { scenePlanNextAction, scenePlanStatusText, scenePlanWarnings } from '../lib/scenePlanQa';
 import {
   CentreLineIcon, DimensionIcon, DoorIcon, ElevationViewIcon, KeynoteIcon,
   LayersIcon, OpeningIcon, PlanViewIcon, QuestionIcon,
@@ -598,6 +603,12 @@ export function AnnotatePage() {
   const imageUrl = `/static/dataset/${key}/${decodedFile}`;
 
   const { data, loading, error } = useResource(() => fetchLabels(scope, key, decodedFile), [scope, key, decodedFile]);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planRev, setPlanRev] = useState(0);
+  const { data: scenePlan, loading: planLoading, error: planError } = useResource<ScenePlan>(
+    () => fetchScenePlan(key, decodedFile),
+    [key, decodedFile, planRev],
+  );
 
   // Scene navigation (prev/next within the same house). Fetch the house's
   // full scene list once per (scope, key); compute index from the current
@@ -912,7 +923,7 @@ export function AnnotatePage() {
     () => sceneTag === 'grundriss' ? detectRooms(labels) : [],
     [labels, sceneTag],
   );
-  // W0 — workflow snapshot for the WorkflowGuide panel. Re-computes when the
+  // Workflow snapshot for the WorkflowGuide panel. Re-computes when the
   // facts cache or the scene list changes (sceneSummaryRev increments on
   // save → loadHouseFacts returns fresh data → memo recomputes).
   const workflowSnapshot = useMemo(() => {
@@ -1374,8 +1385,8 @@ export function AnnotatePage() {
           const inheritedT = altHeld
             ? null
             : inferWallThicknessMm(newMid, labels, imageSnapRadiusForView * 8);
-          // W3 — fall back to house-wide outer_mm when no neighbor inherit
-          // applies. Phase 2's promotion writes this value; subsequent
+          // Fall back to house-wide outer_mm when no neighbor inherit
+          // applies. Floorplan promotion writes this value; subsequent
           // outer-wall draws on any scene of the house pick it up.
           const houseOuterT = altHeld ? undefined : loadHouseFacts(scope, key).wall_thickness.outer_mm;
           label = {
@@ -1476,9 +1487,9 @@ export function AnnotatePage() {
           if (me?.attributes.is_reference && me.attributes.value_mm == null && !crossSceneNote) {
             const orient = dimOrientation(effStart, effEnd);
             if (orient) {
-              // W5 — Phase 4 derivation: prefer house_facts.extent over the
+              // Prefer house_facts.extent over the
               // X4 per-tag cache when extent + orientation graph are set.
-              // The W4 geometric formula picks width vs depth correctly for
+              // The geometric formula picks width vs depth correctly for
               // gable-facing-N houses.
               const facts = loadHouseFacts(scope, key);
               let derivedMm: number | null = null;
@@ -2387,7 +2398,7 @@ export function AnnotatePage() {
       // N4 — promote this scene's labels to house-wide facts. Idempotent:
       // saving the same scene twice produces the same facts. Drives N5
       // (height inference) and N7 (suggestions) on subsequent scenes.
-      // W0 — snapshot facts before promote so we can detect phase advance.
+      // Snapshot facts before promote so we can detect stage advance.
       const prevFacts = loadHouseFacts(scope, key);
       promoteToFacts({
         scope,
@@ -2399,7 +2410,7 @@ export function AnnotatePage() {
         imageSize,
         labels,
       });
-      // W0 — phase advancement detection. If a phase just completed, fire
+      // Stage advancement detection. If a stage just completed, fire
       // a toast and write back the timestamp. SceneSummary uses the saved
       // house-list metadata; tag falls back to null for unsaved scenes.
       const nextFacts = loadHouseFacts(scope, key);
@@ -2787,6 +2798,21 @@ export function AnnotatePage() {
     + `&show_height_guides=auto`
     + `&include_hidden=false`
     + `&v=${encodeURIComponent(String(lastSavedAt ?? labels.length))}`;
+  const labelsWithoutPlan = labels.length > 0 && scenePlan?.exists === false;
+  const createPlan = async () => {
+    try {
+      await createScenePlanFromTemplate(key, decodedFile, {
+        scene_tag: sceneTag,
+        level_or_orientation: sceneLevel ?? sceneOrientation ?? null,
+        created_by: 'ui',
+      });
+      setPlanRev((v) => v + 1);
+      setPlanOpen(true);
+      addToast('Plan erstellt', 'success', 1400);
+    } catch (e) {
+      addToast(`Plan konnte nicht erstellt werden: ${(e as Error).message}`, 'error', 3200);
+    }
+  };
 
   return (
     <Shell
@@ -2848,6 +2874,22 @@ export function AnnotatePage() {
             aria-pressed={showMcpRender}
           >
             Agent View
+          </button>
+          <button
+            type="button"
+            onClick={() => setPlanOpen((v) => !v)}
+            className={`text-[0.7rem] px-2 py-1 rounded-md border font-semibold ${
+              planOpen
+                ? 'bg-zinc-900 text-white border-zinc-900'
+                : labelsWithoutPlan
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                  : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+            }`}
+            title={labelsWithoutPlan ? 'Diese Szene hat Labels, aber noch keinen Agentenplan.' : 'Agentenplan für diese Szene anzeigen'}
+            aria-label="Agentenplan anzeigen"
+            aria-pressed={planOpen}
+          >
+            {planButtonLabel(scenePlan, labels)}
           </button>
           <CanvasDisplayPalette
             imgOpacity={imgOpacity}
@@ -2918,17 +2960,6 @@ export function AnnotatePage() {
           workflowScenes={workflowSnapshot.scenes}
           currentSceneFile={decodedFile}
           onGoToScene={goToScene}
-          onSetOrientation={(wallId, grundrissFile) => {
-            const f = loadHouseFacts(scope, key);
-            f.orientation = {
-              north_edge_label_id: wallId,
-              source_grundriss_file: grundrissFile,
-              north_angle_deg: null,
-            };
-            saveHouseFacts(scope, key, f);
-            setSceneSummaryRev((r) => r + 1);
-            addToast('✓ Nordkante festgelegt', 'success', 2000);
-          }}
           hiddenLabelIds={hiddenLabelIds}
           onToggleHiddenLabel={(id) => {
             setHiddenLabelIds((prev) => {
@@ -2951,13 +2982,13 @@ export function AnnotatePage() {
           inheritedLabelIds={new Set(crossSceneProvenance.keys())}
           onMarkDetailDone={() => {
             const f = loadHouseFacts(scope, key);
-            const wf = f.workflow ?? { ...{ schema_version: '1.0' as const, phase: 'detail' as const, phase_completed_at: { inventory: null, height_anchor: null, footprint: null, orientation: null, bezugsmasse: null, detail: null }, source_scene: { inventory: null, height_anchor: null, footprint: null, orientation: null, bezugsmasse: null, detail: null }, user_skipped: {} } };
-            wf.phase_completed_at = { ...wf.phase_completed_at, detail: nowIso() };
-            wf.phase = 'detail';
+            const wf = f.workflow ?? defaultWorkflowState();
+            wf.phase_completed_at = { ...defaultWorkflowState().phase_completed_at, ...wf.phase_completed_at, review: nowIso() };
+            wf.phase = 'review';
             f.workflow = wf;
             saveHouseFacts(scope, key, f);
             setSceneSummaryRev((r) => r + 1);
-            addToast('✓ Haus fertig markiert', 'success', 3000);
+            addToast('✓ Review abgeschlossen', 'success', 3000);
           }}
           labels={labels}
           selectedId={selectedId}
@@ -3130,6 +3161,21 @@ export function AnnotatePage() {
       <div className="flex-1 min-h-0 bg-white relative overflow-hidden">
         {loading && <p className="absolute top-4 left-4 text-zinc-700 text-sm">Lade Labels…</p>}
         {error && <p className="absolute top-4 left-4 text-red-700 text-sm">Fehler: {error.message}</p>}
+        {labelsWithoutPlan && !planOpen && (
+          <div className="absolute top-3 right-3 z-20 max-w-sm rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[0.75rem] text-amber-950 shadow-sm">
+            Labels vorhanden, aber kein Szenenplan.
+          </div>
+        )}
+        {planOpen && (
+          <ScenePlanPanel
+            plan={scenePlan}
+            loading={planLoading}
+            error={planError}
+            labels={labels}
+            onClose={() => setPlanOpen(false)}
+            onCreate={createPlan}
+          />
+        )}
         <svg
           ref={svgRef}
           viewBox={viewBox}
@@ -3859,8 +3905,8 @@ export function AnnotatePage() {
             cancels (and deletes the freshly-created label so the user can
             click again). */}
         {pendingInlineEdit && (() => {
-          // W5 — pre-fill with the dim's current value_mm if it was already
-          // set (e.g. from Phase 4 derivation or cross-scene cache). User
+          // Pre-fill with the dim's current value_mm if it was already
+          // set (e.g. from cross-scene cache). User
           // can confirm with Enter or override.
           const target = labels.find((l) => l.id === pendingInlineEdit.labelId);
           let initialValue = '';
@@ -4018,8 +4064,8 @@ export function AnnotatePage() {
           adaptiveAxisEnabled={adaptiveAxisEnabled}
         />
         {/* U15 — toasts use the shared ToastProvider at the app root. */}
-        {/* W4 — compass widget on Ansicht/Schnitt + north arrow on Grundriss.
-            Renders only when Phase 3 orientation is set (so it actually has
+        {/* Compass widget on Ansicht/Schnitt + north arrow on Grundriss.
+            Renders only when orientation is set (so it actually has
             meaningful data to show). */}
         {workflowSnapshot.facts.orientation?.north_edge_label_id &&
          (sceneTag === 'ansicht' || sceneTag === 'schnitt' || sceneTag === 'grundriss') && (
@@ -4231,31 +4277,22 @@ function SceneLevelPicker({
   );
 }
 
-// W1+ — house-first workflow guidance panel. Lives at the top of the rail
-// above Szenen-Tag. Shows the current phase, what's blocking it, and a
-// "go here" button to jump to the recommended scene. Auto-collapses once
-// the user reaches Phase 5 (detail labeling).
+// Scene-class workflow guidance panel. Lives at the top of the rail
+// above Szenen-Tag. Shows the current stage, what's blocking it, and a
+// "go here" button to jump to the recommended scene.
 function WorkflowGuide({
   facts,
   scenes,
   currentSceneFile,
-  currentSceneTag,
-  currentSceneLabels,
   onGoToScene,
-  onSetOrientation,
   onMarkDetailDone,
 }: {
   facts: HouseFacts;
   scenes: WorkflowSceneSummary[];
   currentSceneFile: string;
-  currentSceneTag: SceneTag;
-  currentSceneLabels: Label[];
   onGoToScene: (file: string) => void;
-  /** Phase 3 hook — caller writes facts.orientation, saves, and bumps
-   *  sceneSummaryRev so the WorkflowGuide re-derives. */
-  onSetOrientation: (wallId: string, grundrissFile: string) => void;
-  /** Phase 5 hook — user clicks "fertig"; caller stamps
-   *  workflow.phase_completed_at.detail = nowIso(). */
+  /** Review hook — user clicks "fertig"; caller stamps
+   *  workflow.phase_completed_at.review = nowIso(). */
   onMarkDetailDone: () => void;
 }) {
   const phase = workflowCurrentPhase(facts, scenes);
@@ -4272,12 +4309,12 @@ function WorkflowGuide({
   useEffect(() => {
     try { window.localStorage.setItem(openKey, String(open)); } catch { /* no-op */ }
   }, [open, openKey]);
-  const phaseList: PhaseId[] = ['inventory', 'height_anchor', 'footprint', 'orientation', 'bezugsmasse', 'detail'];
+  const phaseList: PhaseId[] = ['inventory', 'floorplans', 'sections', 'elevations', 'review'];
   const phaseIdx = phaseList.indexOf(phase);
   const completeCount = phaseList.filter((p) => snap[p]?.complete).length;
 
-  // W1 — Phase 0 inventory body: list every scene that's missing a
-  // tag/orientation/level. Per-scene "open" button → goToScene().
+  // Inventory body: list every scene that's missing a tag/level.
+  // Ansicht/Schnitt orientation is a warning elsewhere, not an inventory blocker.
   const inventoryGaps = (() => {
     const gaps: { file: string; reason: string }[] = [];
     for (const s of scenes) {
@@ -4285,10 +4322,6 @@ function WorkflowGuide({
       const tag = meta?.scene_tag ?? s.tag;
       if (!tag || tag === 'nicht_klassifiziert') {
         gaps.push({ file: s.file, reason: 'Szenen-Tag fehlt' });
-        continue;
-      }
-      if ((tag === 'ansicht' || tag === 'schnitt') && !meta?.orientation) {
-        gaps.push({ file: s.file, reason: 'Himmelsrichtung fehlt' });
         continue;
       }
       if (tag === 'grundriss' && !meta?.level) {
@@ -4304,7 +4337,7 @@ function WorkflowGuide({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-start gap-1.5 px-2 py-1.5 text-left"
-        title={`Phase ${phaseIdx + 1} / 6 — ${workflowPhaseLabelDe(phase)}`}
+        title={`Stufe ${phaseIdx + 1} / 5 — ${workflowPhaseLabelDe(phase)}`}
       >
         <span className="w-3 text-center text-[0.7rem] text-zinc-700 font-semibold leading-tight pt-px">
           {open ? '▾' : '▸'}
@@ -4317,16 +4350,16 @@ function WorkflowGuide({
                 done" at a glance. */}
             <span
               className={`ml-auto shrink-0 text-[0.6rem] px-1.5 py-0.5 rounded-full tabular-nums ${
-                completeCount === 6
+                completeCount === 5
                   ? 'bg-emerald-100 text-emerald-900'
                   : 'bg-zinc-200 text-zinc-700'
               }`}
             >
-              {Math.round((completeCount / 6) * 100)} %
+              {Math.round((completeCount / 5) * 100)} %
             </span>
           </span>
           <span className="block text-[0.7rem] text-zinc-500 font-normal truncate mt-0.5">
-            Phase {phaseIdx + 1}: {workflowPhaseLabelDe(phase)}
+            Stufe {phaseIdx + 1}: {workflowPhaseLabelDe(phase)}
           </span>
         </span>
       </button>
@@ -4353,13 +4386,12 @@ function WorkflowGuide({
             })}
           </div>
 
-          {/* Phase 0 body. */}
+          {/* Inventory body. */}
           {phase === 'inventory' && (
             <div className="space-y-1.5">
               <p className="text-[0.72rem] text-zinc-700 leading-snug">
-                <span className="font-semibold">Phase 1: Szenen-Inventar.</span> Jede
-                Szene braucht einen Tag + (für Ansicht/Schnitt) eine Himmelsrichtung,
-                (für Grundriss) ein Geschoss.
+                <span className="font-semibold">Szenen-Inventar.</span> Jede
+                Szene braucht einen Tag; Grundrisse brauchen zusätzlich ein Geschoss.
               </p>
               <p className="text-[0.7rem] text-zinc-500">
                 {scenes.length - inventoryGaps.length} / {scenes.length} klassifiziert
@@ -4394,51 +4426,40 @@ function WorkflowGuide({
             </div>
           )}
 
-          {/* Phase 1 body — height anchor. */}
-          {phase === 'height_anchor' && (
-            <WorkflowGuideHeightAnchor
+          {phase === 'floorplans' && (
+            <WorkflowGuideSceneClass
               facts={facts}
               scenes={scenes}
               currentSceneFile={currentSceneFile}
               onGoToScene={onGoToScene}
+              phase="floorplans"
+              tag="grundriss"
             />
           )}
 
-          {/* Phase 2 body — footprint. */}
-          {phase === 'footprint' && (
-            <WorkflowGuideFootprint
+          {phase === 'sections' && (
+            <WorkflowGuideSceneClass
               facts={facts}
               scenes={scenes}
               currentSceneFile={currentSceneFile}
               onGoToScene={onGoToScene}
+              phase="sections"
+              tag="schnitt"
             />
           )}
 
-          {/* Phase 3 body — orientation. */}
-          {phase === 'orientation' && (
-            <WorkflowGuideOrientation
+          {phase === 'elevations' && (
+            <WorkflowGuideSceneClass
               facts={facts}
               scenes={scenes}
               currentSceneFile={currentSceneFile}
-              currentSceneTag={currentSceneTag}
-              currentSceneLabels={currentSceneLabels}
               onGoToScene={onGoToScene}
-              onSetOrientation={onSetOrientation}
+              phase="elevations"
+              tag="ansicht"
             />
           )}
 
-          {/* Phase 4 body — bezugsmasse. */}
-          {phase === 'bezugsmasse' && (
-            <WorkflowGuideBezugsmasse
-              facts={facts}
-              scenes={scenes}
-              currentSceneFile={currentSceneFile}
-              currentSceneTag={currentSceneTag}
-              currentSceneLabels={currentSceneLabels}
-              onGoToScene={onGoToScene}
-            />
-          )}
-          {phase === 'detail' && (
+          {phase === 'review' && (
             <WorkflowGuideDetail
               facts={facts}
               scenes={scenes}
@@ -4453,67 +4474,76 @@ function WorkflowGuide({
   );
 }
 
-// W2 — Phase 1 sub-step UI. Lists the named height datums; each is ✓ if
-// in house_facts.heights, ○ if missing. When the user is on the
-// recommended Phase 1 scene, shows them as a checklist; otherwise shows
-// the "go here" button.
-function WorkflowGuideHeightAnchor({
-  facts, scenes, currentSceneFile, onGoToScene,
+function WorkflowGuideSceneClass({
+  facts, scenes, currentSceneFile, onGoToScene, phase, tag,
 }: {
   facts: HouseFacts;
   scenes: WorkflowSceneSummary[];
   currentSceneFile: string;
   onGoToScene: (file: string) => void;
+  phase: Extract<PhaseId, 'floorplans' | 'sections' | 'elevations'>;
+  tag: SceneTag;
 }) {
-  const rec = workflowRecommendSceneFor('height_anchor', facts, scenes);
-  const onRec = rec === currentSceneFile;
-  const fmt = (mm: number | undefined) =>
-    typeof mm !== 'number' ? '—'
-    : mm === 0 ? '±0,00'
-    : `${mm > 0 ? '+' : ''}${(mm / 1000).toFixed(2).replace('.', ',')} m`;
-  const required: Array<{ key: keyof typeof facts.heights; label: string; required: boolean }> = [
-    { key: 'bezug_mm', label: 'Bezugshöhe (±0,00)', required: true },
-    { key: 'first_mm', label: 'First',              required: true },
-    { key: 'traufe_mm', label: 'Traufe',            required: false },
-    { key: 'gelaende_mm', label: 'Gelände',         required: false },
-    { key: 'ok_ffb_eg_mm', label: 'OK FFB EG',      required: false },
-    { key: 'ok_ffb_og_mm', label: 'OK FFB OG',      required: false },
-    { key: 'ok_ffb_dg_mm', label: 'OK FFB DG',      required: false },
-  ];
+  const rec = workflowRecommendSceneFor(phase, facts, scenes);
+  const classScenes = scenes
+    .filter((s) => (facts.scene_metadata[s.file]?.scene_tag ?? s.tag) === tag && !s.detail_only)
+    .sort((a, b) => a.file.localeCompare(b.file));
+  const done = classScenes.filter((s) => {
+    if (tag === 'grundriss') {
+      return typeof facts.extent.width_mm === 'number'
+        && typeof facts.extent.depth_mm === 'number'
+        && typeof facts.wall_thickness.outer_mm === 'number';
+    }
+    return !!facts.calibration_per_scene[s.file];
+  }).length;
+  const body = phase === 'floorplans'
+    ? 'Grundrisse zuerst: Silhouette/Wände, dann Öffnungen, danach Maße und Referenzmaße.'
+    : phase === 'sections'
+      ? 'Schnitte nach den Grundrissen: Höhen, Bezug, Bauteillinien und Referenzmaße.'
+      : 'Ansichten zuletzt: Fassadenöffnungen, Dach-/Fassadenlinien und Referenzmaße.';
   return (
     <div className="space-y-1.5">
       <p className="text-[0.72rem] text-zinc-700 leading-snug">
-        <span className="font-semibold">Phase 2: Höhenkoten ankern.</span>{' '}
-        Bezugshöhe + First in einer Ansicht/Schnitt setzen. Weitere Höhen
-        sind willkommen, aber optional.
+        <span className="font-semibold">{workflowPhaseLabelDe(phase)}.</span>{' '}
+        {body}
       </p>
-      {rec && !onRec && (
+      <p className="text-[0.7rem] text-zinc-500">
+        {done} / {classScenes.length} Szenen abgeschlossen
+      </p>
+      {rec && rec !== currentSceneFile && (
         <button
           type="button"
           onClick={() => onGoToScene(rec)}
           className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium"
         >
-          → Empfohlene Szene: {rec}
+          → Nächste Szene: {rec}
         </button>
       )}
-      {onRec && (
+      {rec === currentSceneFile && (
         <p className="text-[0.7rem] text-emerald-700">↳ du bist auf der empfohlenen Szene.</p>
       )}
-      <ul className="space-y-0.5 ml-1">
-        {required.map(({ key, label, required: req }) => {
-          const v = facts.heights[key] as number | undefined;
-          const set = typeof v === 'number';
+      <ul className="space-y-0.5 ml-1 max-h-44 overflow-auto">
+        {classScenes.map((s) => {
+          const isCurrent = s.file === currentSceneFile;
+          const ok = tag === 'grundriss'
+            ? done > 0
+            : !!facts.calibration_per_scene[s.file];
           return (
-            <li
-              key={key}
-              className="flex items-center gap-1.5 text-[0.7rem]"
-              title={set ? `${label} = ${fmt(v)}` : (req ? 'Pflicht für Phase 2' : 'optional')}
-            >
-              <span className={set ? 'text-emerald-600' : (req ? 'text-amber-600' : 'text-zinc-400')}>
-                {set ? '✓' : (req ? '⚠' : '○')}
-              </span>
-              <span className={set ? 'text-zinc-600' : 'text-zinc-800'}>{label}</span>
-              <span className="ml-auto font-mono text-zinc-500">{set ? fmt(v) : '—'}</span>
+            <li key={s.file}>
+              <button
+                type="button"
+                onClick={() => !isCurrent && onGoToScene(s.file)}
+                disabled={isCurrent}
+                className={`w-full text-left text-[0.7rem] px-1.5 py-0.5 rounded flex items-center gap-1.5 ${
+                  isCurrent
+                    ? 'bg-amber-100 text-amber-900 font-semibold cursor-default'
+                    : 'hover:bg-zinc-100 text-zinc-800'
+                }`}
+              >
+                <span className={ok ? 'text-emerald-600' : 'text-zinc-400'}>{ok ? '✓' : '○'}</span>
+                <span className="flex-1 truncate">{s.file}</span>
+                <span className="text-[0.62rem] text-zinc-500 font-mono">{tag.slice(0, 3)}</span>
+              </button>
             </li>
           );
         })}
@@ -4522,73 +4552,7 @@ function WorkflowGuideHeightAnchor({
   );
 }
 
-// W3 — Phase 2 sub-step UI. Checks footprint extent + outer wall
-// thickness; pulls every fact from house_facts. New outer walls drawn
-// in any scene of this house inherit wall_thickness.outer_mm by default.
-function WorkflowGuideFootprint({
-  facts, scenes, currentSceneFile, onGoToScene,
-}: {
-  facts: HouseFacts;
-  scenes: WorkflowSceneSummary[];
-  currentSceneFile: string;
-  onGoToScene: (file: string) => void;
-}) {
-  const rec = workflowRecommendSceneFor('footprint', facts, scenes);
-  const onRec = rec === currentSceneFile;
-  const fmt = (mm: number | undefined) =>
-    typeof mm !== 'number' ? '—' : `${(mm / 1000).toFixed(2).replace('.', ',')} m`;
-  const fmtTh = (mm: number | undefined) =>
-    typeof mm !== 'number' ? '—' : `${mm} mm`;
-  const checklist: Array<{ key: string; label: string; set: boolean; value: string }> = [
-    {
-      key: 'width', label: 'Breite (horizontaler Bezugsmaß)',
-      set: typeof facts.extent.width_mm === 'number',
-      value: fmt(facts.extent.width_mm),
-    },
-    {
-      key: 'depth', label: 'Tiefe (vertikaler Bezugsmaß)',
-      set: typeof facts.extent.depth_mm === 'number',
-      value: fmt(facts.extent.depth_mm),
-    },
-    {
-      key: 'outer', label: 'Außenwand-Dicke',
-      set: typeof facts.wall_thickness.outer_mm === 'number',
-      value: fmtTh(facts.wall_thickness.outer_mm),
-    },
-  ];
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[0.72rem] text-zinc-700 leading-snug">
-        <span className="font-semibold">Phase 3: Hausgrundriss vermessen.</span>{' '}
-        Außenwände zeichnen, Wandstärke setzen, horizontalen + vertikalen
-        Bezugsmaß über die volle Gebäudebreite/-tiefe legen.
-      </p>
-      {rec && !onRec && (
-        <button
-          type="button"
-          onClick={() => onGoToScene(rec)}
-          className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium"
-        >
-          → Empfohlene Szene: {rec}
-        </button>
-      )}
-      {onRec && (
-        <p className="text-[0.7rem] text-emerald-700">↳ du bist auf dem EG-Grundriss.</p>
-      )}
-      <ul className="space-y-0.5 ml-1">
-        {checklist.map(({ key, label, set, value }) => (
-          <li key={key} className="flex items-center gap-1.5 text-[0.7rem]">
-            <span className={set ? 'text-emerald-600' : 'text-amber-600'}>{set ? '✓' : '⚠'}</span>
-            <span className={set ? 'text-zinc-600' : 'text-zinc-800'}>{label}</span>
-            <span className="ml-auto font-mono text-zinc-500">{value}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-// W4 — compass widget. On Grundriss: shows the picked north arrow.
+// Compass widget. On Grundriss: shows the picked north arrow.
 // On Ansicht/Schnitt: shows the cardinal direction the scene faces.
 // Always positioned at bottom-right, screen-pinned, doesn't intercept
 // pointer events on the canvas.
@@ -4651,11 +4615,12 @@ function SceneCompass({
   );
 }
 
-// W6 — Phase 5 detail UI. Hausgerüst steht; user goes scene-by-scene.
+// Review UI. The required scene-class stages are done; user can inspect
+// anomalies and mark the house reviewed/export-ready.
 // Coverage heuristic per scene: count expected label types (walls for
 // Grundriss, openings + heights for Ansicht/Schnitt) vs. observed. Bar
 // shows the running average; click any scene to navigate. "Fertig"
-// button stamps phase_completed_at.detail.
+// button stamps phase_completed_at.review.
 function WorkflowGuideDetail({
   facts, scenes, currentSceneFile, onGoToScene, onMarkDetailDone,
 }: {
@@ -4670,20 +4635,20 @@ function WorkflowGuideDetail({
   // scene calibrated AND has metadata" for Ansicht/Schnitt, "has level"
   // for Grundriss. Real per-scene label-count coverage would need a
   // server endpoint; this is the cheap version.
-  const done = facts.workflow?.phase_completed_at?.detail != null;
+  const completed = facts.workflow?.phase_completed_at as Record<string, string | null> | undefined;
+  const done = completed?.review != null || completed?.detail != null;
   return (
     <div className="space-y-1.5">
       {!done && (
         <p className="text-[0.72rem] text-zinc-700 leading-snug">
-          <span className="font-semibold">Phase 6: Detail-Beschriftung.</span>{' '}
-          Hausgerüst steht — geh die Szenen frei durch und ergänze
-          Öffnungen, Wände, weitere Höhen, Maße. Wenn du fertig bist,
-          klick „Haus fertig" unten.
+          <span className="font-semibold">Review / Export.</span>{' '}
+          Prüfe offene Warnungen, akzeptierte Unsicherheiten und die
+          Exportbereitschaft. Wenn alles passt, markiere den Review als fertig.
         </p>
       )}
       {done && (
         <p className="text-[0.72rem] text-emerald-700 leading-snug">
-          ✓ Du hast dieses Haus als fertig markiert. Du kannst trotzdem
+          ✓ Du hast den Review abgeschlossen. Du kannst trotzdem
           weiter beschriften.
         </p>
       )}
@@ -4722,203 +4687,8 @@ function WorkflowGuideDetail({
           onClick={onMarkDetailDone}
           className="w-full text-[0.7rem] px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
         >
-          ✓ Haus fertig markieren
+          ✓ Review abschließen
         </button>
-      )}
-    </div>
-  );
-}
-
-// W5 — Phase 4 sub-step UI. Per current Ansicht/Schnitt: tracks 4.a
-// (Bezugshöhe in scene), 4.b (horizontal is_reference dim), 4.c (vertical
-// is_reference dim). The three together unlock per-scene calibration.
-// When the user isn't on an Ansicht/Schnitt, shows the next-uncalibrated
-// scene as the "go here" recommendation.
-function WorkflowGuideBezugsmasse({
-  facts, scenes, currentSceneFile, currentSceneTag, currentSceneLabels, onGoToScene,
-}: {
-  facts: HouseFacts;
-  scenes: WorkflowSceneSummary[];
-  currentSceneFile: string;
-  currentSceneTag: SceneTag;
-  currentSceneLabels: Label[];
-  onGoToScene: (file: string) => void;
-}) {
-  const rec = workflowRecommendSceneFor('bezugsmasse', facts, scenes);
-  const onRec = rec === currentSceneFile;
-  const isHeightScene = currentSceneTag === 'ansicht' || currentSceneTag === 'schnitt';
-  // 4.a — Bezugshöhe (value_mm === 0) exists in current scene.
-  const hasBezug = currentSceneLabels.some(
-    (l) => l.type === 'height_mark' && l.attributes.value_mm === 0,
-  );
-  // 4.b / 4.c — is_reference dims with value_mm set, in horizontal vs vertical.
-  let hasHRef = false; let hasVRef = false;
-  for (const l of currentSceneLabels) {
-    if (l.type !== 'dimensioned_distance' || !l.attributes.is_reference) continue;
-    if (l.attributes.value_mm == null) continue;
-    const dx = l.geometry.end[0] - l.geometry.start[0];
-    const dy = l.geometry.end[1] - l.geometry.start[1];
-    const ang = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
-    if (ang < 15 || ang > 165) hasHRef = true;
-    else if (ang > 75 && ang < 105) hasVRef = true;
-  }
-  // Coverage of all Ansicht/Schnitt scenes — how far the phase is overall.
-  const heightScenes = scenes.filter((s) => {
-    const t = facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
-    return (t === 'ansicht' || t === 'schnitt') && !s.detail_only;
-  });
-  const done = heightScenes.filter((s) => facts.calibration_per_scene[s.file]).length;
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[0.72rem] text-zinc-700 leading-snug">
-        <span className="font-semibold">Phase 5: Bezugsmaße pro Szene.</span>{' '}
-        In jeder Ansicht/Schnitt eine Bezugshöhe (±0,00) setzen, dann
-        einen horizontalen + vertikalen Bezugsmaß. Werte werden aus
-        Haus-Maßen vorgeschlagen.
-      </p>
-      <p className="text-[0.7rem] text-zinc-500">
-        {done} / {heightScenes.length} Szenen kalibriert
-      </p>
-      {rec && !onRec && (
-        <button
-          type="button"
-          onClick={() => onGoToScene(rec)}
-          className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium"
-        >
-          → Nächste unkalibrierte Szene: {rec}
-        </button>
-      )}
-      {isHeightScene && (
-        <ul className="space-y-0.5 ml-1">
-          <li className="flex items-center gap-1.5 text-[0.7rem]">
-            <span className={hasBezug ? 'text-emerald-600' : 'text-amber-600'}>
-              {hasBezug ? '✓' : '⚠'}
-            </span>
-            <span className={hasBezug ? 'text-zinc-600' : 'text-zinc-800'}>4.a — Bezugshöhe ±0,00 setzen</span>
-          </li>
-          <li className="flex items-center gap-1.5 text-[0.7rem]">
-            <span className={hasHRef ? 'text-emerald-600' : 'text-amber-600'}>
-              {hasHRef ? '✓' : '⚠'}
-            </span>
-            <span className={hasHRef ? 'text-zinc-600' : 'text-zinc-800'}>4.b — Horizontaler Bezugsmaß</span>
-          </li>
-          <li className="flex items-center gap-1.5 text-[0.7rem]">
-            <span className={hasVRef ? 'text-emerald-600' : 'text-amber-600'}>
-              {hasVRef ? '✓' : '⚠'}
-            </span>
-            <span className={hasVRef ? 'text-zinc-600' : 'text-zinc-800'}>4.c — Vertikaler Bezugsmaß</span>
-          </li>
-        </ul>
-      )}
-      {isHeightScene && !hasBezug && (
-        <p className="text-[0.65rem] text-zinc-500 italic">
-          Tipp: 4.a ist Pflicht zuerst. Ohne Bezugshöhe ist Y für geerbte Höhenkoten nicht definiert.
-        </p>
-      )}
-    </div>
-  );
-}
-
-// W4 — Phase 3 sub-step UI. On the EG Grundriss, lists every wall with
-// its direction (horizontal / vertical) and length. Click a wall →
-// records it as the north-facing edge via onSetOrientation. The
-// geometric formula in faceLengthAlong() then drives Phase 4's
-// horizontal Bezugsmaß auto-suggestions.
-function WorkflowGuideOrientation({
-  facts, scenes, currentSceneFile, currentSceneTag, currentSceneLabels,
-  onGoToScene, onSetOrientation,
-}: {
-  facts: HouseFacts;
-  scenes: WorkflowSceneSummary[];
-  currentSceneFile: string;
-  currentSceneTag: SceneTag;
-  currentSceneLabels: Label[];
-  onGoToScene: (file: string) => void;
-  onSetOrientation: (wallId: string, grundrissFile: string) => void;
-}) {
-  const rec = workflowRecommendSceneFor('orientation', facts, scenes);
-  const onRec = rec === currentSceneFile;
-  const onGrundriss = currentSceneTag === 'grundriss';
-  const set = facts.orientation?.north_edge_label_id != null;
-  // Outer walls on this Grundriss — heuristic: pick the 6 longest walls,
-  // they're the most likely outer perimeter members.
-  const outerWalls = (() => {
-    if (!onGrundriss) return [];
-    const walls = currentSceneLabels.filter((l) => l.type === 'wall');
-    const sorted = walls
-      .map((w) => {
-        const wall = w as WallLabel;
-        const dx = wall.geometry.end[0] - wall.geometry.start[0];
-        const dy = wall.geometry.end[1] - wall.geometry.start[1];
-        const len = Math.hypot(dx, dy);
-        const angDeg = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
-        const isHoriz = angDeg < 15 || angDeg > 165;
-        const isVert = angDeg > 75 && angDeg < 105;
-        return { id: wall.id, length: len, isHoriz, isVert };
-      })
-      .sort((a, b) => b.length - a.length)
-      .slice(0, 8);
-    return sorted;
-  })();
-  const px_per_mm = facts.calibration_per_scene[currentSceneFile]?.px_per_mm;
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[0.72rem] text-zinc-700 leading-snug">
-        <span className="font-semibold">Phase 4: Himmelsrichtung festlegen.</span>{' '}
-        Auf dem Grundriss eine Außenwand als Nordkante markieren. Damit
-        weiß jede Ansicht/Schnitt, welche Hausbreite sie zeigt.
-      </p>
-      {set && (
-        <p className="text-[0.7rem] text-emerald-700">
-          ✓ Nordkante gewählt — du kannst neu wählen, wenn nötig.
-        </p>
-      )}
-      {rec && !onRec && (
-        <button
-          type="button"
-          onClick={() => onGoToScene(rec)}
-          className="w-full text-left text-[0.7rem] px-2 py-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium"
-        >
-          → Empfohlene Szene: {rec}
-        </button>
-      )}
-      {onRec && !onGrundriss && (
-        <p className="text-[0.7rem] text-amber-700">
-          ⚠ Diese Szene ist nicht als Grundriss klassifiziert.
-        </p>
-      )}
-      {onGrundriss && outerWalls.length === 0 && (
-        <p className="text-[0.7rem] text-amber-700">
-          Noch keine Wände. Phase 3 abschließen, dann hier weitermachen.
-        </p>
-      )}
-      {onGrundriss && outerWalls.length > 0 && (
-        <ul className="space-y-0.5 ml-1 max-h-44 overflow-auto">
-          {outerWalls.map((w) => {
-            const isPicked = facts.orientation?.north_edge_label_id === w.id;
-            const dir = w.isHoriz ? '↔' : w.isVert ? '↕' : '↗';
-            const mm = px_per_mm ? (w.length / px_per_mm).toFixed(0) : '—';
-            return (
-              <li key={w.id}>
-                <button
-                  type="button"
-                  onClick={() => onSetOrientation(w.id, currentSceneFile)}
-                  className={`w-full text-left text-[0.7rem] px-1.5 py-0.5 rounded flex items-center gap-1.5 ${
-                    isPicked
-                      ? 'bg-emerald-100 text-emerald-900 font-semibold'
-                      : 'hover:bg-amber-50 text-zinc-800'
-                  }`}
-                  title={`Wall ${w.id.slice(0, 6)} — ${dir} ${mm} mm`}
-                >
-                  <span className="text-zinc-400 w-4 text-center">{dir}</span>
-                  <span className="flex-1 truncate font-mono text-[0.65rem]">{w.id.slice(0, 8)}</span>
-                  <span className="font-mono text-zinc-500">{mm} mm</span>
-                  {isPicked && <span className="text-emerald-600 ml-1">✓ N</span>}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
       )}
     </div>
   );
@@ -4950,14 +4720,7 @@ function AgentLabeledChip({ scope, houseKey }: { scope: LabelScope; houseKey: st
   if (!drivenBy || reviewedBy) return null;
   const markReviewed = () => {
     const f = loadHouseFacts(scope, houseKey);
-    const w = f.workflow ?? { schema_version: '1.0' as const, phase: 'inventory' as const,
-                              phase_completed_at: { inventory: null, height_anchor: null,
-                                footprint: null, orientation: null, bezugsmasse: null,
-                                detail: null },
-                              source_scene: { inventory: null, height_anchor: null,
-                                footprint: null, orientation: null, bezugsmasse: null,
-                                detail: null },
-                              user_skipped: {} };
+    const w = f.workflow ?? defaultWorkflowState();
     w.reviewed_by = 'human';
     w.reviewed_at = new Date().toISOString();
     f.workflow = w;
@@ -5170,6 +4933,513 @@ function CanvasDisplayPalette({
   );
 }
 
+function planButtonLabel(plan: ScenePlan | null, labels: Label[]): string {
+  if (labels.length > 0 && plan?.exists === false) return 'Plan: missing';
+  if (!plan?.exists) return 'Plan';
+  const state = plan.state;
+  const openDefects = (state?.defects ?? []).filter((d) => d.status === 'open' || d.status === 'in_progress');
+  const blockerCount = openDefects.filter((d) => d.severity === 'blocker').length;
+  if (blockerCount > 0) return `Plan: blocked · ${blockerCount}`;
+  if (openDefects.length > 0) return `Plan: ${state?.status ?? plan.status ?? 'active'} · ${openDefects.length}`;
+  return `Plan: ${state?.status ?? plan.status ?? 'active'}`;
+}
+
+function ScenePlanPanel({
+  plan,
+  loading,
+  error,
+  labels,
+  onClose,
+  onCreate,
+}: {
+  plan: ScenePlan | null;
+  loading: boolean;
+  error: Error | null;
+  labels: Label[];
+  onClose: () => void;
+  onCreate: () => void;
+}) {
+  const exists = !!plan?.exists;
+  const hasLabels = labels.length > 0;
+  const warnings = scenePlanWarnings(plan, labels);
+  const state = plan?.state ?? null;
+  const openDefects = (state?.defects ?? []).filter((d) => d.status === 'open' || d.status === 'in_progress');
+  const blockers = openDefects.filter((d) => d.severity === 'blocker');
+  const terminality = state?.current_state?.terminality;
+  const statusLabel = scenePlanStatusText(plan, labels);
+  const nextActions = useMemo<ScenePlanAction[]>(() => {
+    const action = scenePlanNextAction(plan);
+    return action ? [action] : [];
+  }, [plan]);
+  return (
+    <aside className="absolute top-3 right-3 bottom-3 z-30 w-[min(36rem,calc(100%-1.5rem))] rounded-md border border-zinc-300 bg-white shadow-2xl flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-3 py-2 bg-zinc-50">
+        <div className="min-w-0">
+          <div className="text-[0.72rem] uppercase tracking-wide text-zinc-500 font-semibold">Scene Plan</div>
+          <div className="text-[0.8rem] text-zinc-700 truncate">
+            {exists ? (plan?.markdown_path ?? plan?.path) : hasLabels ? 'Missing plan for labeled scene' : 'No plan yet'}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {statusLabel && (
+            <span className={`text-[0.68rem] px-2 py-0.5 rounded-md border ${
+              statusLabel.startsWith('needs repair') || blockers.length > 0
+                ? 'border-red-300 bg-red-50 text-red-800'
+                : statusLabel === 'verified'
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                  : statusLabel === 'blocked externally'
+                    ? 'border-amber-300 bg-amber-50 text-amber-900'
+                  : 'border-zinc-300 bg-white text-zinc-700'
+            }`}>
+              {statusLabel}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 inline-flex items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900"
+            aria-label="Plan schließen"
+            title="Plan schließen"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+      {loading ? (
+        <div className="p-4 text-sm text-zinc-600">Lade Plan…</div>
+      ) : error ? (
+        <div className="p-4 text-sm text-red-700">Fehler: {error.message}</div>
+      ) : !exists ? (
+        <div className="p-4 space-y-3 text-sm text-zinc-700">
+          {plan?.legacy_markdown_exists ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-950">
+              Für diese Szene existiert nur ein alter Markdown-Plan. Er ist
+              lesbar, aber noch nicht gatefähig.
+            </div>
+          ) : (
+            <p>
+              Für diese Szene existiert noch kein Agentenplan. Ein gelabeltes
+              Bild ohne Plan ist ein QA-Hinweis, weil Analyse, Edit und
+              Verification nicht nachvollziehbar sind.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={onCreate}
+            className="px-3 py-1.5 rounded-md bg-zinc-900 text-white text-[0.8rem] font-semibold hover:bg-zinc-700"
+          >
+            {plan?.legacy_markdown_exists ? 'Strukturierten Plan erstellen' : 'Plan aus Template erstellen'}
+          </button>
+          {plan?.legacy_markdown_exists && <MarkdownPlan markdown={plan.markdown} />}
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-auto p-4">
+          {warnings.length > 0 && (
+            <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-[0.75rem] text-amber-950">
+              <div className="font-semibold mb-1">Plan QA</div>
+              <ul className="space-y-1">
+                {warnings.map((w) => <li key={w}>- {w}</li>)}
+              </ul>
+            </div>
+          )}
+          {state && (
+            <div className="space-y-5 mb-5">
+              <section className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Now</div>
+                <div className="text-sm font-semibold text-zinc-950">{state.current_state?.summary || 'No current-state summary yet.'}</div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-[0.74rem] text-zinc-700">
+                  <div className="rounded border border-zinc-200 bg-white p-2">
+                    <div className="text-zinc-500">Labels</div>
+                    <div className="font-mono break-words">{formatCounts(state.current_state?.label_counts)}</div>
+                  </div>
+                  <div className="rounded border border-zinc-200 bg-white p-2">
+                    <div className="text-zinc-500">Blockers</div>
+                    <div className={blockers.length ? 'font-semibold text-red-700' : 'font-semibold text-emerald-700'}>
+                      {blockers.length || 'none'}
+                    </div>
+                  </div>
+                </div>
+                {terminality && (
+                  <div className="mt-2 rounded border border-zinc-200 bg-white p-2 text-[0.74rem] text-zinc-700">
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      <span><span className="text-zinc-500">Status</span> <span className="font-semibold">{terminality.status}</span></span>
+                      <span><span className="text-zinc-500">Complete</span> <span className="font-semibold">{terminality.percent_complete ?? 0}%</span></span>
+                      <span><span className="text-zinc-500">Final QA</span> <span className={terminality.final_qa_allowed ? 'font-semibold text-emerald-700' : 'font-semibold text-red-700'}>{terminality.final_qa_allowed ? 'allowed' : 'blocked'}</span></span>
+                    </div>
+                    {(terminality.terminality_reasons ?? []).length > 0 && (
+                      <div className="mt-1 text-zinc-600">{(terminality.terminality_reasons ?? []).join('; ')}</div>
+                    )}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Defects</div>
+                {openDefects.length === 0 ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[0.78rem] text-emerald-900">No open defects.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {openDefects.map((d) => (
+                      <div key={d.id} className={`rounded-md border p-3 text-[0.78rem] ${
+                        d.severity === 'blocker'
+                          ? 'border-red-300 bg-red-50 text-red-950'
+                          : 'border-amber-300 bg-amber-50 text-amber-950'
+                      }`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-semibold">{d.id} · {d.title}</div>
+                          <span className="font-mono text-[0.68rem]">{d.severity}/{d.status}</span>
+                        </div>
+                        <div className="mt-1 text-zinc-700">{d.description}</div>
+                        {d.classification && <div className="mt-1 text-zinc-800"><span className="font-semibold">Classification:</span> {d.classification}</div>}
+                        {d.expected_resolution && <div className="mt-2 text-zinc-800"><span className="font-semibold">Next:</span> {d.expected_resolution}</div>}
+                        {d.region !== undefined && <div className="mt-1 font-mono text-[0.68rem] text-zinc-600">region {JSON.stringify(d.region)}</div>}
+                        {attemptsForDefect(state, d.id).length > 0 && (
+                          <div className="mt-2 rounded border border-white/60 bg-white/60 p-2">
+                            <div className="font-semibold text-[0.7rem] uppercase tracking-wide text-zinc-500">Attempts</div>
+                            <div className="mt-1 space-y-1">
+                              {attemptsForDefect(state, d.id).slice(-3).map((att, idx) => (
+                                <div key={`${d.id}-attempt-${idx}`} className="text-[0.7rem] text-zinc-700">
+                                  <span className="font-mono">{String(att.id ?? `ATT-${idx + 1}`)}</span>
+                                  {att.hypothesis ? <span> · {String(att.hypothesis)}</span> : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Next Action</div>
+                {nextActions.length === 0 ? (
+                  <div className="rounded-md border border-zinc-200 bg-white p-3 text-[0.78rem] text-zinc-600">No next actions.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {nextActions.map((a) => (
+                      <div key={`${a.kind}-${a.action_id ?? a.id}`} className="rounded-md border border-zinc-200 bg-white p-3 text-[0.78rem]">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-semibold text-zinc-950">{a.action_id ?? a.id} · {a.title}</div>
+                          {a.mode && <span className="font-mono text-[0.68rem] text-zinc-500">{a.mode}</span>}
+                        </div>
+                        <div className="mt-1 text-zinc-700">{a.instruction}</div>
+                        {(a.required_evidence ?? []).length > 0 && (
+                          <div className="mt-2 text-zinc-600"><span className="font-semibold">Evidence:</span> {a.required_evidence?.join(', ')}</div>
+                        )}
+                        {(a.forbidden_label_types ?? []).length > 0 && (
+                          <div className="mt-1 text-red-700"><span className="font-semibold">Forbidden labels:</span> {a.forbidden_label_types?.join(', ')}</div>
+                        )}
+                        {a.region !== undefined && <div className="mt-1 font-mono text-[0.68rem] text-zinc-500">region {JSON.stringify(a.region)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {(state.current_state?.stale_evidence ?? []).length > 0 && (
+                <section>
+                  <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Stale Evidence</div>
+                  <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[0.78rem] text-amber-950">
+                    {(state.current_state?.stale_evidence ?? []).join(', ')}
+                  </div>
+                </section>
+              )}
+
+              <section>
+                <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Evidence</div>
+                {(state.evidence ?? []).length === 0 ? (
+                  <div className="rounded-md border border-zinc-200 bg-white p-3 text-[0.78rem] text-zinc-600">No evidence recorded.</div>
+                ) : (
+                  <div className="space-y-1">
+                    {(state.evidence ?? []).slice(-8).reverse().map((ev) => (
+                      <div key={ev.id} className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-[0.74rem]">
+                        <span className="font-mono text-zinc-500">{ev.id}</span>
+                        <span className="mx-1 text-zinc-400">·</span>
+                        <span className="font-semibold">{ev.kind}</span>
+                        {ev.tool ? <span className="text-zinc-500"> via {ev.tool}</span> : null}
+                        <div className="text-zinc-700">{ev.summary}</div>
+                        {ev.image_url ? (
+                          <a href={ev.image_url} target="_blank" rel="noreferrer" className="mt-2 block w-40 rounded border border-zinc-200 overflow-hidden bg-zinc-50 hover:border-zinc-400">
+                            <img src={ev.image_url} alt={`${ev.id} evidence`} className="block w-full max-h-28 object-contain" />
+                          </a>
+                        ) : null}
+                        {ev.observation_id ? (
+                          <div className="mt-1 font-mono text-[0.68rem] text-zinc-500">observation {ev.observation_id}</div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Score History</div>
+                <div className="rounded-md border border-zinc-200 bg-white p-3 text-[0.78rem] text-zinc-700">
+                  {formatScoreHistory(state.evidence)}
+                </div>
+              </section>
+
+              <section>
+                <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Log</div>
+                {(state.decision_log ?? []).length === 0 ? (
+                  <div className="rounded-md border border-zinc-200 bg-white p-3 text-[0.78rem] text-zinc-600">No decisions logged.</div>
+                ) : (
+                  <div className="space-y-1">
+                    {(state.decision_log ?? []).slice(-6).reverse().map((row, idx) => (
+                      <div key={`${row.time ?? idx}`} className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-[0.74rem]">
+                        <div className="font-mono text-[0.68rem] text-zinc-500">{String(row.time ?? '')} · {String(row.mode ?? '')}</div>
+                        <div className="font-semibold text-zinc-900">{String(row.decision ?? '')}</div>
+                        <div className="text-zinc-700">{String(row.result ?? '')}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Task Board</div>
+                <div className="space-y-1">
+                  {(state.tasks ?? []).map((task) => (
+                    <div key={task.id} className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-[0.74rem]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">{task.id} · {task.title}</span>
+                        <span className="font-mono text-zinc-500">{task.status}</span>
+                      </div>
+                      <div className="mt-1 text-zinc-600 break-words">
+                        {(task.gates ?? []).map((g) => `${g.id}=${g.status}`).join(', ') || 'no gates'}
+                      </div>
+                      {((task.blocked_by ?? []).length > 0 || (task.depends_on ?? []).length > 0 || (task.invalidates ?? []).length > 0) && (
+                        <div className="mt-1 text-zinc-500 break-words">
+                          {(task.blocked_by ?? []).length > 0 ? `blocked by ${(task.blocked_by ?? []).join(', ')}` : ''}
+                          {(task.depends_on ?? []).length > 0 ? ` depends on ${(task.depends_on ?? []).join(', ')}` : ''}
+                          {(task.invalidates ?? []).length > 0 ? ` invalidates ${(task.invalidates ?? []).join(', ')}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
+          <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Markdown</div>
+          <MarkdownPlan markdown={plan?.markdown ?? ''} />
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function attemptsForDefect(state: ScenePlanState | null, defectId: string): Array<Record<string, unknown>> {
+  const actionId = `ACT-${defectId}`;
+  const action = (state?.actions ?? []).find((a) => a.action_id === actionId);
+  return Array.isArray(action?.attempts) ? action.attempts as Array<Record<string, unknown>> : [];
+}
+
+function formatCounts(counts: Record<string, number> | undefined): string {
+  if (!counts || Object.keys(counts).length === 0) return 'none';
+  return Object.entries(counts)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join(', ');
+}
+
+function formatScoreHistory(evidence: ScenePlanEvidence[] | undefined): string {
+  const scores = (evidence ?? [])
+    .filter((ev) => ev.kind === 'score_walls')
+    .map((ev) => {
+      const f1 = typeof ev.result?.f1 === 'number' ? ev.result.f1.toFixed(3) : null;
+      if (!f1) return null;
+      const missing = Array.isArray(ev.result?.missing_regions) ? ev.result.missing_regions.length : 0;
+      const offInk = Array.isArray(ev.result?.off_ink_segments) ? ev.result.off_ink_segments.length : 0;
+      return `${f1} (${missing}/${offInk})`;
+    })
+    .filter(Boolean);
+  if (scores.length === 0) return 'score_walls history not recorded yet.';
+  return `score_walls f1: ${scores.join(' -> ')} · counts are missing/off-ink.`;
+}
+
+function MarkdownPlan({ markdown }: { markdown: string }) {
+  const blocks = useMemo(() => parsePlanMarkdown(markdown), [markdown]);
+  return (
+    <div className="space-y-2 text-[0.82rem] leading-relaxed text-zinc-800">
+      {blocks.map((block, idx) => {
+        if (block.kind === 'heading') {
+          if (block.level === 1) {
+            return <h2 key={idx} className="text-xl font-semibold text-zinc-950 mt-1 mb-4">{renderPlanInline(block.text)}</h2>;
+          }
+          return <h3 key={idx} className="text-[0.95rem] font-semibold text-zinc-950 mt-5 mb-2">{renderPlanInline(block.text)}</h3>;
+        }
+        if (block.kind === 'task') {
+          const mark = block.mark.toLowerCase();
+          const done = mark === 'x';
+          const blocked = mark === '!';
+          const active = mark === '~';
+          return (
+            <div key={idx} className="py-0.5">
+              <div className="flex items-start gap-2">
+                <span className={`mt-0.5 w-4 h-4 rounded border text-[0.62rem] inline-flex items-center justify-center shrink-0 ${
+                  done
+                    ? 'bg-emerald-600 border-emerald-600 text-white'
+                    : blocked
+                      ? 'bg-red-50 border-red-300 text-red-700'
+                      : active
+                        ? 'bg-amber-50 border-amber-300 text-amber-800'
+                        : 'bg-white border-zinc-300 text-transparent'
+                }`}>
+                  {done ? '✓' : blocked ? '!' : active ? '…' : '·'}
+                </span>
+                <span className={done ? 'line-through text-zinc-500' : 'text-zinc-800'}>{renderPlanInline(block.text)}</span>
+              </div>
+              {block.notes.length > 0 && (
+                <div className="ml-6 mt-1 space-y-1 text-[0.76rem] text-zinc-600">
+                  {block.notes.map((note, noteIdx) => (
+                    <div key={noteIdx} className="rounded border border-zinc-200 bg-zinc-50 px-2 py-1">
+                      {renderPlanInline(note)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }
+        if (block.kind === 'table') {
+          return (
+            <div key={idx} className="my-3 overflow-x-auto rounded-md border border-zinc-200">
+              <table className="min-w-full table-fixed border-collapse text-[0.72rem]">
+                <thead className="bg-zinc-100 text-zinc-700">
+                  <tr>
+                    {block.header.map((cell, cellIdx) => (
+                      <th key={cellIdx} className="border-b border-zinc-200 px-2 py-1.5 text-left font-semibold align-top">
+                        {renderPlanInline(cell)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIdx) => (
+                    <tr key={rowIdx} className="odd:bg-white even:bg-zinc-50/70">
+                      {block.header.map((_cell, cellIdx) => (
+                        <td
+                          key={cellIdx}
+                          className={`border-t border-zinc-100 px-2 py-1.5 align-top text-zinc-700 ${
+                            cellIdx < 2 ? 'whitespace-nowrap font-mono text-[0.68rem] text-zinc-600' : 'whitespace-normal break-words'
+                          }`}
+                        >
+                          {renderPlanInline(row[cellIdx] ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        if (block.kind === 'bullet') {
+          return <div key={idx} className="pl-4 text-zinc-700">- {renderPlanInline(block.text)}</div>;
+        }
+        if (block.kind === 'blank') {
+          return <div key={idx} className="h-2" />;
+        }
+        return <p key={idx} className="text-zinc-700">{renderPlanInline(block.text)}</p>;
+      })}
+    </div>
+  );
+}
+
+type PlanMarkdownBlock =
+  | { kind: 'heading'; level: 1 | 2; text: string }
+  | { kind: 'task'; mark: string; text: string; notes: string[] }
+  | { kind: 'table'; header: string[]; rows: string[][] }
+  | { kind: 'bullet'; text: string }
+  | { kind: 'paragraph'; text: string }
+  | { kind: 'blank' };
+
+function parsePlanMarkdown(markdown: string): PlanMarkdownBlock[] {
+  const lines = markdown.split(/\r?\n/);
+  const blocks: PlanMarkdownBlock[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.startsWith('# ')) {
+      blocks.push({ kind: 'heading', level: 1, text: line.slice(2).trim() });
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      blocks.push({ kind: 'heading', level: 2, text: line.slice(3).trim() });
+      continue;
+    }
+
+    const task = line.match(/^\s*-\s+\[([ xX~!])\]\s+(.*)$/);
+    if (task) {
+      const notes: string[] = [];
+      while (i + 1 < lines.length) {
+        const note = lines[i + 1].match(/^\s+-\s+note:\s*(.*)$/i);
+        if (!note) break;
+        notes.push(note[1].trim());
+        i += 1;
+      }
+      blocks.push({ kind: 'task', mark: task[1], text: task[2].trim(), notes });
+      continue;
+    }
+
+    if (isMarkdownTableStart(lines, i)) {
+      const header = parseMarkdownTableRow(lines[i]);
+      i += 2; // skip header + separator
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        rows.push(parseMarkdownTableRow(lines[i]));
+        i += 1;
+      }
+      i -= 1;
+      blocks.push({ kind: 'table', header, rows });
+      continue;
+    }
+
+    if (line.trim() === '') {
+      blocks.push({ kind: 'blank' });
+      continue;
+    }
+    const bullet = line.match(/^\s*-\s+(.*)$/);
+    if (bullet) {
+      blocks.push({ kind: 'bullet', text: bullet[1].trim() });
+      continue;
+    }
+    blocks.push({ kind: 'paragraph', text: line.trim() });
+  }
+  return blocks;
+}
+
+function isMarkdownTableStart(lines: string[], idx: number): boolean {
+  if (!lines[idx]?.trim().startsWith('|')) return false;
+  const next = lines[idx + 1]?.trim();
+  return !!next && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(next);
+}
+
+function parseMarkdownTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function renderPlanInline(text: string): JSX.Element[] {
+  const parts = text.split(/(`[^`]+`)/g).filter(Boolean);
+  return parts.map((part, idx) => {
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code key={idx} className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[0.92em] text-zinc-800">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <Fragment key={idx}>{part}</Fragment>;
+  });
+}
+
 function AnnotateSceneStrip({
   scenes, currentFile, labels, sceneSummaries, onSelect,
 }: {
@@ -5288,7 +5558,6 @@ function ToolPalette({
   workflowScenes,
   currentSceneFile,
   onGoToScene,
-  onSetOrientation,
   onMarkDetailDone,
   hiddenLabelIds,
   onToggleHiddenLabel,
@@ -5328,7 +5597,6 @@ function ToolPalette({
   workflowScenes: WorkflowSceneSummary[];
   currentSceneFile: string;
   onGoToScene: (file: string) => void;
-  onSetOrientation: (wallId: string, grundrissFile: string) => void;
   onMarkDetailDone: () => void;
   hiddenLabelIds: Set<string>;
   onToggleHiddenLabel: (id: string) => void;
@@ -5356,7 +5624,7 @@ function ToolPalette({
 }) {
   void defaultsRev;
   // Avoid unused-prop warnings; scope and houseKey are read by the inline
-  // Phase 3 picker that writes facts.orientation.
+  // Picker that writes facts.orientation when a compass/north edge is visible.
   void scope; void houseKey;
   // L2 D1 — readiness derived from labels for SceneDetailsCard.
   const readiness = (() => {
@@ -5508,10 +5776,7 @@ function ToolPalette({
         facts={workflowFacts}
         scenes={workflowScenes}
         currentSceneFile={currentSceneFile}
-        currentSceneTag={sceneTag}
-        currentSceneLabels={labels}
         onGoToScene={onGoToScene}
-        onSetOrientation={onSetOrientation}
         onMarkDetailDone={onMarkDetailDone}
       />
 
