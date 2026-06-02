@@ -69,7 +69,7 @@ async def add_reference_dim(
     """
     started = time.time()
     if orientation not in {"horizontal", "vertical"}:
-        return _err("schema_invalid", f"orientation must be 'horizontal' or 'vertical'",
+        return _err("schema_invalid", "orientation must be 'horizontal' or 'vertical'",
                     started_at=started)
     if not (isinstance(start, (list, tuple)) and len(start) == 2 and
             isinstance(end, (list, tuple)) and len(end) == 2):

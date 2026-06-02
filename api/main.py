@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -44,12 +45,25 @@ app = FastAPI(
     version="4.0.0",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: default to localhost only (the SPA is served same-origin; dev tools
+# run on localhost). Set BIM_DB_CORS_ORIGINS=https://a.com,https://b.com to
+# allow specific external origins. Avoid the wildcard so a server reachable
+# beyond 127.0.0.1 can't be driven by any page.
+_cors_env = os.environ.get("BIM_DB_CORS_ORIGINS", "").strip()
+if _cors_env:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in _cors_env.split(",") if o.strip()],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Static mounts. Most-specific prefix first so the generic /static doesn't
 # shadow /static/dataset or /static/pdfs.

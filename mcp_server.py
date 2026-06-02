@@ -1157,7 +1157,17 @@ def _apply_tool_profile(profile: str | None = None) -> list[str]:
     if allowed is None:
         log.warning("unknown BIM_MCP_TOOL_PROFILE=%s; keeping all tools", selected)
         return []
-    tools = getattr(mcp._tool_manager, "_tools", {})
+    mgr = getattr(mcp, "_tool_manager", None)
+    tools = getattr(mgr, "_tools", None) if mgr is not None else None
+    if tools is None:
+        # Fail loud rather than silently keeping all tools: a FastMCP upgrade
+        # that renames these internals would otherwise make profile filtering
+        # a silent no-op (a worker would expose the full tool surface).
+        raise RuntimeError(
+            "cannot reach mcp._tool_manager._tools — FastMCP internals changed; "
+            "BIM_MCP_TOOL_PROFILE filtering would silently no-op. "
+            "Update _apply_tool_profile() to the new FastMCP API."
+        )
     removed: list[str] = []
     for name in list(tools):
         if name not in allowed:
@@ -1174,7 +1184,12 @@ def main() -> None:
         mcp.run(transport="stdio")
     finally:
         if _http is not None:
-            asyncio.get_event_loop().run_until_complete(_http.aclose())
+            # asyncio.get_event_loop() is deprecated/fragile at shutdown. Run
+            # the client close on a fresh loop; best-effort on teardown.
+            try:
+                asyncio.run(_http.aclose())
+            except RuntimeError:
+                pass
 
 
 if __name__ == "__main__":
