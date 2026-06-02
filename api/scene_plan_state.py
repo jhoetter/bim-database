@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from .geometry_util import as_point as _as_point, wall_segment as _wall_segment
 from .persistence import atomic_write_json, atomic_write_text, locked_path
 
 SCHEMA_VERSION = "scene-plan-state-v1"
@@ -1097,21 +1098,6 @@ def _walls(labels_doc: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _floorplan_openings(labels_doc: dict[str, Any]) -> list[dict[str, Any]]:
     return [lab for lab in (labels_doc.get("labels") or []) if lab.get("type") == "floorplan_opening"]
-
-
-def _as_point(pt: Any) -> tuple[float, float] | None:
-    if isinstance(pt, list) and len(pt) == 2 and isinstance(pt[0], (int, float)) and isinstance(pt[1], (int, float)):
-        return (float(pt[0]), float(pt[1]))
-    return None
-
-
-def _wall_segment(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
-    geom = label.get("geometry") or {}
-    start = _as_point(geom.get("start"))
-    end = _as_point(geom.get("end"))
-    if start is None or end is None:
-        return None
-    return (start, end)
 
 
 def _floorplan_opening_axes(label: dict[str, Any]) -> tuple[

@@ -9,9 +9,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import math
 from typing import Any
 
+from .geometry_util import as_point as _as_point
+from .geometry_util import dist as _dist
+from .geometry_util import wall_segment as _wall_segment
 
 Point = tuple[float, float]
 Segment = tuple[Point, Point]
@@ -83,25 +85,6 @@ def _regions_overlap_or_near(a: Any, b: Any, pad: float = 24.0) -> bool:
         or au[3] + pad < bu[1]
         or bu[3] + pad < au[1]
     )
-
-
-def _as_point(pt: Any) -> Point | None:
-    if isinstance(pt, (list, tuple)) and len(pt) == 2 and all(isinstance(v, (int, float)) for v in pt):
-        return (float(pt[0]), float(pt[1]))
-    return None
-
-
-def _wall_segment(label: dict[str, Any]) -> Segment | None:
-    geom = label.get("geometry") or {}
-    start = _as_point(geom.get("start"))
-    end = _as_point(geom.get("end"))
-    if start is None or end is None:
-        return None
-    return (start, end)
-
-
-def _dist(a: Point, b: Point) -> float:
-    return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
 def _point_line_projection(pt: Point, seg: Segment) -> tuple[Point, float, float]:

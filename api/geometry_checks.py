@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import math
 
+from .geometry_util import point_seg_distance as _point_seg_distance
+
 Point = tuple[float, float]
 Seg = tuple[Point, Point]
 
@@ -80,21 +82,6 @@ def point_in_polygon(pt: Point, polygon: list[Point]) -> bool:
             inside = not inside
         j = i
     return inside
-
-
-def _point_seg_distance(pt: Point, a: Point, b: Point) -> float:
-    """Shortest distance from pt to segment ab (not the infinite line)."""
-    ax, ay = a
-    bx, by = b
-    px, py = pt
-    dx, dy = bx - ax, by - ay
-    seg_len2 = dx * dx + dy * dy
-    if seg_len2 == 0:
-        return segment_length_px(pt, a)
-    t = ((px - ax) * dx + (py - ay) * dy) / seg_len2
-    t = max(0.0, min(1.0, t))
-    proj = (ax + t * dx, ay + t * dy)
-    return segment_length_px(pt, proj)
 
 
 def _project_t(pt: Point, a: Point, b: Point) -> float:

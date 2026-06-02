@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from .geometry_util import as_point as _as_point, wall_segment as _wall_segment
 from .persistence import atomic_write_json, atomic_write_text, locked_path
 
 BASE = Path(__file__).parent.parent
@@ -488,17 +489,6 @@ def _validate_scene_tag_label_palette(payload: dict[str, Any]) -> None:
         )
 
 
-def _as_point(pt: Any) -> tuple[float, float] | None:
-    if (
-        isinstance(pt, list)
-        and len(pt) == 2
-        and isinstance(pt[0], (int, float))
-        and isinstance(pt[1], (int, float))
-    ):
-        return (float(pt[0]), float(pt[1]))
-    return None
-
-
 def _floorplan_opening_axis(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
     """Return the opening's along-wall centerline from its quad geometry.
 
@@ -532,15 +522,6 @@ def _floorplan_opening_depth_axis(label: dict[str, Any]) -> tuple[tuple[float, f
         ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0),
         ((d[0] + c[0]) / 2.0, (d[1] + c[1]) / 2.0),
     )
-
-
-def _wall_segment(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
-    geom = label.get("geometry") or {}
-    start = _as_point(geom.get("start"))
-    end = _as_point(geom.get("end"))
-    if start is None or end is None:
-        return None
-    return (start, end)
 
 
 def _wall_label_id() -> str:

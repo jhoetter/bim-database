@@ -9,6 +9,9 @@ import math
 from collections import defaultdict
 from typing import Any
 
+from .geometry_util import dist as _dist
+from .geometry_util import point_seg_distance
+
 Point = tuple[float, float]
 Seg = tuple[Point, Point]
 
@@ -20,10 +23,6 @@ def _pt(v: Any) -> Point | None:
         except (TypeError, ValueError):
             return None
     return None
-
-
-def _dist(a: Point, b: Point) -> float:
-    return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
 def _length(seg: Seg) -> float:
@@ -43,17 +42,8 @@ def _angle_delta(a: float, b: float) -> float:
 
 
 def _point_seg_distance(pt: Point, seg: Seg) -> float:
-    (a, b) = seg
-    ax, ay = a
-    bx, by = b
-    px, py = pt
-    dx, dy = bx - ax, by - ay
-    l2 = dx * dx + dy * dy
-    if l2 == 0:
-        return _dist(pt, a)
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / l2))
-    proj = (ax + t * dx, ay + t * dy)
-    return _dist(pt, proj)
+    # Seg-form adapter over the canonical (pt, a, b) helper.
+    return point_seg_distance(pt, seg[0], seg[1])
 
 
 def _point_line_distance(pt: Point, seg: Seg) -> float:
