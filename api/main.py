@@ -2186,6 +2186,13 @@ def _parse_show_height_guides(show_height_guides: str | None) -> str:
     return value
 
 
+def _parse_show_openings(show_openings: str | None) -> str:
+    value = (show_openings or "full").strip().lower()
+    if value not in ("full", "outline", "hide"):
+        raise HTTPException(status_code=400, detail="show_openings must be full, outline, or hide")
+    return value
+
+
 def _scene_px_per_mm(key: str, file: str) -> float | None:
     facts_path = DATASET_DIR / key / "house_facts.json"
     if not facts_path.exists():
@@ -2621,6 +2628,174 @@ def dimension_chain_candidates_route(
     return {"ok": True, "data": res}
 
 
+@app.get("/datasets/{key}/{file}/dimension-station-graph", tags=["pdfs"])
+def dimension_station_graph_route(
+    key: str,
+    file: str,
+    region: str | None = None,
+    orientation: str | None = None,
+    thresh: int = 205,
+    min_line_frac: float = 0.25,
+    min_tick_px: int = 12,
+    tick_search_px: int = 45,
+    pad_px: int = 80,
+    wall_anchor_tol_px: float = 28.0,
+):
+    """Dimension-chain station graph.
+
+    This keeps the existing no-OCR contract but returns stable station/span
+    ids and nearest-wall context so agents can label tick-to-tick distances
+    without inventing endpoints.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    if orientation not in (None, "horizontal", "vertical"):
+        raise HTTPException(status_code=400, detail="orientation must be horizontal, vertical, or omitted")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    from PIL import Image as PILImage
+    from .dimension_station_graph import dimension_station_graph
+    parsed = _parse_region(region)
+    labels_doc = get_labels("dataset", key, file)
+    with PILImage.open(img_path) as src:
+        res = dimension_station_graph(
+            src.convert("RGB"),
+            labels_doc,
+            region=parsed,
+            orientation=orientation,
+            thresh=thresh,
+            min_line_frac=min_line_frac,
+            min_tick_px=min_tick_px,
+            tick_search_px=tick_search_px,
+            pad_px=pad_px,
+            wall_anchor_tol_px=wall_anchor_tol_px,
+        )
+    return {"ok": True, "data": res}
+
+
+@app.get("/datasets/{key}/{file}/opening-candidates", tags=["pdfs"])
+def opening_candidates_route(
+    key: str,
+    file: str,
+    strip_half_width_px: float = 18.0,
+    step_px: float = 4.0,
+    min_gap_px: float = 28.0,
+    max_gap_px: float = 260.0,
+    endpoint_margin_px: float = 18.0,
+    thresh: int = 180,
+    limit: int = 40,
+):
+    """Return deterministic floorplan opening candidates from wall gaps."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    labels_doc = get_labels("dataset", key, file)
+    from PIL import Image as PILImage
+    from .opening_candidates import opening_candidate_report
+    with PILImage.open(img_path) as src:
+        data = opening_candidate_report(
+            src.convert("RGB"),
+            labels_doc,
+            strip_half_width_px=strip_half_width_px,
+            step_px=step_px,
+            min_gap_px=min_gap_px,
+            max_gap_px=max_gap_px,
+            endpoint_margin_px=endpoint_margin_px,
+            thresh=thresh,
+            limit=limit,
+        )
+    return {"ok": True, "data": data}
+
+
+def _find_opening_candidate(labels_doc: dict[str, Any], img_path: Path, candidate_id: str) -> dict[str, Any]:
+    from PIL import Image as PILImage
+    from .opening_candidates import opening_candidate_report
+    with PILImage.open(img_path) as src:
+        report = opening_candidate_report(src.convert("RGB"), labels_doc, limit=200)
+    for candidate in report.get("candidates") or []:
+        if candidate.get("candidate_id") == candidate_id:
+            return candidate
+    raise KeyError(f"opening candidate {candidate_id!r} not found")
+
+
+@app.get("/datasets/{key}/{file}/opening-candidates/{candidate_id}/overlay", tags=["pdfs"])
+def opening_candidate_overlay_route(
+    key: str,
+    file: str,
+    candidate_id: str,
+    max_dim: int = 1600,
+    clean: bool = True,
+):
+    """Render current labels plus one opening candidate quad/axis."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        candidate = _find_opening_candidate(labels_doc, img_path, candidate_id)
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    region = candidate.get("region")
+    parsed_region = None
+    if isinstance(region, list) and len(region) >= 4:
+        x0, y0, x1, y1 = [int(round(float(v))) for v in region[:4]]
+        pad = 55
+        parsed_region = (max(0, x0 - pad), max(0, y0 - pad), max(x1 + pad, x0 + pad), max(y1 + pad, y0 + pad))
+    from PIL import Image as PILImage, ImageDraw
+    from .label_render import render_grid_with_labels
+    with PILImage.open(img_path) as src:
+        overlay = render_grid_with_labels(
+            src.convert("RGB"),
+            labels_doc.get("labels") or [],
+            tiers=("finer",),
+            region=parsed_region,
+            max_dim=max_dim,
+            clean=bool(clean),
+            style="ink_compare",
+            background_opacity=0.2,
+            background_opacity_explicit=True,
+            contrast="high",
+            px_per_mm=_scene_px_per_mm(key, file),
+            show_relations="required",
+            show_openings="full",
+        )
+    if parsed_region is not None:
+        rx0, ry0, rx1, ry1 = parsed_region
+    else:
+        rx0, ry0 = 0, 0
+        with PILImage.open(img_path) as src:
+            rx1, ry1 = src.size
+    scale = min(max_dim / max(1, rx1 - rx0), max_dim / max(1, ry1 - ry0), 1.0)
+
+    def to_out(pt: Any) -> tuple[float, float] | None:
+        if not (isinstance(pt, list) and len(pt) == 2):
+            return None
+        return ((float(pt[0]) - rx0) * scale, (float(pt[1]) - ry0) * scale)
+
+    draw = ImageDraw.Draw(overlay, "RGBA")
+    pts = [to_out(p) for p in candidate.get("quad") or []]
+    pts = [p for p in pts if p is not None]
+    if len(pts) == 4:
+        draw.polygon(pts, fill=(20, 184, 166, 50), outline=(20, 184, 166, 255))
+        draw.line(pts + [pts[0]], fill=(20, 184, 166, 255), width=4)
+    axis = [to_out(p) for p in candidate.get("centerline") or []]
+    axis = [p for p in axis if p is not None]
+    if len(axis) == 2:
+        draw.line(axis, fill=(236, 72, 153, 255), width=4)
+    import io
+    buf = io.BytesIO()
+    overlay.save(buf, format="PNG")
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
 @app.get("/datasets/{key}/{file}/building-silhouette", tags=["pdfs"])
 def building_silhouette_route(
     key: str,
@@ -2893,6 +3068,7 @@ def render_scene_grid_with_labels(
     contrast: str | None = None,
     show_relations: str | None = None,
     show_height_guides: str | None = None,
+    show_openings: str | None = None,
     include_hidden: bool = False,
 ):
     """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
@@ -2926,6 +3102,7 @@ def render_scene_grid_with_labels(
     parsed_contrast = _parse_contrast(contrast)
     parsed_show_relations = _parse_show_relations(show_relations)
     parsed_show_height_guides = _parse_show_height_guides(show_height_guides)
+    parsed_show_openings = _parse_show_openings(show_openings)
 
     label_path = _safe_label_path("dataset", key, file)
     img_mtime = img_path.stat().st_mtime_ns
@@ -2947,6 +3124,7 @@ def render_scene_grid_with_labels(
         f"-k{parsed_contrast}"
         f"-rel{parsed_show_relations}"
         f"-hg{parsed_show_height_guides}"
+        f"-op{parsed_show_openings}"
         f"-ih{int(bool(include_hidden))}"
         f"-f{parsed_format}.png"
     )
@@ -2984,6 +3162,7 @@ def render_scene_grid_with_labels(
                 px_per_mm=_scene_px_per_mm(key, file),
                 show_relations=parsed_show_relations,
                 show_height_guides=parsed_show_height_guides,
+                show_openings=parsed_show_openings,
             )
         _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(cache_key)

@@ -329,7 +329,7 @@ def test_scene_plan_mcp_template_and_status_smoke():
         task_ids=["CLASSIFY_SCENE"],
     ))
     assert ev["ok"], ev.get("error")
-    evidence_id = ev["data"]["state"]["evidence"][-1]["id"]
+    evidence_id = ev["data"]["latest_evidence_id"]
     task = _run(mcp_server.set_scene_plan_task_state(
         key=key,
         file=file,
@@ -339,8 +339,10 @@ def test_scene_plan_mcp_template_and_status_smoke():
         gate_updates=[{"id": "SCENE_CLASSIFIED", "status": "passed", "evidence_ids": [evidence_id]}],
     ))
     assert task["ok"], task.get("error")
+    state_after_task = _run(mcp_server.get_scene_plan_state(key=key, file=file))
+    assert state_after_task["ok"], state_after_task.get("error")
     classified = next(
-        t for t in task["data"]["state"]["tasks"]
+        t for t in state_after_task["data"]["state"]["tasks"]
         if t["id"] == "CLASSIFY_SCENE"
     )
     assert classified["status"] == "verified"
@@ -1458,6 +1460,9 @@ def test_tool_descriptions_are_present():
         mcp_server.add_scene_plan_evidence,
         mcp_server.set_scene_plan_task_state,
         mcp_server.evaluate_scene_plan_gates,
+        mcp_server.dimension_station_graph,
+        mcp_server.opening_candidates,
+        mcp_server.get_scene_view_with_opening_candidate,
     ]
     for tool in tools:
         # Tool objects are decorated; unwrap if needed.
@@ -1470,3 +1475,30 @@ def test_tool_descriptions_are_present():
         # Tracker §C0 principle 2 — every description has USE / DON'T USE.
         assert "USE when" in doc or "Use when" in doc.lower() or "use when" in doc.lower(), \
             f"{getattr(fn, '__name__', tool)}: description missing 'USE when' guidance"
+
+
+def test_mcp_plan_mutations_return_compact_summary():
+    key, file = _write_scratch_scene("house-zzmcpcompact")
+    created = _run(mcp_server.create_scene_plan_state_from_template(
+        key=key,
+        file=file,
+        scene_tag="grundriss",
+        level_or_orientation="eg",
+        overwrite=True,
+    ))
+    assert created["ok"], created.get("error")
+
+    r = _run(mcp_server.add_scene_plan_evidence(
+        key=key,
+        file=file,
+        kind="human_note",
+        mode="analysis",
+        summary="compact evidence test",
+        result={"ok": True},
+    ))
+    assert r["ok"], r.get("error")
+    data = r["data"]
+    assert data["summary_contract"] == "plan-mutation-summary/v1"
+    assert "state" not in data
+    assert "markdown" not in data
+    assert data["key"] == key

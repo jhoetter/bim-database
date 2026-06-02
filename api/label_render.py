@@ -113,6 +113,7 @@ def render_grid_with_labels(
     px_per_mm: float | None = None,
     show_relations: str = "required",
     show_height_guides: str = "auto",
+    show_openings: str = "full",
 ) -> Image.Image:
     """Render the source image + grid overlay + every label in `labels`.
 
@@ -194,6 +195,8 @@ def render_grid_with_labels(
         raise ValueError("show_relations must be required, all, or none")
     if show_height_guides not in ("auto", "always", "never"):
         raise ValueError("show_height_guides must be auto, always, or never")
+    if show_openings not in ("full", "outline", "hide"):
+        raise ValueError("show_openings must be full, outline, or hide")
     render_height_guides = (
         show_height_guides == "always"
         or (show_height_guides == "auto" and (clean or contrast == "high"))
@@ -234,12 +237,18 @@ def render_grid_with_labels(
                 axis_color = _WALL_AXIS_HIGH if contrast == "high" and not ink_compare else _WALL_COLOR
                 draw.line([start, end], fill=axis_color, width=2 if qa_style else _WALL_WIDTH)
         elif t == "floorplan_opening":
+            if show_openings == "hide":
+                continue
             quad = geom.get("quad") or []
             if len(quad) == 4:
                 pts = [to_out(p) for p in quad]
                 kind = (lab.get("attributes") or {}).get("opening_kind") or "window"
                 color = _opening_color(kind)
-                if qa_style:
+                if show_openings == "outline":
+                    outline = _with_alpha(color, 210 if not ink_compare else 180)
+                    draw.line(pts + [pts[0]], fill=outline, width=2)
+                    _draw_opening_end_caps(draw, pts, outline)
+                elif qa_style:
                     outline = _with_alpha(color, 210 if not ink_compare else 180)
                     draw.line(pts + [pts[0]], fill=outline, width=2)
                     _draw_opening_end_caps(draw, pts, outline)

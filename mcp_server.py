@@ -798,6 +798,7 @@ async def get_scene_view_with_labels(
     contrast: str = "high",
     show_relations: str = "required",
     show_height_guides: str = "auto",
+    show_openings: str = "full",
     include_hidden: bool = False,
     image_delivery: str = "inline",
 ) -> list[ImageContent | TextContent]:
@@ -857,6 +858,9 @@ async def get_scene_view_with_labels(
       show_height_guides:
                auto|always|never. Auto shows datum guide lines in Agent View /
                clean QA contexts and keeps normal editor views quieter.
+      show_openings:
+               full|outline|hide. Use outline/hide when opening quads obscure
+               wall ink during detail QA.
       include_hidden:
                When false, respect display.hidden_label_ids like the UI.
 
@@ -888,6 +892,7 @@ async def get_scene_view_with_labels(
         "clean": clean, "contrast": contrast,
         "show_relations": show_relations,
         "show_height_guides": show_height_guides,
+        "show_openings": show_openings,
         "include_hidden": include_hidden,
     }
     if region:
@@ -946,6 +951,7 @@ async def get_scene_view_with_labels(
             "contrast": contrast,
             "show_relations": show_relations,
             "show_height_guides": show_height_guides,
+            "show_openings": show_openings,
             "include_hidden": include_hidden,
             "render_contract_version": "labeling-render-contract/2026-05-31",
             "hint": (
@@ -976,6 +982,7 @@ async def verify_label_placement(
     contrast: str = "high",
     show_relations: str = "required",
     show_height_guides: str = "auto",
+    show_openings: str = "full",
     include_hidden: bool = False,
     image_delivery: str = "inline",
 ) -> list[ImageContent | TextContent]:
@@ -1018,6 +1025,8 @@ async def verify_label_placement(
                  required|all|none relation cues. Defaults required.
       show_height_guides:
                  auto|always|never datum guide lines for height marks.
+      show_openings:
+                 full|outline|hide opening rendering for this verification crop.
       include_hidden:
                  Include labels hidden in the UI display preferences.
       snap_radius_px: search radius for the numeric offset check (issue
@@ -1094,6 +1103,7 @@ async def verify_label_placement(
         contrast=contrast,
         show_relations=show_relations,
         show_height_guides=show_height_guides,
+        show_openings=show_openings,
         include_hidden=include_hidden,
         image_delivery=image_delivery,
     )
@@ -2271,7 +2281,8 @@ async def start_scene_plan_action(
     status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/start", body)
     if status >= 400:
         return _http_status_to_error(status, res, started)
-    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_compact_plan_mutation_response(data, action="start_action"), started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -2306,7 +2317,8 @@ async def record_scene_plan_attempt(
     status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/attempts", body)
     if status >= 400:
         return _http_status_to_error(status, res, started)
-    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_compact_plan_mutation_response(data, action="record_attempt"), started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -2345,7 +2357,8 @@ async def finish_scene_plan_action(
     status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/finish", body)
     if status >= 400:
         return _http_status_to_error(status, res, started)
-    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_compact_plan_mutation_response(data, action="finish_action"), started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -2554,7 +2567,8 @@ async def add_scene_plan_evidence(
     status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/evidence", body)
     if status >= 400:
         return _http_status_to_error(status, res, started)
-    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_compact_plan_mutation_response(data, action="add_evidence"), started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -2602,7 +2616,8 @@ async def set_scene_plan_task_state(
     status_code, res = await _api_get(f"/datasets/{key}/{file}/plan-state")
     if status_code >= 400:
         return _http_status_to_error(status_code, res, started)
-    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status_code)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_compact_plan_mutation_response(data, action="set_task_state"), started_at=started, status_code=status_code)
 
 
 @mcp.tool()
@@ -2638,7 +2653,8 @@ async def evaluate_scene_plan_gates(
     status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/evaluate-gates", body)
     if status >= 400:
         return _http_status_to_error(status, res, started)
-    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_compact_plan_mutation_response(data, action="evaluate_gates"), started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -2782,6 +2798,83 @@ def _truncate_lists(data: Any, limits: dict[str, int]) -> Any:
     else:
         out.setdefault("truncated", False)
     return out
+
+
+def _compact_plan_mutation_response(data: Any, *, action: str | None = None, max_items: int = 8) -> Any:
+    """Shrink verbose plan-state mutation responses for LLM context hygiene.
+
+    The HTTP API keeps full responses for the UI/tests. MCP write tools use
+    this summary so a one-line evidence write does not echo hundreds of lines
+    of old tasks, defects, markdown, and evidence back into the next prompt.
+    """
+    if not isinstance(data, dict):
+        return data
+    state = data.get("state") if isinstance(data.get("state"), dict) else data
+    current = state.get("current_state") or {}
+    term = current.get("terminality") or {}
+    defects = state.get("defects") or []
+    open_defects = [
+        d for d in defects
+        if isinstance(d, dict) and d.get("status") in {"open", "in_progress"}
+    ]
+    blockers = [d for d in open_defects if d.get("severity") == "blocker"]
+    warnings = [d for d in open_defects if d.get("severity") == "warning"]
+    tasks = state.get("tasks") or []
+    incomplete = [
+        {
+            "id": t.get("id"),
+            "status": t.get("status"),
+            "blocked_by": t.get("blocked_by") or [],
+        }
+        for t in tasks
+        if isinstance(t, dict) and t.get("required") and t.get("status") != "verified"
+    ]
+    actionable = data.get("actionable_tasks")
+    if not isinstance(actionable, list):
+        actionable = []
+    summary = {
+        "summary_contract": "plan-mutation-summary/v1",
+        "action": action,
+        "key": state.get("key"),
+        "file": state.get("file"),
+        "version": data.get("version") or state.get("version"),
+        "status": data.get("status") or state.get("status"),
+        "terminal": term.get("terminal"),
+        "percent_complete": term.get("percent_complete"),
+        "required_complete": term.get("required_complete"),
+        "summary": term.get("summary") or current.get("summary"),
+        "label_counts": current.get("label_counts") or {},
+        "open_blocker_count": len(blockers),
+        "open_warning_count": len(warnings),
+        "open_blockers": [
+            {
+                "id": d.get("id"),
+                "category": d.get("category"),
+                "title": d.get("title"),
+                "region": d.get("region"),
+            }
+            for d in blockers[:max_items]
+        ],
+        "incomplete_required_tasks": incomplete[:max_items],
+        "next_action": actionable[0] if actionable else term.get("next_action"),
+        "truncated": len(blockers) > max_items or len(incomplete) > max_items,
+    }
+    evidence = state.get("evidence") or []
+    if isinstance(evidence, list) and evidence:
+        latest = evidence[-1]
+        if isinstance(latest, dict):
+            summary["latest_evidence_id"] = latest.get("id")
+            summary["evidence_count"] = len(evidence)
+    if data.get("open_defects") and isinstance(data["open_defects"], list):
+        summary["open_defect_count"] = len(data["open_defects"])
+    if state.get("current_state", {}).get("findings"):
+        findings = state["current_state"]["findings"]
+        summary["current_findings"] = {
+            "count": findings.get("count"),
+            "blockers": findings.get("blockers"),
+            "warnings": findings.get("warnings"),
+        }
+    return summary
 
 
 def _compact_workflow_for_summary(workflow: dict[str, Any], max_blockers: int = 2) -> dict[str, Any]:
@@ -3066,6 +3159,141 @@ async def dimension_chain_candidates(
     if orientation is not None:
         params["orientation"] = orientation
     return await _cv_get(f"/datasets/{key}/{file}/dimension-chain-candidates", params, started)
+
+
+@mcp.tool()
+async def dimension_station_graph(
+    key: str,
+    file: str,
+    region: str | None = None,
+    orientation: str | None = None,
+    thresh: int = 205,
+    min_line_frac: float = 0.25,
+    min_tick_px: int = 12,
+    tick_search_px: int = 45,
+    pad_px: int = 80,
+    wall_anchor_tol_px: float = 28.0,
+    max_stations: int = 30,
+    max_spans: int = 30,
+) -> dict:
+    """Return a no-OCR dimension station graph tied to saved wall labels.
+
+    USE when:
+      - Dimension ticks are visible but the agent risks guessing endpoints.
+      - You need stable station/span ids before writing
+        dimensioned_distance + dimension_number labels.
+
+    The model still reads printed values from `crop_region`. This tool only
+    provides tick station geometry, adjacent spans, and nearest-wall context.
+    """
+    started = time.time()
+    params: dict[str, Any] = {
+        "thresh": thresh,
+        "min_line_frac": min_line_frac,
+        "min_tick_px": min_tick_px,
+        "tick_search_px": tick_search_px,
+        "pad_px": pad_px,
+        "wall_anchor_tol_px": wall_anchor_tol_px,
+    }
+    if region is not None:
+        params["region"] = region
+    if orientation is not None:
+        params["orientation"] = orientation
+    result = await _cv_get(f"/datasets/{key}/{file}/dimension-station-graph", params, started)
+    if result.get("ok"):
+        result["data"] = _truncate_lists(result["data"], {
+            "stations": max_stations,
+            "spans": max_spans,
+        })
+    return result
+
+
+@mcp.tool()
+async def opening_candidates(
+    key: str,
+    file: str,
+    strip_half_width_px: float = 18.0,
+    step_px: float = 4.0,
+    min_gap_px: float = 28.0,
+    max_gap_px: float = 260.0,
+    endpoint_margin_px: float = 18.0,
+    thresh: int = 180,
+    limit: int = 20,
+) -> dict:
+    """Return reviewable floorplan opening candidates from wall-gap evidence.
+
+    USE when:
+      - Wall topology is stable and the next focused task is placing or
+        checking doors, windows, passages, or garage doors.
+      - Existing opening defects are noisy and you need a deterministic
+        parent-wall candidate queue.
+
+    Each candidate has a parent wall, proposed quad, local region, and a
+    suggested `floorplan_opening` label skeleton. Inspect with
+    `get_scene_view_with_opening_candidate` before writing or rejecting.
+    """
+    started = time.time()
+    params = {
+        "strip_half_width_px": strip_half_width_px,
+        "step_px": step_px,
+        "min_gap_px": min_gap_px,
+        "max_gap_px": max_gap_px,
+        "endpoint_margin_px": endpoint_margin_px,
+        "thresh": thresh,
+        "limit": limit,
+    }
+    return await _cv_get(f"/datasets/{key}/{file}/opening-candidates", params, started)
+
+
+@mcp.tool()
+async def get_scene_view_with_opening_candidate(
+    key: str,
+    file: str,
+    candidate_id: str,
+    max_dim: int = 1600,
+    clean: bool = True,
+    image_delivery: str = "inline",
+) -> list[ImageContent | TextContent]:
+    """Render current labels plus one proposed opening candidate.
+
+    USE when:
+      - You selected one candidate from `opening_candidates` and need a
+        tight visual accept/reject crop.
+      - You want to compare the proposed opening quad and centerline against
+        the source ink while keeping the current label overlay visible.
+
+    DON'T USE when:
+      - You have not listed candidates yet; call `opening_candidates` first.
+      - You intend to mutate labels. This overlay is visual evidence only and
+        never writes geometry.
+    """
+    started = time.time()
+    status, content, ctype = await _api_get_bytes(
+        f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/overlay",
+        params={"max_dim": int(max_dim), "clean": bool(clean)},
+    )
+    if status >= 400:
+        try:
+            body = json.loads(content) if content else {}
+        except json.JSONDecodeError:
+            body = {}
+        return _wrap_text(_http_status_to_error(status, body, started))
+    return _image_delivery_payload(
+        content=content,
+        ctype=ctype,
+        metadata={
+            "key": key,
+            "file": file,
+            "candidate_id": candidate_id,
+            "image_format": "PNG",
+            "max_dim": max_dim,
+            "clean": clean,
+            "render_contract_version": "opening-candidate-overlay/v1",
+        },
+        started_at=started,
+        status_code=status,
+        image_delivery=image_delivery,
+    )
 
 
 @mcp.tool()
@@ -5465,6 +5693,8 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
         "delete_label", "update_label_attrs", "set_label_status",
         "add_reference_dim", "dimension_chain_candidates", "dimension_chain_context",
+        "dimension_station_graph", "opening_candidates",
+        "get_scene_view_with_opening_candidate",
         "score_walls", "score_measurements", "wall_topology_qa",
         "wall_continuity_check", "ambiguous_line_context", "propose_wall_edit",
         "get_scene_repair_candidates", "get_scene_view_with_repair_candidate",
