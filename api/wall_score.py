@@ -28,6 +28,14 @@ except Exception as exc:  # pragma: no cover
 
 from .corner_detect import _to_gray_array, _wall_mask
 
+# Canonical wall-scoring tolerances in source pixels (M3 — code-quality-tracker).
+# Single source for the default score-walls / wall-anchoring px tolerances.
+# A few call sites deliberately diverge and document why at the call site:
+#   - the plan-state gate uses a STRICTER min_wall_px (16) so faint ink doesn't
+#     pass the gate;
+#   - measurement scoring uses its own smaller tol (8) — a different metric.
+WALL_SCORE_DEFAULTS = {"min_wall_px": 8, "tol_px": 18, "close_px": 82}
+
 
 def _label_mask(shape, walls, thick_px: int) -> np.ndarray:
     """Rasterize wall segments into a uint8 mask (255 on the drawn stroke)."""

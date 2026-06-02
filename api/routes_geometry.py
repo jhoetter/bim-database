@@ -16,6 +16,8 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
+from .wall_score import WALL_SCORE_DEFAULTS
+
 from .main import (
     DATASET_DIR,
     GRID_CACHE,
@@ -370,9 +372,9 @@ def upsert_wall_anchored_route(
     n_samples = int(anchor.get("n_samples", 31))
     min_confidence = float(anchor.get("min_confidence", 0.82))
     min_overlap = float(anchor.get("min_overlap", 0.6))
-    tol_px = int(anchor.get("tol_px", 18))
-    min_wall_px = int(anchor.get("min_wall_px", 8))
-    close_px = int(anchor.get("close_px", 82))
+    tol_px = int(anchor.get("tol_px", WALL_SCORE_DEFAULTS["tol_px"]))
+    min_wall_px = int(anchor.get("min_wall_px", WALL_SCORE_DEFAULTS["min_wall_px"]))
+    close_px = int(anchor.get("close_px", WALL_SCORE_DEFAULTS["close_px"]))
     snap_corners = bool(anchor.get("snap_corners", False))
     status_if_unanchored = str(body.get("status_if_unanchored") or "reject")
     evidence_id = body.get("evidence_id")
@@ -500,10 +502,10 @@ def wall_label_anchoring_check_route(
             src,
             seg[0],
             seg[1],
-            min_wall_px=int(body.get("min_wall_px", 8)),
-            tol_px=int(body.get("tol_px", 18)),
+            min_wall_px=int(body.get("min_wall_px", WALL_SCORE_DEFAULTS["min_wall_px"])),
+            tol_px=int(body.get("tol_px", WALL_SCORE_DEFAULTS["tol_px"])),
             thin_aware=bool(body.get("thin_aware", True)),
-            close_px=int(body.get("close_px", 82)),
+            close_px=int(body.get("close_px", WALL_SCORE_DEFAULTS["close_px"])),
         )
     data.update({
         "anchoring_status": data["status"],

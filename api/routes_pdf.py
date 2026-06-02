@@ -48,6 +48,12 @@ from .main import (
 
 router = APIRouter()
 
+# DPI bounds (M3 — code-quality-tracker). Page-proxy renders cap at the native
+# scan resolution (higher only upscales); scene extraction allows more so fine
+# detail survives the crop. Named here so the limits are documented in one spot.
+MAX_RENDER_DPI = 600
+MAX_EXTRACT_DPI = 1200
+
 
 @router.get("/pdfs/incoming", tags=["pdfs"])
 def list_incoming_pdfs():
@@ -562,8 +568,8 @@ def render_pdf_page(key: str, n: int, dpi: int = 300):
     + grid coordinates are read off near-native resolution, not a coarse
     proxy. Cap stays 600 (>= the ~429 dpi native scan; higher only upscales)."""
     _safe_key(key)
-    if dpi <= 0 or dpi > 600:
-        raise HTTPException(status_code=400, detail="dpi must be in (0, 600]")
+    if dpi <= 0 or dpi > MAX_RENDER_DPI:
+        raise HTTPException(status_code=400, detail=f"dpi must be in (0, {MAX_RENDER_DPI}]")
     pdf = _consolidated_path(key)
     pdf_mtime = pdf.stat().st_mtime_ns
     cache_root = PDF_CACHE / key
@@ -606,8 +612,8 @@ def render_pdf_page_grid(
     pixels at the rendered DPI; downstream `extract_scenes` MCP tool
     converts to PDF units using the same DPI."""
     _safe_key(key)
-    if dpi <= 0 or dpi > 600:
-        raise HTTPException(status_code=400, detail="dpi must be in (0, 600]")
+    if dpi <= 0 or dpi > MAX_RENDER_DPI:
+        raise HTTPException(status_code=400, detail=f"dpi must be in (0, {MAX_RENDER_DPI}]")
     if not 100 <= max_dim <= 8000:
         raise HTTPException(status_code=400, detail="max_dim must be in [100, 8000]")
     parsed_tiers = _parse_tiers(tiers)
@@ -963,7 +969,7 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
             view = raw.get("view")
             floor = raw.get("floor")
             dpi = int(raw.get("dpi", 600))
-            if dpi <= 0 or dpi > 1200:
+            if dpi <= 0 or dpi > MAX_EXTRACT_DPI:
                 raise HTTPException(status_code=400, detail="dpi out of range")
             fmt = str(raw.get("format") or "jpg").strip().lower()
             if fmt == "jpeg":
