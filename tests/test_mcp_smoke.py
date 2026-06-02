@@ -1505,3 +1505,104 @@ def test_mcp_plan_mutations_return_compact_summary():
     assert "state" not in data
     assert "markdown" not in data
     assert data["key"] == key
+
+
+# ── H4: destructive reset tools ────────────────────────────────────────────
+# reset_scene_labels / reset_house_labeling / reset_house_dataset delete data
+# and previously had zero test coverage. These pin their scope (one scene vs
+# whole house vs whole dataset), envelope shape, idempotency, and that an
+# unsafe key cannot escape the dataset directory.
+
+
+def _seed_two_scene_house(key: str) -> tuple[str, list[str]]:
+    """Two labeled grundriss scenes under one house, so scope-of-reset is
+    observable (resetting one must not touch the other)."""
+    root = api_main.DATASET_DIR / key
+    shutil.rmtree(root, ignore_errors=True)
+    labels_dir = root / "labels"
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    files = [f"{key}-a.jpg", f"{key}-b.jpg"]
+    drawings = []
+    for f in files:
+        Image.new("RGB", (400, 300), (255, 255, 255)).save(root / f)
+        drawings.append({
+            "file": f, "kind": "floorplan", "source": "test", "view": None,
+            "floor": "eg", "title": "scratch", "imported_at": "2026-01-01T00:00:00Z",
+        })
+        labels = api_main._label_skeleton("dataset", key, f)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        labels["image_size_px"] = [400, 300]
+        labels["labels"] = [{"id": "lab-x", "type": "wall", "points": [[10, 10], [100, 10]]}]
+        (labels_dir / f"{Path(f).stem}.json").write_text(json.dumps(labels))
+    (root / "manifest.json").write_text(json.dumps({"key": key, "drawings": drawings}))
+    return key, files
+
+
+def _read_scene_labels(key: str, file: str) -> dict:
+    p = api_main.DATASET_DIR / key / "labels" / f"{Path(file).stem}.json"
+    return json.loads(p.read_text())
+
+
+def test_reset_scene_labels_scope_is_one_scene():
+    key, files = _seed_two_scene_house("house-zzmcp-reset-scene")
+    res = _run(mcp_server.reset_scene_labels(key, files[0]))
+    assert res["ok"] is True, res.get("error")
+    assert res["data"]["label_count"] == 0
+    # Target scene cleared back to an unclassified skeleton.
+    a = _read_scene_labels(key, files[0])
+    assert a["labels"] == []
+    assert a["scene_tag"] == "nicht_klassifiziert"
+    # The OTHER scene must be untouched — this is the scope guarantee.
+    b = _read_scene_labels(key, files[1])
+    assert b["labels"] != []
+    assert b["scene_tag"] == "grundriss"
+    # Scene image is kept (reset clears labels, not the crop).
+    assert (api_main.DATASET_DIR / key / files[0]).exists()
+
+
+def test_reset_scene_labels_is_idempotent():
+    key, files = _seed_two_scene_house("house-zzmcp-reset-idem")
+    first = _run(mcp_server.reset_scene_labels(key, files[0]))
+    assert first["ok"] is True, first.get("error")
+    again = _run(mcp_server.reset_scene_labels(key, files[0]))
+    assert again["ok"] is True, again.get("error")
+    assert _read_scene_labels(key, files[0])["labels"] == []
+
+
+def test_reset_house_labeling_clears_all_scenes_keeps_images():
+    key, files = _seed_two_scene_house("house-zzmcp-reset-house")
+    res = _run(mcp_server.reset_house_labeling(key))
+    assert res["ok"] is True, res.get("error")
+    for f in files:
+        assert _read_scene_labels(key, f)["labels"] == [], f"{f} not cleared"
+        assert (api_main.DATASET_DIR / key / f).exists(), f"{f} image deleted"
+    # Manifest + scene crops survive a labeling reset.
+    assert (api_main.DATASET_DIR / key / "manifest.json").exists()
+
+
+def test_reset_house_dataset_removes_dataset_dir():
+    key, _files = _seed_two_scene_house("house-zzmcp-reset-dataset")
+    assert (api_main.DATASET_DIR / key).exists()
+    res = _run(mcp_server.reset_house_dataset(key))
+    assert res["ok"] is True, res.get("error")
+    assert res["data"]["mode"] == "dataset_removed_keep_incoming_pdf"
+    # The whole dataset dir is gone (the stronger reset).
+    assert not (api_main.DATASET_DIR / key).exists()
+
+
+def test_reset_tools_reject_unsafe_key_without_escaping():
+    """A path-traversal / slashed key must fail loudly and must not delete a
+    bystander house outside its intended scope."""
+    bystander, files = _seed_two_scene_house("house-zzmcp-reset-bystander")
+    for unsafe in ["..", "a/b", "../house-zzmcp-reset-bystander"]:
+        for tool in (
+            mcp_server.reset_house_dataset(unsafe),
+            mcp_server.reset_house_labeling(unsafe),
+        ):
+            res = _run(tool)
+            assert res["ok"] is False, f"unsafe key accepted: {unsafe!r} -> {res}"
+    # Bystander house is fully intact.
+    assert (api_main.DATASET_DIR / bystander / "manifest.json").exists()
+    for f in files:
+        assert _read_scene_labels(bystander, f)["labels"] != []
