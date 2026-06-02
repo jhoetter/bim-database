@@ -106,6 +106,36 @@ def _write_scratch_scene(
     return key, file
 
 
+def _add_scratch_scene(
+    key: str,
+    file: str,
+    *,
+    scene_tag: str = "grundriss",
+    level: str | None = "ug",
+) -> str:
+    root = api_main.DATASET_DIR / key
+    labels_dir = root / "labels"
+    Image.new("RGB", (400, 300), (255, 255, 255)).save(root / file)
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["drawings"].append({
+        "file": file,
+        "kind": "floorplan" if scene_tag == "grundriss" else scene_tag,
+        "source": "test",
+        "view": None,
+        "floor": level if scene_tag == "grundriss" else None,
+        "title": "MCP scratch scene",
+        "imported_at": "2026-01-01T00:00:00Z",
+    })
+    manifest_path.write_text(json.dumps(manifest))
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = scene_tag
+    labels["scene_level"] = level if scene_tag == "grundriss" else None
+    labels["image_size_px"] = [400, 300]
+    (labels_dir / f"{Path(file).stem}.json").write_text(json.dumps(labels))
+    return file
+
+
 # ── §5.1 Discovery ────────────────────────────────────────────────────────
 
 
@@ -263,6 +293,177 @@ def test_get_recommended_next_action_smoke():
     key = rs["data"]["houses"][0]["key"]
     r = _run(mcp_server.get_recommended_next_action(key=key))
     assert r["ok"], r.get("error")
+
+
+def test_scene_plan_mcp_template_and_status_smoke():
+    key, file = _write_scratch_scene("house-zzmcp-plan")
+
+    missing = _run(mcp_server.get_scene_plan_status(key=key, file=file))
+    assert missing["ok"], missing.get("error")
+    assert missing["data"]["exists"] is False
+
+    created = _run(mcp_server.create_scene_plan_state_from_template(
+        key=key,
+        file=file,
+        scene_tag="grundriss",
+        level_or_orientation="eg",
+        created_by="pytest",
+    ))
+    assert created["ok"], created.get("error")
+    assert created["data"]["exists"] is True
+
+    status = _run(mcp_server.get_scene_plan_status(key=key, file=file))
+    assert status["ok"], status.get("error")
+    assert status["data"]["exists"] is True
+
+    state = _run(mcp_server.get_scene_plan_state(key=key, file=file))
+    assert state["ok"], state.get("error")
+    assert state["data"]["markdown"]
+    assert state["data"]["state"]["scene_tag"] == "grundriss"
+
+    ev = _run(mcp_server.add_scene_plan_evidence(
+        key=key,
+        file=file,
+        kind="scene_view",
+        summary="Scene classified as EG plan in test.",
+        task_ids=["CLASSIFY_SCENE"],
+    ))
+    assert ev["ok"], ev.get("error")
+    evidence_id = ev["data"]["state"]["evidence"][-1]["id"]
+    task = _run(mcp_server.set_scene_plan_task_state(
+        key=key,
+        file=file,
+        task_id="CLASSIFY_SCENE",
+        status="verified",
+        evidence_ids=[evidence_id],
+        gate_updates=[{"id": "SCENE_CLASSIFIED", "status": "passed", "evidence_ids": [evidence_id]}],
+    ))
+    assert task["ok"], task.get("error")
+    classified = next(
+        t for t in task["data"]["state"]["tasks"]
+        if t["id"] == "CLASSIFY_SCENE"
+    )
+    assert classified["status"] == "verified"
+
+
+def test_recommended_next_action_prioritizes_eg_scene_plan():
+    key, file = _write_scratch_scene("house-zzmcp-eg-priority")
+
+    first = _run(mcp_server.get_recommended_next_action(key=key))
+    assert first["ok"], first.get("error")
+    assert first["data"]["phase"] == "Wgeo"
+    assert first["data"]["suggested_tool"] == "create_scene_plan_state_from_template"
+    assert first["data"]["suggested_args"]["file"] == file
+
+    created = _run(mcp_server.create_scene_plan_state_from_template(
+        key=key,
+        file=file,
+        scene_tag="grundriss",
+        level_or_orientation="eg",
+        created_by="pytest",
+    ))
+    assert created["ok"], created.get("error")
+
+    second = _run(mcp_server.get_recommended_next_action(key=key))
+    assert second["ok"], second.get("error")
+    assert second["data"]["phase"] == "Wgeo"
+    assert second["data"]["suggested_tool"] == "get_scene_plan_next_action"
+    assert second["data"]["suggested_args"]["file"] == file
+    assert second["data"]["scene_priority"] == "groundfloor-first"
+
+
+def test_scene_plan_tools_block_non_eg_while_eg_open():
+    key, eg_file = _write_scratch_scene("house-zzmcp-eg-guard", level="eg")
+    ug_file = _add_scratch_scene(key, f"{key}-ug.jpg", level="ug")
+
+    eg_plan = _run(mcp_server.create_scene_plan_state_from_template(
+        key=key,
+        file=eg_file,
+        scene_tag="grundriss",
+        level_or_orientation="eg",
+        created_by="pytest",
+    ))
+    assert eg_plan["ok"], eg_plan.get("error")
+    ug_plan = _run(mcp_server.create_scene_plan_state_from_template(
+        key=key,
+        file=ug_file,
+        scene_tag="grundriss",
+        level_or_orientation="ug",
+        created_by="pytest",
+    ))
+    assert ug_plan["ok"], ug_plan.get("error")
+
+    recommended = _run(mcp_server.get_recommended_next_action(key=key))
+    assert recommended["ok"], recommended.get("error")
+    assert recommended["data"]["suggested_args"]["file"] == eg_file
+    assert recommended["data"]["scene_priority"] == "groundfloor-first"
+
+    direct = _run(mcp_server.get_scene_plan_next_action(key=key, file=ug_file))
+    assert direct["ok"], direct.get("error")
+    assert direct["data"]["code"] == "groundfloor_first_blocked"
+    assert direct["data"]["requested_file"] == ug_file
+    assert direct["data"]["recommended_file"] == eg_file
+
+    direct_many = _run(mcp_server.get_scene_plan_next_actions(key=key, file=ug_file))
+    assert direct_many["ok"], direct_many.get("error")
+    assert direct_many["data"]["code"] == "groundfloor_first_blocked"
+    assert direct_many["data"]["actions"] == []
+
+    blocked_start = _run(mcp_server.start_scene_plan_action(
+        key=key,
+        file=ug_file,
+        action_id="ACT-CLASSIFY_SCENE",
+        agent_id="pytest",
+    ))
+    assert not blocked_start["ok"]
+    assert blocked_start["error"]["code"] == "groundfloor_first_blocked"
+    assert blocked_start["error"]["details"]["recommended_file"] == eg_file
+
+
+def test_readiness_and_export_block_minimal_labels_with_draft_plan():
+    key, file = _write_scratch_scene("house-zzmcp-draft-plan")
+
+    created = _run(mcp_server.create_scene_plan_state_from_template(
+        key=key,
+        file=file,
+        scene_tag="grundriss",
+        level_or_orientation="eg",
+        created_by="pytest",
+    ))
+    assert created["ok"], created.get("error")
+
+    wall = _run(mcp_server.upsert_label(key=key, file=file, label={
+        "type": "wall",
+        "geometry": {"start": [50, 50], "end": [350, 50]},
+        "attributes": {"thickness_mm": 300},
+    }))
+    assert wall["ok"], wall.get("error")
+    wall_id = wall["data"]["label_id"]
+    opening = _run(mcp_server.upsert_label(key=key, file=file, label={
+        "type": "floorplan_opening",
+        "geometry": {"quad": [[150, 40], [210, 40], [210, 60], [150, 60]]},
+        "attributes": {"opening_kind": "window", "swing": "none", "swing_side": "none"},
+        "relations": [{"kind": "belongs_to", "other_id": wall_id}],
+    }))
+    assert opening["ok"], opening.get("error")
+    facts = _run(mcp_server.set_house_facts(key=key, patch={
+        "heights": {"bezug_mm": 0, "first_mm": 8000},
+        "extent": {"width_mm": 9000, "depth_mm": 8000},
+        "wall_thickness": {"outer_mm": 300},
+        "orientation": {"north_angle_deg": 0, "assumed": True},
+    }))
+    assert facts["ok"], facts.get("error")
+
+    readiness = _run(mcp_server.validate_export_readiness(key=key))
+    assert readiness["ok"], readiness.get("error")
+    assert readiness["data"]["ready"] is False
+    assert readiness["data"]["phase_completeness"]["Wgeo"]["status"] == "pending"
+    assert any("scene plan incomplete" in b for b in readiness["data"]["blockers"])
+
+    export = _run(mcp_server.export_house(key=key))
+    assert not export["ok"]
+    assert export["error"]["code"] == "export_blocked"
+    assert any("scene plan incomplete" in b for b in export["error"]["details"]["blockers"])
 
 
 # ── §5.2 Intake ──────────────────────────────────────────────────────────
@@ -1170,6 +1371,48 @@ def test_split_scene_splits_lump_into_per_drawing_scenes():
         shutil.rmtree(dataset, ignore_errors=True)
 
 
+def test_extract_scenes_mcp_defaults_to_lossless_600dpi_png():
+    import json
+    import fitz
+    import shutil
+    from PIL import Image
+
+    key = "house-zzmcppng"
+    incoming = api_main.INCOMING_DIR / key
+    dataset = api_main.DATASET_DIR / key
+    incoming.mkdir(parents=True, exist_ok=True)
+
+    doc = fitz.open()
+    page = doc.new_page(width=72, height=36)
+    page.draw_rect(fitz.Rect(6, 6, 66, 30), color=(0, 0, 0), width=2)
+    pdf_name = f"{key}.pdf"
+    doc.save(str(incoming / pdf_name))
+    doc.close()
+    (incoming / "manifest.json").write_text(json.dumps({
+        "key": key, "consolidated_pdf": pdf_name, "state": "ready",
+        "extracted_scenes": [],
+    }))
+
+    try:
+        ex = _run(mcp_server.extract_scenes(key=key, items=[{
+            "page": 1,
+            "bbox_pdf_units": [0, 0, 72, 36],
+            "dpi": 600,
+            "kind": "floorplan",
+            "floor": "eg",
+            "title": "EG",
+        }]))
+        assert ex["ok"], ex.get("error")
+        entry = ex["data"]["extracted"][0]
+        assert entry["file"].endswith(".png")
+        assert entry["crop_from"]["dpi"] == 600
+        img = Image.open(dataset / entry["file"])
+        assert img.size == (600, 300)
+    finally:
+        shutil.rmtree(incoming, ignore_errors=True)
+        shutil.rmtree(dataset, ignore_errors=True)
+
+
 def test_split_scene_requires_regions():
     key, file = _first_scene_with_label_file()
     if key is None:
@@ -1204,6 +1447,17 @@ def test_tool_descriptions_are_present():
         mcp_server.get_scene_view_with_labels,  # H5-2
         mcp_server.verify_label_placement,  # H5-7
         mcp_server.resolve_scene_point,  # issue #10
+        mcp_server.create_scene_plan_state_from_template,
+        mcp_server.get_scene_plan_state,
+        mcp_server.get_scene_plan_status,
+        mcp_server.get_scene_plan_next_action,
+        mcp_server.get_scene_plan_next_actions,
+        mcp_server.start_scene_plan_action,
+        mcp_server.record_scene_plan_attempt,
+        mcp_server.finish_scene_plan_action,
+        mcp_server.add_scene_plan_evidence,
+        mcp_server.set_scene_plan_task_state,
+        mcp_server.evaluate_scene_plan_gates,
     ]
     for tool in tools:
         # Tool objects are decorated; unwrap if needed.

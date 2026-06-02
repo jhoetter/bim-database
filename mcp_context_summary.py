@@ -38,6 +38,8 @@ def compact_plan_status(plan_status: dict[str, Any] | None, max_blockers: int = 
     return {
         "exists": bool(plan_status.get("exists", True)),
         "status": plan_status.get("status") or plan_status.get("terminality") or plan_status.get("state"),
+        "required_complete": bool(plan_status.get("required_complete")),
+        "percent_complete": plan_status.get("percent_complete"),
         "summary": plan_status.get("summary") or plan_status.get("current_summary"),
         "next_action": plan_status.get("next_action"),
         "blocker_count": len(blockers),

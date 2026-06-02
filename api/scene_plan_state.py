@@ -37,7 +37,7 @@ PLAN_STATUSES = {
     "verified",
     "accepted_incomplete",
 }
-DEFECT_STATUSES = {"open", "in_progress", "fixed", "rejected", "accepted_uncertain"}
+DEFECT_STATUSES = {"open", "in_progress", "fixed", "rejected", "accepted_uncertain", "superseded"}
 DEFECT_SEVERITIES = {"blocker", "warning", "info"}
 EVIDENCE_KINDS = {
     "scene_view",
@@ -46,10 +46,20 @@ EVIDENCE_KINDS = {
     "score_measurements",
     "topology_qa",
     "continuity_check",
+    "repair_candidate_decision",
     "human_note",
     "subagent_report",
     "reset",
     "gate_evaluation",
+}
+
+REPAIR_CANDIDATE_OUTCOMES = {
+    "accepted_applied",
+    "rejected_false_positive",
+    "rejected_intentional_opening",
+    "rejected_would_hurt_score",
+    "accepted_uncertain",
+    "needs_manual_geometry",
 }
 
 
@@ -550,6 +560,72 @@ def classify_defect(
     return write_plan_state(dataset_root, state, expected_version=expected_version)
 
 
+def record_repair_candidate_decision(
+    dataset_root: Path,
+    key: str,
+    file: str,
+    candidate: dict[str, Any],
+    outcome: str,
+    *,
+    evidence_ids: list[str] | None = None,
+    note: str | None = None,
+    simulation: dict[str, Any] | None = None,
+    expected_version: str | None = None,
+) -> dict[str, Any]:
+    if outcome not in REPAIR_CANDIDATE_OUTCOMES:
+        raise ValueError(f"unknown repair candidate outcome {outcome!r}")
+    state = _load_or_create(dataset_root, key, file)
+    if expected_version is not None:
+        current = read_plan_state(dataset_root, key, file)
+        if current["exists"] and current["version"] != expected_version:
+            raise PlanStateConflictError("plan state version conflict")
+    current_state = state.setdefault("current_state", {})
+    cluster_fp = str(candidate.get("cluster_fingerprint") or candidate.get("cluster_id") or candidate.get("candidate_id"))
+    decision = {
+        "candidate_id": candidate.get("candidate_id"),
+        "candidate_op": candidate.get("op"),
+        "cluster_id": candidate.get("cluster_id"),
+        "cluster_fingerprint": candidate.get("cluster_fingerprint"),
+        "finding_ids": list(candidate.get("finding_ids") or []),
+        "outcome": outcome,
+        "evidence_ids": evidence_ids or [],
+        "note": note,
+        "simulation": simulation or {},
+        "updated_at": _now_iso(),
+    }
+    current_state.setdefault("repair_candidate_decisions", {})[cluster_fp] = decision
+    ev_id = _next_id(state.get("evidence") or [], "EV")
+    state.setdefault("evidence", []).append({
+        "id": ev_id,
+        "kind": "repair_candidate_decision",
+        "mode": "verification",
+        "summary": f"Repair candidate {candidate.get('candidate_id')} decision: {outcome}",
+        "tool": "apply_repair_candidate" if outcome == "accepted_applied" else "classify_repair_candidate",
+        "params": {"candidate_id": candidate.get("candidate_id"), "candidate_op": candidate.get("op")},
+        "result": {
+            "candidate_id": candidate.get("candidate_id"),
+            "cluster_id": candidate.get("cluster_id"),
+            "cluster_fingerprint": candidate.get("cluster_fingerprint"),
+            "finding_ids": list(candidate.get("finding_ids") or []),
+            "outcome": outcome,
+            "simulation": simulation or {},
+            "note": note,
+        },
+        "observation_id": None,
+        "image_url": None,
+        "created_at": _now_iso(),
+    })
+    decision.setdefault("evidence_ids", []).append(ev_id)
+    state.setdefault("decision_log", []).append({
+        "time": _now_iso(),
+        "mode": "verification",
+        "evidence_ids": decision.get("evidence_ids") or [],
+        "decision": f"Repair candidate {candidate.get('candidate_id')} -> {outcome}",
+        "result": note or str(candidate.get("expected_gain") or "candidate decision recorded"),
+    })
+    return write_plan_state(dataset_root, state, expected_version=expected_version)
+
+
 def set_task_state(
     dataset_root: Path,
     key: str,
@@ -571,6 +647,11 @@ def set_task_state(
         if current["exists"] and current["version"] != expected_version:
             raise PlanStateConflictError("plan state version conflict")
     task = _find_task(state, task_id)
+    if status == "accepted_incomplete" and task.get("required"):
+        raise ValueError(
+            "required task cannot be accepted_incomplete; leave it open, "
+            "mark blocked, or verify it with passing gates"
+        )
     if evidence_ids is not None:
         task["evidence_ids"] = evidence_ids
     if blocked_by is not None:
@@ -605,14 +686,17 @@ def set_task_state(
         task.setdefault("evidence_ids", []).append(ev["id"])
     if status == "verified":
         gates = task.get("gates") or []
+        passing_statuses = {"passed"} if task.get("required") else {"passed", "waived"}
         not_passing = [
             gate.get("id")
             for gate in gates
-            if gate.get("status") not in {"passed", "waived"}
+            if gate.get("status") not in passing_statuses
         ]
         if not_passing:
             raise ValueError(
-                "task cannot be verified until all gates pass or are waived: "
+                "task cannot be verified until all gates pass"
+                + ("; required tasks cannot use waived gates" if task.get("required") else " or are waived")
+                + ": "
                 + ", ".join(str(g) for g in not_passing)
             )
         if not task.get("evidence_ids"):
@@ -743,6 +827,11 @@ def finish_action(
     action = _action_by_id(state, action_id)
     if not action:
         raise KeyError(f"action {action_id!r} not found")
+    if outcome == "accepted_uncertain" and action.get("kind") == "task":
+        raise ValueError(
+            "task actions cannot be accepted_uncertain; keep the task open, "
+            "finish as blocked_external with a concrete blocker, or verify it with passing gates"
+        )
     attempts = action.get("attempts") or []
     if outcome in {"still_open", "regressed"} and len(attempts) >= MAX_ACTION_ATTEMPTS:
         raise ValueError(
@@ -791,7 +880,8 @@ def finish_action(
                     existing.append(ev_id)
         if outcome == "fixed":
             gates = task.get("gates") or []
-            if gates and all(g.get("status") in {"passed", "waived"} for g in gates):
+            passing_statuses = {"passed"} if task.get("required") else {"passed", "waived"}
+            if gates and all(g.get("status") in passing_statuses for g in gates):
                 task["status"] = "verified"
             else:
                 task["status"] = "in_progress"
@@ -929,6 +1019,43 @@ def _floorplan_openings(labels_doc: dict[str, Any]) -> list[dict[str, Any]]:
     return [lab for lab in (labels_doc.get("labels") or []) if lab.get("type") == "floorplan_opening"]
 
 
+def _as_point(pt: Any) -> tuple[float, float] | None:
+    if isinstance(pt, list) and len(pt) == 2 and isinstance(pt[0], (int, float)) and isinstance(pt[1], (int, float)):
+        return (float(pt[0]), float(pt[1]))
+    return None
+
+
+def _wall_segment(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    geom = label.get("geometry") or {}
+    start = _as_point(geom.get("start"))
+    end = _as_point(geom.get("end"))
+    if start is None or end is None:
+        return None
+    return (start, end)
+
+
+def _floorplan_opening_axes(label: dict[str, Any]) -> tuple[
+    tuple[tuple[float, float], tuple[float, float]],
+    tuple[tuple[float, float], tuple[float, float]],
+] | None:
+    quad = ((label.get("geometry") or {}).get("quad") or [])
+    if not isinstance(quad, list) or len(quad) != 4:
+        return None
+    pts = [_as_point(p) for p in quad]
+    if any(p is None for p in pts):
+        return None
+    a, b, c, d = pts  # type: ignore[misc]
+    along = (
+        ((a[0] + d[0]) / 2.0, (a[1] + d[1]) / 2.0),
+        ((b[0] + c[0]) / 2.0, (b[1] + c[1]) / 2.0),
+    )
+    depth = (
+        ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0),
+        ((d[0] + c[0]) / 2.0, (d[1] + c[1]) / 2.0),
+    )
+    return along, depth
+
+
 def _latest_evidence(state: dict[str, Any], kind: str) -> dict[str, Any] | None:
     for ev in reversed(state.get("evidence") or []):
         if ev.get("kind") == kind:
@@ -963,6 +1090,16 @@ def _defect_key(category: str, title: str) -> str:
     return f"{category}:{title.lower().strip()}"
 
 
+def _region_fingerprint(region: Any) -> str:
+    if region is None:
+        return ""
+    try:
+        payload = json.dumps(region, sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        payload = str(region)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10]
+
+
 def _open_defects(state: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         d for d in state.get("defects") or []
@@ -983,7 +1120,7 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
     required = [t for t in tasks if t.get("required")]
     incomplete_required = [
         t for t in required
-        if t.get("status") not in {"verified", "accepted_incomplete"}
+        if t.get("status") != "verified"
     ]
     actions = next_actions_from_state(state, limit=1) if state else []
     actionable = bool(actions)
@@ -1003,6 +1140,10 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
         status = "blocked_external"
         terminal = True
         summary = "Required scene-plan tasks remain open, but no actionable task is available."
+    elif sorted(set((state.get("current_state") or {}).get("stale_evidence") or [])):
+        status = "active"
+        terminal = False
+        summary = "Required scene-plan work needs fresh verification evidence."
     elif any(d.get("status") == "accepted_uncertain" for d in defects) or any(t.get("status") == "accepted_incomplete" for t in tasks):
         status = "accepted_incomplete"
         terminal = True
@@ -1017,9 +1158,11 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
     total = len(required) or len(tasks) or 1
     closed = len([
         t for t in required
-        if t.get("status") in {"verified", "accepted_incomplete"}
+        if t.get("status") == "verified"
     ])
     stale = sorted(set((state.get("current_state") or {}).get("stale_evidence") or []))
+    current_findings = ((state.get("current_state") or {}).get("findings") or {})
+    current_clusters = ((state.get("current_state") or {}).get("finding_clusters") or {})
     return {
         "terminal": terminal,
         "status": status,
@@ -1028,6 +1171,10 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
         "percent_complete": int(round((closed / total) * 100)),
         "open_blockers": len(blockers),
         "open_warnings": len(warnings),
+        "current_finding_count": int(current_findings.get("count") or 0) if isinstance(current_findings, dict) else 0,
+        "current_warning_finding_count": int(current_findings.get("warnings") or 0) if isinstance(current_findings, dict) else 0,
+        "current_blocker_finding_count": int(current_findings.get("blockers") or 0) if isinstance(current_findings, dict) else 0,
+        "current_finding_cluster_count": int(current_clusters.get("count") or 0) if isinstance(current_clusters, dict) else 0,
         "current_action_id": ((state.get("current_state") or {}).get("current_action_id")),
         "final_qa_allowed": not blockers and not incomplete_required and "FINAL_QA" not in stale,
         "stale_evidence": stale,
@@ -1047,7 +1194,7 @@ def _terminality_reasons(
     tasks = state.get("tasks") or []
     incomplete_required = incomplete_required if incomplete_required is not None else [
         t for t in tasks
-        if t.get("required") and t.get("status") not in {"verified", "accepted_incomplete"}
+        if t.get("required") and t.get("status") != "verified"
     ]
     stale = stale if stale is not None else sorted(set((state.get("current_state") or {}).get("stale_evidence") or []))
     reasons: list[str] = []
@@ -1099,27 +1246,29 @@ def _upsert_auto_defect(
     expected_resolution: str,
     region: Any = None,
     evidence_ids: list[str] | None = None,
+    fingerprint: str | None = None,
 ) -> str:
     now = _now_iso()
-    key = _defect_key(category, title)
+    key = fingerprint or _defect_key(category, title)
+    region_fp = _region_fingerprint(region)
+    if region_fp and fingerprint is None:
+        key = f"{key}:r{region_fp}"
     for defect in state.setdefault("defects", []):
-        if defect.get("_auto_key") == key or _defect_key(str(defect.get("category")), str(defect.get("title"))) == key:
-            preserve_terminal = (
-                defect.get("status") == "accepted_uncertain"
-                or str(defect.get("classification") or "") in {
-                    "duplicate_wall_face_not_centerline",
-                    "opening_symbol",
-                    "door_swing_or_hint",
-                    "dashed_projection",
-                    "furniture_or_fixture",
-                    "dimension_or_annotation",
-                    "site_or_boundary_line",
-                    "separate_structure",
-                    "false_positive",
-                }
-            )
-            if defect.get("status") in {"fixed", "rejected", "accepted_uncertain"} and not preserve_terminal:
-                defect["status"] = "open"
+        if (
+            defect.get("_auto_key") == key
+            or (fingerprint is not None and defect.get("_auto_fingerprint") == fingerprint)
+            or _defect_key(str(defect.get("category")), str(defect.get("title"))) == key
+        ):
+            if defect.get("status") in {"fixed", "rejected", "accepted_uncertain"}:
+                defect.setdefault("_auto_key", key)
+                if fingerprint:
+                    defect["_auto_fingerprint"] = fingerprint
+                if evidence_ids:
+                    existing = defect.setdefault("evidence_ids", [])
+                    for ev_id in evidence_ids:
+                        if ev_id not in existing:
+                            existing.append(ev_id)
+                return str(defect["id"])
             defect.update({
                 "severity": severity,
                 "category": category,
@@ -1134,6 +1283,8 @@ def _upsert_auto_defect(
                     if ev_id not in existing:
                         existing.append(ev_id)
             defect["_auto_key"] = key
+            if fingerprint:
+                defect["_auto_fingerprint"] = fingerprint
             return str(defect["id"])
     defect_id = _next_id(state.get("defects") or [], "DEF")
     state.setdefault("defects", []).append({
@@ -1149,8 +1300,31 @@ def _upsert_auto_defect(
         "created_at": now,
         "updated_at": now,
         "_auto_key": key,
+        **({"_auto_fingerprint": fingerprint} if fingerprint else {}),
     })
     return defect_id
+
+
+def _supersede_absent_auto_defects(state: dict[str, Any], current_fingerprints: set[str]) -> None:
+    now = _now_iso()
+    auto_categories = {
+        "wall_missing_region",
+        "wall_off_ink",
+        "wall_topology",
+        "possible_split_wall",
+        "wall_continuity",
+        "topology_candidate_review",
+    }
+    for defect in state.get("defects") or []:
+        if defect.get("status") not in {"open", "in_progress"}:
+            continue
+        fp = defect.get("_auto_fingerprint")
+        if not fp or fp in current_fingerprints:
+            continue
+        if defect.get("category") not in auto_categories:
+            continue
+        defect["status"] = "superseded"
+        defect["updated_at"] = now
 
 
 def _set_gate(task: dict[str, Any], gate_id: str, status: str, evidence_ids: list[str] | None = None, waiver_reason: str | None = None) -> None:
@@ -1177,6 +1351,7 @@ def evaluate_gates(
     topology_result: dict[str, Any] | None = None,
     continuity_result: dict[str, Any] | None = None,
     visual_evidence: bool = False,
+    quality_profile: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     scene_tag = labels_doc.get("scene_tag") or "nicht_klassifiziert"
@@ -1237,6 +1412,7 @@ def evaluate_gates(
     walls = _walls(labels_doc)
     openings = _floorplan_openings(labels_doc)
     labels = [lab for lab in (labels_doc.get("labels") or []) if isinstance(lab, dict)]
+    label_by_id = {str(lab.get("id")): lab for lab in labels if lab.get("id") is not None}
     dim_labels = [lab for lab in labels if lab.get("type") == "dimensioned_distance"]
     height_marks = [lab for lab in labels if lab.get("type") == "height_mark"]
     component_lines = [lab for lab in labels if lab.get("type") == "component_line"]
@@ -1277,6 +1453,32 @@ def evaluate_gates(
             "short_stubs": len(latest_topology.get("short_stubs") or []),
             "components": len(latest_topology.get("components") or []),
         }
+    from .topology_repair import cluster_findings, current_findings_from_results
+    current_findings = current_findings_from_results(
+        file=file,
+        labels_doc=labels_doc,
+        score_walls_result=latest_score_walls,
+        topology_result=latest_topology,
+        continuity_result=continuity_result,
+    )
+    current_fingerprints = {str(f.get("fingerprint")) for f in current_findings if f.get("fingerprint")}
+    current_clusters = cluster_findings(current_findings, labels_doc)
+    current_state["findings"] = {
+        "count": len(current_findings),
+        "blockers": len([f for f in current_findings if f.get("severity") == "blocker"]),
+        "warnings": len([f for f in current_findings if f.get("severity") == "warning"]),
+        "items": [
+            {k: v for k, v in f.items() if k != "payload"}
+            for f in current_findings[:100]
+        ],
+    }
+    current_state["finding_clusters"] = {
+        "count": len(current_clusters),
+        "items": [
+            {k: v for k, v in c.items() if k != "findings"}
+            for c in current_clusters[:50]
+        ],
+    }
 
     latest_label_time = _latest_label_time(labels_doc)
     latest_verify_time = _latest_evidence_time(
@@ -1295,7 +1497,7 @@ def evaluate_gates(
             description="Latest label edit is newer than verification/score/topology evidence.",
             expected_resolution="Re-render labels, re-run relevant QA, add evidence, and evaluate gates again.",
         )
-    if latest_label_time:
+    if latest_label_time and evidence_stale:
         label_types = {str(lab.get("type")) for lab in labels}
         if "wall" in label_types:
             stale_tasks.update({"VERIFY_OUTER_TOPOLOGY", "VERIFY_INTERIOR_TOPOLOGY", "VERIFY_OPENINGS", "READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"})
@@ -1303,6 +1505,8 @@ def evaluate_gates(
             stale_tasks.update({"READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"})
         if "floorplan_opening" in label_types:
             stale_tasks.update({"VERIFY_OPENINGS", "READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"})
+    elif not evidence_stale:
+        stale_tasks.clear()
     current_state["stale_evidence"] = sorted(stale_tasks)
 
     if scene_tag == "grundriss":
@@ -1339,6 +1543,43 @@ def evaluate_gates(
                     description="floorplan_opening labels must belong_to a wall.",
                     expected_resolution="Attach the opening to the correct parent wall or delete/re-place it.",
                 )
+                continue
+            parent_id = next((pid for pid in parent_ids if isinstance(pid, str)), None)
+            parent = label_by_id.get(parent_id or "")
+            if not parent or parent.get("type") != "wall":
+                _upsert_auto_defect(
+                    state,
+                    title=f"Opening {op.get('id')} parent wall missing",
+                    severity="blocker",
+                    category="opening_relation",
+                    description="floorplan_opening belongs_to target must be an existing wall.",
+                    expected_resolution="Attach the opening to an existing wall or delete/re-place it.",
+                )
+                continue
+            axes = _floorplan_opening_axes(op)
+            parent_wall = _wall_segment(parent)
+            if axes is None or parent_wall is None:
+                continue
+            from .geometry_checks import floorplan_opening_quality
+            quality = floorplan_opening_quality(
+                axes[0],
+                axes[1],
+                parent_wall,
+                tol_px=30.0,
+                is_garage_door=(op.get("attributes") or {}).get("opening_kind") == "garage_door",
+            )
+            current_state.setdefault("opening_quality", {})[str(op.get("id"))] = quality
+            for defect in quality.get("defects") or []:
+                category = str(defect.get("category") or "opening_geometry")
+                _upsert_auto_defect(
+                    state,
+                    title=f"Opening {op.get('id')} {category}",
+                    severity="blocker",
+                    category=category,
+                    description=str(defect.get("message") or "floorplan_opening geometry failed QA."),
+                    expected_resolution="Normalize, move, or re-place the opening on its parent wall, then verify again.",
+                    region=(op.get("geometry") or {}).get("quad"),
+                )
     if latest_score_walls:
         if (
             isinstance(previous_score_walls, dict)
@@ -1358,7 +1599,9 @@ def evaluate_gates(
                 expected_resolution="Analyze the edit that caused the regression; revert, reject the attempt, or justify with evidence.",
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
             )
-        for idx, region in enumerate(latest_score_walls.get("missing_regions") or [], start=1):
+        score_findings = [f for f in current_findings if f.get("source") == "score_walls"]
+        for idx, finding in enumerate([f for f in score_findings if f.get("category") == "missing_region"], start=1):
+            region = finding.get("region")
             _upsert_auto_defect(
                 state,
                 title=f"Wall score missing region {idx}",
@@ -1368,8 +1611,10 @@ def evaluate_gates(
                 description="score_walls reports wall ink not covered by saved wall labels.",
                 expected_resolution="Re-read the crop visually; add/repair a wall or reject this as non-wall ink with evidence.",
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
+                fingerprint=str(finding.get("fingerprint") or ""),
             )
-        for idx, seg in enumerate(latest_score_walls.get("off_ink_segments") or [], start=1):
+        for idx, finding in enumerate([f for f in score_findings if f.get("category") == "off_ink_segment"], start=1):
+            seg = finding.get("region")
             _upsert_auto_defect(
                 state,
                 title=f"Wall score off-ink segment {idx}",
@@ -1379,41 +1624,86 @@ def evaluate_gates(
                 description="score_walls reports a saved wall segment does not sit on wall ink.",
                 expected_resolution="Re-locate/refine the wall or mark it uncertain with visual evidence.",
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
+                fingerprint=str(finding.get("fingerprint") or ""),
             )
     if latest_topology:
-        for idx, item in enumerate(latest_topology.get("dangling_endpoints") or [], start=1):
+        topology_findings = [f for f in current_findings if f.get("source") == "wall_topology_qa"]
+        for idx, finding in enumerate([f for f in topology_findings if f.get("category") in {"dangling_endpoint", "near_miss_corner"}], start=1):
             _upsert_auto_defect(
                 state,
                 title=f"Dangling wall endpoint {idx}",
                 severity="warning",
                 category="wall_topology",
-                region=item.get("review_region"),
+                region=finding.get("region"),
                 description="wall_topology_qa reports a wall endpoint that does not connect to another endpoint.",
                 expected_resolution="Classify endpoint reason; connect, repair, reject false positive, or mark uncertain.",
                 evidence_ids=[evidence_ids_by_kind["topology_qa"]] if "topology_qa" in evidence_ids_by_kind else [],
+                fingerprint=str(finding.get("fingerprint") or ""),
             )
-        for idx, item in enumerate(latest_topology.get("collinear_fragments") or [], start=1):
+        for idx, finding in enumerate([f for f in topology_findings if f.get("category") == "collinear_fragment"], start=1):
             _upsert_auto_defect(
                 state,
                 title=f"Possible split wall {idx}",
                 severity="warning",
                 category="possible_split_wall",
-                region=item.get("review_region"),
+                region=finding.get("region"),
                 description="wall_topology_qa reports collinear fragments that may be one continuous wall.",
                 expected_resolution="Review in clean overlay; merge only if vision and score agree, otherwise reject.",
                 evidence_ids=[evidence_ids_by_kind["topology_qa"]] if "topology_qa" in evidence_ids_by_kind else [],
+                fingerprint=str(finding.get("fingerprint") or ""),
+            )
+        for idx, finding in enumerate([f for f in topology_findings if f.get("category") == "short_stub"], start=1):
+            _upsert_auto_defect(
+                state,
+                title=f"Short wall stub {idx}",
+                severity="warning",
+                category="wall_topology",
+                region=finding.get("region"),
+                description="wall_topology_qa reports a short wall stub that may be non-structural or incomplete.",
+                expected_resolution="Review in clean overlay; delete/demote only if vision and score agree, otherwise classify.",
+                evidence_ids=[evidence_ids_by_kind["topology_qa"]] if "topology_qa" in evidence_ids_by_kind else [],
+                fingerprint=str(finding.get("fingerprint") or ""),
             )
     if continuity_result:
-        for idx, item in enumerate(continuity_result.get("candidates") or [], start=1):
+        continuity_findings = [f for f in current_findings if f.get("source") == "wall_continuity_check"]
+        for idx, finding in enumerate(continuity_findings, start=1):
             _upsert_auto_defect(
                 state,
                 title=f"Wall continuity candidate {idx}",
                 severity="warning",
                 category="wall_continuity",
-                region=item.get("review_region"),
+                region=finding.get("region"),
                 description="wall_continuity_check reports fragments that may have been split at an opening.",
                 expected_resolution="Accept only with visual evidence and score improvement; otherwise reject.",
                 evidence_ids=[evidence_ids_by_kind["continuity_check"]] if "continuity_check" in evidence_ids_by_kind else [],
+                fingerprint=str(finding.get("fingerprint") or ""),
+            )
+    _supersede_absent_auto_defects(state, current_fingerprints)
+
+    if quality_profile == "gold":
+        from .topology_repair import repair_candidate_report
+        report = repair_candidate_report(labels_doc, topology_result=latest_topology, plan_state=state)
+        current_state["gold_repair_candidates"] = {
+            "cluster_count": report.get("cluster_count"),
+            "candidate_count": report.get("candidate_count"),
+            "reviewed_cluster_count": report.get("reviewed_cluster_count"),
+            "high_confidence_unclassified_count": report.get("high_confidence_unclassified_count"),
+        }
+        high_conf_unreviewed = []
+        for cluster in report.get("clusters") or []:
+            if cluster.get("confidence") == "high" and cluster.get("candidates") and not cluster.get("decision"):
+                high_conf_unreviewed.append(cluster)
+        for idx, cluster in enumerate(high_conf_unreviewed, start=1):
+            _upsert_auto_defect(
+                state,
+                title=f"Gold topology candidate requires review {idx}",
+                severity="blocker",
+                category="topology_candidate_review",
+                region=cluster.get("region"),
+                description="Gold quality profile found a high-confidence topology repair candidate that must be accepted or rejected before final QA.",
+                expected_resolution="Inspect the candidate overlay; apply the deterministic repair or reject/classify it with evidence.",
+                evidence_ids=[evidence_ids_by_kind["topology_qa"]] if "topology_qa" in evidence_ids_by_kind else [],
+                fingerprint=f"gold:{cluster.get('cluster_id')}",
             )
     if latest_measurements:
         for idx, item in enumerate(latest_measurements.get("unmatched_ticks") or [], start=1):
@@ -1435,6 +1725,10 @@ def evaluate_gates(
     wall_blockers = [
         d for d in open_blockers
         if d.get("category") in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "missing_geometry"}
+    ]
+    opening_blockers = [
+        d for d in open_blockers
+        if str(d.get("category") or "").startswith("opening_")
     ]
     for task in state.get("tasks") or []:
         task["blocked_by"] = [d for d in (task.get("blocked_by") or []) if d in open_defect_ids]
@@ -1467,9 +1761,9 @@ def evaluate_gates(
                 "passed" if opening_parent_ok else "waived" if no_openings_accepted else "failed",
                 waiver_reason="No openings accepted incomplete/uncertain with evidence." if no_openings_accepted else None,
             )
-            if wall_blockers and task.get("status") not in {"accepted_incomplete", "verified"}:
+            if (wall_blockers or opening_blockers) and task.get("status") not in {"accepted_incomplete", "verified"}:
                 task["status"] = "blocked"
-                task["blocked_by"] = [d["id"] for d in wall_blockers]
+                task["blocked_by"] = [d["id"] for d in (wall_blockers + opening_blockers)]
         elif task_id == "VERIFY_OPENINGS":
             opening_parent_ok = bool(openings and all(any((r or {}).get("kind") == "belongs_to" for r in op.get("relations") or []) for op in openings))
             _set_gate(
@@ -1481,12 +1775,13 @@ def evaluate_gates(
             _set_gate(
                 task,
                 "OPENINGS_ON_WALL",
-                "passed" if openings else "waived" if no_openings_accepted else "failed",
+                "passed" if openings and not opening_blockers else "waived" if no_openings_accepted else "failed",
+                [d["id"] for d in opening_blockers] if opening_blockers else None,
                 waiver_reason="No openings accepted incomplete/uncertain with evidence." if no_openings_accepted else None,
             )
-            if wall_blockers and task.get("status") not in {"accepted_incomplete", "verified"}:
+            if (wall_blockers or opening_blockers) and task.get("status") not in {"accepted_incomplete", "verified"}:
                 task["status"] = "blocked"
-                task["blocked_by"] = [d["id"] for d in wall_blockers]
+                task["blocked_by"] = [d["id"] for d in (wall_blockers + opening_blockers)]
         elif task_id == "READ_HEIGHTS":
             _set_gate(task, "HEIGHTS_REVIEWED", "passed" if height_marks or has_analysis_evidence else "pending")
         elif task_id == "TRACE_COMPONENTS":
@@ -1509,9 +1804,7 @@ def evaluate_gates(
         if task.get("status") in {"todo", "in_progress", "needs_repair"} and not task.get("blocked_by"):
             gates = task.get("gates") or []
             if gates and all(g.get("status") in {"passed", "waived"} for g in gates):
-                if any(g.get("status") == "waived" for g in gates):
-                    task["status"] = "accepted_incomplete"
-                else:
+                if all(g.get("status") == "passed" for g in gates):
                     task["status"] = "verified"
         task["updated_at"] = _now_iso()
 
@@ -1673,7 +1966,7 @@ def _action_by_id_from_history(state: dict[str, Any], action_id: str) -> dict[st
 
 
 def _task_for_defect_category(category: str) -> str | None:
-    if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity"}:
+    if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
         return "VERIFY_INTERIOR_TOPOLOGY"
     if category in {"opening_relation"}:
         return "VERIFY_OPENINGS"
@@ -1685,7 +1978,7 @@ def _task_for_defect_category(category: str) -> str | None:
 
 
 def _allowed_label_types_for_defect(category: str) -> list[str]:
-    if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity"}:
+    if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
         return ["wall"]
     if category == "opening_relation":
         return ["floorplan_opening"]
@@ -1695,15 +1988,15 @@ def _allowed_label_types_for_defect(category: str) -> list[str]:
 
 
 def _forbidden_label_types_for_defect(category: str) -> list[str]:
-    if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity"}:
+    if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
         return ["floorplan_opening"]
     return []
 
 
 def _allowed_tools_for_defect(category: str) -> list[str]:
     common = ["get_scene_view", "get_scene_view_with_labels", "add_scene_plan_evidence", "evaluate_scene_plan_gates"]
-    if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity"}:
-        return common + ["wall_topology_qa", "wall_continuity_check", "score_walls", "resolve_scene_point", "upsert_label", "delete_label", "classify_plan_defect"]
+    if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
+        return common + ["get_scene_repair_candidates", "get_scene_view_with_repair_candidate", "apply_repair_candidate", "decide_repair_candidate", "get_scene_plan_quality_report", "get_scene_topology_snapshot", "wall_topology_qa", "wall_continuity_check", "score_walls", "resolve_scene_point", "upsert_label", "delete_label", "classify_plan_defect"]
     if category == "opening_relation":
         return common + ["verify_label_placement", "upsert_label", "update_label_attrs"]
     if category == "dimension":
@@ -1714,8 +2007,8 @@ def _allowed_tools_for_defect(category: str) -> list[str]:
 def _required_evidence_for_defect(category: str) -> list[str]:
     if category in {"wall_missing_region", "wall_off_ink"}:
         return ["analysis_crop", "defect_classification", "verification_overlay", "score_walls_after"]
-    if category in {"wall_topology", "possible_split_wall", "wall_continuity"}:
-        return ["analysis_crop", "verification_overlay", "topology_qa_after", "score_walls_after"]
+    if category in {"wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
+        return ["candidate_overlay", "accept_or_reject_decision", "topology_qa_after", "score_walls_after"]
     if category == "opening_relation":
         return ["opening_parent_crop", "verification_overlay", "opening_relation_check"]
     if category == "dimension":
@@ -1726,7 +2019,7 @@ def _required_evidence_for_defect(category: str) -> list[str]:
 def _success_gates_for_defect(category: str) -> list[str]:
     if category in {"wall_missing_region", "wall_off_ink"}:
         return ["WALL_SCORE_REVIEWED", "NO_NEW_SCORE_REGRESSION"]
-    if category in {"wall_topology", "possible_split_wall", "wall_continuity"}:
+    if category in {"wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
         return ["TOPOLOGY_REVIEWED", "NO_NEW_SCORE_REGRESSION"]
     if category == "opening_relation":
         return ["OPENINGS_HAVE_PARENT_WALL", "OPENINGS_ON_WALL"]
@@ -1775,6 +2068,8 @@ def render_markdown(state: dict[str, Any]) -> str:
     counts = current.get("label_counts") or {}
     scores = current.get("scores") or {}
     topology = current.get("topology") or {}
+    findings = current.get("findings") or {}
+    finding_clusters = current.get("finding_clusters") or {}
     open_defects = _open_defects(state)
     actions = next_actions_from_state(state, limit=5)
 
@@ -1797,9 +2092,29 @@ def render_markdown(state: dict[str, Any]) -> str:
         f"- Score walls: {_score_summary(scores.get('score_walls'))}",
         f"- Score measurements: {_measurement_summary(scores.get('score_measurements'))}",
         f"- Topology: {_topology_summary(topology)}",
+        f"- Current findings: count={findings.get('count', 0) if isinstance(findings, dict) else 0}, "
+        f"blockers={findings.get('blockers', 0) if isinstance(findings, dict) else 0}, "
+        f"warnings={findings.get('warnings', 0) if isinstance(findings, dict) else 0}, "
+        f"clusters={finding_clusters.get('count', 0) if isinstance(finding_clusters, dict) else 0}",
         f"- Open blockers: {', '.join(d.get('id', '') for d in open_defects if d.get('severity') == 'blocker') or 'none'}",
         "",
-        "## 2. Open Defects",
+        "## 2. Open Defects / Current Finding Clusters",
+        "",
+    ]
+    cluster_items = finding_clusters.get("items") if isinstance(finding_clusters, dict) else None
+    if cluster_items:
+        lines += ["| ID | Severity | Confidence | Type | Region | Summary |", "|---|---|---|---|---|---|"]
+        for cluster in cluster_items[:25]:
+            lines.append(
+                f"| {cluster.get('cluster_id')} | {cluster.get('severity')} | {cluster.get('confidence')} | "
+                f"{cluster.get('cluster_type')} | `{json.dumps(cluster.get('region'), ensure_ascii=False)}` | "
+                f"{cluster.get('summary') or ''} |"
+            )
+    else:
+        lines.append("- No current finding clusters.")
+    lines += [
+        "",
+        "## 3. Open Defects / Action History",
         "",
     ]
     if open_defects:
@@ -1812,13 +2127,13 @@ def render_markdown(state: dict[str, Any]) -> str:
             )
     else:
         lines.append("- No open defects.")
-    lines += ["", "## 3. Next Actions", ""]
+    lines += ["", "## 4. Next Actions", ""]
     if actions:
         for action in actions:
             lines.append(f"- **{action.get('id')}** ({action.get('kind')}): {action.get('instruction')}")
     else:
         lines.append("- No actionable tasks.")
-    lines += ["", "## 4. Task Board", ""]
+    lines += ["", "## 5. Task Board", ""]
     for task in state.get("tasks") or []:
         mark = {
             "todo": " ",
@@ -1833,7 +2148,7 @@ def render_markdown(state: dict[str, Any]) -> str:
         lines.append(f"- [{mark}] **{task.get('id')}** {task.get('title')} — `{task.get('status')}`; gates: {gate_summary}")
         if task.get("blocked_by"):
             lines.append(f"  - note: blocked by {', '.join(task.get('blocked_by') or [])}")
-    lines += ["", "## 5. Evidence", ""]
+    lines += ["", "## 6. Evidence", ""]
     evidence = state.get("evidence") or []
     if evidence:
         lines += ["| ID | Mode | Kind | Tool | Summary |", "|---|---|---|---|---|"]
@@ -1841,7 +2156,7 @@ def render_markdown(state: dict[str, Any]) -> str:
             lines.append(f"| {ev.get('id')} | {ev.get('mode')} | {ev.get('kind')} | `{ev.get('tool') or ''}` | {ev.get('summary') or ''} |")
     else:
         lines.append("- No evidence recorded.")
-    lines += ["", "## 6. Decision Log", ""]
+    lines += ["", "## 7. Decision Log", ""]
     log = state.get("decision_log") or []
     if log:
         lines += ["| Time | Mode | Evidence | Decision | Result |", "|---|---|---|---|---|"]
@@ -1850,7 +2165,7 @@ def render_markdown(state: dict[str, Any]) -> str:
             lines.append(f"| {row.get('time')} | {row.get('mode')} | {evidence} | {row.get('decision')} | {row.get('result')} |")
     else:
         lines.append("- No decisions logged.")
-    lines += ["", "## 7. Final Verification", ""]
+    lines += ["", "## 8. Final Verification", ""]
     if state.get("status") == "verified":
         lines.append("- Final QA verified by gates.")
     elif state.get("status") == "accepted_incomplete":

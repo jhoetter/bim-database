@@ -91,6 +91,9 @@ _WARNING_FG = (185, 28, 28, 255)
 _LABEL_CHIP_BG = (255, 255, 255, 220)
 _LABEL_CHIP_FG = (40, 40, 40, 255)
 
+_LABEL_RENDER_STYLES = {"standard", "semantic", "qa", "ink_compare"}
+_GRID_STYLES = {"standard", "coordinate_audit", "coordinate_pair", "coordinate_multicolor"}
+
 
 def render_grid_with_labels(
     image: Image.Image,
@@ -122,6 +125,11 @@ def render_grid_with_labels(
     scans; it changes only pixel intensity, so label positions are
     unaffected.
     """
+    label_style = (style or "standard").lower()
+    if label_style not in _LABEL_RENDER_STYLES:
+        label_style = "standard"
+    grid_style = style if style in _GRID_STYLES else "standard"
+
     # Base image. In the default verify mode we reuse the grid renderer
     # (grid + corner legend, drawing faded to 0.5). In `clean` QA mode
     # (H5 quality-assurance, per the labeling-correctness work) the legacy
@@ -140,7 +148,7 @@ def render_grid_with_labels(
             image, tiers=tiers, region=region, max_dim=max_dim, enhance=enhance,
             background_opacity=background_opacity,
             background_opacity_explicit=background_opacity_explicit,
-            style=style, target=target, target_line=target_line,  # type: ignore[arg-type]
+            style=grid_style, target=target, target_line=target_line,  # type: ignore[arg-type]
         )
     src_w, src_h = image.size
     if region is not None:
@@ -197,6 +205,9 @@ def render_grid_with_labels(
     if show_relations in ("required", "all"):
         _draw_required_relation_cues(draw, labels, label_by_id, to_out, in_bounds, out_w, out_h)
 
+    qa_style = label_style in {"qa", "ink_compare"}
+    ink_compare = label_style == "ink_compare"
+
     # Pass 1 — strokes / geometry.
     for lab in labels:
         t = lab.get("type")
@@ -212,17 +223,35 @@ def render_grid_with_labels(
                 band = _wall_band_points(start_src, end_src, thickness, px_per_mm=px_per_mm)
                 if band:
                     band_out = [to_out(p) for p in band]
-                    draw.polygon(band_out, fill=_WALL_BAND_FILL_HIGH if contrast == "high" else _WALL_BAND_FILL)
-                    _draw_hatch(target, band_out)
-                draw.line([start, end], fill=_WALL_AXIS_HIGH if contrast == "high" else _WALL_COLOR, width=_WALL_WIDTH)
+                    if qa_style:
+                        fill_alpha = 16 if ink_compare else 24
+                        edge_alpha = 90 if ink_compare else 120
+                        draw.polygon(band_out, fill=_with_alpha(_WALL_COLOR, fill_alpha))
+                        draw.line(band_out + [band_out[0]], fill=_with_alpha(_WALL_COLOR, edge_alpha), width=1)
+                    else:
+                        draw.polygon(band_out, fill=_WALL_BAND_FILL_HIGH if contrast == "high" else _WALL_BAND_FILL)
+                        _draw_hatch(target, band_out)
+                axis_color = _WALL_AXIS_HIGH if contrast == "high" and not ink_compare else _WALL_COLOR
+                draw.line([start, end], fill=axis_color, width=2 if qa_style else _WALL_WIDTH)
         elif t == "floorplan_opening":
             quad = geom.get("quad") or []
             if len(quad) == 4:
                 pts = [to_out(p) for p in quad]
                 kind = (lab.get("attributes") or {}).get("opening_kind") or "window"
                 color = _opening_color(kind)
-                draw.polygon(pts, fill=_with_alpha(color, 18 if contrast == "normal" else 28), outline=color)
-                _draw_floorplan_opening_inner(draw, pts, lab.get("attributes") or {}, color)
+                if qa_style:
+                    outline = _with_alpha(color, 210 if not ink_compare else 180)
+                    draw.line(pts + [pts[0]], fill=outline, width=2)
+                    _draw_opening_end_caps(draw, pts, outline)
+                    _draw_floorplan_opening_inner(
+                        draw,
+                        pts,
+                        lab.get("attributes") or {},
+                        _with_alpha(color, 160 if not ink_compare else 130),
+                    )
+                else:
+                    draw.polygon(pts, fill=_with_alpha(color, 18 if contrast == "normal" else 28), outline=color)
+                    _draw_floorplan_opening_inner(draw, pts, lab.get("attributes") or {}, color)
                 if not _has_relation(lab, "belongs_to"):
                     _warn(draw, chip_font, "no parent wall", _poly_center(pts), out_w, out_h)
         elif t == "view_opening":
@@ -850,6 +879,19 @@ def _draw_dim_cap(
     p1 = (int(at[0] + px * cap), int(at[1] + py * cap))
     p2 = (int(at[0] - px * cap), int(at[1] - py * cap))
     draw.line([p1, p2], fill=color, width=2)
+
+
+def _draw_opening_end_caps(
+    draw: ImageDraw.ImageDraw,
+    pts: list[tuple[int, int]],
+    color: tuple[int, int, int, int],
+) -> None:
+    """Draw short cap lines across each end of a wall-aligned opening."""
+    if len(pts) != 4:
+        return
+    a, b, c, d = pts
+    draw.line([a, d], fill=color, width=2)
+    draw.line([b, c], fill=color, width=2)
 
 
 def _chip(

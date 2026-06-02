@@ -165,7 +165,7 @@ export type ScenePlanTaskStatus =
   | 'rejected'
   | 'verified'
   | 'accepted_incomplete';
-export type ScenePlanDefectStatus = 'open' | 'in_progress' | 'fixed' | 'rejected' | 'accepted_uncertain';
+export type ScenePlanDefectStatus = 'open' | 'in_progress' | 'fixed' | 'rejected' | 'accepted_uncertain' | 'superseded';
 export type ScenePlanDefectSeverity = 'blocker' | 'warning' | 'info';
 
 export interface ScenePlanGate {
@@ -270,6 +270,45 @@ export interface ScenePlanState {
     label_counts?: Record<string, number>;
     scores?: Record<string, unknown>;
     topology?: Record<string, unknown>;
+    findings?: {
+      count?: number;
+      blockers?: number;
+      warnings?: number;
+      items?: Array<Record<string, unknown>>;
+    };
+    finding_clusters?: {
+      count?: number;
+      items?: Array<{
+        cluster_id?: string;
+        cluster_fingerprint?: string;
+        cluster_type?: string;
+        confidence?: string;
+        severity?: string;
+        summary?: string;
+        region?: unknown;
+        finding_ids?: string[];
+        wall_ids?: string[];
+        categories?: string[];
+        findings_count?: number;
+        decision?: {
+          outcome?: string;
+          candidate_id?: string;
+          updated_at?: string;
+          evidence_ids?: string[];
+        };
+      }>;
+    };
+    repair_candidate_decisions?: Record<string, {
+      candidate_id?: string;
+      candidate_op?: string;
+      cluster_id?: string;
+      cluster_fingerprint?: string;
+      finding_ids?: string[];
+      outcome?: string;
+      evidence_ids?: string[];
+      note?: string | null;
+      updated_at?: string;
+    }>;
     blockers?: string[];
     stale_evidence?: string[];
     current_action_id?: string | null;

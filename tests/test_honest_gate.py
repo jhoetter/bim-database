@@ -38,12 +38,16 @@ def _dataset():
                          {"file": "s-aa.jpg", "labeled": True}]}
 
 
-def _meta(eg_types, aa_types):
+def _meta(eg_types, aa_types, *, plan_state_exists: bool = False, plan_required_complete: bool = False):
     return {
         "p-eg.jpg": {"scene_tag": "grundriss", "scene_level": "eg",
-                     "has_height_mark": True, "label_types": eg_types},
+                     "has_height_mark": True, "label_types": eg_types,
+                     "plan_state_exists": plan_state_exists,
+                     "plan_required_complete": plan_required_complete},
         "s-aa.jpg": {"scene_tag": "schnitt", "scene_orientation": "south",
-                     "has_height_mark": True, "label_types": aa_types},
+                     "has_height_mark": True, "label_types": aa_types,
+                     "plan_state_exists": plan_state_exists,
+                     "plan_required_complete": plan_required_complete},
     }
 
 
@@ -74,20 +78,60 @@ def test_v5_1_facts_only_scene_is_not_geometry_complete():
 
 
 def test_v5_1_full_geometry_scene_is_complete():
-    """Required polygons present on both scenes → Wgeo done."""
+    """Required polygons + completed scene plans → Wgeo done."""
+    state = _derive_workflow_state(
+        _dataset(), _facts_complete(),
+        _meta(
+            eg_types=["wall", "floorplan_opening"],
+            aa_types=["component_line"],
+            plan_state_exists=True,
+            plan_required_complete=True,
+        ),
+    )
+    assert state["phases"]["Wgeo"]["status"] == "done", state["phases"]["Wgeo"]
+    assert state["phases"]["Wgeo"]["blockers"] == []
+
+
+def test_v5_1_geometry_without_plan_is_not_complete():
+    """Labels without plan state are legacy/unverified, not Wgeo-complete."""
     state = _derive_workflow_state(
         _dataset(), _facts_complete(),
         _meta(eg_types=["wall", "floorplan_opening"], aa_types=["component_line"]),
     )
-    assert state["phases"]["Wgeo"]["status"] == "done", state["phases"]["Wgeo"]
-    assert state["phases"]["Wgeo"]["blockers"] == []
+    assert state["phases"]["Wgeo"]["status"] == "pending"
+    blockers = state["phases"]["Wgeo"]["blockers"]
+    assert any("p-eg.jpg" in b and "missing scene plan state" in b for b in blockers), blockers
+    assert any("s-aa.jpg" in b and "missing scene plan state" in b for b in blockers), blockers
+
+
+def test_v5_1_geometry_with_draft_plan_is_not_complete():
+    """Minimal labels plus draft plan tasks are not an honest Wgeo pass."""
+    state = _derive_workflow_state(
+        _dataset(), _facts_complete(),
+        _meta(
+            eg_types=["wall", "floorplan_opening"],
+            aa_types=["component_line"],
+            plan_state_exists=True,
+            plan_required_complete=False,
+        ),
+    )
+    assert state["phases"]["Wgeo"]["status"] == "pending"
+    blockers = state["phases"]["Wgeo"]["blockers"]
+    assert any("p-eg.jpg" in b and "scene plan incomplete" in b for b in blockers), blockers
+    assert any("s-aa.jpg" in b and "scene plan incomplete" in b for b in blockers), blockers
+    assert state["next_phase"] == "Wgeo"
 
 
 def test_v5_1_partial_geometry_still_pending():
     """Grundriss has walls but no openings → still pending, names the gap."""
     state = _derive_workflow_state(
         _dataset(), _facts_complete(),
-        _meta(eg_types=["wall"], aa_types=["component_line"]),
+        _meta(
+            eg_types=["wall"],
+            aa_types=["component_line"],
+            plan_state_exists=True,
+            plan_required_complete=True,
+        ),
     )
     assert state["phases"]["Wgeo"]["status"] == "pending"
     blockers = state["phases"]["Wgeo"]["blockers"]

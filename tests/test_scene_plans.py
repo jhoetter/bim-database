@@ -804,8 +804,8 @@ def test_scene_plan_closed_opening_absence_waives_opening_tasks(scene):
     )
     assert second.status_code == 200, second.text
     tasks = {t["id"]: t for t in second.json()["data"]["state"]["tasks"]}
-    assert tasks["PLACE_OPENINGS"]["status"] == "accepted_incomplete"
-    assert tasks["VERIFY_OPENINGS"]["status"] == "accepted_incomplete"
+    assert tasks["PLACE_OPENINGS"]["status"] in {"todo", "in_progress", "needs_repair"}
+    assert tasks["VERIFY_OPENINGS"]["status"] in {"todo", "in_progress", "needs_repair"}
     assert all(g["status"] == "waived" for g in tasks["VERIFY_OPENINGS"]["gates"])
 
 
@@ -849,6 +849,85 @@ def test_scene_plan_terminal_status_has_no_next_action(scene):
     assert data["next_action"] is None
 
 
+def test_scene_plan_rejects_accepted_incomplete_required_task(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    evidence = client.post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        json={"kind": "human_note", "mode": "analysis", "summary": "Cannot verify in test."},
+    )
+    assert evidence.status_code == 200
+    ev_id = evidence.json()["data"]["state"]["evidence"][-1]["id"]
+
+    r = client.patch(
+        f"/datasets/{key}/{file}/plan-state/tasks/CLASSIFY_SCENE",
+        json={"status": "accepted_incomplete", "evidence_ids": [ev_id]},
+    )
+    assert r.status_code == 400
+    assert "required task cannot be accepted_incomplete" in r.text
+
+    status = client.get(f"/datasets/{key}/{file}/plan-state/status")
+    assert status.status_code == 200, status.text
+    data = status.json()["data"]
+    assert data["required_complete"] is False
+    assert data["status"] == "active"
+    assert any("required tasks open" in r for r in data["terminality_reasons"])
+
+
+def test_scene_plan_required_task_cannot_verify_with_waived_gate(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    evidence = client.post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        json={"kind": "human_note", "mode": "analysis", "summary": "Waiver attempt."},
+    )
+    assert evidence.status_code == 200
+    ev_id = evidence.json()["data"]["state"]["evidence"][-1]["id"]
+
+    r = client.patch(
+        f"/datasets/{key}/{file}/plan-state/tasks/ANALYZE_SILHOUETTE",
+        json={
+            "status": "verified",
+            "evidence_ids": [ev_id],
+            "gate_updates": [{"id": "HAS_SILHOUETTE_HYPOTHESIS", "status": "waived"}],
+        },
+    )
+    assert r.status_code == 400
+    assert "required tasks cannot use waived gates" in r.text
+
+
+def test_scene_plan_task_action_rejects_accepted_uncertain_shortcut(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    action = client.get(f"/datasets/{key}/{file}/plan-state/next-action")
+    assert action.status_code == 200
+    action_id = action.json()["data"]["action"]["action_id"]
+    started = client.post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/start", json={})
+    assert started.status_code == 200
+
+    evidence = client.post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        json={"kind": "human_note", "mode": "analysis", "summary": "Shortcut attempt."},
+    )
+    assert evidence.status_code == 200
+    ev_id = evidence.json()["data"]["state"]["evidence"][-1]["id"]
+    attempt = client.post(
+        f"/datasets/{key}/{file}/plan-state/actions/{action_id}/attempts",
+        json={"hypothesis": "try shortcut", "evidence_ids": [ev_id]},
+    )
+    assert attempt.status_code == 200
+
+    finish = client.post(
+        f"/datasets/{key}/{file}/plan-state/actions/{action_id}/finish",
+        json={"outcome": "accepted_uncertain", "evidence_ids": [ev_id]},
+    )
+    assert finish.status_code == 400
+    assert "task actions cannot be accepted_uncertain" in finish.text
+
+
 def test_scene_plan_measurement_unmatched_ticks_create_dimension_defects(scene):
     key, file = scene
     client = TestClient(api_main.app)
@@ -881,3 +960,166 @@ def test_scene_plan_measurement_unmatched_ticks_create_dimension_defects(scene):
     defect = next(d for d in defects if d["title"] == "Measurement unmatched tick 1")
     assert defect["severity"] == "blocker"
     assert defect["category"] == "dimension"
+
+
+def _put_near_miss_wall_labels(client: TestClient, key: str, file: str) -> None:
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["labels"] = [
+        {
+            "id": "wall-a",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [20, 100], "end": [100, 100]},
+            "attributes": {},
+        },
+        {
+            "id": "wall-b",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [118, 112], "end": [118, 190]},
+            "attributes": {},
+        },
+    ]
+    assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+
+def test_scene_plan_current_findings_dedupe_repeated_topology_evaluation(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    _put_near_miss_wall_labels(client, key, file)
+
+    body = {
+        "run_score_walls": False,
+        "run_score_measurements": False,
+        "run_topology_qa": True,
+        "run_continuity_check": False,
+    }
+    first = client.post(f"/datasets/{key}/{file}/plan-state/evaluate-gates", json=body)
+    assert first.status_code == 200, first.text
+    second = client.post(f"/datasets/{key}/{file}/plan-state/evaluate-gates", json=body)
+    assert second.status_code == 200, second.text
+
+    state = second.json()["data"]["state"]
+    current = state["current_state"]
+    open_topology = [
+        d for d in state["defects"]
+        if d["status"] in {"open", "in_progress"} and d["category"] in {"wall_topology", "possible_split_wall"}
+    ]
+    fingerprints = [d.get("_auto_fingerprint") for d in open_topology]
+    assert len(fingerprints) == len(set(fingerprints))
+    assert current["findings"]["warnings"] >= 1
+    assert current["finding_clusters"]["count"] >= 1
+
+
+def test_repair_candidate_report_overlay_and_apply(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    _put_near_miss_wall_labels(client, key, file)
+
+    report = client.get(f"/datasets/{key}/{file}/plan-state/repair-candidates")
+    assert report.status_code == 200, report.text
+    data = report.json()["data"]
+    assert data["cluster_count"] >= 1
+    candidates = [c for cluster in data["clusters"] for c in cluster["candidates"]]
+    candidate = next(c for c in candidates if c["op"] == "snap_endpoint_to_endpoint")
+    candidate_id = candidate["candidate_id"]
+
+    overlay = client.get(f"/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/overlay")
+    assert overlay.status_code == 200, overlay.text
+    assert overlay.headers["content-type"].startswith("image/png")
+
+    applied = client.post(f"/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/apply", json={})
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["data"]["persisted"] is True
+
+    labels = client.get(f"/labels/dataset/{key}/{file}").json()
+    by_id = {lab["id"]: lab for lab in labels["labels"]}
+    assert by_id["wall-a"]["geometry"]["end"] == by_id["wall-b"]["geometry"]["start"]
+
+    quality = client.get(f"/datasets/{key}/{file}/plan-state/quality-report")
+    assert quality.status_code == 200, quality.text
+    quality_data = quality.json()["data"]
+    assert quality_data["candidate_repairs_accepted"] == 1
+    assert quality_data["candidate_decision_count"] == 1
+    assert quality_data["visual_crop_inspections_per_accepted_repair"][candidate_id] >= 1
+
+    snapshot = client.get(f"/datasets/{key}/{file}/plan-state/topology-snapshot")
+    assert snapshot.status_code == 200, snapshot.text
+    snapshot_data = snapshot.json()["data"]
+    assert "dangling_endpoints" in snapshot_data["topology"]
+    assert snapshot_data["candidate_count"] >= 0
+    assert "accepted_applied" in snapshot_data["decision_outcomes"]
+
+
+def test_gold_quality_profile_escalates_high_confidence_topology_candidate(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    _put_near_miss_wall_labels(client, key, file)
+
+    evaluated = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": True,
+            "run_continuity_check": False,
+            "quality_profile": "gold",
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    defects = evaluated.json()["data"]["state"]["defects"]
+    assert any(
+        d["category"] == "topology_candidate_review" and d["severity"] == "blocker"
+        for d in defects
+    )
+
+
+def test_repair_candidate_decision_clears_gold_high_confidence_blocker(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    _put_near_miss_wall_labels(client, key, file)
+
+    body = {
+        "run_score_walls": False,
+        "run_score_measurements": False,
+        "run_topology_qa": True,
+        "run_continuity_check": False,
+        "quality_profile": "gold",
+    }
+    first = client.post(f"/datasets/{key}/{file}/plan-state/evaluate-gates", json=body)
+    assert first.status_code == 200, first.text
+    report = client.get(f"/datasets/{key}/{file}/plan-state/repair-candidates")
+    assert report.status_code == 200, report.text
+    candidate = next(
+        c
+        for cluster in report.json()["data"]["clusters"]
+        for c in cluster["candidates"]
+        if c["op"] == "snap_endpoint_to_endpoint"
+    )
+
+    decided = client.post(
+        f"/datasets/{key}/{file}/plan-state/repair-candidates/{candidate['candidate_id']}/decision",
+        json={"outcome": "rejected_false_positive", "note": "test classification"},
+    )
+    assert decided.status_code == 200, decided.text
+
+    second = client.post(f"/datasets/{key}/{file}/plan-state/evaluate-gates", json=body)
+    assert second.status_code == 200, second.text
+    defects = second.json()["data"]["state"]["defects"]
+    open_gold = [
+        d for d in defects
+        if d["category"] == "topology_candidate_review" and d["status"] in {"open", "in_progress"}
+    ]
+    assert open_gold == []
+
+    quality = client.get(f"/datasets/{key}/{file}/plan-state/quality-report")
+    assert quality.status_code == 200, quality.text
+    quality_data = quality.json()["data"]
+    assert quality_data["candidate_rejections_false_positive"] == 1
+    assert quality_data["final_unclassified_high_confidence_warning_count"] == 0

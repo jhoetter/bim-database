@@ -4965,7 +4965,16 @@ function ScenePlanPanel({
   const state = plan?.state ?? null;
   const openDefects = (state?.defects ?? []).filter((d) => d.status === 'open' || d.status === 'in_progress');
   const blockers = openDefects.filter((d) => d.severity === 'blocker');
+  const historicalDefects = (state?.defects ?? []).filter((d) => d.status !== 'open' && d.status !== 'in_progress');
+  const findingClusters = state?.current_state?.finding_clusters?.items ?? [];
+  const currentFindings = state?.current_state?.findings;
+  const repairDecisions = state?.current_state?.repair_candidate_decisions ?? {};
+  const reviewedClusterCount = findingClusters.filter((c) => c.decision || (c.cluster_fingerprint && repairDecisions[c.cluster_fingerprint])).length;
+  const highConfidenceUnresolved = findingClusters.filter((c) => c.confidence === 'high' && !(c.decision || (c.cluster_fingerprint && repairDecisions[c.cluster_fingerprint]))).length;
+  const warningCompletionTotal = Math.max(findingClusters.length, reviewedClusterCount + highConfidenceUnresolved);
+  const warningCompletionPct = warningCompletionTotal ? Math.round((reviewedClusterCount / warningCompletionTotal) * 100) : 100;
   const terminality = state?.current_state?.terminality;
+  const [defectView, setDefectView] = useState<'current' | 'history'>('current');
   const statusLabel = scenePlanStatusText(plan, labels);
   const nextActions = useMemo<ScenePlanAction[]>(() => {
     const action = scenePlanNextAction(plan);
@@ -5058,6 +5067,15 @@ function ScenePlanPanel({
                       {blockers.length || 'none'}
                     </div>
                   </div>
+                  <div className="rounded border border-zinc-200 bg-white p-2">
+                    <div className="text-zinc-500">Current findings</div>
+                    <div className="font-semibold text-zinc-900">
+                      {currentFindings?.count ?? 0}
+                      <span className="ml-1 font-normal text-zinc-500">
+                        ({state.current_state?.finding_clusters?.count ?? 0} clusters)
+                      </span>
+                    </div>
+                  </div>
                 </div>
                 {terminality && (
                   <div className="mt-2 rounded border border-zinc-200 bg-white p-2 text-[0.74rem] text-zinc-700">
@@ -5074,16 +5092,101 @@ function ScenePlanPanel({
               </section>
 
               <section>
-                <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Defects</div>
-                {openDefects.length === 0 ? (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[0.78rem] text-emerald-900">No open defects.</div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500">Topology Work</div>
+                  <div className="inline-flex rounded-md border border-zinc-300 bg-white p-0.5 text-[0.7rem]">
+                    {(['current', 'history'] as const).map((view) => (
+                      <button
+                        key={view}
+                        type="button"
+                        onClick={() => setDefectView(view)}
+                        className={`px-2 py-1 rounded ${defectView === view ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'}`}
+                      >
+                        {view === 'current' ? 'Current' : 'History'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-3 rounded-md border border-zinc-200 bg-white p-3">
+                  <div className="flex items-center justify-between text-[0.72rem] text-zinc-600">
+                    <span>Warning review</span>
+                    <span className="font-mono">{reviewedClusterCount}/{warningCompletionTotal} · {warningCompletionPct}%</span>
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-zinc-100 overflow-hidden">
+                    <div className={highConfidenceUnresolved > 0 ? 'h-full bg-amber-500' : 'h-full bg-emerald-500'} style={{ width: `${warningCompletionPct}%` }} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-zinc-600">
+                    <span>clusters <span className="font-semibold text-zinc-900">{findingClusters.length}</span></span>
+                    <span>classified <span className="font-semibold text-zinc-900">{reviewedClusterCount}</span></span>
+                    <span>high confidence open <span className={highConfidenceUnresolved > 0 ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>{highConfidenceUnresolved}</span></span>
+                    <span>blockers <span className={blockers.length > 0 ? 'font-semibold text-red-700' : 'font-semibold text-emerald-700'}>{blockers.length}</span></span>
+                  </div>
+                </div>
+                {defectView === 'current' ? (
+                  <div className="space-y-3">
+                    {findingClusters.length === 0 ? (
+                      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[0.78rem] text-emerald-900">No current finding clusters.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {findingClusters.map((c) => {
+                          const decision = c.decision ?? (c.cluster_fingerprint ? repairDecisions[c.cluster_fingerprint] : undefined);
+                          return (
+                            <div key={c.cluster_id ?? JSON.stringify(c.region)} className={`rounded-md border p-3 text-[0.78rem] ${
+                              c.severity === 'blocker'
+                                ? 'border-red-300 bg-red-50 text-red-950'
+                                : c.confidence === 'high' && !decision
+                                  ? 'border-amber-300 bg-amber-50 text-amber-950'
+                                  : 'border-zinc-200 bg-zinc-50 text-zinc-900'
+                            }`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="font-semibold">{c.cluster_id ?? 'cluster'} · {c.cluster_type ?? 'finding'}</div>
+                                <span className="font-mono text-[0.68rem]">{decision?.outcome ?? c.confidence ?? 'unknown'}</span>
+                              </div>
+                              <div className="mt-1 text-zinc-700">{c.summary ?? 'Current machine finding cluster.'}</div>
+                              <div className="mt-2 flex flex-wrap gap-1 text-[0.68rem]">
+                                {(c.categories ?? []).map((cat) => (
+                                  <span key={cat} className="rounded border border-zinc-300 bg-white px-1.5 py-0.5 font-mono text-zinc-600">{cat}</span>
+                                ))}
+                              </div>
+                              {decision?.candidate_id && <div className="mt-1 font-mono text-[0.68rem] text-zinc-600">decision {decision.candidate_id}</div>}
+                              {c.region !== undefined && <div className="mt-1 font-mono text-[0.68rem] text-zinc-600">region {JSON.stringify(c.region)}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {openDefects.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-[0.7rem] uppercase tracking-wide font-semibold text-zinc-500">Open Actions</div>
+                        {openDefects.map((d) => (
+                          <div key={d.id} className={`rounded-md border p-3 text-[0.78rem] ${
+                            d.severity === 'blocker'
+                              ? 'border-red-300 bg-red-50 text-red-950'
+                              : 'border-amber-300 bg-amber-50 text-amber-950'
+                          }`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="font-semibold">{d.id} · {d.title}</div>
+                              <span className="font-mono text-[0.68rem]">{d.severity}/{d.status}</span>
+                            </div>
+                            <div className="mt-1 text-zinc-700">{d.description}</div>
+                            {d.expected_resolution && <div className="mt-2 text-zinc-800"><span className="font-semibold">Next:</span> {d.expected_resolution}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <div className="space-y-2">
-                    {openDefects.map((d) => (
+                  historicalDefects.length === 0 ? (
+                    <div className="rounded-md border border-zinc-200 bg-white p-3 text-[0.78rem] text-zinc-600">No historical defect rows.</div>
+                  ) : (
+                    <div className="space-y-2">
+                    {historicalDefects.map((d) => (
                       <div key={d.id} className={`rounded-md border p-3 text-[0.78rem] ${
                         d.severity === 'blocker'
                           ? 'border-red-300 bg-red-50 text-red-950'
-                          : 'border-amber-300 bg-amber-50 text-amber-950'
+                          : d.status === 'superseded'
+                            ? 'border-zinc-200 bg-zinc-50 text-zinc-700'
+                            : 'border-amber-300 bg-amber-50 text-amber-950'
                       }`}>
                         <div className="flex items-center justify-between gap-2">
                           <div className="font-semibold">{d.id} · {d.title}</div>
@@ -5108,7 +5211,8 @@ function ScenePlanPanel({
                         )}
                       </div>
                     ))}
-                  </div>
+                    </div>
+                  )
                 )}
               </section>
 
@@ -7456,10 +7560,18 @@ function LabelGlyph({
         <g {...bodyProps}>
           {path && (
             <>
-              {/* Solid color base, then Mauerwerk hatching overlay. Both at
-                  low opacity so the underlying drawing stays readable. */}
-              <path d={path} fill={stroke} fillOpacity={0.20} stroke="none" />
-              <path d={path} fill="url(#bim-wall-hatch)" stroke="none" />
+              {/* QA-first wall render: keep semantic thickness visible without
+                  hiding the source ink the agent/reviewer must compare. */}
+              <path d={path} fill={stroke} fillOpacity={selected ? 0.18 : 0.08} stroke="none" />
+              <path
+                d={path}
+                fill="none"
+                stroke={stroke}
+                strokeOpacity={selected ? 0.45 : 0.25}
+                strokeWidth={Math.max(1, sw - 1)}
+                strokeDasharray={selected ? undefined : '5,4'}
+              />
+              {selected && <path d={path} fill="url(#bim-wall-hatch)" stroke="none" opacity={0.35} />}
             </>
           )}
           <line x1={start[0]} y1={start[1]} x2={end[0]} y2={end[1]} stroke={stroke} strokeWidth={sw} />
@@ -7480,20 +7592,25 @@ function LabelGlyph({
       const minDim = Math.min(quadW, quadH);
       const glyphPx = 16 * screenScale;
       // Don't paint a glyph when it would dwarf the opening itself.
-      const showGlyph = kind !== 'window' && minDim > glyphPx * 1.8;
+      const showGlyph = selected && kind !== 'window' && minDim > glyphPx * 1.8;
       const Glyph = openingGlyphFor(kind);
       const pts = `${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]} ${d[0]},${d[1]}`;
       body = (
         <g {...bodyProps}>
-          {attached && (
-            <polygon
-              points={pts}
-              fill="white" stroke="#a21caf" strokeWidth={sw + 1} strokeDasharray="4,3"
-            />
+          {attached && selected && (
+            <polygon points={pts} fill="none" stroke="#a21caf" strokeWidth={sw + 1} strokeDasharray="4,3" />
           )}
-          <polygon points={pts} fill={fill} stroke={stroke} strokeWidth={sw} />
-          {hatchId && (
-            <polygon points={pts} fill={`url(#${hatchId})`} stroke="none" opacity={0.7} />
+          <polygon
+            points={pts}
+            fill={selected ? fill : 'transparent'}
+            stroke={stroke}
+            strokeWidth={sw}
+            strokeOpacity={selected ? 1 : 0.85}
+          />
+          <line x1={a[0]} y1={a[1]} x2={d[0]} y2={d[1]} stroke={stroke} strokeWidth={sw} opacity={0.85} />
+          <line x1={b[0]} y1={b[1]} x2={c[0]} y2={c[1]} stroke={stroke} strokeWidth={sw} opacity={0.85} />
+          {selected && hatchId && (
+            <polygon points={pts} fill={`url(#${hatchId})`} stroke="none" opacity={0.35} />
           )}
           {inner}
           {showGlyph && (

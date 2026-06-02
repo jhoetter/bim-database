@@ -335,6 +335,9 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
                 "scene_tag": lbl.get("scene_tag"),
                 "scene_orientation": lbl.get("scene_orientation"),
                 "scene_level": lbl.get("scene_level"),
+                "title": d.get("title"),
+                "manifest_floor": d.get("floor"),
+                "manifest_kind": d.get("kind"),
                 "label_count": len(labels),
                 "label_counts": label_type_counts,
                 # Issue #23: W1 may also be satisfied by the presence of a
@@ -348,6 +351,21 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
                 # openings) — not just facts — before a scene is "done".
                 "label_types": sorted(t for t in label_types if t),
             }
+            plan_status, plan = await _api_get(f"/datasets/{key}/{f}/plan-state/status")
+            plan_data = (plan.get("data") if isinstance(plan, dict) else None) or {}
+            scene_meta_by_file[f]["plan_state_exists"] = (
+                plan_status == 200
+                and bool(plan_data.get("exists"))
+            )
+            scene_meta_by_file[f]["plan_required_complete"] = (
+                plan_status == 200
+                and bool(plan_data.get("exists"))
+                and bool(plan_data.get("required_complete"))
+            )
+            scene_meta_by_file[f]["plan_status"] = plan_data.get("status")
+            scene_meta_by_file[f]["plan_next_action_available"] = bool(plan_data.get("next_action_available"))
+            scene_meta_by_file[f]["plan_next_action"] = plan_data.get("next_action")
+            scene_meta_by_file[f]["plan_terminality_reasons"] = plan_data.get("terminality_reasons") or []
         else:
             scene_meta_by_file[f] = {"scene_tag": None}
     return facts or {}, scene_meta_by_file
@@ -421,6 +439,30 @@ def _missing_geometry(scene_tag: str | None, label_types) -> list[str]:
     req = _REQUIRED_GEOMETRY.get(scene_tag or "", [])
     have = set(label_types or [])
     return [k for k in req if k not in have]
+
+
+def _is_groundfloor_scene(file: str | None, meta: dict[str, Any]) -> bool:
+    """True for EG/Ground-floor floorplan scenes.
+
+    Prefer explicit scene_level, but fall back to manifest/file/title
+    hints because fresh extraction and reset flows can temporarily have
+    one source populated before the others.
+    """
+    if meta.get("scene_tag") != "grundriss":
+        return False
+    explicit_level = str(meta.get("scene_level") or "").strip().lower()
+    if explicit_level:
+        return explicit_level in {"eg", "erdgeschoss", "ground", "groundfloor", "ground_floor"}
+    manifest_floor = str(meta.get("manifest_floor") or "").strip().lower()
+    if manifest_floor:
+        return manifest_floor in {"eg", "erdgeschoss", "ground", "groundfloor", "ground_floor"}
+    values = [
+        meta.get("title"),
+        file,
+    ]
+    text = " ".join(str(v).lower() for v in values if v)
+    tokens = set(re.split(r"[^a-z0-9]+", text))
+    return bool(tokens & {"eg", "erdgeschoss", "ground", "groundfloor"})
 
 
 def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dict]) -> dict:
@@ -527,6 +569,7 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
     # is NOT complete. Only scenes whose tag is in _REQUIRED_GEOMETRY are
     # checked; sonstiges/detail/nicht_klassifiziert are exempt.
     wgeo_blockers: list[str] = []
+    wgeo_groundfloor_blockers: list[str] = []
     has_geometry_targets = False
     for d in drawings:
         f = d.get("file")
@@ -534,9 +577,19 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
         tag = meta.get("scene_tag")
         if tag in _REQUIRED_GEOMETRY:
             has_geometry_targets = True
+            scene_blockers: list[str] = []
+            if not meta.get("plan_state_exists"):
+                scene_blockers.append(f"{f}: missing scene plan state")
+            elif not meta.get("plan_required_complete"):
+                reasons = meta.get("plan_terminality_reasons") or []
+                reason = f"; {'; '.join(str(r) for r in reasons[:3])}" if reasons else ""
+                scene_blockers.append(f"{f}: scene plan incomplete{reason}")
             missing = _missing_geometry(tag, meta.get("label_types"))
             if missing:
-                wgeo_blockers.append(f"{f}: missing geometry {missing}")
+                scene_blockers.append(f"{f}: missing geometry {missing}")
+            wgeo_blockers.extend(scene_blockers)
+            if _is_groundfloor_scene(f, meta):
+                wgeo_groundfloor_blockers.extend(scene_blockers)
     wgeo_status = "done" if has_geometry_targets and not wgeo_blockers else (
         "pending" if has_scenes else "pending"
     )
@@ -562,14 +615,20 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
         "W4": {"status": w4_status, "blockers": w4_blockers,
                "assumed_isotropic_scenes": w4_assumed_isotropic},
         "Wgeo": {"status": wgeo_status, "blockers": [] if wgeo_status == "done"
-                 else ([no_scenes_blocker] if not has_scenes else wgeo_blockers)},
+                 else ([no_scenes_blocker] if not has_scenes else wgeo_blockers),
+                 "groundfloor_blockers": wgeo_groundfloor_blockers},
         "W5": {"status": w5_status, "blockers": ["W5 not marked complete"] if w5_status != "done" else []},
     }
     next_phase = None
-    for p in ("W0", "W1", "W2", "W3", "W4"):
-        if phases[p]["status"] != "done":
-            next_phase = p
-            break
+    if phases["W0"]["status"] != "done":
+        next_phase = "W0"
+    elif wgeo_groundfloor_blockers:
+        next_phase = "Wgeo"
+    else:
+        for p in ("W1", "W2", "W3", "W4", "Wgeo"):
+            if phases[p]["status"] != "done":
+                next_phase = p
+                break
     # Export gating: ≥1 drawing with labels (mirrors api/main._sanity_check_house).
     labeled_count = sum(1 for d in scenes_by_file.values() if d.get("labeled"))
     exportable = bool(drawings) and labeled_count > 0
@@ -731,7 +790,7 @@ async def get_scene_view_with_labels(
     max_dim: int = 900,
     enhance: str | None = None,
     format: str = "png8",
-    style: str = "standard",
+    style: str = "qa",
     target: str | None = None,
     target_line: str = "none",
     background_opacity: float | None = None,
@@ -775,7 +834,10 @@ async def get_scene_view_with_labels(
       format:  png|png8 (issue #3). Default png8 — the cheaper palette
                PNG. Use it for the verify-after-place loop to keep each
                read affordable; pass format="png" for full-fidelity RGBA.
-      style:   standard|coordinate_multicolor|coordinate_audit|coordinate_pair.
+      style:   qa|ink_compare|semantic|standard|coordinate_multicolor|
+               coordinate_audit|coordinate_pair.
+               qa/ink_compare render labels lightly so source ink remains
+               visible; semantic renders full wall/opening bodies.
                coordinate_multicolor is the preferred coordinate-audit
                style when verifying exact placement because line colours
                repeat as landmarks and labels match their line colour.
@@ -801,8 +863,8 @@ async def get_scene_view_with_labels(
     Returns: one ImageContent (PNG) + one TextContent envelope.
 
     Render vocabulary:
-      wall body band + axis    — wall (thickness_mm is rendered)
-      opening body + internals — opening (door swing/window sash when known)
+      wall body band + axis    — wall; qa/ink_compare use light bands
+      opening body + internals — opening; qa/ink_compare use cut outlines
       polyline/region          — component_line
       datum marker + line      — height_mark (Bezug is visually distinct)
       dimension + caps + value — dimensioned_distance
@@ -1026,6 +1088,7 @@ async def verify_label_placement(
         key=key, file=file, region=region, tiers=tiers, max_dim=max_dim,
         enhance=enhance,
         format=format,
+        style="ink_compare",
         background_opacity=background_opacity,
         clean=True,
         contrast=contrast,
@@ -1335,6 +1398,139 @@ async def cleanup_image_handles(max_age_seconds: int = 86_400) -> dict:
 # ── §5.1 Discovery (cont.) ────────────────────────────────────────────────
 
 
+def _level_or_orientation_for_plan(meta: dict[str, Any]) -> str | None:
+    tag = meta.get("scene_tag")
+    if tag == "grundriss":
+        return meta.get("scene_level") or meta.get("manifest_floor")
+    if tag in ("ansicht", "schnitt"):
+        return meta.get("scene_orientation")
+    return None
+
+
+def _scene_plan_priority(file: str, meta: dict[str, Any]) -> tuple[int, str]:
+    tag = meta.get("scene_tag")
+    if _is_groundfloor_scene(file, meta):
+        return (0, file)
+    if tag == "grundriss":
+        return (1, file)
+    if tag == "schnitt":
+        return (2, file)
+    if tag == "ansicht":
+        return (3, file)
+    return (9, file)
+
+
+def _scene_needs_plan_work(file: str, meta: dict[str, Any]) -> bool:
+    tag = meta.get("scene_tag")
+    if tag not in _REQUIRED_GEOMETRY:
+        return False
+    if not meta.get("plan_state_exists"):
+        return True
+    if not meta.get("plan_required_complete"):
+        return True
+    if _missing_geometry(tag, meta.get("label_types")):
+        return True
+    return False
+
+
+async def _recommended_scene_plan_action(key: str, *, groundfloor_only: bool = False) -> dict | None:
+    status, ds = await _api_get(f"/datasets/{key}")
+    if status >= 400 or not isinstance(ds, dict):
+        return None
+    _facts, scene_meta = await _load_facts_and_scene_meta(key, ds)
+    candidates: list[tuple[tuple[int, str], str, dict[str, Any]]] = []
+    for drawing in ds.get("drawings") or []:
+        file = drawing.get("file")
+        if not file:
+            continue
+        meta = scene_meta.get(file) or {}
+        if groundfloor_only and not _is_groundfloor_scene(file, meta):
+            continue
+        if _scene_needs_plan_work(file, meta):
+            candidates.append((_scene_plan_priority(file, meta), file, meta))
+    if not candidates:
+        return None
+    _priority, file, meta = sorted(candidates, key=lambda item: item[0])[0]
+    if not meta.get("plan_state_exists"):
+        return {
+            "phase": "Wgeo",
+            "suggested_tool": "create_scene_plan_state_from_template",
+            "suggested_args": {
+                "key": key,
+                "file": file,
+                "scene_tag": meta.get("scene_tag") or "nicht_klassifiziert",
+                "level_or_orientation": _level_or_orientation_for_plan(meta),
+            },
+            "reason": (
+                f"{file} is the next geometry scene and has no scene plan. "
+                "Create the plan before placing labels."
+            ),
+            "scene_priority": "groundfloor-first" if _is_groundfloor_scene(file, meta) else "scene-order",
+            "blockers_in_phase": [f"{file}: missing scene plan state"],
+        }
+    next_action = meta.get("plan_next_action")
+    return {
+        "phase": "Wgeo",
+        "suggested_tool": "get_scene_plan_next_action",
+        "suggested_args": {"key": key, "file": file},
+        "reason": (
+            f"{file} has an incomplete required scene plan. Work exactly one "
+            "plan action through start/attempt/evidence/finish/evaluate before moving on."
+        ),
+        "scene_priority": "groundfloor-first" if _is_groundfloor_scene(file, meta) else "scene-order",
+        "scene_plan_status": meta.get("plan_status"),
+        "next_action": next_action,
+        "blockers_in_phase": [
+            f"{file}: scene plan incomplete",
+            *[str(r) for r in (meta.get("plan_terminality_reasons") or [])[:3]],
+        ],
+    }
+
+
+async def _scene_order_guard(key: str, file: str) -> dict | None:
+    """Return a compact redirect if global scene priority blocks `file`."""
+    status, ds = await _api_get(f"/datasets/{key}")
+    if status >= 400 or not isinstance(ds, dict):
+        return None
+    _facts, scene_meta = await _load_facts_and_scene_meta(key, ds)
+    requested_meta = scene_meta.get(file) or {}
+    if _is_groundfloor_scene(file, requested_meta):
+        return None
+
+    recommended = await _recommended_scene_plan_action(key, groundfloor_only=True)
+    recommended_args = (recommended or {}).get("suggested_args") or {}
+    recommended_file = recommended_args.get("file")
+    if not recommended_file or recommended_file == file:
+        return None
+    state_env = await get_workflow_state(key=key)
+    state = state_env.get("data") if state_env.get("ok") else {}
+    wgeo = (state.get("phases") or {}).get("Wgeo") if isinstance(state, dict) else {}
+    return {
+        "code": "groundfloor_first_blocked",
+        "requested_file": file,
+        "recommended_file": recommended_file,
+        "recommended_tool": (recommended or {}).get("suggested_tool") or "get_scene_plan_next_action",
+        "recommended_args": recommended_args,
+        "recommended_action": (recommended or {}).get("next_action"),
+        "scene_priority": "groundfloor-first",
+        "scene_order_blocked": True,
+        "reason": (
+            "Groundfloor required geometry is still incomplete. Work the "
+            "recommended EG scene-plan action before requesting non-EG "
+            "floorplans, sections, or elevations."
+        ),
+        "blockers_in_phase": list((wgeo or {}).get("groundfloor_blockers") or (recommended or {}).get("blockers_in_phase") or [])[:5],
+    }
+
+
+async def _is_file_groundfloor(key: str, file: str) -> bool:
+    status, ds = await _api_get(f"/datasets/{key}")
+    if status >= 400 or not isinstance(ds, dict):
+        return False
+    _facts, scene_meta = await _load_facts_and_scene_meta(key, ds)
+    return _is_groundfloor_scene(file, scene_meta.get(file) or {})
+
+
 @mcp.tool()
 async def get_recommended_next_action(key: str) -> dict:
     """Convenience wrapper: derives the next thing the agent should do
@@ -1359,12 +1555,18 @@ async def get_recommended_next_action(key: str) -> dict:
     if state.get("exportable") and not state.get("blockers_total"):
         return _ok({"done": True, "reason": "all phases done; ready to export"}, started_at=started)
     phase = state.get("next_phase") or "W0"
+    if phase == "Wgeo":
+        groundfloor_only = bool((state["phases"].get("Wgeo") or {}).get("groundfloor_blockers"))
+        plan_action = await _recommended_scene_plan_action(key, groundfloor_only=groundfloor_only)
+        if plan_action:
+            return _ok(plan_action, started_at=started)
     suggestions = {
         "W0": ("get_house", {"key": key}, "list scenes + their current tags; then set_scene_tag for each untagged"),
         "W1": ("get_house", {"key": key}, "pick an Ansicht with visible bezug + ridge; label height_marks; set_house_facts heights"),
         "W2": ("get_house", {"key": key}, "pick EG-Grundriss; add_reference_dim horizontal + vertical; set_house_facts extent + wall_thickness"),
         "W3": ("get_house", {"key": key}, "pick EG-Grundriss; identify north wall; set_house_facts orientation"),
         "W4": ("get_house", {"key": key}, "for each uncalibrated Ansicht/Schnitt: add_reference_dim h+v, recompute_homography"),
+        "Wgeo": ("get_house_context_summary", {"key": key, "include_plan_status": True}, "create missing scene plans; then drive each geometry scene via get_scene_plan_next_action"),
         "W5": ("get_workflow_state", {"key": key}, "W5 is opt-in; if --with-detail, label view_openings + component_lines"),
     }
     tool_name, tool_args, reason = suggestions[phase]
@@ -1441,7 +1643,7 @@ async def extract_scenes(
       - The agent has identified scene bboxes from `get_pdf_page_view`
         renders (W0/extract phase).
       - Re-extracting after adjusting a bbox (idempotent on (page, slug);
-        re-extract overwrites the JPG and updates the manifest entry but
+        re-extract overwrites the scene image and updates the manifest entry but
         preserves any existing labels.json).
 
     DON'T USE when:
@@ -1454,7 +1656,10 @@ async def extract_scenes(
         {
           "page": 1,                 // 1-indexed page in the PDF
           "bbox_pixels": [x0,y0,x1,y1],  // pixel coords AT THE DPI YOU SAW
-          "dpi": 144,                 // the DPI of the get_pdf_page_view render
+          "dpi": 144,                 // view DPI used ONLY for bbox_pixels -> PDF units
+          "bbox_pdf_units": [x0,y0,x1,y1], // alternative: PDF coords, no conversion
+          "crop_dpi": 600,            // output raster DPI; default 600
+          "format": "png",            // png|jpg; default png for lossless agent work
           "kind": "floorplan",        // floorplan|elevation|section|detail
           "view": "north",            // optional — for elevations/sections
           "floor": "eg",              // optional — for floorplans
@@ -1488,7 +1693,11 @@ async def extract_scenes(
     Returns: `data` = {extracted: [...new manifest entries...], intake_state: ...}
 
     Pixel→PDF conversion is handled here: the API takes bbox_pdf_units,
-    so this tool multiplies by (72 / dpi) before posting.
+    so this tool multiplies bbox_pixels by (72 / dpi) before posting. Do not
+    pass dpi=600 merely to request a 600 dpi crop when bbox_pixels came from a
+    144 dpi page view; pass crop_dpi=600 instead. If bbox_pdf_units are used,
+    dpi is accepted as a backwards-compatible output-DPI alias when crop_dpi is
+    omitted.
     """
     started = time.time()
     if not items:
@@ -1503,14 +1712,26 @@ async def extract_scenes(
         if not (isinstance(bbox_px, (list, tuple)) and len(bbox_px) == 4):
             return _err("bbox_zero_area", "bbox_pixels must be [x0,y0,x1,y1]",
                         started_at=started)
-        dpi = int(raw.get("dpi", 144))
-        if dpi <= 0:
+        has_bbox_pixels = "bbox_pixels" in raw
+        view_dpi = int(raw.get("dpi", 144))
+        if view_dpi <= 0:
             return _err("schema_invalid", "dpi must be > 0", started_at=started)
+        crop_dpi_raw = raw.get("crop_dpi", raw.get("output_dpi"))
+        crop_dpi = int(crop_dpi_raw) if crop_dpi_raw is not None else (
+            600 if has_bbox_pixels else int(raw.get("dpi", 600))
+        )
+        if crop_dpi <= 0 or crop_dpi > 1200:
+            return _err("schema_invalid", "crop_dpi must be in 1..1200", started_at=started)
+        fmt = str(raw.get("format", "png")).strip().lower()
+        if fmt == "jpeg":
+            fmt = "jpg"
+        if fmt not in {"png", "jpg"}:
+            return _err("schema_invalid", "format must be 'png' or 'jpg'", started_at=started)
         x0, y0, x1, y1 = (float(v) for v in bbox_px)
         if not (x1 > x0 and y1 > y0):
             return _err("bbox_zero_area", f"bbox has non-positive area: {bbox_px}",
                         started_at=started)
-        factor = 72.0 / dpi if "bbox_pixels" in raw else 1.0
+        factor = 72.0 / view_dpi if has_bbox_pixels else 1.0
         api_items.append({
             "page": int(raw.get("page", 0)),
             "bbox_pdf_units": [x0 * factor, y0 * factor, x1 * factor, y1 * factor],
@@ -1519,7 +1740,8 @@ async def extract_scenes(
             "floor": raw.get("floor"),
             "title": raw.get("title"),
             "slug_override": raw.get("slug_override"),
-            "dpi": int(raw.get("crop_dpi", 300)),
+            "dpi": crop_dpi,
+            "format": fmt,
             "allow_blank": bool(raw.get("allow_blank", False)),
             "no_clip_expand": bool(raw.get("no_clip_expand", False)),
             # V1.1: when YOU (the vision-LLM) have chosen the crop extent
@@ -1867,6 +2089,556 @@ async def get_house_context_summary(
         "workflow": _compact_workflow_for_summary(workflow, max_blockers=max_blockers_per_scene),
         "scenes": scenes,
     }, started_at=started, status_code=status)
+
+
+# ── §5.3b Scene plan workflow ───────────────────────────────────────────
+
+
+@mcp.tool()
+async def create_scene_plan_state_from_template(
+    key: str,
+    file: str,
+    scene_tag: str = "nicht_klassifiziert",
+    level_or_orientation: str | None = None,
+    created_by: str | None = "bim-agent",
+    overwrite: bool = False,
+) -> dict:
+    """Create authoritative plan-state JSON plus rendered Markdown.
+
+    USE when:
+      - Inventory/extraction has produced a classified scene and a
+        subagent is about to place geometry labels.
+      - A legacy scene has labels but no plan state, and you need to
+        bring it back under the analyze → edit → verify workflow.
+      This writes the structured `*.plan.json` sidecar and syncs the
+      human-readable `plan.md`.
+
+    DON'T USE to overwrite a plan with human edits unless the user
+    explicitly asked for a reset; leave `overwrite=false` for normal runs.
+
+    Args:
+      key/file: scene identifier.
+      scene_tag: current workflow scene tag (`grundriss`, `ansicht`,
+                 `schnitt`, `sonstiges`, or `nicht_klassifiziert`).
+      level_or_orientation: EG/DG/etc for Grundriss or cardinal face for
+                            Ansicht/Schnitt when known.
+      created_by: provenance marker stored in the plan state.
+      overwrite: replace an existing plan state when true.
+    """
+    started = time.time()
+    body = {
+        "scene_tag": scene_tag,
+        "level_or_orientation": level_or_orientation,
+        "created_by": created_by,
+        "overwrite": overwrite,
+    }
+    try:
+        status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/template", body)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/template", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_plan_state(key: str, file: str) -> dict:
+    """Read the structured per-scene plan state sidecar.
+
+    USE when:
+      - Starting or resuming a scene subagent and you need the full
+        task/defect/evidence state.
+
+    DON'T USE when:
+      - You only need routing status; prefer `get_scene_plan_status` or
+        `get_scene_context_summary` because they are much smaller.
+    """
+    started = time.time()
+    status, body = await _api_get(f"/datasets/{key}/{file}/plan-state")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body.get("data") if isinstance(body, dict) else body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_plan_status(key: str, file: str) -> dict:
+    """Return concise terminality/progress status for a scene plan.
+
+    USE when:
+      - Before spawning or resuming a scene subagent.
+      - Checking whether a legacy labeled scene is missing its plan.
+
+    DON'T USE when:
+      - You need the full task/evidence body; call `get_scene_plan_state`.
+      If `exists=false`, create the plan before placing geometry labels.
+    """
+    started = time.time()
+    status, body = await _api_get(f"/datasets/{key}/{file}/plan-state/status")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body.get("data") if isinstance(body, dict) else body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_plan_next_action(key: str, file: str) -> dict:
+    """Return exactly one blocker-first, subagent-ready next action.
+
+    USE when:
+      - Inside the scene analyze → edit → verify loop and ready to work
+        on one focused blocker or task.
+      - You accept global scene priority. If EG required geometry is still
+        open, non-EG requests return `code='groundfloor_first_blocked'`.
+
+    DON'T USE when:
+      - The scene plan is missing; create it first. Claim the returned
+        action with `start_scene_plan_action`, record attempts/evidence,
+        close it, and re-run `evaluate_scene_plan_gates`.
+      - You are trying to skip the global recommender. Resume long runs
+        from `get_recommended_next_action`.
+    """
+    started = time.time()
+    guard = await _scene_order_guard(key, file)
+    if guard:
+        return _ok(guard, started_at=started)
+    status, body = await _api_get(f"/datasets/{key}/{file}/plan-state/next-action")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    data = body.get("data") if isinstance(body, dict) else body
+    if isinstance(data, dict):
+        data.setdefault("scene_order_blocked", False)
+        data.setdefault("global_recommended_file", file)
+        data.setdefault("scene_priority", "groundfloor-first" if await _is_file_groundfloor(key, file) else "scene-order")
+    return _ok(data, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_plan_next_actions(key: str, file: str, limit: int = 3) -> dict:
+    """Return blocker-first, subagent-ready next actions for one scene.
+
+    USE when:
+      - A parent/orchestrator needs a compact queue preview before
+        assigning scene work.
+
+    DON'T USE when:
+      - A worker is already editing a scene; use the singular
+        `get_scene_plan_next_action` to stay focused.
+    """
+    started = time.time()
+    guard = await _scene_order_guard(key, file)
+    if guard:
+        return _ok({"exists": True, "actions": [], **guard}, started_at=started)
+    status, body = await _api_get(
+        f"/datasets/{key}/{file}/plan-state/next-actions",
+        params={"limit": int(limit)},
+    )
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body.get("data") if isinstance(body, dict) else body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def start_scene_plan_action(
+    key: str,
+    file: str,
+    action_id: str,
+    agent_id: str | None = "bim-agent",
+    expected_version: str | None = None,
+) -> dict:
+    """Claim a scene-plan action and mark its task/defect in progress.
+
+    USE when:
+      - Before making edits for a plan action.
+
+    DON'T USE when:
+      - You have not fetched a next action from the current plan state.
+      This prevents a resumed worker from silently working stale state
+      and gives reviewers a clear current action in the plan.
+    """
+    started = time.time()
+    guard = await _scene_order_guard(key, file)
+    if guard:
+        return _err(
+            "groundfloor_first_blocked",
+            guard["reason"],
+            hint="Call get_recommended_next_action and work the recommended EG scene first.",
+            retry=False,
+            details=guard,
+            started_at=started,
+        )
+    body = {"agent_id": agent_id, "expected_version": expected_version}
+    status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/start", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def record_scene_plan_attempt(
+    key: str,
+    file: str,
+    action_id: str,
+    hypothesis: str,
+    edits: list[dict] | None = None,
+    evidence_ids: list[str] | None = None,
+    attempt_id: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Record one coherent edit/review attempt for the current action.
+
+    USE when:
+      - After an edit or review pass, before finishing the action.
+
+    DON'T USE when:
+      - You only have a vague transcript note; add concrete evidence
+        first. Keep the hypothesis short and cite evidence IDs rather
+        than pasting visual transcript details.
+    """
+    started = time.time()
+    body = {
+        "hypothesis": hypothesis,
+        "edits": edits or [],
+        "evidence_ids": evidence_ids or [],
+        "attempt_id": attempt_id,
+        "expected_version": expected_version,
+    }
+    status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/attempts", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def finish_scene_plan_action(
+    key: str,
+    file: str,
+    action_id: str,
+    outcome: str,
+    reason: str | None = None,
+    evidence_ids: list[str] | None = None,
+    attempt_id: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Finish one plan action after verification.
+
+    USE when:
+      - The attempted edit has been verified, rejected, or clearly
+        blocked, with evidence or a blocker reason.
+
+    DON'T USE when:
+      - The edit has not been visually/algorithmically checked yet.
+      Valid outcomes are `fixed`, `still_open`, `rejected`,
+      `accepted_uncertain`, `regressed`, and `blocked_external`.
+      For task actions, `accepted_uncertain` is rejected by the API:
+      keep working, finish as `blocked_external`, or verify with passing
+      gates. Required tasks are complete only when `verified`.
+    """
+    started = time.time()
+    body = {
+        "outcome": outcome,
+        "reason": reason,
+        "evidence_ids": evidence_ids or [],
+        "attempt_id": attempt_id,
+        "expected_version": expected_version,
+    }
+    status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/finish", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_repair_candidates(key: str, file: str, limit: int = 20) -> dict:
+    """Return clustered current topology findings with deterministic repair candidates.
+
+    USE when:
+      - A scene has many topology/wall warning defects.
+      - You need the ranked accept/reject queue instead of manually inspecting
+        duplicate dangling endpoint cards.
+
+    The response is bounded and includes candidate ids for
+    `get_scene_view_with_repair_candidate` and `apply_repair_candidate`.
+    """
+    started = time.time()
+    status, body = await _api_get(
+        f"/datasets/{key}/{file}/plan-state/repair-candidates",
+        params={"limit": int(limit)},
+    )
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body.get("data") if isinstance(body, dict) else body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_view_with_repair_candidate(
+    key: str,
+    file: str,
+    candidate_id: str,
+    max_dim: int = 1600,
+    clean: bool = True,
+    style: str = "ink_compare",
+    image_delivery: str = "inline",
+) -> list[ImageContent | TextContent]:
+    """Render current labels plus one proposed repair candidate.
+
+    USE before accepting/rejecting a candidate from
+    `get_scene_repair_candidates`. The overlay is visual evidence only; it does
+    not mutate labels.
+    """
+    started = time.time()
+    status, content, ctype = await _api_get_bytes(
+        f"/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/overlay",
+        params={"max_dim": int(max_dim), "clean": bool(clean), "style": style},
+    )
+    if status >= 400:
+        try:
+            body = json.loads(content) if content else {}
+        except json.JSONDecodeError:
+            body = {}
+        return _wrap_text(_http_status_to_error(status, body, started))
+    return _image_delivery_payload(
+        content=content,
+        ctype=ctype,
+        metadata={
+            "key": key,
+            "file": file,
+            "candidate_id": candidate_id,
+            "image_format": "PNG",
+            "max_dim": max_dim,
+            "clean": clean,
+            "style": style,
+        },
+        started_at=started,
+        status_code=status,
+        image_delivery=image_delivery,
+    )
+
+
+@mcp.tool()
+async def apply_repair_candidate(
+    key: str,
+    file: str,
+    candidate_id: str,
+    expected_candidate_op: str | None = None,
+    evidence_ids: list[str] | None = None,
+    expected_version: str | None = None,
+    note: str | None = None,
+) -> dict:
+    """Apply one precomputed deterministic repair candidate.
+
+    USE only after visually inspecting the candidate overlay. No-edit
+    classification candidates return `persisted=false`; geometry candidates
+    persist labels through the same server validation path as normal label
+    writes.
+    """
+    started = time.time()
+    body = {
+        "expected_candidate_op": expected_candidate_op,
+        "evidence_ids": evidence_ids or [],
+        "expected_version": expected_version,
+        "note": note,
+    }
+    status, res = await _api_post(
+        f"/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/apply",
+        body,
+    )
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def decide_repair_candidate(
+    key: str,
+    file: str,
+    candidate_id: str,
+    outcome: str,
+    expected_candidate_op: str | None = None,
+    evidence_ids: list[str] | None = None,
+    expected_version: str | None = None,
+    note: str | None = None,
+) -> dict:
+    """Record an accept/reject/manual decision for a repair candidate.
+
+    USE after visually inspecting a candidate overlay when the correct outcome
+    is not a geometry application. Allowed outcomes are accepted_applied,
+    rejected_false_positive, rejected_intentional_opening,
+    rejected_would_hurt_score, accepted_uncertain, and needs_manual_geometry.
+    """
+    started = time.time()
+    body = {
+        "outcome": outcome,
+        "expected_candidate_op": expected_candidate_op,
+        "evidence_ids": evidence_ids or [],
+        "expected_version": expected_version,
+        "note": note,
+    }
+    status, res = await _api_post(
+        f"/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/decision",
+        body,
+    )
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_plan_quality_report(key: str, file: str) -> dict:
+    """Return the compact current topology quality report for a scene plan.
+
+    USE before handoff/export claims. This reports current findings, candidate
+    decisions, superseded historical defects, accepted repairs, rejected
+    candidates, and unresolved high-confidence warning clusters.
+    """
+    started = time.time()
+    status, body = await _api_get(f"/datasets/{key}/{file}/plan-state/quality-report")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body.get("data") if isinstance(body, dict) else body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_topology_snapshot(key: str, file: str) -> dict:
+    """Return the deterministic non-binary topology regression snapshot.
+
+    USE for handoff/CI-style quality checks. The snapshot contains topology
+    counts, cluster count, candidate count/types, reviewed clusters, decision
+    outcomes, and unresolved high-confidence warnings.
+    """
+    started = time.time()
+    status, body = await _api_get(f"/datasets/{key}/{file}/plan-state/topology-snapshot")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body.get("data") if isinstance(body, dict) else body, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def add_scene_plan_evidence(
+    key: str,
+    file: str,
+    kind: str,
+    summary: str,
+    mode: str = "analysis",
+    tool: str | None = None,
+    params: dict | None = None,
+    result: dict | None = None,
+    image_url: str | None = None,
+    task_ids: list[str] | None = None,
+    observation_id: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Add evidence to the structured scene plan.
+
+    USE when:
+      - Recording the observation, crop, score, or verification result
+        that justifies a task/defect state change.
+
+    DON'T USE when:
+      - You are trying to store large image payloads or full transcripts.
+      Store compact observations and tool result summaries instead.
+    """
+    started = time.time()
+    body = {
+        "kind": kind,
+        "summary": summary,
+        "mode": mode,
+        "tool": tool,
+        "params": params or {},
+        "result": result or {},
+        "image_url": image_url,
+        "task_ids": task_ids or [],
+        "observation_id": observation_id,
+        "expected_version": expected_version,
+    }
+    status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/evidence", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def set_scene_plan_task_state(
+    key: str,
+    file: str,
+    task_id: str,
+    status: str,
+    evidence_ids: list[str] | None = None,
+    blocked_by: list[str] | None = None,
+    gate_updates: list[dict] | None = None,
+    note: str | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Set one structured scene-plan task state.
+
+    USE when:
+      - A plan action's allowed tools require marking a task verified,
+        accepted incomplete, blocked, rejected, or back to in progress.
+      - You have evidence IDs and gate updates that justify the state.
+
+    DON'T USE when:
+      - You are trying to bypass scene work. `accepted_incomplete` is
+        only an honest blocker marker and does NOT satisfy readiness or
+        export for required tasks. Normal progress requires `verified`
+        with passed gates plus evidence; required tasks cannot use waived
+        gates as a completion shortcut.
+
+    Valid statuses: `todo`, `in_progress`, `blocked`, `rejected`,
+    `verified`, `accepted_incomplete`. Required scene-plan tasks must
+    end as `verified` for `required_complete=true`.
+    """
+    started = time.time()
+    body = {
+        "status": status,
+        "evidence_ids": evidence_ids or [],
+        "blocked_by": blocked_by or [],
+        "gate_updates": gate_updates or [],
+        "note": note,
+        "expected_version": expected_version,
+    }
+    patch_error = await _api_patch(f"/datasets/{key}/{file}/plan-state/tasks/{task_id}", body, started)
+    if patch_error is not None:
+        return patch_error
+    status_code, res = await _api_get(f"/datasets/{key}/{file}/plan-state")
+    if status_code >= 400:
+        return _http_status_to_error(status_code, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status_code)
+
+
+@mcp.tool()
+async def evaluate_scene_plan_gates(
+    key: str,
+    file: str,
+    run_score_walls: bool = True,
+    run_score_measurements: bool = True,
+    run_topology_qa: bool = True,
+    visual_evidence: bool = False,
+    run_continuity_check: bool = False,
+    expected_version: str | None = None,
+) -> dict:
+    """Evaluate deterministic plan gates and update defects/tasks/status.
+
+    USE when:
+      - After edits and before declaring a scene action complete.
+
+    DON'T USE when:
+      - You have not yet placed or inspected the relevant labels. This is
+        the verification half of the scene loop: it runs server-side QA
+        and records resulting blockers in plan state.
+    """
+    started = time.time()
+    body = {
+        "run_score_walls": run_score_walls,
+        "run_score_measurements": run_score_measurements,
+        "run_topology_qa": run_topology_qa,
+        "visual_evidence": visual_evidence,
+        "run_continuity_check": run_continuity_check,
+        "expected_version": expected_version,
+    }
+    status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/evaluate-gates", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -3606,6 +4378,20 @@ async def export_house(
       force: if True, bypass the sanity gate. Default false.
     """
     started = time.time()
+    if not force:
+        readiness = await validate_export_readiness(key=key)
+        if not readiness.get("ok"):
+            return readiness
+        data = readiness.get("data") or {}
+        if not data.get("ready"):
+            return _err(
+                "export_blocked",
+                "honest readiness gate blocked the export",
+                hint="fix error.details.blockers or call export_house(force=true) only for an explicit debug export",
+                retry=True,
+                details={"blockers": data.get("blockers") or []},
+                started_at=started,
+            )
     try:
         status, body = await _api_post(
             f"/exports/{key}",
@@ -3967,15 +4753,33 @@ Don't trace coordinates across the dense grid if you can avoid it
 """
 
 
-# ── §5.11 MCP prompts (canonical phase playbooks) ────────────────────────
-# Per tracker §8 decision 7: prompts are the single source of truth for
-# how an agent works the workflow. The house-labeling skill in bim-agent
-# is a thin pointer that says "for phase X, follow this prompt".
+# ── §5.11 MCP prompts (adapter playbooks) ─────────────────────────────────
+# These prompts are transport/discovery adapters for MCP clients. They are NOT
+# the source of truth for labeling methodology. Keep durable workflow rules in
+# bim-agent/spec/labeling-methodology.md and exact tool contracts in
+# bim-agent/spec/labeling-tool-contract.md; model-specific harness files and
+# MCP prompts should point there and carry only invocation/routing glue.
+
+
+def _model_neutral_labeling_spec_notice() -> str:
+    return """## Model-neutral source of truth
+
+This MCP prompt is an adapter. The canonical labeling workflow lives in:
+
+- `~/repos/bim-agent/spec/labeling-methodology.md`
+- `~/repos/bim-agent/spec/labeling-tool-contract.md`
+- `~/repos/bim-agent/spec/driver-loop-contract.md`
+
+If this prompt conflicts with those specs, follow the specs and treat this
+prompt as stale adapter guidance.
+"""
 
 
 @mcp.prompt(name="label-house")
 def prompt_label_house(key: str) -> str:
     return f"""# Label house `{key}` end-to-end
+
+{_model_neutral_labeling_spec_notice()}
 
 You are driving the bim-database annotation workflow for one house. Your
 goal: produce an export-ready labeled house. Open the bim-database SPA
@@ -3991,6 +4795,7 @@ appear there immediately.
 | W2    | get_scene_view, add_reference_dim, upsert_label (wall), set_house_facts      |
 | W3    | get_scene_view, set_house_facts                                              |
 | W4    | get_scene_view, add_reference_dim, recompute_homography                      |
+| plan  | create_scene_plan_state_from_template, get_scene_plan_status, get_scene_plan_next_action |
 | any   | get_workflow_state, get_recommended_next_action, validate_export_readiness, export_house |
 
 ## Context-bloat policy
@@ -4014,6 +4819,51 @@ whenever the current decision needs pixels. But keep context focused:
 7. If a bounded QA result says `truncated=true`, use the returned counts and
    fetch/fix the highest-priority visible blockers first; do not treat
    truncation as a pass.
+
+## Scene-plan gate (REQUIRED before geometry labels)
+
+Once W0 has classified a scene and the crop/bounding box exists, every
+geometry-bearing scene (`grundriss`, `ansicht`, `schnitt`) MUST have a
+structured scene plan before any subagent places geometry labels.
+
+For each such scene:
+
+1. `get_scene_plan_status(key="{key}", file=<scene>)`.
+2. If `data.exists == false`, call
+   `create_scene_plan_state_from_template(key="{key}", file=<scene>,
+   scene_tag=<scene_tag>, level_or_orientation=<level-or-orientation>)`.
+   This writes both `*.plan.json` and the synced `plan.md`.
+3. Scene subagents work only through the plan loop:
+   `get_scene_plan_next_action` → `start_scene_plan_action` →
+   analyze/edit/verify → `add_scene_plan_evidence` /
+   `record_scene_plan_attempt` → `finish_scene_plan_action` →
+   `evaluate_scene_plan_gates` → repeat.
+4. A scene is NOT complete until every required task is `verified` and
+   `get_scene_plan_status(...).data.required_complete == true`. A plan
+   that merely exists, a `draft` plan, or a plan whose required tasks are
+   `accepted_incomplete` is not an honest pass.
+5. If a scene has labels but required tasks are not verified, treat the
+   labels as legacy/unverified. Continue through the plan loop until the
+   required tasks verify; do not use minimal labels or accepted-incomplete
+   waivers to satisfy export.
+
+`get_workflow_state` and `validate_export_readiness` intentionally keep
+`Wgeo` pending for geometry-bearing scenes whose plan state is missing or
+whose required plan tasks are incomplete, even if labels exist. Labels
+without the completed plan loop are not an honest completion.
+
+## Ground-floor-first gate
+
+After W0 has classified scenes, finish every EG/Ground-floor Grundriss
+scene plan before touching non-groundfloor geometry, sections, elevations,
+or export. In practice:
+
+1. Call `get_recommended_next_action(key="{key}")`.
+2. If it returns a `Wgeo` action for an EG scene, do exactly that action.
+3. Repeat until all EG scene plans report `required_complete=true` through
+   verified required tasks, not accepted-incomplete waivers.
+4. Only then continue to UG/DG plans, sections, elevations, W4 calibration,
+   and export.
 
 ## Resources to read first
 
@@ -4041,12 +4891,16 @@ set_house_facts(key="{key}", patch={{
 ## Operating loop
 
 ```
-state = get_workflow_state(key="{key}")
-while not state.exportable:
-    phase = state.next_phase
-    follow the prompt named  bim-database.<phase>-playbook
-    state = get_workflow_state(key="{key}")
-validate_export_readiness then export_house
+while true:
+    action = get_recommended_next_action(key="{key}")
+    if action.done:
+        break
+    do exactly action.suggested_tool/action.suggested_args
+    if action.phase == "Wgeo":
+        stay on that one scene-plan action until it has
+        start_scene_plan_action -> evidence/attempt -> finish -> evaluate-gates
+validate_export_readiness
+export_house only if ready=true
 ```
 
 ## Core principles (DO NOT SKIP)
@@ -4078,6 +4932,18 @@ validate_export_readiness then export_house
    placing labels off-feature and never noticing — the verify view is
    the fix. Budget: 3 placement attempts per label; if the third still
    misses, `set_label_status(..., "uncertain")` and move on.
+9. **PLAN BEFORE LABELS.** Do not place walls, openings, component lines,
+   height marks, or reference dimensions on a geometry-bearing scene until
+   `get_scene_plan_status(...).data.exists == true` for that scene and you
+   have claimed the relevant plan action. If a prior run left labels but
+   no verified plan, create/repair the plan and verify through the plan loop.
+10. **EG BEFORE EVERYTHING ELSE.** If any EG Grundriss plan has
+    `required_complete=false`, do not label UG/DG, sections, elevations,
+    or W4 calibration. Finish EG final QA as verified first.
+11. **NO BASELINE WAIVERS.** Do not mark required tasks
+    `accepted_incomplete` to reach export. If you cannot verify a required
+    task, leave it open or `blocked_external` with evidence; export must
+    remain blocked.
 
 Start now: call `get_workflow_state(key="{key}")` and follow the
 appropriate phase playbook.
@@ -4087,6 +4953,8 @@ appropriate phase playbook.
 @mcp.prompt(name="W0-inventory")
 def prompt_w0_inventory(key: str) -> str:
     return f"""# W0 · Inventory — categorise every scene of `{key}`
+
+{_model_neutral_labeling_spec_notice()}
 
 Goal: every scene has a non-null `scene_tag`, Ansicht/Schnitt have
 `scene_orientation`, Grundriss have `scene_level`.
@@ -4130,6 +4998,14 @@ For each scene returned by `get_house(key="{key}").drawings`:
 6. If Grundriss: identify the floor level (kg/ug/eg/og/dg/spitzboden)
    from the title text or by elimination (count the floors). Call
    `set_scene_level(...)`. If genuinely unclear, leave null.
+7. For every scene now tagged as `grundriss`, `ansicht`, or `schnitt`,
+   call `get_scene_plan_status`. If it is missing, call
+   `create_scene_plan_state_from_template` with the confirmed tag and
+   level/orientation. This is the handoff contract for later subagents.
+8. Before leaving W0, call `get_recommended_next_action`. If it points to
+   an EG `Wgeo` scene-plan action, that is the next required work. Do not
+   start UG/DG, section, elevation, or export work while EG plans remain
+   incomplete.
 
 ## Heuristics for ambiguous cases
 
@@ -4152,6 +5028,8 @@ on the blocked scene with `region=` zoom to inspect the title block.
 def prompt_w1_height_anchor(key: str) -> str:
     return f"""# W1 · Height anchor — establish ±0.00 + Firsthöhe for `{key}`
 
+{_model_neutral_labeling_spec_notice()}
+
 Goal: `facts.heights.bezug_mm == 0` and `facts.heights.first_mm != null`.
 
 ## ORDER MATTERS (per §G3-3)
@@ -4167,6 +5045,9 @@ nothing on the canvas. Reviewers can't trust it.
 
 ## Steps
 
+0. Call `get_recommended_next_action(key="{key}")`. If it returns an EG
+   `Wgeo` scene-plan action, stop this W1 pass and finish that EG action
+   first. Ground-floor plans have priority over global height anchoring.
 1. `get_house(key="{key}")` — pick an Ansicht with the most visible
    vertical dimension lines (usually the one labeled "Süd-Ansicht" or
    "Hauptansicht").
@@ -4225,6 +5106,8 @@ for each populated key (proves labels back the facts).
 def prompt_w2_footprint(key: str) -> str:
     return f"""# W2 · Footprint — width + depth + outer wall thickness for `{key}`
 
+{_model_neutral_labeling_spec_notice()}
+
 Goal: `facts.extent.width_mm`, `facts.extent.depth_mm`, and
 `facts.wall_thickness.outer_mm` all set.
 
@@ -4242,12 +5125,17 @@ extent — just label the dims and confirm via `get_house_facts`.
 ## Steps
 
 1. Pick EG-Grundriss (the one with `scene_level == "eg"`).
-2. `get_scene_view(key="{key}", file=<eg-grundriss>, tiers="broad,finer")`
+2. `get_scene_plan_status(key="{key}", file=<eg-grundriss>)`.
+   If missing, call `create_scene_plan_state_from_template` with
+   `scene_tag="grundriss"` and `level_or_orientation="eg"`.
+   Then call `get_scene_plan_next_action` and `start_scene_plan_action`
+   before placing any geometry/reference labels.
+3. `get_scene_view(key="{key}", file=<eg-grundriss>, tiers="broad,finer")`
    — find a horizontal dim along the outer edge (full façade length;
    typically the longest dim on the sheet) and a vertical one along
    the depth.
-3. Read both dim values from the drawing (e.g. "12,40 m" → 12400 mm).
-4. For each, call:
+4. Read both dim values from the drawing (e.g. "12,40 m" → 12400 mm).
+5. For each, call:
    ```
    add_reference_dim(key="{key}", file=<eg>, orientation="horizontal",
                      start=[x1, y1], end=[x2, y2],
@@ -4267,7 +5155,7 @@ extent — just label the dims and confirm via `get_house_facts`.
    on an interior wall or an unrelated line of text. Endpoint caps must
    line up with the corners. If it's wrong: `delete_label` and re-place;
    3-attempt budget then `status="uncertain"`.
-5. Once both pass: identify an outer wall on the drawing — typically
+6. Once both pass: identify an outer wall on the drawing — typically
    30-40 cm thick (drawn as a thick double line). Read its thickness:
    ```
    upsert_label(key="{key}", file=<eg>, label={{
@@ -4281,7 +5169,11 @@ extent — just label the dims and confirm via `get_house_facts`.
    The orange wall stroke must lie along the drawn wall, not floating in
    empty space or crossing through openings. Escalate to a wider
    `get_scene_view_with_labels(region=...)` only if the crop lacks context.
-6. Confirm via `get_house_facts(key="{key}")`:
+7. Add compact scene-plan evidence for the dimensions/wall and call
+   `evaluate_scene_plan_gates(key="{key}", file=<eg-grundriss>)`. Finish
+   the claimed action with `finish_scene_plan_action` only after the
+   verification evidence exists.
+8. Confirm via `get_house_facts(key="{key}")`:
    - `extent.width_mm` = horizontal dim value
    - `extent.depth_mm` = vertical dim value
    - `wall_thickness.outer_mm` set
@@ -4300,6 +5192,8 @@ extent — just label the dims and confirm via `get_house_facts`.
 @mcp.prompt(name="W3-orientation")
 def prompt_w3_orientation(key: str) -> str:
     return f"""# W3 · Orientation — pick the north edge for `{key}`
+
+{_model_neutral_labeling_spec_notice()}
 
 Goal: `facts.orientation.north_edge_label_id` set (or
 `north_angle_deg` as fallback).
@@ -4350,6 +5244,8 @@ prioritize what to spot-check.
 def prompt_w4_calibration(key: str) -> str:
     return f"""# W4 · Calibration — per-scene reference dims for `{key}`
 
+{_model_neutral_labeling_spec_notice()}
+
 Goal: every Ansicht/Schnitt has `facts.calibration_per_scene[file]`
 populated (one horizontal + one vertical reference dim, homography
 RMS ≤ 8 px).
@@ -4366,6 +5262,10 @@ zoom region used — if a plan step adds a ref dim without a paired
 zoom call, the reviewer rejects the run.
 
 ## Steps per scene
+
+0. Call `get_recommended_next_action(key="{key}")`. If it returns an EG
+   `Wgeo` scene-plan action, stop W4 immediately. Do not calibrate
+   Ansichten/Schnitte while ground-floor plans are incomplete.
 
 For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
 `get_house_facts.calibration_per_scene[file]` is absent:
@@ -4442,6 +5342,8 @@ For each scene where `scene_tag` ∈ {{"ansicht", "schnitt"}} AND
 def prompt_w5_detail(key: str) -> str:
     return f"""# W5 · Detail (OPT-IN) — labels for `{key}`
 
+{_model_neutral_labeling_spec_notice()}
+
 W5 is off by default; the driver invokes this playbook only when
 `--with-detail` is set. The export gate passes without it.
 
@@ -4481,6 +5383,8 @@ to mark W5 manually complete.
 def prompt_diagnose_failed_export(key: str) -> str:
     return f"""# Diagnose why `{key}` won't export
 
+{_model_neutral_labeling_spec_notice()}
+
 The agent exited W4 but `export_house` returned 409. Find what's blocking.
 
 ## Steps
@@ -4508,6 +5412,8 @@ review.
 @mcp.prompt(name="diagnose-degenerate-homography")
 def prompt_diagnose_degenerate_homography(key: str, file: str) -> str:
     return f"""# Diagnose degenerate homography on `{key}` / `{file}`
+
+{_model_neutral_labeling_spec_notice()}
 
 `recompute_homography` returned `status="degenerate"` or
 `rms_residual_px > 10`. Recover.
@@ -4544,26 +5450,37 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "list_pdfs", "get_pdf_info", "get_pdf_page_view", "extract_scenes",
         "split_scene", "get_scene_view", "get_scene_meta",
         "set_scene_tag", "set_scene_orientation", "set_scene_level",
+        "create_scene_plan_state_from_template", "get_scene_plan_status",
         "get_workflow_state", "get_recommended_next_action", "write_handoff_summary",
     },
     "floorplan": {
         "get_house_context_summary", "get_scene_context_summary",
+        "create_scene_plan_state_from_template", "get_scene_plan_state",
         "get_scene_plan_status", "get_scene_plan_next_action",
         "get_scene_plan_next_actions", "start_scene_plan_action",
         "record_scene_plan_attempt", "finish_scene_plan_action",
-        "add_scene_plan_evidence", "evaluate_scene_plan_gates",
+        "add_scene_plan_evidence", "set_scene_plan_task_state",
+        "evaluate_scene_plan_gates",
         "get_scene_view", "get_scene_view_with_labels", "verify_label_placement",
         "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
         "delete_label", "update_label_attrs", "set_label_status",
         "add_reference_dim", "dimension_chain_candidates", "dimension_chain_context",
         "score_walls", "score_measurements", "wall_topology_qa",
         "wall_continuity_check", "ambiguous_line_context", "propose_wall_edit",
+        "get_scene_repair_candidates", "get_scene_view_with_repair_candidate",
+        "apply_repair_candidate", "decide_repair_candidate",
+        "get_scene_plan_quality_report", "get_scene_topology_snapshot",
         "detect_wall_corners", "check_corner", "refine_wall", "connect_corners",
         "get_workflow_state", "write_handoff_summary",
     },
     "elevation": {
         "get_house_context_summary", "get_scene_context_summary",
         "get_building_global_facts", "set_building_global_fact",
+        "create_scene_plan_state_from_template", "get_scene_plan_state",
+        "get_scene_plan_status", "get_scene_plan_next_action",
+        "get_scene_plan_next_actions", "start_scene_plan_action",
+        "record_scene_plan_attempt", "finish_scene_plan_action",
+        "set_scene_plan_task_state",
         "get_scene_view", "get_scene_view_with_labels", "verify_label_placement",
         "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
         "delete_label", "update_label_attrs", "set_label_status",
@@ -4575,8 +5492,12 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "get_house_context_summary", "get_scene_context_summary",
         "get_workflow_state", "validate_export_readiness", "list_anomalies",
         "get_scene_plan_status", "get_scene_plan_next_action",
+        "set_scene_plan_task_state",
         "get_scene_view_with_labels", "verify_label_placement",
         "score_walls", "score_measurements", "wall_topology_qa",
+        "get_scene_repair_candidates", "get_scene_view_with_repair_candidate",
+        "apply_repair_candidate", "decide_repair_candidate",
+        "get_scene_plan_quality_report", "get_scene_topology_snapshot",
         "export_house", "dump_run_summary", "write_handoff_summary",
     },
 }

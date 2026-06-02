@@ -97,6 +97,28 @@ def _point_seg_distance(pt: Point, a: Point, b: Point) -> float:
     return segment_length_px(pt, proj)
 
 
+def _project_t(pt: Point, a: Point, b: Point) -> float:
+    ax, ay = a
+    bx, by = b
+    px, py = pt
+    dx, dy = bx - ax, by - ay
+    seg_len2 = dx * dx + dy * dy
+    if seg_len2 == 0:
+        return 0.0
+    return ((px - ax) * dx + (py - ay) * dy) / seg_len2
+
+
+def _angle_delta_deg(a0: Point, a1: Point, b0: Point, b1: Point) -> float:
+    adx, ady = a1[0] - a0[0], a1[1] - a0[1]
+    bdx, bdy = b1[0] - b0[0], b1[1] - b0[1]
+    if math.hypot(adx, ady) < 1 or math.hypot(bdx, bdy) < 1:
+        return 90.0
+    aa = math.degrees(math.atan2(ady, adx))
+    ba = math.degrees(math.atan2(bdy, bdx))
+    d = abs((aa - ba + 90.0) % 180.0 - 90.0)
+    return d
+
+
 def opening_on_wall(
     opening: Seg,
     walls: list[Seg],
@@ -121,6 +143,92 @@ def opening_on_wall(
             "wall_index": best_idx if on else None,
             "max_endpoint_dist": round(best_dist, 2) if best_dist != math.inf else None,
             "tol_px": tol_px}
+
+
+def floorplan_opening_quality(
+    opening_axis: Seg,
+    opening_depth_axis: Seg,
+    parent_wall: Seg,
+    *,
+    tol_px: float = 30.0,
+    angle_tol_deg: float = 8.0,
+    extension_tol_px: float = 20.0,
+    max_length_fraction: float = 0.95,
+    is_garage_door: bool = False,
+    expected_depth_px: float | None = None,
+    depth_tol_frac: float = 0.60,
+) -> dict:
+    """Geometry QA for a floorplan opening against its parent wall.
+
+    Returns `{ok, defects:[...]}`. Defect categories are stable and intended
+    for scene-plan gates: opening_off_wall, opening_not_collinear,
+    opening_outside_parent, opening_too_long, opening_depth_mismatch.
+    """
+    defects: list[dict] = []
+    o0, o1 = opening_axis
+    d0, d1 = opening_depth_axis
+    w0, w1 = parent_wall
+    wall_len = segment_length_px(w0, w1)
+    op_len = segment_length_px(o0, o1)
+    op_depth = segment_length_px(d0, d1)
+    placement = opening_on_wall(opening_axis, [parent_wall], tol_px=tol_px)
+    if not placement["on_wall"]:
+        defects.append({
+            "category": "opening_off_wall",
+            "message": f"opening centerline endpoints are not on parent wall within {tol_px:g}px",
+            "details": placement,
+        })
+    angle = _angle_delta_deg(o0, o1, w0, w1)
+    if angle > angle_tol_deg:
+        defects.append({
+            "category": "opening_not_collinear",
+            "message": f"opening axis differs from parent wall by {angle:.1f}°",
+            "details": {"angle_delta_deg": round(angle, 2), "tol_deg": angle_tol_deg},
+        })
+    t0 = _project_t(o0, w0, w1)
+    t1 = _project_t(o1, w0, w1)
+    if wall_len > 0:
+        ext = extension_tol_px / wall_len
+        if min(t0, t1) < -ext or max(t0, t1) > 1.0 + ext:
+            defects.append({
+                "category": "opening_outside_parent",
+                "message": "opening projects outside the parent wall segment",
+                "details": {"t0": round(t0, 4), "t1": round(t1, 4), "extension_tol_px": extension_tol_px},
+            })
+        if not is_garage_door and op_len > wall_len * max_length_fraction:
+            defects.append({
+                "category": "opening_too_long",
+                "message": "opening length is implausibly large for its parent wall",
+                "details": {
+                    "opening_length_px": round(op_len, 2),
+                    "parent_length_px": round(wall_len, 2),
+                    "max_length_fraction": max_length_fraction,
+                },
+            })
+    if expected_depth_px and expected_depth_px > 0:
+        rel = abs(op_depth - expected_depth_px) / expected_depth_px
+        if rel > depth_tol_frac:
+            defects.append({
+                "category": "opening_depth_mismatch",
+                "message": "opening quad depth does not match parent wall thickness",
+                "details": {
+                    "opening_depth_px": round(op_depth, 2),
+                    "expected_depth_px": round(expected_depth_px, 2),
+                    "rel_err": round(rel, 4),
+                    "tol_frac": depth_tol_frac,
+                },
+            })
+    return {
+        "ok": not defects,
+        "defects": defects,
+        "metrics": {
+            "opening_length_px": round(op_len, 2),
+            "opening_depth_px": round(op_depth, 2),
+            "parent_length_px": round(wall_len, 2),
+            "angle_delta_deg": round(angle, 2),
+            "projection_t": [round(t0, 4), round(t1, 4)],
+        },
+    }
 
 
 def ridge_within_footprint(ridge: Seg, footprint: list[Point]) -> dict:

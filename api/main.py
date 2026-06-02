@@ -559,16 +559,31 @@ def _compute_plan_state_gate_inputs(key: str, file: str, body: dict[str, Any]) -
                 walls.append(((float(s[0]), float(s[1])), (float(e[0]), float(e[1]))))
         from PIL import Image as PILImage
         from .wall_score import score_walls
+        min_wall_px = int(body.get("min_wall_px", 16))
+        tol_px = int(body.get("tol_px", 18))
+        close_px = int(body.get("close_px", 82))
+        thin_aware = bool(body.get("thin_aware", False))
         with PILImage.open(img_path) as src:
             score_walls_result = score_walls(
                 src.convert("RGB"),
                 walls,
-                min_wall_px=int(body.get("min_wall_px", 16)),
-                tol_px=int(body.get("tol_px", 18)),
-                close_px=int(body.get("close_px", 82)),
-                thin_aware=bool(body.get("thin_aware", False)),
+                min_wall_px=min_wall_px,
+                tol_px=tol_px,
+                close_px=close_px,
+                thin_aware=thin_aware,
             )
         score_walls_result["n_walls"] = len(walls)
+        score_walls_result["profile"] = body.get("score_profile") or (
+            "faint_scan_thin_aware" if thin_aware
+            else "final_scene" if (min_wall_px, tol_px, close_px) == (16, 18, 82)
+            else "local_defect_tight"
+        )
+        score_walls_result["profile_params"] = {
+            "min_wall_px": min_wall_px,
+            "tol_px": tol_px,
+            "close_px": close_px,
+            "thin_aware": thin_aware,
+        }
     score_measurements_result = body.get("score_measurements")
     if score_measurements_result is None and bool(body.get("run_score_measurements", True)):
         walls, dims = [], []
@@ -622,6 +637,7 @@ def evaluate_scene_plan_gates_route(key: str, file: str, body: dict[str, Any] = 
             topology_result=inputs["topology_result"],
             continuity_result=inputs["continuity_result"],
             visual_evidence=bool(body.get("visual_evidence", False)),
+            quality_profile=body.get("quality_profile"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001
@@ -747,6 +763,216 @@ def evaluate_scene_plan_terminality_route(key: str, file: str):
     _ensure_dataset_scene(key, file)
     from .scene_plan_state import evaluate_terminality
     return {"ok": True, "data": evaluate_terminality(DATASET_DIR, key, file)}
+
+
+@app.get("/datasets/{key}/{file}/plan-state/repair-candidates", tags=["dataset"])
+def get_scene_repair_candidates_route(key: str, file: str, limit: int = 20):
+    _ensure_dataset_scene(key, file)
+    labels_doc = get_labels("dataset", key, file)
+    from .topology_repair import repair_candidate_report
+    from .scene_plan_state import read_plan_state
+    try:
+        plan = read_plan_state(DATASET_DIR, key, file)
+        data = repair_candidate_report(labels_doc, limit=limit, plan_state=plan.get("state"))
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+def _find_repair_candidate(labels_doc: dict[str, Any], candidate_id: str) -> dict[str, Any]:
+    from .topology_repair import repair_candidate_report
+    report = repair_candidate_report(labels_doc, limit=200)
+    for cluster in report.get("clusters") or []:
+        for cand in cluster.get("candidates") or []:
+            if cand.get("candidate_id") == candidate_id:
+                return cand
+    raise KeyError(f"repair candidate {candidate_id!r} not found")
+
+
+@app.post("/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/apply", tags=["dataset"])
+def apply_repair_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(default={})):
+    _ensure_dataset_scene(key, file)
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        candidate = _find_repair_candidate(labels_doc, candidate_id)
+        if body.get("expected_candidate_op") and body.get("expected_candidate_op") != candidate.get("op"):
+            raise ValueError("candidate op changed; refresh repair candidates")
+        from .topology_repair import apply_candidate_to_labels, simulate_candidate
+        from .scene_plan_state import PlanStateConflictError, read_plan_state, record_repair_candidate_decision
+        if body.get("expected_version"):
+            current_plan = read_plan_state(DATASET_DIR, key, file)
+            if current_plan.get("exists") and current_plan.get("version") != body.get("expected_version"):
+                raise PlanStateConflictError("plan state version conflict")
+        simulation = simulate_candidate(labels_doc, candidate)
+        new_doc = apply_candidate_to_labels(labels_doc, candidate)
+        persisted = False
+        if candidate.get("op") != "no_edit_classification":
+            put_labels("dataset", key, file, new_doc)
+            persisted = True
+        decision = record_repair_candidate_decision(
+            DATASET_DIR,
+            key,
+            file,
+            candidate,
+            "accepted_applied" if persisted else str(body.get("outcome") or "accepted_uncertain"),
+            evidence_ids=body.get("evidence_ids"),
+            note=body.get("note"),
+            simulation=simulation,
+            expected_version=body.get("expected_version"),
+        )
+        data = {
+            "candidate_id": candidate_id,
+            "candidate": candidate,
+            "simulation": simulation,
+            "persisted": persisted,
+            "labels_changed": persisted,
+            "decision": ((decision.get("state") or {}).get("current_state") or {}).get("repair_candidate_decisions", {}),
+        }
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/decision", tags=["dataset"])
+def decide_repair_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(...)):
+    _ensure_dataset_scene(key, file)
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        candidate = _find_repair_candidate(labels_doc, candidate_id)
+        if body.get("expected_candidate_op") and body.get("expected_candidate_op") != candidate.get("op"):
+            raise ValueError("candidate op changed; refresh repair candidates")
+        outcome = str(body.get("outcome") or "")
+        from .topology_repair import simulate_candidate
+        from .scene_plan_state import record_repair_candidate_decision
+        simulation = simulate_candidate(labels_doc, candidate)
+        data = record_repair_candidate_decision(
+            DATASET_DIR,
+            key,
+            file,
+            candidate,
+            outcome,
+            evidence_ids=body.get("evidence_ids"),
+            note=body.get("note"),
+            simulation=simulation,
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.get("/datasets/{key}/{file}/plan-state/quality-report", tags=["dataset"])
+def get_scene_plan_quality_report_route(key: str, file: str):
+    _ensure_dataset_scene(key, file)
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        from .scene_plan_state import read_plan_state
+        from .topology_repair import quality_report, repair_candidate_report
+        plan = read_plan_state(DATASET_DIR, key, file)
+        state = plan.get("state") or {}
+        candidates = repair_candidate_report(labels_doc, limit=200, plan_state=state)
+        data = quality_report(state, candidates)
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.get("/datasets/{key}/{file}/plan-state/topology-snapshot", tags=["dataset"])
+def get_scene_plan_topology_snapshot_route(key: str, file: str):
+    _ensure_dataset_scene(key, file)
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        from .scene_plan_state import read_plan_state
+        from .topology_repair import repair_candidate_report, topology_regression_snapshot
+        plan = read_plan_state(DATASET_DIR, key, file)
+        state = plan.get("state") or {}
+        candidates = repair_candidate_report(labels_doc, limit=200, plan_state=state)
+        data = topology_regression_snapshot(state, candidates)
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.get("/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/overlay", tags=["dataset"])
+def render_repair_candidate_overlay_route(
+    key: str,
+    file: str,
+    candidate_id: str,
+    max_dim: int = 1600,
+    clean: bool = True,
+    style: str | None = "ink_compare",
+):
+    _ensure_dataset_scene(key, file)
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        candidate = _find_repair_candidate(labels_doc, candidate_id)
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    region = candidate.get("region")
+    parsed_region = None
+    if isinstance(region, list) and len(region) >= 4:
+        x0, y0, x1, y1 = [int(round(float(v))) for v in region[:4]]
+        pad = 40
+        parsed_region = (max(0, x0 - pad), max(0, y0 - pad), max(x1 + pad, x0 + pad), max(y1 + pad, y0 + pad))
+    from PIL import Image as PILImage, ImageDraw
+    from .label_render import render_grid_with_labels
+    with PILImage.open(img_path) as src:
+        overlay = render_grid_with_labels(
+            src.convert("RGB"),
+            labels_doc.get("labels") or [],
+            tiers=("finer",),
+            region=parsed_region,
+            max_dim=max_dim,
+            clean=bool(clean),
+            style=_parse_label_render_style(style),
+            background_opacity=0.2,
+            background_opacity_explicit=True,
+            contrast="high",
+            px_per_mm=_scene_px_per_mm(key, file),
+            show_relations="required",
+        )
+    draw = ImageDraw.Draw(overlay, "RGBA")
+    if parsed_region is not None:
+        rx0, ry0, rx1, ry1 = parsed_region
+    else:
+        rx0, ry0 = 0, 0
+        with PILImage.open(img_path) as src:
+            rx1, ry1 = src.size
+    scale = min(max_dim / max(1, rx1 - rx0), max_dim / max(1, ry1 - ry0), 1.0)
+
+    def to_out(pt: Any) -> tuple[float, float] | None:
+        if not (isinstance(pt, list) and len(pt) == 2):
+            return None
+        return ((float(pt[0]) - rx0) * scale, (float(pt[1]) - ry0) * scale)
+
+    for edit in candidate.get("edits") or []:
+        if edit.get("to"):
+            pt = to_out(edit.get("to"))
+            if pt:
+                r = 7
+                draw.ellipse((pt[0] - r, pt[1] - r, pt[0] + r, pt[1] + r), outline=(236, 72, 153, 255), width=3)
+        if edit.get("wall"):
+            a = to_out(edit["wall"][0])
+            b = to_out(edit["wall"][1])
+            if a and b:
+                draw.line((a[0], a[1], b[0], b[1]), fill=(236, 72, 153, 255), width=5)
+    labels_by_id = {str(l.get("id")): l for l in labels_doc.get("labels") or [] if isinstance(l, dict)}
+    for edit in candidate.get("edits") or []:
+        lab = labels_by_id.get(str(edit.get("label_id") or ""))
+        if lab and edit.get("to"):
+            g = lab.get("geometry") or {}
+            other_key = "start" if edit.get("endpoint") == "end" else "end"
+            a = to_out(g.get(other_key))
+            b = to_out(edit.get("to"))
+            if a and b:
+                draw.line((a[0], a[1], b[0], b[1]), fill=(6, 182, 212, 255), width=4)
+    import io
+    buf = io.BytesIO()
+    overlay.save(buf, format="PNG")
+    return Response(content=buf.getvalue(), media_type="image/png")
 
 
 @app.post("/datasets/{key}/{file}/plan-state/render-markdown", tags=["dataset"])
@@ -929,6 +1155,20 @@ def _floorplan_opening_axis(label: dict[str, Any]) -> tuple[tuple[float, float],
     )
 
 
+def _floorplan_opening_depth_axis(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    quad = ((label.get("geometry") or {}).get("quad") or [])
+    if not isinstance(quad, list) or len(quad) != 4:
+        return None
+    pts = [_as_point(p) for p in quad]
+    if any(p is None for p in pts):
+        return None
+    a, b, c, d = pts  # type: ignore[misc]
+    return (
+        ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0),
+        ((d[0] + c[0]) / 2.0, (d[1] + c[1]) / 2.0),
+    )
+
+
 def _wall_segment(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[float, float]] | None:
     geom = label.get("geometry") or {}
     start = _as_point(geom.get("start"))
@@ -999,19 +1239,27 @@ def _validate_dependent_labels(payload: dict[str, Any]) -> None:
                     detail=f"floorplan_opening {label_id!r} belongs_to target must be an existing wall",
                 )
             opening_axis = _floorplan_opening_axis(lab)
+            opening_depth_axis = _floorplan_opening_depth_axis(lab)
             parent_wall = _wall_segment(parent)
             if opening_axis is None or parent_wall is None:
                 continue
-            from .geometry_checks import opening_on_wall
+            from .geometry_checks import floorplan_opening_quality
 
-            placement = opening_on_wall(opening_axis, [parent_wall], tol_px=30.0)
-            if not placement["on_wall"]:
+            quality = floorplan_opening_quality(
+                opening_axis,
+                opening_depth_axis or opening_axis,
+                parent_wall,
+                tol_px=30.0,
+                is_garage_door=(lab.get("attributes") or {}).get("opening_kind") == "garage_door",
+            )
+            if not quality["ok"]:
+                first = quality["defects"][0]
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        f"floorplan_opening {label_id!r} is not placed on parent wall "
-                        f"{parent.get('id')!r}; max_endpoint_dist="
-                        f"{placement.get('max_endpoint_dist')}px"
+                        f"floorplan_opening {label_id!r} failed {first['category']} "
+                        f"against parent wall {parent.get('id')!r}: {first['message']} "
+                        "(not placed on parent wall)"
                     ),
                 )
 
@@ -1865,6 +2113,27 @@ def _parse_grid_style(style: str | None) -> str:
     return s
 
 
+def _parse_label_render_style(style: str | None) -> str:
+    s = (style or "standard").strip().lower()
+    if s not in (
+        "standard",
+        "coordinate_audit",
+        "coordinate_pair",
+        "coordinate_multicolor",
+        "semantic",
+        "qa",
+        "ink_compare",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "style must be standard, coordinate_audit, coordinate_pair, "
+                "coordinate_multicolor, semantic, qa, or ink_compare"
+            ),
+        )
+    return s
+
+
 def _parse_target(target: str | None) -> tuple[int, int] | None:
     if not target:
         return None
@@ -2648,7 +2917,7 @@ def render_scene_grid_with_labels(
     parsed_region = _parse_region(region)
     parsed_enhance = _parse_enhance(enhance)
     parsed_format = _parse_format(format)
-    parsed_style = _parse_grid_style(style)
+    parsed_style = _parse_label_render_style(style)
     parsed_target = _parse_target(target)
     parsed_target_line = _parse_target_line(target_line)
     parsed_opacity, opacity_explicit = _parse_background_opacity(background_opacity)
@@ -3110,7 +3379,8 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
       "floor": "kg"|"ug"|...,        # optional
       "title": str,                  # optional
       "slug_override": str,          # optional, used as the slug if set
-      "dpi": 300,                    # optional, default 300
+      "dpi": 600,                    # optional output raster DPI, default 600
+      "format": "jpg"|"png",         # optional image format, default jpg
       "allow_blank": false,          # optional; bypass the blank-render guard
       "no_clip_expand": false,       # optional; bypass clip-detection bbox
                                      #   auto-expansion (issue #25)
@@ -3135,7 +3405,7 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
     rejected with 422 rather than silently written, so a blank scene never
     masquerades as a labeled one. Set `allow_blank: true` to force.
 
-    For each item, crops the PDF page at the bbox, writes the JPG into
+    For each item, crops the PDF page at the bbox, writes the scene image into
     data/dataset/<key>/, and appends a DatasetDrawing entry to the
     dataset manifest. Idempotent on (page, slug): re-extracting overwrites
     the image and updates the manifest entry while leaving any sibling
@@ -3181,6 +3451,11 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
             dpi = int(raw.get("dpi", 600))
             if dpi <= 0 or dpi > 1200:
                 raise HTTPException(status_code=400, detail="dpi out of range")
+            fmt = str(raw.get("format") or "jpg").strip().lower()
+            if fmt == "jpeg":
+                fmt = "jpg"
+            if fmt not in {"jpg", "png"}:
+                raise HTTPException(status_code=400, detail="format must be 'jpg' or 'png'")
 
             # Slug derivation. The user may override with an explicit slug
             # for re-extraction; otherwise we synthesize one from
@@ -3213,7 +3488,7 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)):
                 slug = full
                 used_slugs.add(slug)
 
-            _ext = "png" if str(raw.get("format","")).lower()=="png" else "jpg"
+            _ext = "png" if fmt == "png" else "jpg"
             file_name = f"{slug}.{_ext}"
             out_path = ds_dir / file_name
 
