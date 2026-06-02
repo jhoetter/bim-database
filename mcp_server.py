@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import hashlib
 import json
 import logging
@@ -62,6 +63,50 @@ log = logging.getLogger("bim-db-mcp")
 log.info("startup: API_BASE=%s version=%s", API_BASE, SERVER_VERSION)
 
 mcp = FastMCP("bim-database")
+
+
+# ── H3: universal transport-error contract ─────────────────────────────────
+# Historically only ~30 of the tools wrapped their backend calls in a
+# retry-once guard that returns the uniform `api_unreachable` envelope; the
+# rest called `_api_*` bare and would raise a raw httpx exception out of the
+# tool on a transport blip — breaking the contract the agent relies on.
+#
+# Rather than hand-patch every tool, we wrap `mcp.tool` once so EVERY tool
+# (and every future tool) is guarded at registration: any httpx transport
+# error that escapes the tool body is converted to `api_unreachable`. Tools
+# that already retry internally handle the error before it reaches here, so
+# their behavior is unchanged; this is purely a safety net that makes the
+# contract impossible to regress.
+
+
+def _transport_guard(fn):
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        started = time.time()
+        try:
+            return await fn(*args, **kwargs)
+        except (httpx.HTTPError, httpx.RequestError):
+            return _api_unreachable_error(started)
+
+    return wrapper
+
+
+_register_tool = mcp.tool
+
+
+def _guarded_tool(*dargs, **dkwargs):
+    """Drop-in replacement for ``mcp.tool`` that applies ``_transport_guard``
+    to the handler before FastMCP registers it."""
+    register = _register_tool(*dargs, **dkwargs)
+
+    def deco(fn):
+        return register(_transport_guard(fn))
+
+    return deco
+
+
+mcp.tool = _guarded_tool
+
 
 # Shared HTTP client — keep-alive across tool calls.
 _http: httpx.AsyncClient | None = None

@@ -1606,3 +1606,37 @@ def test_reset_tools_reject_unsafe_key_without_escaping():
     assert (api_main.DATASET_DIR / bystander / "manifest.json").exists()
     for f in files:
         assert _read_scene_labels(bystander, f)["labels"] != []
+
+
+# ── H3: universal transport-error contract ─────────────────────────────────
+# Tools that call the backend bare (no inline retry guard) must STILL return
+# the uniform api_unreachable envelope on a transport failure, not raise a
+# raw httpx exception. The central mcp.tool wrapper guarantees this.
+
+
+def test_unguarded_tool_returns_api_unreachable_envelope(monkeypatch):
+    """get_scene_plan_status calls _api_get with no inline try/except. A
+    transport error must surface as the api_unreachable envelope via the
+    central guard rather than propagating as an httpx exception."""
+    import httpx
+
+    async def boom(*_a, **_k):
+        raise httpx.ConnectError("backend down")
+
+    monkeypatch.setattr(mcp_server, "_api_get", boom)
+    res = _run(mcp_server.get_scene_plan_status("house-zzmcp-down", "scene.jpg"))
+    assert res["ok"] is False
+    assert res["error"]["code"] == "api_unreachable"
+    assert res["error"]["retry_advisable"] is True
+
+
+def test_guard_preserves_tool_schema_and_docstring():
+    """Wrapping must not corrupt FastMCP's introspected schema: the tool keeps
+    its parameters, required fields, and docstring description."""
+    tools = _run(mcp_server.mcp.list_tools())
+    by_name = {t.name: t for t in tools}
+    t = by_name["get_scene_plan_status"]
+    assert t.description and "status" in t.description.lower()
+    props = t.inputSchema.get("properties", {})
+    assert "key" in props and "file" in props
+    assert set(t.inputSchema.get("required", [])) == {"key", "file"}
