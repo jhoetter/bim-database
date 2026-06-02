@@ -1060,18 +1060,31 @@ def _label_skeleton(scope: str, key: str, file: str) -> dict[str, Any]:
     }
 
 
-def _recompute_facts_from_scratch(key: str) -> dict:
+def _recompute_facts_from_scratch(key: str, *, lock_held: bool = False) -> dict:
     """Rebuild facts after a destructive label reset.
 
     Normal label writes preserve human-entered facts. Reset semantics are
     stronger: remove stale derived/manual labeling state first so the next
     run starts from the current labels only.
+
+    H2: the unlink + rebuild are held under the house_facts lock so a
+    concurrent label-write recompute can't read a half-reset house. When the
+    caller already holds that lock (e.g. reset_house_labeling, which also
+    rmtree's labels/ under the same lock), pass ``lock_held=True`` to call the
+    unlocked impl and avoid re-entering the (non-reentrant) lock.
     """
+    from .fact_derivation import _recompute_facts_impl
     facts_path = DATASET_DIR / key / "house_facts.json"
-    if facts_path.exists():
-        facts_path.unlink()
-    from .fact_derivation import recompute_facts_after_label_write
-    return recompute_facts_after_label_write(key, dataset_root=DATASET_DIR)
+
+    def _do() -> dict:
+        if facts_path.exists():
+            facts_path.unlink()
+        return _recompute_facts_impl(key, dataset_root=DATASET_DIR)
+
+    if lock_held:
+        return _do()
+    with locked_path(facts_path):
+        return _do()
 
 
 _LABEL_TYPES_BY_SCENE_TAG = {
@@ -1426,6 +1439,22 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
                                 ),
                             )
     label_path.parent.mkdir(parents=True, exist_ok=True)
+    # H2: skip the write AND the O(scenes) full-house recompute when the
+    # payload is byte-identical to what's already on disk — a common case for
+    # the agent loop re-PUTing an unchanged scene. Safe: identical labels
+    # derive identical facts, and we only skip when facts already exist (so
+    # they were already derived from exactly these labels).
+    if scope == "dataset" and label_path.exists():
+        try:
+            existing = json.loads(label_path.read_text())
+        except json.JSONDecodeError:
+            existing = None
+        if existing == payload and (DATASET_DIR / key / "house_facts.json").exists():
+            return {
+                "saved": str(label_path.relative_to(BASE)),
+                "bytes": label_path.stat().st_size,
+                "unchanged": True,
+            }
     atomic_write_json(label_path, payload)
     # G1 (agentic-labeling-followups-tracker): server-side fact derivation.
     # Every label write triggers a full recompute of facts.calibration_per_scene
@@ -1498,16 +1527,23 @@ def reset_house_labeling(key: str, reset_plans: bool = False):
         raise HTTPException(status_code=500, detail=f"manifest.json corrupt: {e}") from e
     drawings = [d for d in (manifest.get("drawings") or []) if d.get("file")]
     labels_dir = house_dir / "labels"
-    if labels_dir.exists():
-        import shutil
-        shutil.rmtree(labels_dir)
-    labels_dir.mkdir(parents=True, exist_ok=True)
+    facts_path = house_dir / "house_facts.json"
     reset_files: list[str] = []
-    for d in drawings:
-        file = d["file"]
-        payload = _label_skeleton("dataset", key, file)
-        atomic_write_json(_safe_label_path("dataset", key, file), payload)
-        reset_files.append(file)
+    # H2: hold the house_facts lock across the rmtree + reskeleton + rebuild so
+    # a concurrent label-write recompute (which locks house_facts) cannot read
+    # the labels dir mid-deletion. Recompute is called with lock_held=True to
+    # avoid re-entering this same lock.
+    with locked_path(facts_path):
+        if labels_dir.exists():
+            import shutil
+            shutil.rmtree(labels_dir)
+        labels_dir.mkdir(parents=True, exist_ok=True)
+        for d in drawings:
+            file = d["file"]
+            payload = _label_skeleton("dataset", key, file)
+            atomic_write_json(_safe_label_path("dataset", key, file), payload)
+            reset_files.append(file)
+        facts = _recompute_facts_from_scratch(key, lock_held=True)
     plans_deleted = 0
     if reset_plans:
         from .scene_plan_state import delete_plan_state_files
@@ -1516,7 +1552,6 @@ def reset_house_labeling(key: str, reset_plans: bool = False):
         from .scene_plan_state import mark_state_stale_after_reset
         for file in reset_files:
             mark_state_stale_after_reset(DATASET_DIR, key, file)
-    facts = _recompute_facts_from_scratch(key)
     return {
         "ok": True,
         "key": key,
@@ -4587,8 +4622,11 @@ def reset_house(key: str):
     _safe_key(key)
     import shutil
     ds_dir = DATASET_DIR / key
-    if ds_dir.exists():
-        shutil.rmtree(ds_dir)
+    # H2: exclude a concurrent label-write recompute (which locks house_facts)
+    # from reading the dataset dir while it is being removed.
+    with locked_path(ds_dir / "house_facts.json"):
+        if ds_dir.exists():
+            shutil.rmtree(ds_dir)
     # Reset the intake manifest in lockstep so the next list call shows
     # the bundle as "ready to extract" rather than "extracted".
     manifest = _read_manifest(key)
