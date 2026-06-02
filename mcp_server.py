@@ -23,6 +23,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -31,6 +32,13 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ImageContent, TextContent
+
+from mcp_context_summary import (
+    compact_label,
+    compact_plan_status,
+    compact_scene_row,
+    label_counts,
+)
 
 # Server identity — version is read by the skill at startup to verify
 # compatibility (tracker §6.3). Bump MAJOR on any tool signature break.
@@ -42,6 +50,9 @@ HEALTH_PROBE_INTERVAL_S = 2.0
 
 LOG_PATH = Path(__file__).parent / "tmp" / "mcp-server.log"
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+IMAGE_HANDLE_DIR = Path(__file__).parent / "tmp" / "mcp-image-handles"
+IMAGE_HANDLE_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_HANDLE_INLINE_THRESHOLD = int(os.environ.get("BIM_MCP_IMAGE_INLINE_THRESHOLD", "250000"))
 logging.basicConfig(
     filename=str(LOG_PATH),
     level=logging.INFO,
@@ -316,10 +327,16 @@ async def _load_facts_and_scene_meta(key: str, dataset: dict) -> tuple[dict, dic
             label_types = {
                 la.get("type") for la in labels if isinstance(la, dict)
             }
+            label_type_counts = {}
+            for la in labels:
+                if isinstance(la, dict) and la.get("type"):
+                    label_type_counts[la["type"]] = label_type_counts.get(la["type"], 0) + 1
             scene_meta_by_file[f] = {
                 "scene_tag": lbl.get("scene_tag"),
                 "scene_orientation": lbl.get("scene_orientation"),
                 "scene_level": lbl.get("scene_level"),
+                "label_count": len(labels),
+                "label_counts": label_type_counts,
                 # Issue #23: W1 may also be satisfied by the presence of a
                 # height_mark label, not only by heights facts on disk.
                 "has_height_mark": any(
@@ -582,6 +599,7 @@ async def get_scene_view(
     target: str | None = None,
     target_line: str = "none",
     background_opacity: float | None = None,
+    image_delivery: str = "inline",
 ) -> list[ImageContent | TextContent]:
     """Scene image with the three-tier coordinate grid overlay.
 
@@ -682,16 +700,11 @@ async def get_scene_view(
                     "label_count": d.get("label_count"),
                 }
                 break
-    image = ImageContent(
-        type="image",
-        data=base64.b64encode(content).decode("ascii"),
-        mimeType=ctype or "image/png",
-    )
-    text = TextContent(
-        type="text",
-        text=json.dumps(_ok({
+    return _image_delivery_payload(
+        content=content,
+        ctype=ctype,
+        metadata={
             "image_format": "PNG",
-            "image_bytes": len(content),
             "scene_meta": scene_meta,
             "region": region,
             "tiers": tiers.split(","),
@@ -702,9 +715,11 @@ async def get_scene_view(
             "target": target,
             "target_line": target_line,
             "background_opacity": background_opacity,
-        }, started_at=started, status_code=status), indent=2),
+        },
+        started_at=started,
+        status_code=status,
+        image_delivery=image_delivery,
     )
-    return [image, text]
 
 
 @mcp.tool()
@@ -713,7 +728,7 @@ async def get_scene_view_with_labels(
     file: str,
     region: str | None = None,
     tiers: str = "broad",
-    max_dim: int = 1600,
+    max_dim: int = 900,
     enhance: str | None = None,
     format: str = "png8",
     style: str = "standard",
@@ -725,6 +740,7 @@ async def get_scene_view_with_labels(
     show_relations: str = "required",
     show_height_guides: str = "auto",
     include_hidden: bool = False,
+    image_delivery: str = "inline",
 ) -> list[ImageContent | TextContent]:
     """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
     on top. This is the agent's verify view — call it after every
@@ -732,16 +748,17 @@ async def get_scene_view_with_labels(
     intended feature.
 
     USE when:
-      - You just called `upsert_label`, `add_reference_dim`, or
-        `update_label_attrs`. Always fetch this view immediately after
-        and visually verify the label sits on the feature you meant
-        (the wall, the dim line, the height mark line).
+      - You need global or multi-label QA after several edits, topology
+        review, or a wider relation check.
       - You're suspicious of an earlier label and want to spot-check
         without opening the SPA in a browser.
 
     DON'T USE when:
       - You haven't placed any labels yet — use `get_scene_view` for
         a clean image.
+      - You just wrote or updated ONE label — prefer
+        `verify_label_placement`, which auto-crops tightly around that
+        label and keeps context smaller.
 
     Args:
       key:     house key.
@@ -792,11 +809,12 @@ async def get_scene_view_with_labels(
       text chip / bbox         — dimension_number
       warning chips/rings      — uncertain/missing/not_readable
 
-    Per the H5 verify loop (followups-2-tracker), the agent should
-    inspect this image after EVERY geometry write. If the rendered
-    geometry doesn't land on the intended feature, `update_label_attrs`
-    or `delete_label` + re-place. Budget 3 attempts per label; flag
-    `status: uncertain` on the closest if it still misses.
+    Per the context-bloat policy, use this full labeled view deliberately
+    for global QA. For routine verify-after-write, call
+    `verify_label_placement` first. If the rendered geometry doesn't land
+    on the intended feature, `update_label_attrs` or `delete_label` +
+    re-place. Budget 3 attempts per label; flag `status: uncertain` on
+    the closest if it still misses.
     """
     started = time.time()
     effective_background_opacity = background_opacity
@@ -849,17 +867,12 @@ async def get_scene_view_with_labels(
                 "value_mm": attrs.get("value_mm"),
                 "summary": _label_summary(lab),
             })
-    image = ImageContent(
-        type="image",
-        data=base64.b64encode(content).decode("ascii"),
-        mimeType=ctype or "image/png",
-    )
-    text = TextContent(
-        type="text",
-        text=json.dumps(_ok({
+    return _image_delivery_payload(
+        content=content,
+        ctype=ctype,
+        metadata={
             "image_format": "PNG",
             "format": format,
-            "image_bytes": len(content),
             "labels_in_view": label_summaries,
             "region": region,
             "tiers": tiers.split(","),
@@ -879,9 +892,11 @@ async def get_scene_view_with_labels(
                 "shifts) or delete_label + re-place. Budget 3 attempts per "
                 "label, then set status='uncertain' on the closest miss."
             ),
-        }, started_at=started, status_code=status), indent=2),
+        },
+        started_at=started,
+        status_code=status,
+        image_delivery=image_delivery,
     )
-    return [image, text]
 
 
 @mcp.tool()
@@ -900,6 +915,7 @@ async def verify_label_placement(
     show_relations: str = "required",
     show_height_guides: str = "auto",
     include_hidden: bool = False,
+    image_delivery: str = "inline",
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
     a single label so the agent doesn't have to compute the region.
@@ -924,7 +940,9 @@ async def verify_label_placement(
       pad_px:    margin around the label's bbox (source pixels).
       tiers:     grid tiers to draw; defaults to 'finer,detail' for
                  the closest-possible look.
-      max_dim:   max output dim; per H4 small crops stay 1:1.
+      max_dim:   max output dim; default 900 keeps normal verification
+                 crops compact while preserving local detail. Per H4 small
+                 crops stay 1:1.
       enhance:   contrast lift for faint scans (issue #2):
                  none|auto|clahe|threshold (default none).
       format:    png|png8 (issue #3). Default png8 — the cheaper palette
@@ -1014,6 +1032,7 @@ async def verify_label_placement(
         show_relations=show_relations,
         show_height_guides=show_height_guides,
         include_hidden=include_hidden,
+        image_delivery=image_delivery,
     )
 
     # Issue #10: numeric offset feedback. How far is the label's anchor
@@ -1152,6 +1171,7 @@ async def get_pdf_page_view(
     region: str | None = None,
     tiers: str = "broad,finer,detail",
     max_dim: int = 1600,
+    image_delivery: str = "inline",
 ) -> list[ImageContent | TextContent]:
     """PDF page render with grid overlay — used for scene identification.
 
@@ -1197,29 +1217,83 @@ async def get_pdf_page_view(
             if p.get("page") == page:
                 page_meta = p
                 break
-    image = ImageContent(
-        type="image",
-        data=base64.b64encode(content).decode("ascii"),
-        mimeType=ctype or "image/png",
-    )
-    text = TextContent(
-        type="text",
-        text=json.dumps(_ok({
+    return _image_delivery_payload(
+        content=content,
+        ctype=ctype,
+        metadata={
             "image_format": "PNG",
-            "image_bytes": len(content),
             "page": page,
             "dpi": dpi,
             "page_pdf_size": page_meta,
             "region": region,
             "tiers": tiers.split(","),
             "hint": "If you emit a bbox from this view, remember to pass the same dpi to extract_scenes so pixel→PDF conversion is correct.",
-        }, started_at=started, status_code=status), indent=2),
+        },
+        started_at=started,
+        status_code=status,
+        image_delivery=image_delivery,
     )
-    return [image, text]
 
 
 def _wrap_text(envelope: dict) -> list[TextContent]:
     return [TextContent(type="text", text=json.dumps(envelope, indent=2))]
+
+
+def _image_delivery_payload(
+    *,
+    content: bytes,
+    ctype: str,
+    metadata: dict[str, Any],
+    started_at: float,
+    status_code: int,
+    image_delivery: str,
+) -> list[ImageContent | TextContent]:
+    delivery = (image_delivery or "inline").lower()
+    if delivery not in {"inline", "handle", "auto"}:
+        return _wrap_text(_err(
+            "bad_image_delivery",
+            "image_delivery must be one of inline, handle, auto",
+            started_at=started_at,
+            status_code=400,
+        ))
+    should_inline = delivery == "inline" or (
+        delivery == "auto" and len(content) <= IMAGE_HANDLE_INLINE_THRESHOLD
+    )
+    payload = {
+        **metadata,
+        "image_bytes": len(content),
+        "image_delivery": "inline" if should_inline else "handle",
+        "inline_threshold_bytes": IMAGE_HANDLE_INLINE_THRESHOLD,
+    }
+    if should_inline:
+        image = ImageContent(
+            type="image",
+            data=base64.b64encode(content).decode("ascii"),
+            mimeType=ctype or "image/png",
+        )
+        return [
+            image,
+            TextContent(type="text", text=json.dumps(_ok(payload, started_at=started_at, status_code=status_code), indent=2)),
+        ]
+
+    suffix = ".jpg" if "jpeg" in (ctype or "").lower() else ".png"
+    digest = hashlib.sha256(content).hexdigest()[:24]
+    out = IMAGE_HANDLE_DIR / f"{digest}{suffix}"
+    if not out.exists():
+        out.write_bytes(content)
+    payload["image_handle"] = {
+        "id": digest,
+        "path": str(out),
+        "uri": out.resolve().as_uri(),
+        "mime_type": ctype or "image/png",
+        "bytes": len(content),
+        "garbage_collectable": True,
+    }
+    payload["visual_access_note"] = (
+        "Handle mode omits inline base64 to reduce context. Request "
+        "image_delivery='inline' when the current model turn must inspect pixels."
+    )
+    return [TextContent(type="text", text=json.dumps(_ok(payload, started_at=started_at, status_code=status_code), indent=2))]
 
 
 # ── §5.1 Discovery (cont.) ────────────────────────────────────────────────
@@ -1619,7 +1693,7 @@ async def get_scene_meta(key: str, file: str) -> dict:
 
 
 @mcp.tool()
-async def list_scene_labels(key: str, file: str) -> dict:
+async def list_scene_labels(key: str, file: str, max_labels: int = 100) -> dict:
     """Compact list of labels on one scene — id, type, status, summary.
 
     USE when:
@@ -1629,7 +1703,9 @@ async def list_scene_labels(key: str, file: str) -> dict:
     DON'T USE when:
       - You need the actual coordinates — use `get_label`.
 
-    Returns: `data.labels` = [{id, type, status, summary}]
+    Returns: `data.labels` = [{id, type, status, summary}] plus
+      labels_total / labels_truncated. Pass a larger max_labels only when
+      you really need the whole compact list.
     """
     started = time.time()
     try:
@@ -1640,20 +1716,125 @@ async def list_scene_labels(key: str, file: str) -> dict:
         status, body = await _api_get(f"/labels/dataset/{key}/{file}")
     if status >= 400:
         return _http_status_to_error(status, body, started)
-    summaries = []
-    for lab in (body.get("labels") or []):
-        summaries.append({
-            "id": lab.get("id"),
-            "type": lab.get("type"),
-            "status": lab.get("status"),
-            "summary": _label_summary(lab),
-        })
+    labels = body.get("labels") or []
+    max_labels = max(0, int(max_labels))
+    summaries = [compact_label(lab) for lab in labels[:max_labels]]
     return _ok({
         "scene_tag": body.get("scene_tag"),
         "scene_orientation": body.get("scene_orientation"),
         "scene_level": body.get("scene_level"),
         "image_size_px": body.get("image_size_px"),
+        "label_counts": label_counts(labels),
+        "labels_total": len(labels),
+        "labels_truncated": len(labels) > max_labels,
         "labels": summaries,
+    }, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def get_scene_context_summary(
+    key: str,
+    file: str,
+    include_label_summaries: bool = True,
+    include_plan_status: bool = True,
+    max_labels: int = 20,
+    max_blockers: int = 3,
+) -> dict:
+    """Compact routing summary for one scene.
+
+    USE for normal scene routing before deciding whether you need full
+    labels, full plan state, or fresh pixels. This intentionally omits
+    geometry arrays and full Markdown by default.
+    """
+    started = time.time()
+    ds_status, ds = await _api_get(f"/datasets/{key}")
+    if ds_status >= 400:
+        return _http_status_to_error(ds_status, ds, started)
+    drawing = next((d for d in (ds.get("drawings") or []) if d.get("file") == file), None)
+    if drawing is None:
+        return _err("scene_not_found", f"no scene {file!r} in {key!r}", started_at=started)
+    lbl_status, lbl = await _api_get(f"/labels/dataset/{key}/{file}")
+    if lbl_status >= 400:
+        return _http_status_to_error(lbl_status, lbl, started)
+    labels = lbl.get("labels") or []
+    meta = {
+        "scene_tag": lbl.get("scene_tag"),
+        "scene_level": lbl.get("scene_level"),
+        "scene_orientation": lbl.get("scene_orientation"),
+        "label_count": len(labels),
+        "label_types": sorted(label_counts(labels)),
+    }
+    plan = None
+    if include_plan_status:
+        plan_status, plan_body = await _api_get(f"/datasets/{key}/{file}/plan-state/status")
+        if plan_status == 200:
+            plan = compact_plan_status(plan_body, max_blockers=max_blockers)
+        elif plan_status == 404:
+            plan = compact_plan_status(None, max_blockers=max_blockers)
+        else:
+            return _http_status_to_error(plan_status, plan_body, started)
+    max_labels = max(0, int(max_labels))
+    data = {
+        "summary_contract": "mcp-context-bloat/scene-context-summary-v1",
+        "scene": compact_scene_row(drawing, meta),
+        "image_size_px": lbl.get("image_size_px"),
+        "label_counts": label_counts(labels),
+        "labels_total": len(labels),
+        "labels_truncated": include_label_summaries and len(labels) > max_labels,
+        "plan": plan,
+    }
+    if include_label_summaries:
+        data["labels"] = [compact_label(lab) for lab in labels[:max_labels]]
+    return _ok(data, started_at=started, status_code=ds_status)
+
+
+@mcp.tool()
+async def get_house_context_summary(
+    key: str,
+    include_plan_status: bool = True,
+    max_blockers_per_scene: int = 3,
+) -> dict:
+    """Compact house dashboard for routing.
+
+    Prefer this over fetching the full house, every labels file, house
+    facts, and every plan state when deciding the next scene/phase.
+    """
+    started = time.time()
+    status, ds = await _api_get(f"/datasets/{key}")
+    if status >= 400:
+        return _http_status_to_error(status, ds, started)
+    facts, scene_meta = await _load_facts_and_scene_meta(key, ds or {})
+    workflow = _derive_workflow_state(ds or {}, facts, scene_meta)
+    scenes = []
+    total_labels = 0
+    for drawing in ds.get("drawings") or []:
+        file_name = drawing.get("file")
+        if not file_name:
+            continue
+        meta = dict(scene_meta.get(file_name) or {})
+        total_labels += int(meta.get("label_count") or 0)
+        row = compact_scene_row(drawing, meta)
+        row["label_counts"] = meta.get("label_counts") or {}
+        if include_plan_status:
+            plan_status, plan_body = await _api_get(f"/datasets/{key}/{file_name}/plan-state/status")
+            row["plan"] = (
+                compact_plan_status(plan_body, max_blockers=max_blockers_per_scene)
+                if plan_status == 200
+                else compact_plan_status(None, max_blockers=max_blockers_per_scene)
+            )
+        scenes.append(row)
+    return _ok({
+        "summary_contract": "mcp-context-bloat/house-context-summary-v1",
+        "key": key,
+        "scene_count": len(scenes),
+        "total_labels": total_labels,
+        "workflow": {
+            "next_phase": workflow.get("next_phase"),
+            "exportable": workflow.get("exportable"),
+            "blockers_total": workflow.get("blockers_total"),
+            "phases": workflow.get("phases"),
+        },
+        "scenes": scenes,
     }, started_at=started, status_code=status)
 
 
@@ -1778,6 +1959,28 @@ async def _cv_post(path: str, json_body: dict, started: float) -> dict:
     return _ok(data, started_at=started, status_code=status)
 
 
+def _truncate_lists(data: Any, limits: dict[str, int]) -> Any:
+    if not isinstance(data, dict):
+        return data
+    out = dict(data)
+    truncation: dict[str, dict[str, int]] = {}
+    for key, limit in limits.items():
+        value = out.get(key)
+        if isinstance(value, list) and limit >= 0 and len(value) > limit:
+            out[key] = value[:limit]
+            truncation[key] = {
+                "returned": limit,
+                "total": len(value),
+                "omitted": len(value) - limit,
+            }
+    if truncation:
+        out["truncated"] = True
+        out["truncation"] = truncation
+    else:
+        out.setdefault("truncated", False)
+    return out
+
+
 @mcp.tool()
 async def wall_outline(
     key: str,
@@ -1860,6 +2063,7 @@ async def score_walls(
     thresh: int | None = None,
     thin_aware: bool = False,
     close_px: int = 82,
+    max_regions: int = 20,
 ) -> dict:
     """THE self-QA signal. Scores the CURRENTLY SAVED wall labels vs the ink:
     precision, recall, f1, plus missing_regions ('add a wall here') and
@@ -1873,7 +2077,13 @@ async def score_walls(
         params["region"] = region
     if thresh is not None:
         params["thresh"] = thresh
-    return await _cv_get(f"/datasets/{key}/{file}/score-walls", params, started)
+    result = await _cv_get(f"/datasets/{key}/{file}/score-walls", params, started)
+    if result.get("ok"):
+        result["data"] = _truncate_lists(result["data"], {
+            "missing_regions": max_regions,
+            "off_ink_segments": max_regions,
+        })
+    return result
 
 
 @mcp.tool()
@@ -1882,13 +2092,114 @@ async def score_measurements(
     file: str,
     tol_px: int = 8,
     axis_tol_px: int = 14,
+    max_ticks: int = 20,
+    max_chains: int = 20,
 ) -> dict:
     """Metric-correctness QA over score-walls: checks each dimension tick is the
     projection of a wall face (unmatched_ticks = misplaced/missing wall + nearest
     + delta) and per-chain collinearity + part-sum vs the printed overall."""
     started = time.time()
     params: dict = {"tol_px": tol_px, "axis_tol_px": axis_tol_px}
-    return await _cv_get(f"/datasets/{key}/{file}/score-measurements", params, started)
+    result = await _cv_get(f"/datasets/{key}/{file}/score-measurements", params, started)
+    if result.get("ok"):
+        result["data"] = _truncate_lists(result["data"], {
+            "unmatched_ticks": max_ticks,
+            "chains": max_chains,
+            "chain_checks": max_chains,
+        })
+    return result
+
+
+@mcp.tool()
+async def wall_topology_qa(
+    key: str,
+    file: str,
+    endpoint_tol_px: float = 18.0,
+    near_miss_px: float = 60.0,
+    collinear_tol_deg: float = 8.0,
+    collinear_gap_px: float = 140.0,
+    short_stub_px: float = 80.0,
+    max_items: int = 20,
+) -> dict:
+    """Whole-wall-system verification after wall placement.
+
+    Flags dangling endpoints, near-miss corners, mergeable collinear
+    fragments, suspicious short stubs, and connected components. Large
+    lists are truncated with explicit omitted counts.
+    """
+    started = time.time()
+    params = {
+        "endpoint_tol_px": endpoint_tol_px,
+        "near_miss_px": near_miss_px,
+        "collinear_tol_deg": collinear_tol_deg,
+        "collinear_gap_px": collinear_gap_px,
+        "short_stub_px": short_stub_px,
+    }
+    result = await _cv_get(f"/datasets/{key}/{file}/wall-topology-qa", params, started)
+    if result.get("ok"):
+        result["data"] = _truncate_lists(result["data"], {
+            "dangling_endpoints": max_items,
+            "near_miss_corners": max_items,
+            "collinear_fragments": max_items,
+            "short_stubs": max_items,
+            "components": max_items,
+        })
+    return result
+
+
+@mcp.tool()
+async def wall_continuity_check(
+    key: str,
+    file: str,
+    collinear_tol_deg: float = 8.0,
+    gap_px: float = 180.0,
+    line_tol_px: float = 24.0,
+    opening_near_px: float = 80.0,
+    max_items: int = 20,
+) -> dict:
+    """Detect likely walls split at openings.
+
+    Returns collinear wall fragments separated by short gaps, with nearby
+    opening symbols when present. Candidate lists are bounded by max_items
+    with truncation metadata.
+    """
+    started = time.time()
+    params = {
+        "collinear_tol_deg": collinear_tol_deg,
+        "gap_px": gap_px,
+        "line_tol_px": line_tol_px,
+        "opening_near_px": opening_near_px,
+    }
+    result = await _cv_get(f"/datasets/{key}/{file}/wall-continuity-check", params, started)
+    if result.get("ok"):
+        result["data"] = _truncate_lists(result["data"], {"candidates": max_items})
+    return result
+
+
+@mcp.tool()
+async def ambiguous_line_context(
+    key: str,
+    file: str,
+    bbox: str | None = None,
+    line: str | None = None,
+    pad_px: float = 120.0,
+    max_nearby_labels: int = 20,
+) -> dict:
+    """Context checklist for suspicious line continuations.
+
+    Use before treating a questionable stroke as a wall. The result names
+    non-wall classes to consider and returns a bounded nearby-label list.
+    """
+    started = time.time()
+    params: dict[str, Any] = {"pad_px": pad_px}
+    if bbox:
+        params["bbox"] = bbox
+    if line:
+        params["line"] = line
+    result = await _cv_get(f"/datasets/{key}/{file}/ambiguous-line-context", params, started)
+    if result.get("ok"):
+        result["data"] = _truncate_lists(result["data"], {"nearby_labels": max_nearby_labels})
+    return result
 
 
 @mcp.tool()
@@ -1945,6 +2256,7 @@ async def dimension_chain_context(
     max_dim: int = 1600,
     enhance: str | None = "auto",
     format: str = "png8",
+    image_delivery: str = "inline",
 ) -> list[ImageContent | TextContent]:
     """Find a dimension chain and return the tight crop image + tick metadata.
 
@@ -1992,25 +2304,22 @@ async def dimension_chain_context(
             err_body = {}
         return _wrap_text(_http_status_to_error(img_status, err_body, started))
 
-    image = ImageContent(
-        type="image",
-        data=base64.b64encode(content).decode("ascii"),
-        mimeType=ctype or "image/png",
-    )
-    text = TextContent(
-        type="text",
-        text=json.dumps(_ok({
+    return _image_delivery_payload(
+        content=content,
+        ctype=ctype,
+        metadata={
             **data,
             "image_format": "PNG",
-            "image_bytes": len(content),
             "region": crop_region,
             "tiers": tiers.split(","),
             "max_dim": max_dim,
             "enhance": enhance or "none",
             "format": format,
-        }, started_at=started, status_code=img_status), indent=2),
+        },
+        started_at=started,
+        status_code=img_status,
+        image_delivery=image_delivery,
     )
-    return [image, text]
 
 
 @mcp.tool()
@@ -3441,6 +3750,102 @@ async def dump_run_summary(key: str, run_id: str, notes: str = "") -> dict:
                started_at=started)
 
 
+@mcp.tool()
+async def write_handoff_summary(
+    key: str,
+    run_id: str,
+    file: str | None = None,
+    phase: str = "scene",
+    status: str = "needs_repair",
+    labels_added: int = 0,
+    labels_changed: int = 0,
+    open_defects: list[str] | None = None,
+    uncertain_labels: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    next_action: str | None = None,
+    notes: str = "",
+    quality: dict | None = None,
+    calibration: dict | None = None,
+    max_items: int = 20,
+) -> dict:
+    """Write a compact scene/phase handoff summary for context reduction.
+
+    USE when:
+      - A scene or phase worker is finished or pausing and the parent
+        should receive durable state without inheriting the worker's full
+        image/tool transcript.
+
+    DON'T USE when:
+      - You still need to perform visual verification. Write the handoff
+        only after labels, defects, and evidence have been updated.
+    """
+    started = time.time()
+    safe_run = re.sub(r"[^A-Za-z0-9_.-]+", "-", run_id).strip("-") or "run"
+    base = Path(__file__).parent / "tmp" / "agent-runs" / safe_run / "handoffs"
+    base.mkdir(parents=True, exist_ok=True)
+    target = file or phase
+    safe_target = re.sub(r"[^A-Za-z0-9_.-]+", "-", target).strip("-") or "handoff"
+    max_items = max(0, int(max_items))
+
+    def bounded(values: list[str] | None) -> tuple[list[str], dict[str, int]]:
+        values = values or []
+        return values[:max_items], {
+            "total": len(values),
+            "returned": min(len(values), max_items),
+            "omitted": max(0, len(values) - max_items),
+        }
+
+    defects, defect_counts = bounded(open_defects)
+    uncertain, uncertain_counts = bounded(uncertain_labels)
+    evidence, evidence_counts = bounded(evidence_refs)
+    payload = {
+        "summary_contract": "mcp-context-bloat/handoff-summary-v1",
+        "key": key,
+        "file": file,
+        "phase": phase,
+        "status": status,
+        "labels_added": labels_added,
+        "labels_changed": labels_changed,
+        "open_defects": defects,
+        "uncertain_labels": uncertain,
+        "calibration": calibration or {},
+        "quality": quality or {},
+        "evidence_refs": evidence,
+        "next_action": next_action,
+        "notes": notes,
+        "truncated": any(c["omitted"] for c in (defect_counts, uncertain_counts, evidence_counts)),
+        "truncation": {
+            "open_defects": defect_counts,
+            "uncertain_labels": uncertain_counts,
+            "evidence_refs": evidence_counts,
+        },
+        "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    json_path = base / f"{safe_target}.json"
+    md_path = base / f"{safe_target}.md"
+    json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+    md_path.write_text("\n".join([
+        f"# Handoff {key}",
+        "",
+        f"- File: {file or ''}",
+        f"- Phase: {phase}",
+        f"- Status: {status}",
+        f"- Labels added: {labels_added}",
+        f"- Labels changed: {labels_changed}",
+        f"- Open defects: {len(open_defects or [])}",
+        f"- Uncertain labels: {len(uncertain_labels or [])}",
+        f"- Next action: {next_action or ''}",
+        "",
+        notes,
+    ]) + "\n")
+    return _ok({
+        "json_path": str(json_path.relative_to(Path(__file__).parent)),
+        "markdown_path": str(md_path.relative_to(Path(__file__).parent)),
+        "bytes": json_path.stat().st_size,
+        "summary": payload,
+    }, started_at=started)
+
+
 # ── §5.10 MCP resources (read-only context) ──────────────────────────────
 
 
@@ -3532,6 +3937,28 @@ appear there immediately.
 | W3    | get_scene_view, set_house_facts                                              |
 | W4    | get_scene_view, add_reference_dim, recompute_homography                      |
 | any   | get_workflow_state, get_recommended_next_action, validate_export_readiness, export_house |
+
+## Context-bloat policy
+
+Quality remains more important than saving tokens: request inline images
+whenever the current decision needs pixels. But keep context focused:
+
+1. Start routing with `get_house_context_summary` and
+   `get_scene_context_summary`, not full house/label/plan dumps.
+2. Use one low-detail overview per scene to choose work regions.
+3. Use `verify_label_placement` for routine verify-after-write. It auto-crops
+   around the edited label and reports numeric offset hints.
+4. Use full `get_scene_view_with_labels` only for multi-label/global topology
+   QA, final scene review, or when a crop lacks enough context.
+5. For large overview/debug renders in runtimes that can inspect file
+   handles, pass `image_delivery="handle"` or `"auto"`; pass
+   `image_delivery="inline"` when the model must see pixels now.
+6. After each scene/phase, call `write_handoff_summary` with open blockers,
+   evidence refs, quality metrics, and next action. The parent should keep
+   that summary, not the full visual transcript.
+7. If a bounded QA result says `truncated=true`, use the returned counts and
+   fetch/fix the highest-priority visible blockers first; do not treat
+   truncation as a pass.
 
 ## Resources to read first
 
@@ -3795,9 +4222,10 @@ extent — just label the dims and confirm via `get_house_facts`.
      "status": "readable"
    }})
    ```
-   **VERIFY (per §H5)** — `get_scene_view_with_labels` with a tight
-   region; the orange wall stroke must lie along the drawn wall, not
-   floating in empty space or crossing through openings.
+   **VERIFY (per §H5)** — call `verify_label_placement` for the new wall.
+   The orange wall stroke must lie along the drawn wall, not floating in
+   empty space or crossing through openings. Escalate to a wider
+   `get_scene_view_with_labels(region=...)` only if the crop lacks context.
 6. Confirm via `get_house_facts(key="{key}")`:
    - `extent.width_mm` = horizontal dim value
    - `extent.depth_mm` = vertical dim value
@@ -4055,8 +4483,76 @@ def prompt_diagnose_degenerate_homography(key: str, file: str) -> str:
 
 # ── entry point ──────────────────────────────────────────────────────────
 
+_TOOL_PROFILES: dict[str, set[str]] = {
+    "inventory": {
+        "list_houses", "get_house", "get_house_context_summary",
+        "list_pdfs", "get_pdf_info", "get_pdf_page_view", "extract_scenes",
+        "split_scene", "get_scene_view", "get_scene_meta",
+        "set_scene_tag", "set_scene_orientation", "set_scene_level",
+        "get_workflow_state", "get_recommended_next_action", "write_handoff_summary",
+    },
+    "floorplan": {
+        "get_house_context_summary", "get_scene_context_summary",
+        "get_scene_plan_status", "get_scene_plan_next_action",
+        "get_scene_plan_next_actions", "start_scene_plan_action",
+        "record_scene_plan_attempt", "finish_scene_plan_action",
+        "add_scene_plan_evidence", "evaluate_scene_plan_gates",
+        "get_scene_view", "get_scene_view_with_labels", "verify_label_placement",
+        "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
+        "delete_label", "update_label_attrs", "set_label_status",
+        "add_reference_dim", "dimension_chain_candidates", "dimension_chain_context",
+        "score_walls", "score_measurements", "wall_topology_qa",
+        "wall_continuity_check", "ambiguous_line_context", "propose_wall_edit",
+        "detect_wall_corners", "check_corner", "refine_wall", "connect_corners",
+        "get_workflow_state", "write_handoff_summary",
+    },
+    "elevation": {
+        "get_house_context_summary", "get_scene_context_summary",
+        "get_building_global_facts", "set_building_global_fact",
+        "get_scene_view", "get_scene_view_with_labels", "verify_label_placement",
+        "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
+        "delete_label", "update_label_attrs", "set_label_status",
+        "add_reference_dim", "recompute_homography",
+        "add_scene_plan_evidence", "evaluate_scene_plan_gates",
+        "get_workflow_state", "write_handoff_summary",
+    },
+    "review": {
+        "get_house_context_summary", "get_scene_context_summary",
+        "get_workflow_state", "validate_export_readiness", "list_anomalies",
+        "get_scene_plan_status", "get_scene_plan_next_action",
+        "get_scene_view_with_labels", "verify_label_placement",
+        "score_walls", "score_measurements", "wall_topology_qa",
+        "export_house", "dump_run_summary", "write_handoff_summary",
+    },
+}
+
+
+def _apply_tool_profile(profile: str | None = None) -> list[str]:
+    """Remove tools outside BIM_MCP_TOOL_PROFILE.
+
+    Default profile is `all` for compatibility. Operators can launch a
+    narrower worker, e.g. BIM_MCP_TOOL_PROFILE=floorplan, to reduce schema
+    context while keeping debug/all access available.
+    """
+    selected = (profile or os.environ.get("BIM_MCP_TOOL_PROFILE") or "all").lower()
+    if selected in {"", "all", "*"}:
+        return []
+    allowed = _TOOL_PROFILES.get(selected)
+    if allowed is None:
+        log.warning("unknown BIM_MCP_TOOL_PROFILE=%s; keeping all tools", selected)
+        return []
+    tools = getattr(mcp._tool_manager, "_tools", {})
+    removed: list[str] = []
+    for name in list(tools):
+        if name not in allowed:
+            mcp.remove_tool(name)
+            removed.append(name)
+    log.info("applied tool profile %s: removed %s tools", selected, len(removed))
+    return removed
+
 
 def main() -> None:
+    _apply_tool_profile()
     log.info("running mcp.run(stdio)")
     try:
         mcp.run(transport="stdio")

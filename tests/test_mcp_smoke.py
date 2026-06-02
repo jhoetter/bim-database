@@ -48,12 +48,22 @@ def _patch_mcp_client_to_use_in_process_fastapi():
     mcp_server._http = client
     yield
     # ASGITransport cleanup
-    asyncio.get_event_loop().run_until_complete(client.aclose())
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    loop.run_until_complete(client.aclose())
     mcp_server._http = None
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
 
 
 @pytest.fixture(autouse=True)
