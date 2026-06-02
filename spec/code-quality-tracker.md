@@ -28,7 +28,7 @@ Criticality is **risk-to-the-system**, not effort. An item can be Critical *and*
 | H2 | Full-house fact recompute on every label write | 🟠 High | M | ✅ DONE (295b9cc) |
 | H3 | MCP transport-error contract honored by only ~half the tools | 🟠 High | M | ✅ DONE (5638ae3) |
 | H4 | Destructive reset tools have zero test coverage | 🟠 High | S | ✅ DONE (12cc56d) |
-| H5 | `api/main.py` is a 4,758-line god router | 🟠 High | L | 🟡 PARTIAL (c81d000, c20f5e1) |
+| H5 | `api/main.py` is a 4,758-line god router | 🟠 High | L | ✅ DONE (c81d000…7ac323f) |
 | M1 | Broad `except Exception` swallowing corruption | 🟡 Medium | M | OPEN |
 | M2 | Geometry utilities duplicated across 3–4 modules | 🟡 Medium | S | OPEN |
 | M3 | Inconsistent magic constants for the same operation | 🟡 Medium | M | OPEN |
@@ -345,27 +345,33 @@ already-empty target, and assert a malicious `key`/`file` cannot escape the data
 ---
 
 ## H5 — `api/main.py` is a 4,758-line god router
-**Severity:** 🟠 High · **Effort:** L · **Status:** 🟡 PARTIAL (c81d000, c20f5e1) · **Related:** M1, M2, M5, L4
+**Severity:** 🟠 High · **Effort:** L · **Status:** ✅ DONE (c81d000…7ac323f) · **Related:** M1, M2, M5, L4
 
-> **Progress.** The two largest cohesive families have been carved into their
-> own `APIRouter` modules, behavior-preserving (routes moved verbatim,
-> `@app`→`@router`, shared helpers imported from `api.main`, routers included
-> before the SPA catch-all so order is unchanged; full suite green after each):
-> - `api/routes_plan_state.py` — ~30 plan + plan-state + repair-candidate routes (c81d000)
-> - `api/routes_geometry.py` — ~24 grid/CV/wall/dimension/opening routes (c20f5e1)
+> **Resolution.** Four cohesive route families (73 routes) were carved into
+> focused `APIRouter` modules, each behavior-preserving (routes moved verbatim,
+> `@app`→`@router`, included before the SPA catch-all so match order is
+> unchanged) and shipped as its own commit with the full suite green:
+> - `api/routes_plan_state.py` — 29 plan / plan-state / repair-candidate routes (c81d000)
+> - `api/routes_geometry.py` — 25 grid / CV / wall / dimension / opening routes (c20f5e1)
+> - `api/routes_pdf.py` — 16 pdf / intake / upload / extract routes (15326e1)
+> - `api/routes_export.py` — 3 export routes (7ac323f)
 >
-> **Result so far:** `api/main.py` 4,758 → ~2,790 lines (-41%).
+> **Result: `api/main.py` 4,758 → 1,240 lines (-74%).** It now holds app
+> wiring, shared helpers/config, and the core dataset + label CRUD (15 routes).
 >
-> **Remaining (deliberately deferred — needs a prerequisite step):** the
-> pdf/intake, exports, and labels families share foundational helpers that
-> physically live in the pdf/export region but are used across families
-> (`_safe_key`, `_read_manifest`, `_write_manifest`, `_bundle_state`,
-> `_sanity_check_house`, `_export_one_house`, `SET_A_TYPES`). Cleanly carving
-> these requires **first** extracting those shared helpers + path constants
-> into a base module (e.g. `api/_shared.py` / `api/deps.py`) imported by
-> `main.py` and all routers. That base-module extraction is the next unit of
-> work; until then, moving the pdf/export/labels routes would require fragile
-> back-imports and was judged not worth the regression risk.
+> **Method (no base module needed):** each family's partition was computed by
+> call-graph analysis so only family-exclusive helpers move; foundational
+> helpers used across families stay in `api.main` and are imported by the
+> routers (routers import from `main`; `main` includes the routers last, so no
+> cycle). Symbols that tests monkeypatch are referenced via the `main` module
+> (dynamic lookup) so `api.main.X` patches still propagate; tests that patched
+> moved helpers were repointed to the new module. An AST undefined-name check
+> on each new module caught stdlib / persistence imports the moved code needed.
+>
+> *Remaining (optional, low priority):* the core label CRUD (`get_labels`,
+> `put_labels`, reset routes) was intentionally kept in `main.py` — it is
+> depended on by the other routers and reads naturally as the module's core.
+> `main.py` is no longer a god file, so this is a stopping point, not a gap.
 
 **Location:** `api/main.py` (entire); 88 route decorators, 150 function definitions, one `@app` instance, no
 `APIRouter` split.
