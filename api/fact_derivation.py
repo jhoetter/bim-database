@@ -21,7 +21,7 @@ labels exist. Off by default so the SPA flow is unchanged.
 """
 from __future__ import annotations
 
-from .persistence import atomic_write_json
+from .persistence import atomic_write_json, locked_path
 
 import json
 import math
@@ -486,6 +486,21 @@ def recompute_facts_after_label_write(
     dataset_root: Path,
     strict: bool | None = None,
 ) -> dict:
+    """Serialized public entrypoint (C2): hold the house_facts lock across
+    the whole read-modify-write so concurrent recomputes / calibration
+    merges can't lose each other's updates. Delegates to the unlocked
+    implementation."""
+    facts_path = dataset_root / key / "house_facts.json"
+    with locked_path(facts_path):
+        return _recompute_facts_impl(key, dataset_root=dataset_root, strict=strict)
+
+
+def _recompute_facts_impl(
+    key: str,
+    *,
+    dataset_root: Path,
+    strict: bool | None = None,
+) -> dict:
     """Re-derive `house_facts.json` for one house from every scene's
     labels. Idempotent. Returns the new facts dict.
 
@@ -630,15 +645,18 @@ def prune_scene_from_facts(
     remaining scenes (since the deleted scene may have contributed)."""
     house_dir = dataset_root / key
     facts_path = house_dir / "house_facts.json"
-    if not facts_path.exists():
-        return
-    try:
-        facts = json.loads(facts_path.read_text())
-    except json.JSONDecodeError:
-        return
-    facts.get("scene_metadata", {}).pop(scene_file, None)
-    facts.get("calibration_per_scene", {}).pop(scene_file, None)
-    atomic_write_json(facts_path, facts)
+    # Hold the lock across the read-pop-write (C2). Release before the
+    # recompute below, which re-acquires it via its own locked wrapper.
+    with locked_path(facts_path):
+        if not facts_path.exists():
+            return
+        try:
+            facts = json.loads(facts_path.read_text())
+        except json.JSONDecodeError:
+            return
+        facts.get("scene_metadata", {}).pop(scene_file, None)
+        facts.get("calibration_per_scene", {}).pop(scene_file, None)
+        atomic_write_json(facts_path, facts)
     # Full recompute picks up the cascade — extent could have been
     # derived from this scene's ref dims; let it re-derive from what's left.
     recompute_facts_after_label_write(key, dataset_root=dataset_root)

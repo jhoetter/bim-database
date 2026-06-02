@@ -51,3 +51,8 @@ data/pdfs/submissions/
 .pytest_cache/
 form-ui/node_modules/
 form-ui/dist/
+
+# Per-file advisory lock sidecars (C2: api/persistence.locked_path).
+# Created next to records during read-modify-write; never data, never commit.
+*.json.lock
+*.md.lock

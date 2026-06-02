@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from .persistence import atomic_write_json, atomic_write_text
+from .persistence import atomic_write_json, atomic_write_text, locked_path
 
 SCHEMA_VERSION = "scene-plan-state-v1"
 MARKDOWN_TEMPLATE_VERSION = "scene-plan-v2"
@@ -310,17 +310,20 @@ def write_plan_state(
     key = str(state.get("key") or "")
     file = str(state.get("file") or "")
     p = plan_state_path(dataset_root, key, file)
-    if p.exists() and expected_version is not None:
-        current = json.loads(p.read_text())
-        if version_for_state(current) != expected_version:
-            raise PlanStateConflictError("plan state version conflict")
-    state["updated_at"] = _now_iso()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(p, state, sort_keys=True, trailing_newline=True)
-    if sync_markdown:
-        mp = markdown_path(dataset_root, key, file)
-        mp.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(mp, render_markdown(state))
+    # C2/H1: hold the lock across the version check AND the write so the
+    # optimistic-concurrency check is no longer TOCTOU-racy — two writers
+    # with the same expected_version can no longer both pass and clobber.
+    with locked_path(p):
+        if p.exists() and expected_version is not None:
+            current = json.loads(p.read_text())
+            if version_for_state(current) != expected_version:
+                raise PlanStateConflictError("plan state version conflict")
+        state["updated_at"] = _now_iso()
+        atomic_write_json(p, state, sort_keys=True, trailing_newline=True)
+        if sync_markdown:
+            mp = markdown_path(dataset_root, key, file)
+            mp.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(mp, render_markdown(state))
     return read_plan_state(dataset_root, key, file)
 
 

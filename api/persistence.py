@@ -14,15 +14,18 @@ the same filesystem, so a reader ever only sees the complete old file or
 the complete new file — never a half-written one. On any failure the temp
 file is removed and the original is left untouched.
 
-Code-quality-tracker item C1 (atomic writes).
+Code-quality-tracker items C1 (atomic writes) and C2 (per-file locking via
+`locked_path`).
 """
 from __future__ import annotations
 
 import json
 import os
 import tempfile
+import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 def atomic_write_text(path: Path | str, text: str, *, encoding: str = "utf-8") -> None:
@@ -72,3 +75,71 @@ def atomic_write_json(
     if trailing_newline:
         text += "\n"
     atomic_write_text(path, text)
+
+
+# ── C2: per-file locking ───────────────────────────────────────────────────
+# FastAPI runs sync `def` handlers in a threadpool, so two requests touching
+# the same scene genuinely execute in parallel and can interleave a
+# read-modify-write (lost update). Each file is guarded by a process-local
+# mutex keyed by its absolute path, plus an advisory OS-level `fcntl.flock`
+# on a sidecar `.lock` file so a *second process* (a CLI, a test runner,
+# another worker) serializes against the API too. Hold the lock across the
+# whole read → mutate → write, not just the write itself.
+
+_locks_guard = threading.Lock()
+_locks: dict[str, threading.Lock] = {}
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _locks_guard:
+        lock = _locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _locks[key] = lock
+        return lock
+
+
+@contextmanager
+def locked_path(path: Path | str) -> Iterator[Path]:
+    """Serialize read-modify-write access to ``path``.
+
+    Acquires a process-local mutex for the path *and* an advisory OS lock on
+    a sidecar ``<name>.lock`` file. Use around any read → mutate →
+    :func:`atomic_write_json` sequence::
+
+        with locked_path(p):
+            doc = json.loads(p.read_text()) if p.exists() else {}
+            doc["x"] = 1
+            atomic_write_json(p, doc)
+
+    The sidecar ``.lock`` file is created next to the target and left on disk
+    (cheap, and avoids a delete/recreate race). Not re-entrant — do not nest
+    ``locked_path`` on the same path within one thread.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = _lock_for(path)
+    lock.acquire()
+    fcntl = None
+    fh = None
+    try:
+        try:
+            import fcntl as _fcntl  # POSIX only
+
+            fcntl = _fcntl
+            fh = open(path.with_name(path.name + ".lock"), "w")
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            # No fcntl (non-POSIX) or lock file unopenable: fall back to the
+            # in-process mutex alone, which still fixes the threadpool race.
+            fh = None
+        yield path
+    finally:
+        if fh is not None and fcntl is not None:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            fh.close()
+        lock.release()

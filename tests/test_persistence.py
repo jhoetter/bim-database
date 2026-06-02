@@ -7,11 +7,13 @@ and must not strand a partial temp file.
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 import pytest
 
 from api import persistence
-from api.persistence import atomic_write_json, atomic_write_text
+from api.persistence import atomic_write_json, atomic_write_text, locked_path
 
 
 def test_atomic_write_json_roundtrip(tmp_path):
@@ -94,3 +96,79 @@ def test_atomic_write_text_roundtrip(tmp_path):
     p = tmp_path / "plan.md"
     atomic_write_text(p, "# Plan\n\n- step 1\n")
     assert p.read_text() == "# Plan\n\n- step 1\n"
+
+
+# ── C2: locking ─────────────────────────────────────────────────────────────
+
+
+def test_locked_path_prevents_lost_updates(tmp_path):
+    """N threads each read-modify-write the same file under locked_path.
+    With serialization every update survives; without the lock the
+    sleep-widened read-modify-write window would drop most of them."""
+    p = tmp_path / "doc.json"
+    atomic_write_json(p, {"items": []})
+    n = 30
+
+    def worker(i: int) -> None:
+        with locked_path(p):
+            doc = json.loads(p.read_text())
+            doc["items"].append(i)
+            time.sleep(0.001)  # widen the read→write window
+            atomic_write_json(p, doc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    final = json.loads(p.read_text())
+    assert sorted(final["items"]) == list(range(n))
+
+
+def test_locked_path_is_mutually_exclusive(tmp_path):
+    """The second acquirer must wait until the first releases."""
+    p = tmp_path / "doc.json"
+    order: list[str] = []
+
+    def first() -> None:
+        with locked_path(p):
+            order.append("first-enter")
+            time.sleep(0.05)
+            order.append("first-exit")
+
+    def second() -> None:
+        time.sleep(0.01)  # ensure `first` grabs the lock first
+        with locked_path(p):
+            order.append("second-enter")
+
+    t1 = threading.Thread(target=first)
+    t2 = threading.Thread(target=second)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert order == ["first-enter", "first-exit", "second-enter"]
+
+
+def test_locked_path_releases_for_reacquire(tmp_path):
+    """Sequential acquire/release of the same path must not block."""
+    p = tmp_path / "doc.json"
+    with locked_path(p):
+        pass
+    with locked_path(p):  # would hang if the lock leaked
+        atomic_write_json(p, {"ok": True})
+    assert json.loads(p.read_text()) == {"ok": True}
+
+
+def test_locked_path_distinct_paths_do_not_block(tmp_path):
+    """Different files use different locks — no false contention."""
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    with locked_path(a):
+        with locked_path(b):  # distinct path → must not deadlock
+            atomic_write_json(b, {"b": 1})
+        atomic_write_json(a, {"a": 1})
+    assert json.loads(a.read_text()) == {"a": 1}
+    assert json.loads(b.read_text()) == {"b": 1}

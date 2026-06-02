@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .persistence import atomic_write_json, atomic_write_text
+from .persistence import atomic_write_json, atomic_write_text, locked_path
 
 BASE = Path(__file__).parent.parent
 DATASET_DIR = BASE / "data" / "dataset"
@@ -239,8 +239,10 @@ def put_house_facts(key: str, body: dict = Body(...)):
     if not isinstance(body, dict) or "schema_version" not in body:
         raise HTTPException(status_code=400, detail="payload must be a JSON object with schema_version")
     p = DATASET_DIR / key / "house_facts.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(p, body)
+    # C2: serialize against recompute (which reads facts to preserve
+    # human-set fields) so this full replace isn't lost mid-recompute.
+    with locked_path(p):
+        atomic_write_json(p, body)
     return {"ok": True, "bytes": p.stat().st_size}
 
 
@@ -288,18 +290,21 @@ def patch_scene_attrs(key: str, file: str, body: dict = Body(...)):
     mp = DATASET_DIR / key / "manifest.json"
     if not mp.exists():
         raise HTTPException(status_code=404, detail=f"No dataset manifest for {key!r}")
-    data = json.loads(mp.read_text())
-    drawings = data.get("drawings") or []
-    target = next((d for d in drawings if d.get("file") == file), None)
-    if target is None:
-        raise HTTPException(status_code=404, detail=f"No drawing {file!r} in {key!r}")
-    for k, v in body.items():
-        # null clears; otherwise overwrite.
-        if v is None:
-            target.pop(k, None)
-        else:
-            target[k] = v
-    atomic_write_json(mp, data)
+    # C2: serialize read-modify-write of the manifest so two concurrent
+    # scene-attribute patches can't lose each other's edits.
+    with locked_path(mp):
+        data = json.loads(mp.read_text())
+        drawings = data.get("drawings") or []
+        target = next((d for d in drawings if d.get("file") == file), None)
+        if target is None:
+            raise HTTPException(status_code=404, detail=f"No drawing {file!r} in {key!r}")
+        for k, v in body.items():
+            # null clears; otherwise overwrite.
+            if v is None:
+                target.pop(k, None)
+            else:
+                target[k] = v
+        atomic_write_json(mp, data)
     return _load_dataset_manifest(key)
 
 
@@ -4419,22 +4424,24 @@ def _persist_scene_calibration(key: str, file: str, calib: dict) -> None:
     `single_ref_assumed_isotropic` honesty flag.
     """
     p = DATASET_DIR / key / "house_facts.json"
-    facts: dict = {}
-    if p.exists():
-        try:
-            loaded = json.loads(p.read_text())
-            if isinstance(loaded, dict):
-                facts = loaded
-        except json.JSONDecodeError:
-            facts = {}
-    facts.setdefault("schema_version", "1.1")
-    cps = facts.get("calibration_per_scene")
-    if not isinstance(cps, dict):
-        cps = {}
-        facts["calibration_per_scene"] = cps
-    cps[file] = calib
-    p.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(p, facts)
+    # C2: hold the facts lock across read-modify-write so a concurrent
+    # recompute / another scene's calibration merge can't drop this entry.
+    with locked_path(p):
+        facts: dict = {}
+        if p.exists():
+            try:
+                loaded = json.loads(p.read_text())
+                if isinstance(loaded, dict):
+                    facts = loaded
+            except json.JSONDecodeError:
+                facts = {}
+        facts.setdefault("schema_version", "1.1")
+        cps = facts.get("calibration_per_scene")
+        if not isinstance(cps, dict):
+            cps = {}
+            facts["calibration_per_scene"] = cps
+        cps[file] = calib
+        atomic_write_json(p, facts)
 
 
 @app.post("/exports/{key}/{file}/preview", tags=["exports"])

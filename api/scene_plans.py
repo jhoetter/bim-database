@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .persistence import atomic_write_text
+from .persistence import atomic_write_text, locked_path
 
 
 PLAN_TEMPLATE_VERSION = "scene-plan-v1"
@@ -192,15 +192,17 @@ def write_plan(
     create_only: bool = False,
 ) -> dict[str, Any]:
     p = plan_path(dataset_root, key, file)
-    if create_only and p.exists():
-        raise PlanConflictError("plan already exists")
-    if p.exists() and expected_version is not None:
-        current = p.read_text()
-        if version_for(current) != expected_version:
-            raise PlanConflictError("plan version conflict")
-    markdown = _touch_last_updated(markdown)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(p, markdown)
+    # C2/H1: hold the lock across the create/version checks and the write so
+    # the optimistic-concurrency guard is not TOCTOU-racy.
+    with locked_path(p):
+        if create_only and p.exists():
+            raise PlanConflictError("plan already exists")
+        if p.exists() and expected_version is not None:
+            current = p.read_text()
+            if version_for(current) != expected_version:
+                raise PlanConflictError("plan version conflict")
+        markdown = _touch_last_updated(markdown)
+        atomic_write_text(p, markdown)
     return read_plan(dataset_root, key, file)
 
 
