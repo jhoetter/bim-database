@@ -1463,6 +1463,9 @@ def test_tool_descriptions_are_present():
         mcp_server.dimension_station_graph,
         mcp_server.opening_candidates,
         mcp_server.get_scene_view_with_opening_candidate,
+        mcp_server.apply_opening_candidate,
+        mcp_server.decide_opening_candidate,
+        mcp_server.view_geometry_candidates,
     ]
     for tool in tools:
         # Tool objects are decorated; unwrap if needed.

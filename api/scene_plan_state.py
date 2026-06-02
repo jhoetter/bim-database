@@ -62,6 +62,15 @@ REPAIR_CANDIDATE_OUTCOMES = {
     "needs_manual_geometry",
 }
 
+OPENING_CANDIDATE_OUTCOMES = {
+    "accepted_applied",
+    "rejected_false_positive",
+    "rejected_not_an_opening",
+    "rejected_bad_parent_wall",
+    "accepted_uncertain",
+    "needs_manual_geometry",
+}
+
 
 class PlanStateConflictError(RuntimeError):
     pass
@@ -960,6 +969,57 @@ def reopen_task(
         "decision": f"Reopened {task_id}",
         "result": reason,
     })
+    return write_plan_state(dataset_root, state, expected_version=expected_version)
+
+
+def record_opening_candidate_decision(
+    dataset_root: Path,
+    key: str,
+    file: str,
+    candidate: dict[str, Any],
+    outcome: str,
+    *,
+    label_id: str | None = None,
+    evidence_ids: list[str] | None = None,
+    note: str | None = None,
+    expected_version: str | None = None,
+) -> dict[str, Any]:
+    if outcome not in OPENING_CANDIDATE_OUTCOMES:
+        raise ValueError(f"unknown opening candidate outcome {outcome!r}")
+    state = _load_or_create(dataset_root, key, file)
+    if expected_version is not None:
+        current = read_plan_state(dataset_root, key, file)
+        if current["exists"] and current["version"] != expected_version:
+            raise PlanStateConflictError("plan state version conflict")
+    now = _now_iso()
+    fingerprint = str(candidate.get("candidate_fingerprint") or candidate.get("candidate_id") or "")
+    decision = {
+        "candidate_id": candidate.get("candidate_id"),
+        "candidate_fingerprint": fingerprint,
+        "kind": candidate.get("kind"),
+        "outcome": outcome,
+        "label_id": label_id,
+        "parent_wall_id": candidate.get("parent_wall_id"),
+        "region": candidate.get("region"),
+        "evidence_ids": evidence_ids or [],
+        "note": note or "",
+        "decided_at": now,
+    }
+    current = state.setdefault("current_state", {})
+    decisions = current.setdefault("opening_candidate_decisions", {})
+    decisions[fingerprint] = decision
+    state.setdefault("decision_log", []).append({
+        "time": now,
+        "mode": "verification",
+        "evidence_ids": evidence_ids or [],
+        "decision": f"Opening candidate {candidate.get('candidate_id')} {outcome}",
+        "result": note or "",
+    })
+    if outcome == "accepted_applied":
+        for task in state.get("tasks") or []:
+            if task.get("id") in {"PLACE_OPENINGS", "VERIFY_OPENINGS"} and task.get("status") in {"todo", "in_progress", "blocked", "needs_repair"}:
+                task["status"] = "in_progress"
+                task["updated_at"] = now
     return write_plan_state(dataset_root, state, expected_version=expected_version)
 
 
@@ -2021,7 +2081,7 @@ def _allowed_tools_for_defect(category: str) -> list[str]:
     if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
         return common + ["get_scene_repair_candidates", "get_scene_view_with_repair_candidate", "apply_repair_candidate", "decide_repair_candidate", "get_scene_plan_quality_report", "get_scene_topology_snapshot", "wall_topology_qa", "wall_continuity_check", "score_walls", "resolve_scene_point", "upsert_label", "delete_label", "classify_plan_defect"]
     if category == "opening_relation":
-        return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "verify_label_placement", "upsert_label", "update_label_attrs"]
+        return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "verify_label_placement", "upsert_label", "update_label_attrs"]
     if category == "dimension":
         return common + ["dimension_chain_context", "dimension_station_graph", "score_measurements", "add_reference_dim", "upsert_label"]
     return common
@@ -2071,9 +2131,9 @@ def _forbidden_label_types_for_task(task: dict[str, Any]) -> list[str]:
 def _allowed_tools_for_task(task: dict[str, Any]) -> list[str]:
     phase = task.get("phase")
     if phase == "analysis":
-        return ["get_scene_view", "dimension_chain_context", "dimension_station_graph", "opening_candidates", "add_scene_plan_evidence", "set_scene_plan_task_state"]
+        return ["get_scene_view", "dimension_chain_context", "dimension_station_graph", "opening_candidates", "view_geometry_candidates", "add_scene_plan_evidence", "set_scene_plan_task_state"]
     if phase == "editing":
-        return ["get_scene_view", "get_scene_view_with_opening_candidate", "resolve_scene_point", "upsert_label", "add_reference_dim", "add_scene_plan_evidence"]
+        return ["get_scene_view", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "view_geometry_candidates", "resolve_scene_point", "upsert_label", "add_reference_dim", "add_scene_plan_evidence"]
     return ["get_scene_view_with_labels", "verify_label_placement", "score_walls", "score_measurements", "wall_topology_qa", "evaluate_scene_plan_gates"]
 
 

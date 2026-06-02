@@ -58,6 +58,23 @@ def test_opening_candidates_detect_wall_gap_and_overlay_renders():
         )
         assert overlay.status_code == 200, overlay.text
         assert overlay.headers["content-type"].startswith("image/png")
+
+        apply = client.post(
+            f"/datasets/{key}/{file}/opening-candidates/{gaps[0]['candidate_id']}/apply",
+            json={"opening_kind": "door", "note": "accepted in test"},
+        )
+        assert apply.status_code == 200, apply.text
+        label_id = apply.json()["data"]["label_id"]
+        saved = client.get(f"/labels/dataset/{key}/{file}").json()
+        label = next(l for l in saved["labels"] if l["id"] == label_id)
+        assert label["type"] == "floorplan_opening"
+        assert label["attributes"]["opening_kind"] == "door"
+
+        decision = client.post(
+            f"/datasets/{key}/{file}/opening-candidates/{gaps[0]['candidate_id']}/decision",
+            json={"outcome": "rejected_false_positive", "note": "already handled"},
+        )
+        assert decision.status_code == 200, decision.text
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -95,7 +112,34 @@ def test_dimension_station_graph_returns_spans_and_wall_anchor_context():
         assert data["found"] is True
         assert data["station_count"] >= 4
         assert data["span_count"] >= 3
+        assert data["groups"]
+        assert data["reference_candidates"]
         assert any(st["nearest_wall_id"] == "wall-left" for st in data["stations"])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_view_geometry_candidates_route_returns_component_and_opening_priors():
+    key = "house-zzviewcandidates"
+    file = f"{key}-scene.jpg"
+    root = _scene_root(key)
+    img = Image.new("RGB", (420, 260), "white")
+    draw = ImageDraw.Draw(img)
+    draw.line([40, 70, 360, 70], fill="black", width=3)
+    draw.rectangle([160, 110, 220, 165], outline="black", width=3)
+    img.save(root / file)
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "ansicht"
+    labels["scene_orientation"] = "north"
+    labels["image_size_px"] = [420, 260]
+    (root / "labels" / f"{Path(file).stem}.json").write_text(json.dumps(labels))
+    try:
+        client = TestClient(api_main.app)
+        r = client.get(f"/datasets/{key}/{file}/view-geometry-candidates")
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["candidate_contract"] == "view-geometry-candidates/v1"
+        assert any(c["kind"] == "component_line" for c in data["candidates"])
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

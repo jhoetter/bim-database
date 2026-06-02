@@ -10,8 +10,18 @@ import {
   useState,
 } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import { createScenePlanFromTemplate, fetchLabels, fetchDataset, fetchScenePlan, saveLabels, useResource } from '../api/client';
+import {
+  createScenePlanFromTemplate,
+  fetchLabels,
+  fetchDataset,
+  fetchOpeningCandidates,
+  fetchScenePlan,
+  fetchViewGeometryCandidates,
+  saveLabels,
+  useResource,
+} from '../api/client';
 import type {
+  CandidateQueue,
   ComponentLineLabel,
   DatasetDrawing,
   DimensionNumberLabel,
@@ -3168,6 +3178,8 @@ export function AnnotatePage() {
         )}
         {planOpen && (
           <ScenePlanPanel
+            sceneKey={key}
+            file={decodedFile}
             plan={scenePlan}
             loading={planLoading}
             error={planError}
@@ -4945,6 +4957,8 @@ function planButtonLabel(plan: ScenePlan | null, labels: Label[]): string {
 }
 
 function ScenePlanPanel({
+  sceneKey,
+  file,
   plan,
   loading,
   error,
@@ -4952,6 +4966,8 @@ function ScenePlanPanel({
   onClose,
   onCreate,
 }: {
+  sceneKey: string;
+  file: string;
   plan: ScenePlan | null;
   loading: boolean;
   error: Error | null;
@@ -4963,6 +4979,16 @@ function ScenePlanPanel({
   const hasLabels = labels.length > 0;
   const warnings = scenePlanWarnings(plan, labels);
   const state = plan?.state ?? null;
+  const sceneTag = state?.scene_tag ?? plan?.state?.scene_tag;
+  const { data: candidateQueue } = useResource<CandidateQueue | null>(
+    () => {
+      if (!exists) return Promise.resolve(null);
+      if (sceneTag === 'grundriss') return fetchOpeningCandidates(sceneKey, file);
+      if (sceneTag === 'ansicht' || sceneTag === 'schnitt') return fetchViewGeometryCandidates(sceneKey, file);
+      return Promise.resolve(null);
+    },
+    [exists, sceneTag, sceneKey, file, plan?.version ?? null, labels.length],
+  );
   const openDefects = (state?.defects ?? []).filter((d) => d.status === 'open' || d.status === 'in_progress');
   const blockers = openDefects.filter((d) => d.severity === 'blocker');
   const historicalDefects = (state?.defects ?? []).filter((d) => d.status !== 'open' && d.status !== 'in_progress');
@@ -5090,6 +5116,45 @@ function ScenePlanPanel({
                   </div>
                 )}
               </section>
+
+              {candidateQueue && (
+                <section>
+                  <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500 mb-2">Candidate Queue</div>
+                  <div className="rounded-md border border-zinc-200 bg-white p-3">
+                    <div className="flex items-center justify-between text-[0.72rem] text-zinc-600">
+                      <span>{candidateQueue.candidate_contract}</span>
+                      <span className="font-mono">{candidateQueue.count} candidates</span>
+                    </div>
+                    {candidateQueue.candidates.length === 0 ? (
+                      <div className="mt-2 text-[0.78rem] text-zinc-600">No deterministic candidates found.</div>
+                    ) : (
+                      <div className="mt-3 space-y-2">
+                        {candidateQueue.candidates.slice(0, 8).map((c) => {
+                          const decisions = state?.current_state?.opening_candidate_decisions ?? {};
+                          const decision = c.candidate_fingerprint ? decisions[c.candidate_fingerprint] : undefined;
+                          return (
+                            <div key={c.candidate_id} className="rounded border border-zinc-200 bg-zinc-50 p-2 text-[0.74rem]">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="font-semibold text-zinc-900">{c.candidate_id} · {c.kind}</div>
+                                <span className={`font-mono ${decision ? 'text-emerald-700' : 'text-zinc-500'}`}>
+                                  {decision?.outcome ?? c.confidence ?? 'review'}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-zinc-600">
+                                {c.parent_wall_id && <span>wall <span className="font-mono">{c.parent_wall_id}</span></span>}
+                                {c.opening_kind && <span>kind <span className="font-mono">{c.opening_kind}</span></span>}
+                                {c.span_px !== undefined && <span>span <span className="font-mono">{c.span_px}px</span></span>}
+                              </div>
+                              {c.region !== undefined && <div className="mt-1 font-mono text-[0.68rem] text-zinc-500">region {JSON.stringify(c.region)}</div>}
+                              {c.instruction && <div className="mt-1 text-zinc-700">{c.instruction}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
 
               <section>
                 <div className="flex items-center justify-between gap-2 mb-2">

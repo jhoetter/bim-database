@@ -8,6 +8,8 @@ opening at a time instead of guessing from the full drawing.
 from __future__ import annotations
 
 import math
+import hashlib
+import json
 from typing import Any
 
 import numpy as np
@@ -51,6 +53,11 @@ def _bbox(points: list[tuple[float, float]], pad: float = 24.0) -> list[int]:
         int(math.ceil(max(xs) + pad)),
         int(math.ceil(max(ys) + pad)),
     ]
+
+
+def _fingerprint(payload: dict[str, Any]) -> str:
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(body.encode("utf-8")).hexdigest()[:14]
 
 
 def _quad_for_span(
@@ -135,6 +142,12 @@ def opening_candidate_report(
         ]
         candidates.append({
             "candidate_id": f"OPEN-{len(candidates) + 1:03d}",
+            "candidate_fingerprint": _fingerprint({
+                "kind": "existing_opening",
+                "label_id": opening.get("id"),
+                "parent": parent_ids[0] if parent_ids else None,
+                "axis": axis,
+            }),
             "kind": "existing_opening",
             "confidence": "reviewed",
             "parent_wall_id": parent_ids[0] if parent_ids else None,
@@ -194,6 +207,14 @@ def opening_candidate_report(
             confidence_score = max(0.0, min(1.0, (edge_dark - gap_dark) / max(0.01, edge_dark)))
             candidates.append({
                 "candidate_id": f"OPEN-{len(candidates) + 1:03d}",
+                "candidate_fingerprint": _fingerprint({
+                    "kind": "wall_gap",
+                    "parent": wall.get("id"),
+                    "centerline": [
+                        [round(a[0] + ux * start_t, 1), round(a[1] + uy * start_t, 1)],
+                        [round(a[0] + ux * end_t, 1), round(a[1] + uy * end_t, 1)],
+                    ],
+                }),
                 "kind": "wall_gap",
                 "confidence": "high" if confidence_score >= 0.65 else "medium",
                 "confidence_score": round(confidence_score, 3),

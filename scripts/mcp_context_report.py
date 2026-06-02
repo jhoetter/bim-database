@@ -241,6 +241,77 @@ def analyze_dataset(paths: list[Path]) -> dict[str, Any]:
     }
 
 
+def analyze_plan_quality(paths: list[Path]) -> dict[str, Any]:
+    scenes: list[dict[str, Any]] = []
+    totals = collections.Counter()
+    for root in paths:
+        for path in _expand_plan_state_files(root):
+            try:
+                state = json.loads(path.read_text(errors="ignore"))
+            except json.JSONDecodeError:
+                totals["corrupt_plan_states"] += 1
+                continue
+            if not isinstance(state, dict):
+                continue
+            current = state.get("current_state") or {}
+            term = current.get("terminality") or {}
+            defects = state.get("defects") or []
+            open_defects = [
+                d for d in defects
+                if isinstance(d, dict) and d.get("status") in {"open", "in_progress"}
+            ]
+            blocker_count = len([d for d in open_defects if d.get("severity") == "blocker"])
+            warning_count = len([d for d in open_defects if d.get("severity") == "warning"])
+            opening_decisions = current.get("opening_candidate_decisions") or {}
+            repair_decisions = current.get("repair_candidate_decisions") or {}
+            totals["plan_states"] += 1
+            totals[f"status_{state.get('status') or 'unknown'}"] += 1
+            totals["open_blockers"] += blocker_count
+            totals["open_warnings"] += warning_count
+            totals["opening_candidate_decisions"] += len(opening_decisions) if isinstance(opening_decisions, dict) else 0
+            totals["repair_candidate_decisions"] += len(repair_decisions) if isinstance(repair_decisions, dict) else 0
+            if term.get("terminal"):
+                totals["terminal_scenes"] += 1
+            if term.get("status") == "verified" or state.get("status") == "verified":
+                totals["verified_scenes"] += 1
+            scenes.append({
+                "path": str(path),
+                "key": state.get("key"),
+                "file": state.get("file"),
+                "scene_tag": state.get("scene_tag"),
+                "status": state.get("status"),
+                "terminal": bool(term.get("terminal")),
+                "percent_complete": term.get("percent_complete"),
+                "open_blockers": blocker_count,
+                "open_warnings": warning_count,
+                "current_findings": (current.get("findings") or {}).get("count"),
+                "finding_clusters": (current.get("finding_clusters") or {}).get("count"),
+                "opening_candidate_decisions": len(opening_decisions) if isinstance(opening_decisions, dict) else 0,
+                "repair_candidate_decisions": len(repair_decisions) if isinstance(repair_decisions, dict) else 0,
+            })
+    scenes.sort(key=lambda item: (item["open_blockers"], item["open_warnings"], item.get("file") or ""), reverse=True)
+    return {
+        "totals": dict(totals),
+        "scenes": scenes[:50],
+        "quality_warnings": _plan_quality_warnings(scenes, totals),
+    }
+
+
+def _plan_quality_warnings(scenes: list[dict[str, Any]], totals: collections.Counter) -> list[str]:
+    warnings: list[str] = []
+    if totals.get("open_blockers", 0):
+        warnings.append(f"{totals['open_blockers']} open blocker defect(s) remain across plan states")
+    warning_heavy = [s for s in scenes if int(s.get("open_warnings") or 0) >= 20]
+    if warning_heavy:
+        warnings.append(f"{len(warning_heavy)} scene(s) have >=20 open warning defects")
+    terminal_with_warnings = [s for s in scenes if s.get("terminal") and int(s.get("open_warnings") or 0) >= 20]
+    if terminal_with_warnings:
+        warnings.append(f"{len(terminal_with_warnings)} terminal scene(s) still carry heavy warning backlogs")
+    if totals.get("plan_states", 0) and not totals.get("opening_candidate_decisions", 0):
+        warnings.append("no opening candidate decisions recorded; opening detail pass may still be manual")
+    return warnings
+
+
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     report: dict[str, Any] = {}
     if args.catalog:
@@ -252,6 +323,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         report["mcp_log"] = analyze_mcp_log([Path(p) for p in args.mcp_log])
     if args.dataset:
         report["dataset"] = analyze_dataset([Path(p) for p in args.dataset])
+        report["plan_quality"] = analyze_plan_quality([Path(p) for p in args.dataset])
     return report
 
 
@@ -369,6 +441,35 @@ def render_markdown(report: dict[str, Any]) -> str:
         for item in dataset.get("largest_files", [])[:15]:
             lines.append(f"| `{item['path']}` | {item['kind']} | {item['bytes'] / 1_000:.1f} |")
         lines.append("")
+    plan_quality = report.get("plan_quality") or {}
+    if plan_quality:
+        totals = plan_quality.get("totals") or {}
+        lines += [
+            "## Plan Quality",
+            "",
+            f"- Plan states: {totals.get('plan_states', 0):,}",
+            f"- Terminal scenes: {totals.get('terminal_scenes', 0):,}",
+            f"- Verified scenes: {totals.get('verified_scenes', 0):,}",
+            f"- Open blockers: {totals.get('open_blockers', 0):,}",
+            f"- Open warnings: {totals.get('open_warnings', 0):,}",
+            f"- Topology decisions: {totals.get('repair_candidate_decisions', 0):,}",
+            f"- Opening decisions: {totals.get('opening_candidate_decisions', 0):,}",
+            "",
+        ]
+        warnings = plan_quality.get("quality_warnings") or []
+        if warnings:
+            lines += ["### Quality Warnings", ""]
+            lines += [f"- {w}" for w in warnings]
+            lines.append("")
+        lines += ["| Scene | Status | Complete | Blockers | Warnings | Decisions |", "|---|---|---:|---:|---:|---:|"]
+        for item in plan_quality.get("scenes", [])[:15]:
+            decisions = int(item.get("repair_candidate_decisions") or 0) + int(item.get("opening_candidate_decisions") or 0)
+            lines.append(
+                f"| `{item.get('file')}` | {item.get('status')} | "
+                f"{item.get('percent_complete') if item.get('percent_complete') is not None else ''} | "
+                f"{item.get('open_blockers', 0)} | {item.get('open_warnings', 0)} | {decisions} |"
+            )
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -395,6 +496,16 @@ def _tool_bucket() -> dict[str, int]:
 
 def _quality_bucket() -> dict[str, Any]:
     return {"count": 0, "latest": None, "max": None}
+
+
+def _expand_plan_state_files(root: Path) -> list[Path]:
+    if root.is_file() and root.name.endswith(".plan.json"):
+        return [root]
+    if not root.exists():
+        return []
+    if (root / "plans").exists():
+        return sorted((root / "plans").glob("*.plan.json"))
+    return sorted(root.glob("*/plans/*.plan.json"))
 
 
 def _has_mcp_tool_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:

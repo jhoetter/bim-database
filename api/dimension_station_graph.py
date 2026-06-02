@@ -116,6 +116,55 @@ def dimension_station_graph(
             ),
             "suggested_dimensioned_distance": {"type": "dimensioned_distance", "geometry": {"start": a, "end": b}},
         })
+    aligned_spans = [s for s in spans if s["anchor_status"] == "wall_aligned"]
+    longest_span = max(spans, key=lambda s: s["length_px"], default=None)
+    longest_aligned = max(aligned_spans, key=lambda s: s["length_px"], default=None)
+    groups: list[dict[str, Any]] = []
+    if spans:
+        groups.append({
+            "group_id": "CHAIN-001",
+            "kind": "adjacent_dimension_chain",
+            "span_ids": [s["span_id"] for s in spans],
+            "station_ids": [s["station_id"] for s in stations],
+            "anchor_status": "wall_aligned" if all(s["anchor_status"] == "wall_aligned" for s in spans) else "needs_visual_review",
+            "instruction": "Read printed part values for each adjacent span; use only visually confirmed spans.",
+        })
+    if len(stations) >= 2:
+        start = stations[0]["point"]
+        end = stations[-1]["point"]
+        pa = _point(start)
+        pb = _point(end)
+        if pa and pb:
+            groups.append({
+                "group_id": "CHAIN-OVERALL",
+                "kind": "overall_dimension_span",
+                "start_station_id": stations[0]["station_id"],
+                "end_station_id": stations[-1]["station_id"],
+                "start": start,
+                "end": end,
+                "length_px": round(math.hypot(pb[0] - pa[0], pb[1] - pa[1]), 1),
+                "anchor_status": (
+                    "wall_aligned"
+                    if stations[0]["anchor_status"] == "wall_aligned"
+                    and stations[-1]["anchor_status"] == "wall_aligned"
+                    else "needs_visual_review"
+                ),
+                "suggested_dimensioned_distance": {"type": "dimensioned_distance", "geometry": {"start": start, "end": end}},
+                "instruction": "Use when the printed chain has one overall value spanning all visible ticks.",
+            })
+    reference_candidates = []
+    for rank, span in enumerate([longest_aligned, longest_span], start=1):
+        if not span or any(existing.get("span_id") == span.get("span_id") for existing in reference_candidates):
+            continue
+        reference_candidates.append({
+            "rank": rank,
+            "span_id": span["span_id"],
+            "start": span["start"],
+            "end": span["end"],
+            "length_px": span["length_px"],
+            "anchor_status": span["anchor_status"],
+            "reason": "longest wall-aligned span" if span is longest_aligned else "longest detected span",
+        })
     return {
         "station_graph_contract": "dimension-station-graph/v1",
         "found": bool(chain.get("found")),
@@ -126,6 +175,8 @@ def dimension_station_graph(
         "span_count": len(spans),
         "stations": stations,
         "spans": spans,
+        "groups": groups,
+        "reference_candidates": reference_candidates,
         "unreviewed_station_count": len([s for s in stations if s["anchor_status"] != "wall_aligned"]),
         "chain_prior": {k: v for k, v in chain.items() if k not in {"ticks"}},
         "note": "No OCR. The model reads printed values from crop_region and attaches them to reviewed spans.",

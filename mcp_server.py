@@ -3246,6 +3246,38 @@ async def opening_candidates(
 
 
 @mcp.tool()
+async def view_geometry_candidates(
+    key: str,
+    file: str,
+    region: str | None = None,
+    thresh: int = 185,
+    min_line_px: int = 80,
+    min_rect_px: int = 18,
+    max_candidates: int = 30,
+) -> dict:
+    """Return section/elevation component-line and opening candidates.
+
+    USE when:
+      - Working on an `ansicht` or `schnitt` scene after height/datum review.
+      - You need deterministic priors for component_line roof/slab/terrain
+        edges or likely view_opening rectangles before placing labels.
+
+    This is CV-as-prior only. Inspect a crop before applying labels; text,
+    hatching, furniture, and title-block lines can produce false positives.
+    """
+    started = time.time()
+    params: dict[str, Any] = {
+        "thresh": thresh,
+        "min_line_px": min_line_px,
+        "min_rect_px": min_rect_px,
+        "max_candidates": max_candidates,
+    }
+    if region is not None:
+        params["region"] = region
+    return await _cv_get(f"/datasets/{key}/{file}/view-geometry-candidates", params, started)
+
+
+@mcp.tool()
 async def get_scene_view_with_opening_candidate(
     key: str,
     file: str,
@@ -3294,6 +3326,87 @@ async def get_scene_view_with_opening_candidate(
         status_code=status,
         image_delivery=image_delivery,
     )
+
+
+@mcp.tool()
+async def apply_opening_candidate(
+    key: str,
+    file: str,
+    candidate_id: str,
+    expected_candidate_kind: str | None = None,
+    opening_kind: str | None = None,
+    width_mm: float | None = None,
+    swing: str | None = None,
+    swing_side: str | None = None,
+    evidence_ids: list[str] | None = None,
+    expected_version: str | None = None,
+    note: str | None = None,
+) -> dict:
+    """Apply one reviewed deterministic floorplan opening candidate.
+
+    USE when:
+      - You inspected `get_scene_view_with_opening_candidate` and the quad is
+        a true door/window/passage/garage-door opening on the suggested parent
+        wall.
+      - You want the server to persist the opening through the same validation
+        path as normal labels and record a scene-plan candidate decision.
+
+    DON'T USE when:
+      - The candidate is false, ambiguous, or has the wrong parent wall. Use
+        `decide_opening_candidate` with the appropriate outcome instead.
+    """
+    started = time.time()
+    body = {
+        "expected_candidate_kind": expected_candidate_kind,
+        "opening_kind": opening_kind,
+        "width_mm": width_mm,
+        "swing": swing,
+        "swing_side": swing_side,
+        "evidence_ids": evidence_ids or [],
+        "expected_version": expected_version,
+        "note": note,
+    }
+    status, res = await _api_post(f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/apply", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def decide_opening_candidate(
+    key: str,
+    file: str,
+    candidate_id: str,
+    outcome: str,
+    expected_candidate_kind: str | None = None,
+    evidence_ids: list[str] | None = None,
+    expected_version: str | None = None,
+    note: str | None = None,
+) -> dict:
+    """Record an accept/reject/manual decision for an opening candidate.
+
+    USE when:
+      - A candidate has been visually inspected and should be rejected,
+        accepted as uncertain, or routed to manual geometry instead of being
+        applied automatically.
+
+    Allowed outcomes: `rejected_false_positive`, `rejected_not_an_opening`,
+    `rejected_bad_parent_wall`, `accepted_uncertain`, `needs_manual_geometry`.
+    This writes plan-state audit data but does not mutate labels.
+    """
+    started = time.time()
+    body = {
+        "outcome": outcome,
+        "expected_candidate_kind": expected_candidate_kind,
+        "evidence_ids": evidence_ids or [],
+        "expected_version": expected_version,
+        "note": note,
+    }
+    status, res = await _api_post(f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/decision", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_compact_plan_mutation_response(data, action="decide_opening_candidate"), started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -5695,6 +5808,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "add_reference_dim", "dimension_chain_candidates", "dimension_chain_context",
         "dimension_station_graph", "opening_candidates",
         "get_scene_view_with_opening_candidate",
+        "apply_opening_candidate", "decide_opening_candidate",
         "score_walls", "score_measurements", "wall_topology_qa",
         "wall_continuity_check", "ambiguous_line_context", "propose_wall_edit",
         "get_scene_repair_candidates", "get_scene_view_with_repair_candidate",
@@ -5712,6 +5826,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "record_scene_plan_attempt", "finish_scene_plan_action",
         "set_scene_plan_task_state",
         "get_scene_view", "get_scene_view_with_labels", "verify_label_placement",
+        "view_geometry_candidates",
         "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
         "delete_label", "update_label_attrs", "set_label_status",
         "add_reference_dim", "recompute_homography",

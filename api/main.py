@@ -2712,6 +2712,38 @@ def opening_candidates_route(
     return {"ok": True, "data": data}
 
 
+@app.get("/datasets/{key}/{file}/view-geometry-candidates", tags=["pdfs"])
+def view_geometry_candidates_route(
+    key: str,
+    file: str,
+    region: str | None = None,
+    thresh: int = 185,
+    min_line_px: int = 80,
+    min_rect_px: int = 18,
+    max_candidates: int = 40,
+):
+    """Return component/opening candidates for Ansicht/Schnitt scenes."""
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    from PIL import Image as PILImage
+    from .view_geometry_candidates import view_geometry_candidates
+    parsed = _parse_region(region)
+    with PILImage.open(img_path) as src:
+        data = view_geometry_candidates(
+            src.convert("RGB"),
+            region=parsed,
+            thresh=thresh,
+            min_line_px=min_line_px,
+            min_rect_px=min_rect_px,
+            max_candidates=max_candidates,
+        )
+    return {"ok": True, "data": data}
+
+
 def _find_opening_candidate(labels_doc: dict[str, Any], img_path: Path, candidate_id: str) -> dict[str, Any]:
     from PIL import Image as PILImage
     from .opening_candidates import opening_candidate_report
@@ -2794,6 +2826,115 @@ def opening_candidate_overlay_route(
     buf = io.BytesIO()
     overlay.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")
+
+
+def _next_label_id(labels_doc: dict[str, Any], prefix: str) -> str:
+    import uuid
+    existing = {str(lab.get("id")) for lab in labels_doc.get("labels") or [] if isinstance(lab, dict)}
+    for _ in range(20):
+        label_id = f"{prefix}-{uuid.uuid4().hex[:8]}"
+        if label_id not in existing:
+            return label_id
+    return f"{prefix}-{uuid.uuid4()}"
+
+
+def _apply_opening_candidate_to_labels(
+    labels_doc: dict[str, Any],
+    candidate: dict[str, Any],
+    attrs_patch: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str]:
+    suggested = candidate.get("suggested_label")
+    if not isinstance(suggested, dict):
+        raise ValueError("candidate has no suggested label; record a decision instead")
+    new_doc = json.loads(json.dumps(labels_doc))
+    label = json.loads(json.dumps(suggested))
+    attrs = label.setdefault("attributes", {})
+    for key in ("opening_kind", "width_mm", "swing", "swing_side"):
+        if attrs_patch and key in attrs_patch and attrs_patch[key] is not None:
+            attrs[key] = attrs_patch[key]
+    if attrs.get("opening_kind") == "unknown":
+        attrs["opening_kind"] = "window"
+    label["id"] = _next_label_id(new_doc, "opening")
+    label["status"] = "readable"
+    now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
+    label["created_at"] = now
+    label["updated_at"] = now
+    new_doc.setdefault("labels", []).append(label)
+    return new_doc, label["id"]
+
+
+@app.post("/datasets/{key}/{file}/opening-candidates/{candidate_id}/apply", tags=["pdfs"])
+def apply_opening_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(default={})):
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        candidate = _find_opening_candidate(labels_doc, img_path, candidate_id)
+        if body.get("expected_candidate_kind") and body.get("expected_candidate_kind") != candidate.get("kind"):
+            raise ValueError("candidate kind changed; refresh opening candidates")
+        if body.get("expected_version"):
+            from .scene_plan_state import PlanStateConflictError, read_plan_state
+            current_plan = read_plan_state(DATASET_DIR, key, file)
+            if current_plan.get("exists") and current_plan.get("version") != body.get("expected_version"):
+                raise PlanStateConflictError("plan state version conflict")
+        new_doc, label_id = _apply_opening_candidate_to_labels(labels_doc, candidate, body.get("attrs_patch") or body)
+        put_labels("dataset", key, file, new_doc)
+        from .scene_plan_state import record_opening_candidate_decision
+        decision = record_opening_candidate_decision(
+            DATASET_DIR,
+            key,
+            file,
+            candidate,
+            "accepted_applied",
+            label_id=label_id,
+            evidence_ids=body.get("evidence_ids"),
+            note=body.get("note"),
+            expected_version=body.get("expected_version"),
+        )
+        data = {
+            "candidate_id": candidate_id,
+            "candidate_fingerprint": candidate.get("candidate_fingerprint"),
+            "persisted": True,
+            "label_id": label_id,
+            "candidate": candidate,
+            "decision": ((decision.get("state") or {}).get("current_state") or {}).get("opening_candidate_decisions", {}),
+        }
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/opening-candidates/{candidate_id}/decision", tags=["pdfs"])
+def decide_opening_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(...)):
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        candidate = _find_opening_candidate(labels_doc, img_path, candidate_id)
+        if body.get("expected_candidate_kind") and body.get("expected_candidate_kind") != candidate.get("kind"):
+            raise ValueError("candidate kind changed; refresh opening candidates")
+        from .scene_plan_state import record_opening_candidate_decision
+        data = record_opening_candidate_decision(
+            DATASET_DIR,
+            key,
+            file,
+            candidate,
+            str(body.get("outcome") or ""),
+            evidence_ids=body.get("evidence_ids"),
+            note=body.get("note"),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
 
 
 @app.get("/datasets/{key}/{file}/building-silhouette", tags=["pdfs"])

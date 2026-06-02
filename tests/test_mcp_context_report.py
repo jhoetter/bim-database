@@ -6,6 +6,7 @@ from pathlib import Path
 from scripts.mcp_context_report import (
     analyze_dataset,
     analyze_mcp_log,
+    analyze_plan_quality,
     analyze_tool_catalog,
     analyze_transcripts,
     render_markdown,
@@ -174,6 +175,36 @@ def test_analyze_dataset_samples_payload_sizes(tmp_path: Path) -> None:
     assert report["largest_files"][0]["bytes"] > 0
 
 
+def test_analyze_plan_quality_summarizes_plan_states(tmp_path: Path) -> None:
+    root = tmp_path / "house-1"
+    (root / "plans").mkdir(parents=True)
+    (root / "plans" / "eg.plan.json").write_text(json.dumps({
+        "key": "house-1",
+        "file": "eg.png",
+        "scene_tag": "grundriss",
+        "status": "verified",
+        "defects": [
+            {"id": "DEF-1", "status": "open", "severity": "warning"},
+            {"id": "DEF-2", "status": "fixed", "severity": "blocker"},
+        ],
+        "current_state": {
+            "terminality": {"terminal": True, "status": "verified", "percent_complete": 100},
+            "repair_candidate_decisions": {"r1": {"outcome": "accepted_applied"}},
+            "opening_candidate_decisions": {"o1": {"outcome": "accepted_applied"}},
+            "findings": {"count": 1},
+            "finding_clusters": {"count": 1},
+        },
+    }))
+
+    report = analyze_plan_quality([root])
+
+    assert report["totals"]["plan_states"] == 1
+    assert report["totals"]["terminal_scenes"] == 1
+    assert report["totals"]["open_warnings"] == 1
+    assert report["totals"]["opening_candidate_decisions"] == 1
+    assert report["scenes"][0]["file"] == "eg.png"
+
+
 def test_render_markdown_includes_quality_and_dataset_sections(tmp_path: Path) -> None:
     report = {
         "transcripts": {
@@ -201,6 +232,11 @@ def test_render_markdown_includes_quality_and_dataset_sections(tmp_path: Path) -
             "totals": {"labels_files": 1, "labels_bytes": 20},
             "largest_files": [{"path": "labels/a.json", "kind": "labels", "bytes": 20}],
         },
+        "plan_quality": {
+            "totals": {"plan_states": 1, "terminal_scenes": 1, "open_warnings": 2},
+            "quality_warnings": ["2 open warnings"],
+            "scenes": [{"file": "eg.png", "status": "verified", "percent_complete": 100, "open_blockers": 0, "open_warnings": 2, "repair_candidate_decisions": 1, "opening_candidate_decisions": 1}],
+        },
     }
 
     md = render_markdown(report)
@@ -209,3 +245,5 @@ def test_render_markdown_includes_quality_and_dataset_sections(tmp_path: Path) -
     assert "Quality Signals" in md
     assert "`f1`" in md
     assert "Dataset Payload Samples" in md
+    assert "Plan Quality" in md
+    assert "Opening decisions" in md

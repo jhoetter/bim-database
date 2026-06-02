@@ -4,6 +4,7 @@
 // R0 — catalog ("houses") endpoints removed. Only the dataset path remains.
 import { useEffect, useState } from 'react';
 import type {
+  CandidateQueue,
   LabelScope,
   SceneLabels,
   ScenePlan,
@@ -338,6 +339,20 @@ export async function createScenePlanFromTemplate(
   }
   const payload = await r.json() as { ok: boolean; data: ScenePlan };
   return payload.data;
+}
+
+export async function fetchOpeningCandidates(key: string, file: string): Promise<CandidateQueue> {
+  const res = await get<{ ok: boolean; data: CandidateQueue }>(
+    `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(file)}/opening-candidates?limit=12`,
+  );
+  return res.data;
+}
+
+export async function fetchViewGeometryCandidates(key: string, file: string): Promise<CandidateQueue> {
+  const res = await get<{ ok: boolean; data: CandidateQueue }>(
+    `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(file)}/view-geometry-candidates?max_candidates=12`,
+  );
+  return res.data;
 }
 
 // Tiny hook helpers — no react-query dep for this scale. Re-fetches when

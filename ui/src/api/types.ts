@@ -309,6 +309,18 @@ export interface ScenePlanState {
       note?: string | null;
       updated_at?: string;
     }>;
+    opening_candidate_decisions?: Record<string, {
+      candidate_id?: string;
+      candidate_fingerprint?: string;
+      kind?: string;
+      outcome?: string;
+      label_id?: string | null;
+      parent_wall_id?: string | null;
+      region?: unknown;
+      evidence_ids?: string[];
+      note?: string | null;
+      decided_at?: string;
+    }>;
     blockers?: string[];
     stale_evidence?: string[];
     current_action_id?: string | null;
@@ -319,6 +331,27 @@ export interface ScenePlanState {
   evidence?: ScenePlanEvidence[];
   decision_log?: Array<Record<string, unknown>>;
   actions?: Array<Record<string, unknown>>;
+}
+
+export interface CandidateQueueItem {
+  candidate_id: string;
+  candidate_fingerprint?: string;
+  kind: string;
+  confidence?: string;
+  parent_wall_id?: string | null;
+  opening_kind?: string;
+  region?: unknown;
+  span_px?: number;
+  instruction?: string;
+  suggested_label?: unknown;
+}
+
+export interface CandidateQueue {
+  candidate_contract: string;
+  count: number;
+  candidates: CandidateQueueItem[];
+  note?: string;
+  params?: Record<string, unknown>;
 }
 
 // Dataset (supervised-learning corpus) — drawings come from two sources:
