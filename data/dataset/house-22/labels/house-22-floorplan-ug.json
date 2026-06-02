@@ -7,8 +7,133 @@
   "scene_orientation": null,
   "scene_level": "ug",
   "image_size_px": [
-    2550,
-    1682
+    1960,
+    1491
   ],
-  "labels": []
+  "labels": [
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          560,
+          510
+        ],
+        "end": [
+          1115,
+          510
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "id": "lab-0bda466a2b"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          625,
+          1000
+        ],
+        "end": [
+          1100,
+          1000
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "id": "lab-db8690b081"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          560,
+          510
+        ],
+        "end": [
+          625,
+          1000
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "id": "lab-b7c341d392"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1115,
+          510
+        ],
+        "end": [
+          1150,
+          1000
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "id": "lab-8267c25458"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1130,
+          660
+        ],
+        "end": [
+          1420,
+          660
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 240
+      },
+      "id": "lab-9b9899da52"
+    },
+    {
+      "type": "floorplan_opening",
+      "status": "readable",
+      "geometry": {
+        "quad": [
+          [
+            820,
+            970
+          ],
+          [
+            900,
+            970
+          ],
+          [
+            900,
+            1030
+          ],
+          [
+            820,
+            1030
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "window"
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-db8690b081"
+        }
+      ],
+      "id": "lab-49dd8d8ec5"
+    }
+  ]
 }

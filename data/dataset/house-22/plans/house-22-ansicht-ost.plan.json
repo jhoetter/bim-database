@@ -1,0 +1,156 @@
+{
+  "actions": [],
+  "created_at": "2026-06-02T05:36:09+00:00",
+  "created_by": "codex",
+  "current_state": {
+    "blockers": [],
+    "label_counts": {},
+    "scores": {},
+    "summary": "Scene plan created; analysis not yet complete.",
+    "topology": {}
+  },
+  "decision_log": [],
+  "defects": [],
+  "evidence": [],
+  "file": "house-22-ansicht-ost.jpg",
+  "key": "house-22",
+  "level_or_orientation": "east",
+  "scene_tag": "ansicht",
+  "schema_version": "scene-plan-state-v1",
+  "status": "draft",
+  "tasks": [
+    {
+      "blocked_by": [],
+      "category": "classification",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "SCENE_CLASSIFIED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "CLASSIFY_SCENE",
+      "invalidates": [],
+      "phase": "analysis",
+      "required": true,
+      "status": "todo",
+      "title": "Set scene tag and facade orientation",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "calibration",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "HEIGHTS_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "READ_HEIGHTS",
+      "invalidates": [],
+      "phase": "analysis",
+      "required": true,
+      "status": "todo",
+      "title": "Read or propagate datum and height facts",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "STRUCTURE_EXISTS",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "TRACE_COMPONENTS",
+      "invalidates": [],
+      "phase": "editing",
+      "required": true,
+      "status": "todo",
+      "title": "Trace facade and roof component lines",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "openings",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "VIEW_OPENINGS_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "PLACE_VIEW_OPENINGS",
+      "invalidates": [],
+      "phase": "editing",
+      "required": true,
+      "status": "todo",
+      "title": "Place facade doors/windows",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "calibration",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "CALIBRATION_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "CALIBRATE_SCENE",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Add reference dimensions and recompute homography",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "qa",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "VISUAL_VERIFY_EXISTS",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "NO_BLOCKER_DEFECTS",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "FINAL_QA",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Run final elevation QA",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    }
+  ],
+  "updated_at": "2026-06-02T05:36:09+00:00"
+}

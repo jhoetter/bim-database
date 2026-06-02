@@ -13,30 +13,40 @@
     {
       "page": 1,
       "bbox_pdf_units": [
-        0.0,
-        0.0,
-        612.0,
-        404.0
+        35.0,
+        22.5,
+        505.0,
+        380.0
       ],
       "scene_file": "house-22-floorplan-ug.jpg"
     },
     {
+      "page": 2,
+      "bbox_pdf_units": [
+        35.0,
+        22.5,
+        505.0,
+        380.0
+      ],
+      "scene_file": "house-22-floorplan-eg.jpg"
+    },
+    {
       "page": 3,
       "bbox_pdf_units": [
-        0.0,
-        0.0,
-        612.0,
-        412.0
+        35.0,
+        27.5,
+        505.0,
+        352.5
       ],
       "scene_file": "house-22-floorplan-dg.jpg"
     },
     {
       "page": 4,
       "bbox_pdf_units": [
-        0.0,
-        20.0,
-        612.0,
-        272.5
+        17.5,
+        30.0,
+        595.0,
+        255.0
       ],
       "scene_file": "house-22-schnitt-gebaeude.jpg"
     },
@@ -44,8 +54,8 @@
       "page": 4,
       "bbox_pdf_units": [
         0.0,
-        215.0,
-        455.0,
+        222.5,
+        362.5,
         402.5
       ],
       "scene_file": "house-22-schnitt-garage.jpg"
@@ -54,9 +64,9 @@
       "page": 5,
       "bbox_pdf_units": [
         0.0,
-        15.0,
-        612.0,
-        237.5
+        17.5,
+        492.5,
+        215.0
       ],
       "scene_file": "house-22-ansicht-ost.jpg"
     },
@@ -64,29 +74,29 @@
       "page": 5,
       "bbox_pdf_units": [
         0.0,
-        215.0,
-        612.0,
-        410.0
+        210.0,
+        455.0,
+        395.0
       ],
       "scene_file": "house-22-ansicht-nord.jpg"
     },
     {
       "page": 6,
       "bbox_pdf_units": [
-        0.0,
-        15.0,
-        612.0,
-        235.0
+        12.5,
+        27.5,
+        490.0,
+        212.5
       ],
       "scene_file": "house-22-ansicht-sued.jpg"
     },
     {
       "page": 6,
       "bbox_pdf_units": [
-        0.0,
-        215.0,
-        612.0,
-        422.5
+        10.0,
+        205.0,
+        390.0,
+        395.0
       ],
       "scene_file": "house-22-ansicht-west.jpg"
     }

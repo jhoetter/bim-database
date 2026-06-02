@@ -7,8 +7,115 @@
   "scene_orientation": null,
   "scene_level": "dg",
   "image_size_px": [
-    2550,
-    1717
+    1960,
+    1355
   ],
-  "labels": []
+  "labels": [
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          625,
+          360
+        ],
+        "end": [
+          1270,
+          360
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "id": "lab-4451f4f945"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          690,
+          910
+        ],
+        "end": [
+          1220,
+          910
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "id": "lab-052d3685dd"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          690,
+          420
+        ],
+        "end": [
+          690,
+          910
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "id": "lab-b2cbdd3488"
+    },
+    {
+      "type": "wall",
+      "status": "readable",
+      "geometry": {
+        "start": [
+          1270,
+          360
+        ],
+        "end": [
+          1220,
+          910
+        ]
+      },
+      "attributes": {
+        "thickness_mm": 300
+      },
+      "id": "lab-ea4c444a4d"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            800,
+            890
+          ],
+          [
+            885,
+            890
+          ],
+          [
+            885,
+            930
+          ],
+          [
+            800,
+            930
+          ]
+        ]
+      },
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-052d3685dd"
+        }
+      ],
+      "attributes": {
+        "opening_kind": "window"
+      },
+      "id": "lab-25f892d404",
+      "status": "readable"
+    }
+  ]
 }

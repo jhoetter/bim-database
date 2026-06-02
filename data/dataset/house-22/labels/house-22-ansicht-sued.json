@@ -7,8 +7,38 @@
   "scene_orientation": "south",
   "scene_level": null,
   "image_size_px": [
-    2550,
-    918
+    1990,
+    772
   ],
-  "labels": []
+  "labels": [
+    {
+      "type": "view_opening",
+      "geometry": {
+        "shape": "polygon",
+        "polygon": [
+          [
+            745,
+            440
+          ],
+          [
+            865,
+            440
+          ],
+          [
+            865,
+            680
+          ],
+          [
+            745,
+            680
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "window"
+      },
+      "id": "lab-f5eb661b1e",
+      "status": "readable"
+    }
+  ]
 }

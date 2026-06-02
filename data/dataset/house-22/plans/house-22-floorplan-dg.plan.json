@@ -1,0 +1,325 @@
+{
+  "actions": [],
+  "created_at": "2026-06-02T05:36:09+00:00",
+  "created_by": "codex",
+  "current_state": {
+    "blockers": [],
+    "label_counts": {},
+    "scores": {},
+    "summary": "Scene plan created; analysis not yet complete.",
+    "topology": {}
+  },
+  "decision_log": [],
+  "defects": [],
+  "evidence": [],
+  "file": "house-22-floorplan-dg.jpg",
+  "key": "house-22",
+  "level_or_orientation": "dg",
+  "scene_tag": "grundriss",
+  "schema_version": "scene-plan-state-v1",
+  "status": "draft",
+  "tasks": [
+    {
+      "blocked_by": [],
+      "category": "classification",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "SCENE_CLASSIFIED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "CLASSIFY_SCENE",
+      "invalidates": [],
+      "phase": "analysis",
+      "required": true,
+      "status": "todo",
+      "title": "Set scene tag and floor level",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "HAS_SILHOUETTE_HYPOTHESIS",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "ANALYZE_SILHOUETTE",
+      "invalidates": [],
+      "phase": "analysis",
+      "required": true,
+      "status": "todo",
+      "title": "Describe outer masses, excluded non-walls, and endpoint rules",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [
+        "CLASSIFY_SCENE",
+        "ANALYZE_SILHOUETTE"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "WALLS_EXIST",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "TRACE_OUTER_WALLS",
+      "invalidates": [
+        "VERIFY_OUTER_TOPOLOGY",
+        "VERIFY_INTERIOR_TOPOLOGY",
+        "PLACE_OPENINGS",
+        "VERIFY_OPENINGS",
+        "READ_DIMENSIONS",
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "editing",
+      "required": true,
+      "status": "todo",
+      "title": "Place outer structural walls before openings",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [
+        "TRACE_OUTER_WALLS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "TOPOLOGY_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "WALL_SCORE_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "VERIFY_OUTER_TOPOLOGY",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Verify outer wall topology and wall score",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [
+        "VERIFY_OUTER_TOPOLOGY"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "WALLS_EXIST",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "TRACE_INTERIOR_WALLS",
+      "invalidates": [
+        "VERIFY_INTERIOR_TOPOLOGY",
+        "PLACE_OPENINGS",
+        "VERIFY_OPENINGS",
+        "READ_DIMENSIONS",
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "editing",
+      "required": true,
+      "status": "todo",
+      "title": "Place interior structural walls",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [
+        "TRACE_INTERIOR_WALLS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "TOPOLOGY_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "WALL_SCORE_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "VERIFY_INTERIOR_TOPOLOGY",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Verify interior wall topology and score",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "openings",
+      "depends_on": [
+        "VERIFY_INTERIOR_TOPOLOGY"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "OPENINGS_HAVE_PARENT_WALL",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "PLACE_OPENINGS",
+      "invalidates": [
+        "VERIFY_OPENINGS",
+        "READ_DIMENSIONS",
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "editing",
+      "required": true,
+      "status": "todo",
+      "title": "Place doors, windows, passages, and garage doors on parent walls",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "openings",
+      "depends_on": [
+        "PLACE_OPENINGS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "OPENINGS_HAVE_PARENT_WALL",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "OPENINGS_ON_WALL",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "VERIFY_OPENINGS",
+      "invalidates": [
+        "READ_DIMENSIONS",
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Verify opening relations and on-wall placement",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "dimensions",
+      "depends_on": [
+        "VERIFY_OPENINGS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "DIMENSIONS_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "READ_DIMENSIONS",
+      "invalidates": [
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "analysis",
+      "required": true,
+      "status": "todo",
+      "title": "Inspect and label readable dimension chains after walls/openings",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "dimensions",
+      "depends_on": [
+        "READ_DIMENSIONS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "MEASUREMENTS_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "VERIFY_MEASUREMENTS",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Verify dimension chains, reference dims, and wall/opening tick alignment",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "qa",
+      "depends_on": [
+        "VERIFY_MEASUREMENTS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "VISUAL_VERIFY_EXISTS",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "NO_BLOCKER_DEFECTS",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "FINAL_QA",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Run final scene QA and update remaining blockers",
+      "updated_at": "2026-06-02T05:36:09+00:00"
+    }
+  ],
+  "updated_at": "2026-06-02T05:36:09+00:00"
+}

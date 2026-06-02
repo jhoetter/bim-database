@@ -7,8 +7,29 @@
   "scene_orientation": null,
   "scene_level": null,
   "image_size_px": [
-    1896,
-    783
+    1511,
+    751
   ],
-  "labels": []
+  "labels": [
+    {
+      "type": "component_line",
+      "geometry": {
+        "polyline": [
+          [
+            335,
+            505
+          ],
+          [
+            835,
+            505
+          ]
+        ]
+      },
+      "attributes": {
+        "line_kind": "geschoss"
+      },
+      "id": "lab-03991f9e05",
+      "status": "readable"
+    }
+  ]
 }

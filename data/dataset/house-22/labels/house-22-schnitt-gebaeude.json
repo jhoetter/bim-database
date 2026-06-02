@@ -7,16 +7,16 @@
   "scene_orientation": null,
   "scene_level": null,
   "image_size_px": [
-    2550,
-    1053
+    2408,
+    938
   ],
   "labels": [
     {
       "type": "height_mark",
       "geometry": {
         "anchor": [
-          1790,
-          160
+          1717.083,
+          118.333
         ]
       },
       "status": "readable",
@@ -30,8 +30,8 @@
       "type": "height_mark",
       "geometry": {
         "anchor": [
-          1798,
-          318
+          1725.083,
+          276.333
         ]
       },
       "status": "readable",
@@ -45,8 +45,8 @@
       "type": "height_mark",
       "geometry": {
         "anchor": [
-          1786,
-          448
+          1713.083,
+          406.333
         ]
       },
       "status": "readable",
@@ -60,8 +60,8 @@
       "type": "height_mark",
       "geometry": {
         "anchor": [
-          1786,
-          609
+          1713.083,
+          567.333
         ]
       },
       "status": "readable",
@@ -75,8 +75,8 @@
       "type": "height_mark",
       "geometry": {
         "anchor": [
-          1788,
-          775
+          1715.083,
+          733.333
         ]
       },
       "status": "readable",
@@ -85,6 +85,26 @@
         "datum": "geschoss"
       },
       "id": "lab-1aec083d9b"
+    },
+    {
+      "type": "component_line",
+      "geometry": {
+        "polyline": [
+          [
+            325,
+            520
+          ],
+          [
+            1790,
+            520
+          ]
+        ]
+      },
+      "attributes": {
+        "line_kind": "geschoss"
+      },
+      "id": "lab-64d7248666",
+      "status": "readable"
     }
   ]
 }

@@ -2,41 +2,41 @@
   "key": "house-22",
   "drawings": [
     {
-      "file": "house-22-floorplan-eg.png",
-      "kind": "floorplan",
-      "source": "pdf",
-      "view": null,
-      "floor": "eg",
-      "title": "EG-Grundriss",
-      "imported_at": "2026-05-31T11:27:39Z",
-      "crop_from": {
-        "pdf_file": "house-22.pdf",
-        "page": 2,
-        "bbox_pdf_units": [
-          30.4836,
-          0.0,
-          586.6964,
-          413.3999938964844
-        ],
-        "dpi": 600
-      }
-    },
-    {
       "file": "house-22-floorplan-ug.jpg",
       "kind": "floorplan",
       "source": "pdf",
       "view": null,
       "floor": "ug",
       "title": "UG-Grundriss",
-      "imported_at": "2026-05-31T22:06:34Z",
+      "imported_at": "2026-06-02T05:35:12Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 1,
         "bbox_pdf_units": [
-          0.0,
-          0.0,
-          612.0,
-          404.0
+          35.0,
+          22.5,
+          505.0,
+          380.0
+        ],
+        "dpi": 300
+      }
+    },
+    {
+      "file": "house-22-floorplan-eg.jpg",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": "eg",
+      "title": "EG-Grundriss",
+      "imported_at": "2026-06-02T05:35:13Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 2,
+        "bbox_pdf_units": [
+          35.0,
+          22.5,
+          505.0,
+          380.0
         ],
         "dpi": 300
       }
@@ -48,15 +48,15 @@
       "view": null,
       "floor": "dg",
       "title": "DG-Grundriss",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "imported_at": "2026-06-02T05:35:13Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 3,
         "bbox_pdf_units": [
-          0.0,
-          0.0,
-          612.0,
-          412.0
+          35.0,
+          27.5,
+          505.0,
+          352.5
         ],
         "dpi": 300
       }
@@ -68,15 +68,15 @@
       "view": "building",
       "floor": null,
       "title": "Schnitt Gebaeude",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "imported_at": "2026-06-02T05:35:13Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 4,
         "bbox_pdf_units": [
-          0.0,
-          20.0,
-          612.0,
-          272.5
+          17.5,
+          30.0,
+          595.0,
+          255.0
         ],
         "dpi": 300
       }
@@ -88,14 +88,14 @@
       "view": "garage",
       "floor": null,
       "title": "Schnitt Garage",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "imported_at": "2026-06-02T05:35:13Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 4,
         "bbox_pdf_units": [
           0.0,
-          215.0,
-          455.0,
+          222.5,
+          362.5,
           402.5
         ],
         "dpi": 300
@@ -108,15 +108,15 @@
       "view": "east",
       "floor": null,
       "title": "Ostansicht",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "imported_at": "2026-06-02T05:35:13Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 5,
         "bbox_pdf_units": [
           0.0,
-          15.0,
-          612.0,
-          237.5
+          17.5,
+          492.5,
+          215.0
         ],
         "dpi": 300
       }
@@ -128,15 +128,15 @@
       "view": "north",
       "floor": null,
       "title": "Nordansicht",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "imported_at": "2026-06-02T05:35:13Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 5,
         "bbox_pdf_units": [
           0.0,
-          215.0,
-          612.0,
-          410.0
+          210.0,
+          455.0,
+          395.0
         ],
         "dpi": 300
       }
@@ -148,15 +148,15 @@
       "view": "south",
       "floor": null,
       "title": "Suedansicht",
-      "imported_at": "2026-05-31T22:06:36Z",
+      "imported_at": "2026-06-02T05:35:13Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 6,
         "bbox_pdf_units": [
-          0.0,
-          15.0,
-          612.0,
-          235.0
+          12.5,
+          27.5,
+          490.0,
+          212.5
         ],
         "dpi": 300
       }
@@ -168,15 +168,15 @@
       "view": "west",
       "floor": null,
       "title": "Westansicht",
-      "imported_at": "2026-05-31T22:06:36Z",
+      "imported_at": "2026-06-02T05:35:14Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 6,
         "bbox_pdf_units": [
-          0.0,
-          215.0,
-          612.0,
-          422.5
+          10.0,
+          205.0,
+          390.0,
+          395.0
         ],
         "dpi": 300
       }
