@@ -24,6 +24,10 @@ import api.main as api_main  # noqa: E402
 import mcp_server  # noqa: E402
 
 
+WORKFLOW_PHASES = ("inventory", "floorplans", "sections", "elevations", "review")
+REQUIRED_WORKFLOW_PHASES = ("inventory", "floorplans", "sections", "elevations")
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     loop = asyncio.new_event_loop()
@@ -92,7 +96,7 @@ def test_get_workflow_state_smoke():
     key = rs["data"]["houses"][0]["key"]
     r = _run(mcp_server.get_workflow_state(key=key))
     assert r["ok"], r.get("error")
-    for p in ("W0", "W1", "W2", "W3", "W4", "W5"):
+    for p in WORKFLOW_PHASES:
         assert p in r["data"]["phases"]
         assert "status" in r["data"]["phases"][p]
     assert "exportable" in r["data"]
@@ -100,12 +104,10 @@ def test_get_workflow_state_smoke():
 
 def test_workflow_state_no_scenes_all_phases_pending():
     """Issue #20: with zero scenes (and possibly stale/orphaned facts),
-    NO substantive phase may report `done` — geometry is read from labels
-    on scenes, so without scenes any heights/extent/orientation facts are
-    orphaned. Previously a leftover heights={bezug_mm:0,first_mm:...} made
-    W1 falsely `done` (and null facts is likewise mishandled)."""
-    # Stale facts that, with scenes, WOULD complete W1/W2/W3 — but there
-    # are no scenes, so every substantive phase must be pending.
+    NO required phase may report `done` — geometry is read from labels on
+    scenes, so without scenes any old facts are orphaned."""
+    # Stale facts that would have completed the retired W-style workflow
+    # are ignored when there are no scenes.
     stale = {
         "heights": {"bezug_mm": 0, "first_mm": 7210},
         "extent": {"width_mm": 9000, "depth_mm": 9000},
@@ -114,63 +116,66 @@ def test_workflow_state_no_scenes_all_phases_pending():
     }
     for facts in ({}, stale):
         state = mcp_server._derive_workflow_state({"drawings": []}, facts, {})
-        for p in ("W0", "W1", "W2", "W3", "W4", "W5"):
+        for p in WORKFLOW_PHASES:
             assert state["phases"][p]["status"] == "pending", (
                 f"{p} should be pending with no scenes (facts={facts!r}), "
                 f"got {state['phases'][p]}"
             )
-        # The substantive phases should blame the missing scenes, not a field.
-        for p in ("W1", "W2", "W3"):
+        for p in REQUIRED_WORKFLOW_PHASES:
             assert state["phases"][p]["blockers"], f"{p} needs a blocker"
 
 
-def test_workflow_state_issue23_null_facts_w1_w3_pending():
+def test_workflow_state_issue23_null_facts_required_phases_pending():
     """Issue #23 (completes #20): a purged house (0 scenes, null/empty
-    house_facts) must report W1–W4 ALL pending with a blocker — not just
-    W2. Previously W1 (heights) and W3 (orientation) leaked `done` with
-    empty blockers, so a labeling agent skipped the height anchor and
-    orientation entirely."""
+    house_facts) must report every required phase pending with blockers."""
     # null facts == empty dict after the loader's `facts or {}` normalize.
     state = mcp_server._derive_workflow_state({"drawings": []}, {}, {})
-    for p in ("W1", "W2", "W3", "W4"):
+    for p in REQUIRED_WORKFLOW_PHASES:
         ph = state["phases"][p]
         assert ph["status"] == "pending", f"{p} must be pending, got {ph}"
-    # W1 & W3 specifically must carry the no-scenes blocker, not be empty.
-    assert state["phases"]["W1"]["blockers"] == ["no scenes extracted yet"]
-    assert state["phases"]["W3"]["blockers"] == ["no scenes extracted yet"]
+        assert ph["blockers"], f"{p} must explain why it is pending"
 
 
-def test_workflow_state_w1_height_mark_label_satisfies():
-    """Issue #23: W1 is `done` when a height_mark label exists on a scene,
-    even if heights facts are not yet written back. Requires scenes."""
-    meta = {"a.jpg": {"scene_tag": "ansicht", "has_height_mark": True}}
+def test_workflow_state_height_mark_does_not_skip_floorplans():
+    """Height annotations alone must not bypass required floorplan geometry."""
+    meta = {
+        "a.jpg": {"scene_tag": "ansicht", "has_height_mark": True},
+        "eg.jpg": {"scene_tag": "grundriss", "scene_level": "eg", "label_types": []},
+    }
     state = mcp_server._derive_workflow_state(
-        {"drawings": [{"file": "a.jpg"}]}, {}, meta,
+        {"drawings": [{"file": "a.jpg"}, {"file": "eg.jpg"}]}, {}, meta,
     )
-    assert state["phases"]["W1"]["status"] == "done"
-    # But with NO scenes, the height_mark presence cannot apply.
+    assert state["next_phase"] == "floorplans"
+    assert state["phases"]["floorplans"]["status"] == "pending"
+    assert state["phases"]["sections"]["status"] == "pending"
+    # With NO scenes, the height_mark presence cannot apply.
     state_no_scenes = mcp_server._derive_workflow_state({"drawings": []}, {}, {})
-    assert state_no_scenes["phases"]["W1"]["status"] == "pending"
+    assert state_no_scenes["phases"]["inventory"]["status"] == "pending"
 
 
 def test_workflow_state_w4_surfaces_single_ref_isotropic():
     """Issue #27: a scene calibrated from a single ref under the isotropic
-    assumption still counts as W4-calibrated (done), but the assumption is
-    surfaced in `assumed_isotropic_scenes`; a measured M1-both scene is
-    NOT flagged."""
-    ds = {"drawings": [{"file": "e.jpg"}, {"file": "s.jpg"}]}
+    assumption is surfaced in `assumed_isotropic_scenes`; a measured M1-both
+    scene is NOT flagged."""
+    ds = {"drawings": [{"file": "eg.jpg"}, {"file": "e.jpg"}, {"file": "s.jpg"}]}
     facts = {"calibration_per_scene": {
         "e.jpg": {"px_per_mm": 0.09, "computed_from": "M1-H-Bezug",
                   "single_ref_assumed_isotropic": True},
         "s.jpg": {"px_per_mm": 0.08, "computed_from": "M1-both",
                   "single_ref_assumed_isotropic": False},
     }}
-    sm = {"e.jpg": {"scene_tag": "ansicht"}, "s.jpg": {"scene_tag": "schnitt"}}
+    sm = {
+        "eg.jpg": {
+            "scene_tag": "grundriss", "scene_level": "eg",
+            "label_types": ["wall", "floorplan_opening"],
+        },
+        "e.jpg": {"scene_tag": "ansicht", "label_types": ["view_opening"]},
+        "s.jpg": {"scene_tag": "schnitt", "label_types": ["component_line"]},
+    }
     state = mcp_server._derive_workflow_state(ds, facts, sm)
-    w4 = state["phases"]["W4"]
-    assert w4["status"] == "done"
-    assert w4["blockers"] == []
-    assert w4["assumed_isotropic_scenes"] == ["e.jpg"]
+    assert state["phases"]["sections"]["status"] == "done"
+    assert state["phases"]["elevations"]["status"] == "done"
+    assert state["assumed_isotropic_scenes"] == ["e.jpg"]
 
 
 def test_validate_export_readiness_surfaces_calibration_assumptions():
@@ -188,8 +193,8 @@ def test_validate_export_readiness_surfaces_calibration_assumptions():
 
 
 def test_workflow_state_full_geometry_with_scene_is_done():
-    """Guard the happy path: a scene plus complete geometry still flips
-    W1/W2/W3 to done (the issue #20 fix must not over-block)."""
+    """Guard the happy path: scenes plus complete geometry still flip the
+    required class-stage phases to done (the issue #20 fix must not over-block)."""
     facts = {
         "heights": {"bezug_mm": 0, "first_mm": 7210},
         "extent": {"width_mm": 9000, "depth_mm": 9000},
@@ -197,9 +202,18 @@ def test_workflow_state_full_geometry_with_scene_is_done():
         "orientation": {"north_angle_deg": 30},
     }
     state = mcp_server._derive_workflow_state(
-        {"drawings": [{"file": "a.jpg"}]}, facts, {"a.jpg": {"scene_tag": "ansicht"}},
+        {"drawings": [{"file": "eg.jpg"}, {"file": "a.jpg"}, {"file": "s.jpg"}]},
+        facts,
+        {
+            "eg.jpg": {
+                "scene_tag": "grundriss", "scene_level": "eg",
+                "label_types": ["wall", "floorplan_opening"],
+            },
+            "a.jpg": {"scene_tag": "ansicht", "label_types": ["view_opening"]},
+            "s.jpg": {"scene_tag": "schnitt", "label_types": ["component_line"]},
+        },
     )
-    for p in ("W1", "W2", "W3"):
+    for p in REQUIRED_WORKFLOW_PHASES:
         assert state["phases"][p]["status"] == "done", f"{p} should be done"
 
 
@@ -459,7 +473,7 @@ def test_validate_export_readiness_smoke():
     # ready must agree with blockers being empty.
     assert d["ready"] == (len(d["blockers"]) == 0)
     pc = d["phase_completeness"]
-    for p in ("W0", "W1", "W2", "W3", "W4", "W5"):
+    for p in WORKFLOW_PHASES:
         assert p in pc and "status" in pc[p] and "required" in pc[p]
     # Honest completeness implies every *required* phase is done.
     if d["honest_complete"]:
@@ -472,14 +486,14 @@ def test_validate_export_readiness_smoke():
 
 
 def test_validate_export_readiness_rejects_w0_only_house():
-    """Issue #6 regression: a house with W0 tags + labeled scenes but NO
+    """Issue #6 regression: a house with tags + labeled scenes but NO
     ground-truth geometry (heights/extent/wall/calibration) must NOT be
     reported export-ready, even though the minimal sanity gate accepts it.
     """
     rs = _run(mcp_server.list_houses())
     if not rs["data"]["houses"]:
         pytest.skip("no houses")
-    # Find a house whose W1/W2 geometry is absent.
+    # Find a house whose required geometry is absent.
     for h in rs["data"]["houses"]:
         key = h["key"]
         r = _run(mcp_server.validate_export_readiness(key=key))
@@ -487,7 +501,9 @@ def test_validate_export_readiness_rejects_w0_only_house():
         d = r["data"]
         pc = d["phase_completeness"]
         geometry_missing = any(
-            pc[p]["status"] != "done" for p in ("W1", "W2") if p in d["required_phases"]
+            pc[p]["status"] != "done"
+            for p in ("floorplans", "sections", "elevations")
+            if p in d["required_phases"]
         )
         if geometry_missing:
             assert d["ready"] is False, f"{key} ready despite missing geometry"
@@ -619,6 +635,31 @@ def _scratch_scene_for_guards():
             if d.get("kind") in ("elevation", "section"):
                 return h["key"], d["file"]
     pytest.skip("no elevation/section in corpus")
+
+
+def _scratch_floorplan_scene_for_guards():
+    """Pick a floorplan scene and ensure its palette accepts wall labels."""
+    rs = _run(mcp_server.list_houses())
+    if not rs["data"]["houses"]:
+        pytest.skip("no houses")
+    fallback = None
+    for h in rs["data"]["houses"]:
+        gh = _run(mcp_server.get_house(key=h["key"]))
+        for d in gh["data"]["drawings"]:
+            if d.get("kind") == "floorplan":
+                fallback = fallback or (h["key"], d["file"])
+                meta = _run(mcp_server.get_scene_meta(key=h["key"], file=d["file"]))
+                data = meta.get("data") or {}
+                if data.get("scene_tag") == "grundriss":
+                    return h["key"], d["file"]
+    if fallback:
+        key, file = fallback
+        _run(mcp_server.set_scene_tag(key=key, file=file, tag="grundriss"))
+        meta = _run(mcp_server.get_scene_meta(key=key, file=file))
+        if not (meta.get("data") or {}).get("level"):
+            _run(mcp_server.set_scene_level(key=key, file=file, level="eg"))
+        return key, file
+    pytest.skip("no floorplan in corpus")
 
 
 def test_g4_2_add_reference_dim_rejects_out_of_bounds_endpoints():
@@ -849,7 +890,7 @@ def test_h5_get_scene_view_with_labels_renders_labels():
     drew something an agent could spot-check)."""
     import json as _json
 
-    key, file = _scratch_scene_for_guards()
+    key, file = _scratch_floorplan_scene_for_guards()
     # Clear any pre-existing geometry-bearing labels for a clean start.
     existing = _run(mcp_server.list_scene_labels(key=key, file=file))
     for lab in existing["data"]["labels"]:
@@ -945,7 +986,7 @@ def test_h5_7_verify_label_placement_auto_crops():
     a tight crop around its geometry, and return a verify view."""
     import json as _json
 
-    key, file = _scratch_scene_for_guards()
+    key, file = _scratch_floorplan_scene_for_guards()
     meta = _run(mcp_server.get_scene_meta(key=key, file=file))
     size = meta["data"].get("image_size_px") or [2000, 1200]
     w, h = size
@@ -1036,7 +1077,7 @@ def test_verify_label_placement_reports_offset_px():
     """Issue #10: verify_label_placement augments its envelope with
     offset_px / offset_hint so the agent can correct numerically."""
     import json as _json
-    key, file = _scratch_scene_for_guards()
+    key, file = _scratch_floorplan_scene_for_guards()
     meta = _run(mcp_server.get_scene_meta(key=key, file=file))
     size = meta["data"].get("image_size_px") or [2000, 1200]
     w, h = size
