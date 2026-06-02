@@ -1,15 +1,14 @@
-// W0 — house-first labeling workflow state machine.
+// Scene-class labeling workflow state machine.
 //
-// Six phases:
-//   0 inventory       — every scene categorized + oriented/leveled
-//   1 height_anchor   — Bezugshöhe + first labeled in any Ansicht/Schnitt
-//   2 footprint       — width + depth + wall_thickness.outer from EG-Grundriss
-//   3 orientation     — north edge picked on EG-Grundriss
-//   4 bezugsmasse     — every Ansicht/Schnitt has Bezugshöhe + H/V references
-//   5 detail          — never auto-completes; user marks done
+// Stages:
+//   0 inventory   — every scene categorized; Grundriss leveled
+//   1 floorplans  — all Grundriss scenes first
+//   2 sections    — all Schnitt scenes after floorplans
+//   3 elevations  — all Ansicht scenes after sections
+//   4 review      — optional final pass
 //
 // All predicates are pure functions over (facts, scenes) — no React, no
-// localStorage. UI integration in W1+.
+// localStorage.
 //
 // Phase pointer = first phase whose predicate fails. Never moves backward.
 
@@ -24,31 +23,25 @@ export interface SceneSummary {
   /** scene_tag — null when the scene exists but isn't yet categorized. */
   tag: string | null;
   /** Whether this scene's labels.json explicitly marks the scene as
-   *  "detail / partial view" — gated out of Phase 4 completion. */
+ *  "detail / partial view". */
   detail_only?: boolean;
 }
 
 /** German label per phase id — used by toasts + the WorkflowGuide. */
 export const PHASE_LABEL_DE: Record<PhaseId, string> = {
   inventory: 'Szenen-Inventar',
-  height_anchor: 'Höhenkoten ankern',
-  footprint: 'Hausgrundriss vermessen',
-  orientation: 'Himmelsrichtung festlegen',
-  bezugsmasse: 'Bezugsmaße pro Szene',
-  detail: 'Detail-Beschriftung',
+  floorplans: 'Grundrisse beschriften',
+  sections: 'Schnitte beschriften',
+  elevations: 'Ansichten beschriften',
+  review: 'Review / Export',
 };
 
 const PHASE_ORDER: Record<PhaseId, number> = {
-  inventory: 0, height_anchor: 1, footprint: 2,
-  orientation: 3, bezugsmasse: 4, detail: 5,
+  inventory: 0, floorplans: 1, sections: 2, elevations: 3, review: 4,
 };
 
-// ── Phase 0 — Inventory ─────────────────────────────────────────────────
+// ── Inventory ───────────────────────────────────────────────────────────
 
-// Tags that need level (Grundriss). Orientation is OPTIONAL on
-// Ansicht/Schnitt per §H3 (followups-2 tracker): forcing it produced
-// dishonest guesses. Missing orientation surfaces in `list_anomalies`
-// as a warning instead.
 function tagRequiresLevel(tag: string | null | undefined): boolean {
   return tag === 'grundriss';
 }
@@ -58,81 +51,79 @@ export function isInventoryComplete(facts: HouseFacts, scenes: SceneSummary[]): 
     const meta: SceneMetadataEntry | undefined = facts.scene_metadata[s.file];
     const tag = meta?.scene_tag ?? s.tag;
     if (!tag || tag === 'nicht_klassifiziert') return false;
-    // Per H3: orientation no longer required on ansicht/schnitt.
     if (tagRequiresLevel(tag) && !meta?.level) return false;
   }
   return scenes.length > 0;
 }
 
-// ── Phase 1 — Height anchor ─────────────────────────────────────────────
-
-export function isHeightAnchorComplete(facts: HouseFacts): boolean {
-  // Spec: Bezug + First. Other datums are recommended but skippable.
-  return facts.heights.bezug_mm === 0 && typeof facts.heights.first_mm === 'number';
+function tagOf(facts: HouseFacts, s: SceneSummary): string | null {
+  return facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
 }
 
-// ── Phase 2 — Footprint ─────────────────────────────────────────────────
-
-export function isFootprintComplete(facts: HouseFacts): boolean {
-  return typeof facts.extent.width_mm === 'number'
-      && typeof facts.extent.depth_mm === 'number'
-      && typeof facts.wall_thickness.outer_mm === 'number';
+function scenesOf(facts: HouseFacts, scenes: SceneSummary[], tag: string): SceneSummary[] {
+  return scenes.filter((s) => tagOf(facts, s) === tag && !s.detail_only);
 }
 
-// ── Phase 3 — Orientation ───────────────────────────────────────────────
-
-export function isOrientationComplete(facts: HouseFacts): boolean {
-  const o = facts.orientation;
-  if (!o) return false;
-  // Either an edge is picked OR a manual angle is set.
-  return o.north_edge_label_id != null
-      || (typeof o.north_angle_deg === 'number' && Number.isFinite(o.north_angle_deg));
+function hasSceneClass(facts: HouseFacts, scenes: SceneSummary[], tag: string): boolean {
+  return scenesOf(facts, scenes, tag).length > 0;
 }
 
-// ── Phase 4 — Bezugsmaße ────────────────────────────────────────────────
-
-/** Per scene, the calibration must exist. Detail-only scenes opt out. */
-export function isBezugsmasseComplete(facts: HouseFacts, scenes: SceneSummary[]): boolean {
-  for (const s of scenes) {
-    const meta = facts.scene_metadata[s.file];
-    const tag = meta?.scene_tag ?? s.tag;
-    if (!tag || (tag !== 'ansicht' && tag !== 'schnitt')) continue;
-    if (s.detail_only) continue;
-    if (!facts.calibration_per_scene[s.file]) return false;
-  }
-  return true;
+// The UI does not have every scene's label list, so class-stage completion
+// uses persisted facts/calibration as a conservative display predicate. The
+// server-side workflow is authoritative for exact geometry blockers.
+export function isFloorplansComplete(facts: HouseFacts, scenes: SceneSummary[]): boolean {
+  return isInventoryComplete(facts, scenes)
+      && hasSceneClass(facts, scenes, 'grundriss')
+      && typeof facts.wall_thickness.outer_mm === 'number'
+      && typeof facts.extent.width_mm === 'number'
+      && typeof facts.extent.depth_mm === 'number';
 }
 
-// ── Phase 5 — Detail (never auto-completes) ─────────────────────────────
+export function isSectionsComplete(facts: HouseFacts, scenes: SceneSummary[]): boolean {
+  if (!isFloorplansComplete(facts, scenes)) return false;
+  const schnitte = scenesOf(facts, scenes, 'schnitt');
+  if (schnitte.length === 0) return true;
+  return schnitte.every((s) => facts.calibration_per_scene[s.file]);
+}
 
-export function isDetailComplete(facts: HouseFacts): boolean {
+export function isElevationsComplete(facts: HouseFacts, scenes: SceneSummary[]): boolean {
+  if (!isSectionsComplete(facts, scenes)) return false;
+  const ansichten = scenesOf(facts, scenes, 'ansicht');
+  if (ansichten.length === 0) return true;
+  return ansichten.every((s) => facts.calibration_per_scene[s.file]);
+}
+
+export function isReviewComplete(facts: HouseFacts): boolean {
   // Defensive optional chain — facts.workflow may be partial (e.g. an
   // agent's set_house_facts patched only `workflow.driven_by` and the
   // server's deep-merge dropped the other fields). Readers must
   // tolerate any missing sub-fields.
-  return facts.workflow?.phase_completed_at?.detail != null
-      || facts.workflow?.user_skipped?.detail === true;
+  const completed = facts.workflow?.phase_completed_at as Record<string, string | null> | undefined;
+  const skipped = facts.workflow?.user_skipped as Record<string, boolean | undefined> | undefined;
+  return completed?.review != null
+      || completed?.detail != null
+      || skipped?.review === true
+      || skipped?.detail === true;
 }
 
 // ── Composition ─────────────────────────────────────────────────────────
 
 export interface PhaseConfig {
   id: PhaseId;
-  order: 0 | 1 | 2 | 3 | 4 | 5;
+  order: 0 | 1 | 2 | 3 | 4;
   label_de: string;
   isComplete: (facts: HouseFacts, scenes: SceneSummary[]) => boolean;
 }
 
 export const PHASE_CONFIGS: PhaseConfig[] = [
-  { id: 'inventory',     order: 0, label_de: PHASE_LABEL_DE.inventory,     isComplete: isInventoryComplete },
-  { id: 'height_anchor', order: 1, label_de: PHASE_LABEL_DE.height_anchor, isComplete: (f) => isHeightAnchorComplete(f) },
-  { id: 'footprint',     order: 2, label_de: PHASE_LABEL_DE.footprint,     isComplete: (f) => isFootprintComplete(f) },
-  { id: 'orientation',   order: 3, label_de: PHASE_LABEL_DE.orientation,   isComplete: (f) => isOrientationComplete(f) },
-  { id: 'bezugsmasse',   order: 4, label_de: PHASE_LABEL_DE.bezugsmasse,   isComplete: isBezugsmasseComplete },
-  { id: 'detail',        order: 5, label_de: PHASE_LABEL_DE.detail,        isComplete: (f) => isDetailComplete(f) },
+  { id: 'inventory',  order: 0, label_de: PHASE_LABEL_DE.inventory,  isComplete: isInventoryComplete },
+  { id: 'floorplans', order: 1, label_de: PHASE_LABEL_DE.floorplans, isComplete: isFloorplansComplete },
+  { id: 'sections',   order: 2, label_de: PHASE_LABEL_DE.sections,   isComplete: isSectionsComplete },
+  { id: 'elevations', order: 3, label_de: PHASE_LABEL_DE.elevations, isComplete: isElevationsComplete },
+  { id: 'review',     order: 4, label_de: PHASE_LABEL_DE.review,     isComplete: (f) => isReviewComplete(f) },
 ];
 
-/** First phase whose predicate fails. 'detail' is the terminal state when
+/** First phase whose predicate fails. 'review' is the terminal state when
  *  every other phase is complete. Skipped phases count as complete. */
 export function currentPhase(facts: HouseFacts, scenes: SceneSummary[]): PhaseId {
   // Defensive: facts.workflow.user_skipped may be undefined if an agent
@@ -142,7 +133,7 @@ export function currentPhase(facts: HouseFacts, scenes: SceneSummary[]): PhaseId
     if (skipped[p.id]) continue;
     if (!p.isComplete(facts, scenes)) return p.id;
   }
-  return 'detail';
+  return 'review';
 }
 
 /** Per-phase completion as a snapshot for UI rendering. */
@@ -169,9 +160,12 @@ export function phaseStatusSnapshot(
 function _normalizeWorkflow(wf: HouseFacts['workflow']): WorkflowState {
   const def = defaultWorkflowState();
   if (!wf) return def;
+  const phase = PHASE_IDS.includes(wf.phase as PhaseId) ? wf.phase as PhaseId : def.phase;
   return {
     ...def,
     ...wf,
+    phase,
+    schema_version: '1.2',
     phase_completed_at: { ...def.phase_completed_at, ...(wf.phase_completed_at ?? {}) },
     source_scene: { ...def.source_scene, ...(wf.source_scene ?? {}) },
     user_skipped: { ...(wf.user_skipped ?? {}) },
@@ -197,8 +191,7 @@ export function advanceWorkflow(
   }
   // The pointer advanced past `before` — stamp its completion. There may
   // be multiple phases in between if a single save completed several at
-  // once (rare but possible — e.g. a Bezugsmaß save that also completes
-  // height_anchor's predicate retroactively). Stamp them all.
+  // once. Stamp them all.
   // Use the defensive normalizer so a partial workflow (e.g. agent's
   // driven_by-only patch) gets the missing sub-fields back.
   const wf: WorkflowState = _normalizeWorkflow(nextFacts.workflow);
@@ -221,69 +214,33 @@ export function advanceWorkflow(
 
 // ── Scene recommendation ────────────────────────────────────────────────
 
-/** First source listed for any fact key in `sources`; used to recover the
- *  scene file a fact was promoted from. */
-function firstSourceScene(sources: Record<string, string[]>, key: string): string | null {
-  const refs = sources[key];
-  if (!refs || refs.length === 0) return null;
-  // Format: '<file>#<kind>:<labelId>'.
-  const file = refs[0].split('#')[0];
-  return file || null;
+function sortByLevelThenName(facts: HouseFacts, scenes: SceneSummary[]): SceneSummary[] {
+  const levelOrder = ['eg', 'ug', 'kg', 'og', 'dg', 'spitzboden'] as const;
+  return [...scenes].sort((a, b) => {
+    const la = facts.scene_metadata[a.file]?.level;
+    const lb = facts.scene_metadata[b.file]?.level;
+    const ia = levelOrder.indexOf(la as typeof levelOrder[number]);
+    const ib = levelOrder.indexOf(lb as typeof levelOrder[number]);
+    const oa = ia < 0 ? 99 : ia;
+    const ob = ib < 0 ? 99 : ib;
+    return oa - ob || a.file.localeCompare(b.file);
+  });
 }
 
-/** Phase-1 recommended scene: prefer the scene that *already* placed the
- *  Bezugshöhe (so the user continues there); else the first Ansicht
- *  alphabetically; else the first Schnitt; else null. */
-export function recommendHeightScene(
-  facts: HouseFacts, scenes: SceneSummary[],
-): string | null {
-  const fromBezug = firstSourceScene(facts.heights.sources, 'bezug_mm');
-  if (fromBezug) return fromBezug;
-  const fromFirst = firstSourceScene(facts.heights.sources, 'first_mm');
-  if (fromFirst) return fromFirst;
-  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
-  const ansichten = scenes.filter((s) => tagOf(s) === 'ansicht').sort((a, b) => a.file.localeCompare(b.file));
-  if (ansichten.length > 0) return ansichten[0].file;
-  const schnitte = scenes.filter((s) => tagOf(s) === 'schnitt').sort((a, b) => a.file.localeCompare(b.file));
-  if (schnitte.length > 0) return schnitte[0].file;
-  return null;
+export function recommendFloorplanScene(facts: HouseFacts, scenes: SceneSummary[]): string | null {
+  return sortByLevelThenName(facts, scenesOf(facts, scenes, 'grundriss'))[0]?.file ?? null;
 }
 
-/** Phase-2/3 recommended scene: the EG Grundriss; else the lowest level
- *  Grundriss available; else null. Phase 2 and Phase 3 share the same
- *  scene (the user dimensions the Grundriss, then picks the north edge
- *  on the same view). */
-export function recommendFootprintScene(
-  facts: HouseFacts, scenes: SceneSummary[],
-): string | null {
-  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
-  const grundrisse = scenes.filter((s) => tagOf(s) === 'grundriss');
-  const eg = grundrisse.find((s) => facts.scene_metadata[s.file]?.level === 'eg');
-  if (eg) return eg.file;
-  const levelOrder = ['eg', 'og', 'dg', 'spitzboden', 'ug', 'kg'] as const;
-  for (const lvl of levelOrder) {
-    const found = grundrisse.find((s) => facts.scene_metadata[s.file]?.level === lvl);
-    if (found) return found.file;
-  }
-  return grundrisse[0]?.file ?? null;
+export function recommendSectionScene(facts: HouseFacts, scenes: SceneSummary[]): string | null {
+  return scenesOf(facts, scenes, 'schnitt')
+    .filter((s) => !facts.calibration_per_scene[s.file])
+    .sort((a, b) => a.file.localeCompare(b.file))[0]?.file ?? null;
 }
 
-/** Phase 4 recommended scene: the next Ansicht/Schnitt that still lacks
- *  per-scene calibration. Deterministic alphabetical walk. */
-export function recommendBezugsmasseScene(
-  facts: HouseFacts, scenes: SceneSummary[],
-): string | null {
-  const tagOf = (s: SceneSummary) => facts.scene_metadata[s.file]?.scene_tag ?? s.tag;
-  const candidates = scenes
-    .filter((s) => {
-      const t = tagOf(s);
-      return (t === 'ansicht' || t === 'schnitt') && !s.detail_only;
-    })
-    .sort((a, b) => a.file.localeCompare(b.file));
-  for (const s of candidates) {
-    if (!facts.calibration_per_scene[s.file]) return s.file;
-  }
-  return null;
+export function recommendElevationScene(facts: HouseFacts, scenes: SceneSummary[]): string | null {
+  return scenesOf(facts, scenes, 'ansicht')
+    .filter((s) => !facts.calibration_per_scene[s.file])
+    .sort((a, b) => a.file.localeCompare(b.file))[0]?.file ?? null;
 }
 
 export function recommendSceneFor(
@@ -291,15 +248,14 @@ export function recommendSceneFor(
 ): string | null {
   switch (phase) {
     case 'inventory': return null;  // user picks from the gap list
-    case 'height_anchor': return recommendHeightScene(facts, scenes);
-    case 'footprint':     return recommendFootprintScene(facts, scenes);
-    case 'orientation':   return recommendFootprintScene(facts, scenes);
-    case 'bezugsmasse':   return recommendBezugsmasseScene(facts, scenes);
-    case 'detail':        return null;
+    case 'floorplans': return recommendFloorplanScene(facts, scenes);
+    case 'sections': return recommendSectionScene(facts, scenes);
+    case 'elevations': return recommendElevationScene(facts, scenes);
+    case 'review': return null;
   }
 }
 
-// ── Phase 4 (W5) geometric extent derivation ────────────────────────────
+// ── Geometric extent derivation ─────────────────────────────────────────
 
 import type { Label, Point, WallLabel } from '../api/types';
 

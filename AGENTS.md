@@ -24,24 +24,32 @@ different mode.
    `get_scene_context_summary(key, file)` for the active scene. Use full
    `get_house`, full plan state, full labels, or full Markdown only for a
    specific deep check.
-2. **Keep visual inspection first-class, but bounded.** Use full-scene views
+2. **Create the scene plan before labels.** After a scene is classified, call
+   `create_scene_plan_state_from_template` or resume with
+   `get_scene_plan_state` before placing geometry. If plan-state tools fail,
+   stop and report the blocker; do not continue with freehand labels.
+3. **Keep visual inspection first-class, but bounded.** Use full-scene views
    for orientation and global topology, then switch to crop-first reads for
    coordinate work. For image tools that support it, pass
    `image_delivery="auto"` so small crops remain inspectable inline while
    large renders return handles.
-3. **Verify edits with tight crops.** After geometry writes, prefer
+4. **Verify edits with tight crops.** After geometry writes, prefer
    `verify_label_placement` or bounded `get_scene_view_with_labels` crops
    over repeated full labeled scene renders. Full labeled QA is for major
    topology checks and final scene review.
-4. **Bound large tool outputs.** For scoring, topology, anomalies, and QA
+5. **Run gates, not vibes.** For floorplans, wall placement is not acceptable
+   until `score_walls`, `wall_topology_qa`, and `evaluate_scene_plan_gates`
+   have been run and blocker defects are either fixed or explicitly accepted
+   incomplete. Treat low wall scores as repair work, not as a final state.
+6. **Bound large tool outputs.** For scoring, topology, anomalies, and QA
    tools, pass limits such as `max_items` and `summary_only=true` where the
    tool supports them. Escalate to full output only when the summary exposes
    an actionable defect that needs details.
-5. **Persist handoffs.** At scene or phase boundaries, call
+7. **Persist handoffs.** At scene or phase boundaries, call
    `write_scene_handoff_summary` with compact status, changed labels,
    unresolved defects, calibration notes, and next actions. Resume from
    `get_scene_handoff_summary` instead of replaying old visual history.
-6. **Measure and report honestly.** If a full-size image or full state read is
+8. **Measure and report honestly.** If a full-size image or full state read is
    necessary, use it. Mention repeated large reads, unclear client image-handle
    behavior, or remaining context pressure in the run summary.
 

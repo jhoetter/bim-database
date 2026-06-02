@@ -9,10 +9,13 @@ Run via `make test`. CPU-only, no API keys, no LLM.
 from __future__ import annotations
 
 import os
+import json
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -190,6 +193,131 @@ def test_validate_export_readiness_surfaces_calibration_assumptions():
     ca = r["data"]["calibration_assumptions"]
     assert "single_ref_assumed_isotropic" in ca
     assert isinstance(ca["single_ref_assumed_isotropic"], list)
+
+
+def test_scene_plan_state_mcp_roundtrip():
+    key = "house-zzmcpplanstate"
+    file = f"{key}-scene.jpg"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (240, 180), (255, 255, 255)).save(root / file)
+    try:
+        created = _run(mcp_server.create_scene_plan_state_from_template(
+            key=key,
+            file=file,
+            scene_tag="grundriss",
+            level_or_orientation="eg",
+            created_by="test",
+        ))
+        assert created["ok"], created.get("error")
+        assert created["data"]["exists"] is True
+        assert created["data"]["path"].endswith(".plan.json")
+        assert created["data"]["markdown_path"].endswith(".md")
+
+        evidence = _run(mcp_server.add_scene_plan_evidence(
+            key=key,
+            file=file,
+            kind="human_note",
+            mode="analysis",
+            summary="full scene reviewed",
+            task_ids=["ANALYZE_SILHOUETTE"],
+        ))
+        assert evidence["ok"], evidence.get("error")
+
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        api_main.put_labels("dataset", key, file, labels)
+        evaluated = _run(mcp_server.evaluate_scene_plan_gates(
+            key=key,
+            file=file,
+            run_score_walls=False,
+            run_score_measurements=False,
+            run_topology_qa=False,
+            run_continuity_check=False,
+        ))
+        assert evaluated["ok"], evaluated.get("error")
+        assert evaluated["data"]["state"]["status"] == "needs_repair"
+
+        actions = _run(mcp_server.get_scene_plan_next_actions(key=key, file=file, limit=2))
+        assert actions["ok"], actions.get("error")
+        assert actions["data"]["actions"]
+
+        status = _run(mcp_server.get_scene_plan_status(key=key, file=file))
+        assert status["ok"], status.get("error")
+        assert status["data"]["status"] == "needs_repair"
+
+        action = _run(mcp_server.get_scene_plan_next_action(key=key, file=file))
+        assert action["ok"], action.get("error")
+        action_id = action["data"]["action"]["action_id"]
+
+        started = _run(mcp_server.start_scene_plan_action(
+            key=key, file=file, action_id=action_id, agent_id="test-agent",
+        ))
+        assert started["ok"], started.get("error")
+
+        attempt = _run(mcp_server.record_scene_plan_attempt(
+            key=key,
+            file=file,
+            action_id=action_id,
+            hypothesis="reviewed by mcp smoke",
+            edits=[],
+            evidence_ids=[],
+        ))
+        assert attempt["ok"], attempt.get("error")
+
+        rendered = _run(mcp_server.render_scene_plan_markdown(key=key, file=file))
+        assert rendered["ok"], rendered.get("error")
+        assert "Open Defects" in rendered["data"]["markdown"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_validate_export_readiness_blocks_missing_plan_state():
+    key = "house-zzmissingplan"
+    file = f"{key}-eg.jpg"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (240, 180), (255, 255, 255)).save(root / file)
+    (root / "manifest.json").write_text(json.dumps({
+        "key": key,
+        "drawings": [{
+            "file": file,
+            "kind": "floorplan",
+            "floor": "eg",
+            "labeled": True,
+            "label_count": 2,
+        }],
+    }))
+    try:
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        labels["labels"] = [
+            {
+                "id": "wall-1",
+                "type": "wall",
+                "geometry": {"start": [40, 40], "end": [180, 40]},
+                "attributes": {"thickness_mm": 300},
+                "status": "readable",
+            },
+            {
+                "id": "opening-1",
+                "type": "floorplan_opening",
+                "geometry": {"quad": [[80, 35], [120, 35], [120, 45], [80, 45]]},
+                "attributes": {"opening_kind": "door"},
+                "relations": [{"kind": "belongs_to", "other_id": "wall-1"}],
+                "status": "readable",
+            },
+        ]
+        api_main.put_labels("dataset", key, file, labels)
+        r = _run(mcp_server.validate_export_readiness(key=key))
+        assert r["ok"], r.get("error")
+        assert r["data"]["ready"] is False
+        assert r["data"]["plan_state_complete"] is False
+        assert any("structured scene plan is missing" in b for b in r["data"]["blockers"])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def test_workflow_state_full_geometry_with_scene_is_done():

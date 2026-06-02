@@ -178,7 +178,9 @@ def register_metadata(mcp, *, server_version: str) -> None:
        Analysis View (read/prose/evidence), Editing View (one write), then
        Verification View (labels rendered + scores), followed by
        `evaluate_scene_plan_gates`. Failed verification creates a defect and
-       returns to analysis before another edit.
+       returns to analysis before another edit. If plan-state creation or
+       retrieval fails, STOP and report the blocker; do not continue with
+       freehand labels.
     10. **Walls before openings, with endpoint reasons.** On Grundriss
        scenes, identify the outer silhouette/masses first, place continuous
        walls through door/window symbols, run `wall_topology_qa` and
@@ -193,6 +195,10 @@ def register_metadata(mcp, *, server_version: str) -> None:
     12. **Bound bulky QA output.** Use `max_items` and `summary_only=true`
         on wall/measurement/topology QA tools for routing. Re-run with a
         larger limit only for the specific defect you are repairing.
+    13. **Compact is not lower quality.** Context-saving changes remove old
+        pixels and repeated state, not verification. Low wall scores, missing
+        plan state, or open blocker defects are blockers even if the label
+        count looks sufficient.
 
     Start now: call `get_house_context_summary(key="{key}")` and follow the
     appropriate stage playbook.

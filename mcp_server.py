@@ -3987,6 +3987,8 @@ async def validate_export_readiness(key: str) -> dict:
       - floorplans (all grundriss scenes have required floorplan labels)
       - sections (required only when schnitt scenes exist)
       - elevations (required only when ansicht scenes exist)
+      - plan state (required geometry scenes with labels must have structured
+        scene plans without open blocker defects)
     review/detail is optional and never blocks.
 
     Returns: `data` = {
@@ -4038,11 +4040,11 @@ async def validate_export_readiness(key: str) -> dict:
 
     # Honest blockers: every required phase that isn't done, with its own
     # predicate reasons spelled out so callers see the missing geometry.
-    honest_blockers: list[str] = []
+    phase_blockers: list[str] = []
     for p in required:
         if phases[p]["status"] != "done":
             reason = "; ".join(phases[p]["blockers"]) or "incomplete"
-            honest_blockers.append(f"{p} incomplete: {reason}")
+            phase_blockers.append(f"{p} incomplete: {reason}")
 
     # The permissive gate the export pipeline actually enforces. Surfaced
     # so callers understand a dishonest export would still be ACCEPTED
@@ -4052,9 +4054,6 @@ async def validate_export_readiness(key: str) -> dict:
         minimal_blockers.append("house has zero drawings")
     elif not any(d.get("labeled") for d in drawings):
         minimal_blockers.append("no annotated scenes")
-
-    all_blockers = list(dict.fromkeys(honest_blockers + minimal_blockers))
-    honest_complete = not all_blockers
 
     # Issue #27: surface scenes whose calibration rests on the
     # single-ref isotropic (square-pixel) assumption — they count as
@@ -4102,6 +4101,9 @@ async def validate_export_readiness(key: str) -> dict:
                     "title": task.get("title"),
                     "severity": "warning",
                 })
+
+    all_blockers = list(dict.fromkeys(phase_blockers + plan_state_blockers + minimal_blockers))
+    honest_complete = not all_blockers
 
     return _ok({
         "ready": honest_complete,
