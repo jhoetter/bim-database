@@ -2,13 +2,13 @@
   "schema_version": "1.0",
   "scope": "dataset",
   "scene_key": "house-22",
-  "scene_file": "house-22-schnitt-garage.png",
-  "scene_tag": "schnitt",
-  "scene_orientation": null,
+  "scene_file": "house-22-elevation-east.png",
+  "scene_tag": "ansicht",
+  "scene_orientation": "east",
   "scene_level": null,
   "image_size_px": [
-    3532,
-    1929
+    4305,
+    1828
   ],
   "labels": []
 }

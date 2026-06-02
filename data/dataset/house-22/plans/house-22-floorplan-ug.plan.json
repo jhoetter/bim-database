@@ -1,0 +1,374 @@
+{
+  "actions": [],
+  "created_at": "2026-06-02T15:06:43+00:00",
+  "created_by": "bim-agent",
+  "current_state": {
+    "blockers": [],
+    "label_counts": {},
+    "scores": {},
+    "summary": "Scene plan created; analysis not yet complete.",
+    "topology": {}
+  },
+  "decision_log": [],
+  "defects": [],
+  "evidence": [
+    {
+      "created_at": "2026-06-02T15:09:18+00:00",
+      "id": "EV-001",
+      "image_url": null,
+      "kind": "scene_view",
+      "mode": "analysis",
+      "observation_id": null,
+      "params": {},
+      "result": {},
+      "summary": "UG mass decomposition (vision read, CV priors noisy). L-shaped house + detached garage. Main house outer shell TL~(1490,1185); top wall y~1185 to x~2600; left wall x~1490 from y~1185 to y~2210; bottom of left/main mass y~2210. Upper-right room (Zuluft/WA-FE-W) top-right corner ~(2600,1185), right edge x~2600 down to step at y~1520. Detached GARAGE Geraete-029 separate rectangle ~x[2620,3080] y[1545,2285] with real gap (do not join). Interior horizontal division ~y=1700/1710 separating top rooms (Vorrat034/Vorraum033/DU-WC003/Technik026) from bottom rooms (Arbeiten014/Gast013). Interior vertical walls ~x=1540, x=2020, x=2230, x=2480. Terrasse (bottom) and trees/Emattweg/Grenze are NOT walls.",
+      "tool": "building_silhouette+get_scene_view"
+    },
+    {
+      "created_at": "2026-06-02T15:13:35+00:00",
+      "id": "EV-002",
+      "image_url": null,
+      "kind": "score_walls",
+      "mode": "verification",
+      "observation_id": null,
+      "params": {},
+      "result": {},
+      "summary": "15 walls placed and visually verified on full-res scene. score_walls (min16 tol18 close82): precision 0.769 recall 0.678 f1 0.721. Outer shell of main L-house + detached garage rectangle + 7 interior walls all land on ink per qa overlay. Garage-left wall faint -> uncertain. Remaining missing_regions: site Grenze line at crop x1380 (NOT building, ignore) + thick-wall band edges. off_ink: garage-left 0.12 (uncertain, accepted).",
+      "tool": "score_walls+get_scene_view_with_labels"
+    },
+    {
+      "created_at": "2026-06-02T15:14:59+00:00",
+      "id": "EV-003",
+      "image_url": null,
+      "kind": "score_measurements",
+      "mode": "analysis",
+      "observation_id": null,
+      "params": {},
+      "result": {},
+      "summary": "DIMENSIONS honest-incomplete. The legible horizontal dim chains at top of sheet (segs 2.30/1.90/3.90/2.65, overall 7.56) measure SITE frontage (Emattweg/Grenze) above the building, not building walls; per task instructions site-plan annotation is ignored. The building's own dimension chains are faint freehand pencil intermixed with site lines; interior '885' labels are room/wall widths but tick-to-value mapping cannot be established tick-precise without fabrication. score_measurements: n_dims=0 (no fabricated dims). Decision: do NOT invent building dims from site chains; mark dimensions incomplete-uncertain rather than place wrong labels. Walls remain the verified deliverable (15 walls, f1 0.72).",
+      "tool": "get_scene_view+score_measurements"
+    }
+  ],
+  "file": "house-22-floorplan-ug.png",
+  "key": "house-22",
+  "level_or_orientation": "ug",
+  "scene_tag": "grundriss",
+  "schema_version": "scene-plan-state-v1",
+  "status": "draft",
+  "tasks": [
+    {
+      "blocked_by": [],
+      "category": "classification",
+      "depends_on": [],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "SCENE_CLASSIFIED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "CLASSIFY_SCENE",
+      "invalidates": [],
+      "phase": "analysis",
+      "required": true,
+      "status": "todo",
+      "title": "Set scene tag and floor level",
+      "updated_at": "2026-06-02T15:06:43+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [],
+      "evidence_ids": [
+        "EV-001"
+      ],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "HAS_SILHOUETTE_HYPOTHESIS",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "ANALYZE_SILHOUETTE",
+      "invalidates": [],
+      "phase": "analysis",
+      "required": true,
+      "status": "todo",
+      "title": "Describe outer masses, excluded non-walls, and endpoint rules",
+      "updated_at": "2026-06-02T15:09:18+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [
+        "CLASSIFY_SCENE",
+        "ANALYZE_SILHOUETTE"
+      ],
+      "evidence_ids": [
+        "EV-002"
+      ],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "WALLS_EXIST",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "TRACE_OUTER_WALLS",
+      "invalidates": [
+        "VERIFY_OUTER_TOPOLOGY",
+        "VERIFY_INTERIOR_TOPOLOGY",
+        "PLACE_OPENINGS",
+        "VERIFY_OPENINGS",
+        "READ_DIMENSIONS",
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "editing",
+      "required": true,
+      "status": "todo",
+      "title": "Place outer structural walls before openings",
+      "updated_at": "2026-06-02T15:13:35+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [
+        "TRACE_OUTER_WALLS"
+      ],
+      "evidence_ids": [
+        "EV-002"
+      ],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "TOPOLOGY_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "WALL_SCORE_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "VERIFY_OUTER_TOPOLOGY",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Verify outer wall topology and wall score",
+      "updated_at": "2026-06-02T15:13:35+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [
+        "VERIFY_OUTER_TOPOLOGY"
+      ],
+      "evidence_ids": [
+        "EV-002"
+      ],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "WALLS_EXIST",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "TRACE_INTERIOR_WALLS",
+      "invalidates": [
+        "VERIFY_INTERIOR_TOPOLOGY",
+        "PLACE_OPENINGS",
+        "VERIFY_OPENINGS",
+        "READ_DIMENSIONS",
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "editing",
+      "required": true,
+      "status": "todo",
+      "title": "Place interior structural walls",
+      "updated_at": "2026-06-02T15:13:35+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "walls",
+      "depends_on": [
+        "TRACE_INTERIOR_WALLS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "TOPOLOGY_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "WALL_SCORE_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "VERIFY_INTERIOR_TOPOLOGY",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Verify interior wall topology and score",
+      "updated_at": "2026-06-02T15:06:43+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "openings",
+      "depends_on": [
+        "VERIFY_INTERIOR_TOPOLOGY"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "OPENINGS_HAVE_PARENT_WALL",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "PLACE_OPENINGS",
+      "invalidates": [
+        "VERIFY_OPENINGS",
+        "READ_DIMENSIONS",
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "editing",
+      "required": true,
+      "status": "todo",
+      "title": "Place doors, windows, passages, and garage doors on parent walls",
+      "updated_at": "2026-06-02T15:06:43+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "openings",
+      "depends_on": [
+        "PLACE_OPENINGS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "OPENINGS_HAVE_PARENT_WALL",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "OPENINGS_ON_WALL",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "VERIFY_OPENINGS",
+      "invalidates": [
+        "READ_DIMENSIONS",
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Verify opening relations and on-wall placement",
+      "updated_at": "2026-06-02T15:06:43+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "dimensions",
+      "depends_on": [
+        "VERIFY_OPENINGS"
+      ],
+      "evidence_ids": [
+        "EV-003"
+      ],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "DIMENSIONS_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "READ_DIMENSIONS",
+      "invalidates": [
+        "VERIFY_MEASUREMENTS",
+        "FINAL_QA"
+      ],
+      "phase": "analysis",
+      "required": true,
+      "status": "todo",
+      "title": "Inspect and label readable dimension chains after walls/openings",
+      "updated_at": "2026-06-02T15:14:59+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "dimensions",
+      "depends_on": [
+        "READ_DIMENSIONS"
+      ],
+      "evidence_ids": [
+        "EV-003"
+      ],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "MEASUREMENTS_REVIEWED",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "VERIFY_MEASUREMENTS",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Verify dimension chains, reference dims, and wall/opening tick alignment",
+      "updated_at": "2026-06-02T15:14:59+00:00"
+    },
+    {
+      "blocked_by": [],
+      "category": "qa",
+      "depends_on": [
+        "VERIFY_MEASUREMENTS"
+      ],
+      "evidence_ids": [],
+      "gates": [
+        {
+          "evidence_ids": [],
+          "id": "VISUAL_VERIFY_EXISTS",
+          "status": "pending",
+          "waiver_reason": null
+        },
+        {
+          "evidence_ids": [],
+          "id": "NO_BLOCKER_DEFECTS",
+          "status": "pending",
+          "waiver_reason": null
+        }
+      ],
+      "id": "FINAL_QA",
+      "invalidates": [],
+      "phase": "verification",
+      "required": true,
+      "status": "todo",
+      "title": "Run final scene QA and update remaining blockers",
+      "updated_at": "2026-06-02T15:06:43+00:00"
+    }
+  ],
+  "updated_at": "2026-06-02T15:14:59+00:00"
+}

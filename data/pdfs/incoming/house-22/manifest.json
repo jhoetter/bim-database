@@ -16,79 +16,89 @@
         0.0,
         0.0,
         612.0,
-        404.0
+        403.6000061035156
       ],
-      "scene_file": "house-22-floorplan-ug.jpg"
+      "scene_file": "house-22-floorplan-ug.png"
+    },
+    {
+      "page": 2,
+      "bbox_pdf_units": [
+        0.0,
+        0.0,
+        612.0,
+        413.3999938964844
+      ],
+      "scene_file": "house-22-floorplan-eg.png"
     },
     {
       "page": 3,
       "bbox_pdf_units": [
-        0.0,
-        0.0,
-        612.0,
-        412.0
+        1.6400000000000006,
+        13.620000000000001,
+        436.36,
+        345.38
       ],
-      "scene_file": "house-22-floorplan-dg.jpg"
+      "scene_file": "house-22-floorplan-dg.png"
     },
     {
       "page": 4,
       "bbox_pdf_units": [
         0.0,
-        20.0,
+        0.0,
         612.0,
-        272.5
+        421.1000061035156
       ],
-      "scene_file": "house-22-schnitt-gebaeude.jpg"
+      "scene_file": "house-22-section-section.png"
     },
     {
       "page": 4,
       "bbox_pdf_units": [
         0.0,
-        215.0,
-        455.0,
-        402.5
+        189.76772157055663,
+        423.82181160000005,
+        421.1000061035156
       ],
-      "scene_file": "house-22-schnitt-garage.jpg"
+      "scene_file": "house-22-schnitt-garage.png"
+    },
+    {
+      "page": 5,
+      "bbox_pdf_units": [
+        6.184319999999984,
+        0.0,
+        522.6316800000001,
+        219.3
+      ],
+      "scene_file": "house-22-elevation-east.png"
     },
     {
       "page": 5,
       "bbox_pdf_units": [
         0.0,
-        15.0,
+        94.82152963452148,
         612.0,
-        237.5
+        419.70001220703125
       ],
-      "scene_file": "house-22-ansicht-ost.jpg"
+      "scene_file": "house-22-elevation-north.png"
     },
     {
-      "page": 5,
+      "page": 6,
       "bbox_pdf_units": [
+        8.232000000000001,
         0.0,
-        215.0,
-        612.0,
-        410.0
+        516.168,
+        224.4
       ],
-      "scene_file": "house-22-ansicht-nord.jpg"
+      "scene_file": "house-22-elevation-south.png"
     },
     {
       "page": 6,
       "bbox_pdf_units": [
         0.0,
-        15.0,
+        208.43400024414063,
         612.0,
-        235.0
+        441.29998779296875
       ],
-      "scene_file": "house-22-ansicht-sued.jpg"
-    },
-    {
-      "page": 6,
-      "bbox_pdf_units": [
-        0.0,
-        215.0,
-        612.0,
-        422.5
-      ],
-      "scene_file": "house-22-ansicht-west.jpg"
+      "scene_file": "house-22-elevation-west.png"
     }
   ]
 }

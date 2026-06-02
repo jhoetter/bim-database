@@ -2,33 +2,13 @@
   "key": "house-22",
   "drawings": [
     {
-      "file": "house-22-floorplan-eg.png",
-      "kind": "floorplan",
-      "source": "pdf",
-      "view": null,
-      "floor": "eg",
-      "title": "EG-Grundriss",
-      "imported_at": "2026-05-31T11:27:39Z",
-      "crop_from": {
-        "pdf_file": "house-22.pdf",
-        "page": 2,
-        "bbox_pdf_units": [
-          30.4836,
-          0.0,
-          586.6964,
-          413.3999938964844
-        ],
-        "dpi": 600
-      }
-    },
-    {
-      "file": "house-22-floorplan-ug.jpg",
+      "file": "house-22-floorplan-ug.png",
       "kind": "floorplan",
       "source": "pdf",
       "view": null,
       "floor": "ug",
-      "title": "UG-Grundriss",
-      "imported_at": "2026-05-31T22:06:34Z",
+      "title": "Untergeschoss",
+      "imported_at": "2026-06-02T15:04:17Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 1,
@@ -36,149 +16,499 @@
           0.0,
           0.0,
           612.0,
-          404.0
+          403.6000061035156
         ],
-        "dpi": 300
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 6,
+          "history": [
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": false
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            }
+          ]
+        }
       }
     },
     {
-      "file": "house-22-floorplan-dg.jpg",
+      "file": "house-22-floorplan-eg.png",
+      "kind": "floorplan",
+      "source": "pdf",
+      "view": null,
+      "floor": "eg",
+      "title": "Erdgeschoss",
+      "imported_at": "2026-06-02T15:04:21Z",
+      "crop_from": {
+        "pdf_file": "house-22.pdf",
+        "page": 2,
+        "bbox_pdf_units": [
+          0.0,
+          0.0,
+          612.0,
+          413.3999938964844
+        ],
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 6,
+          "history": [
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": false,
+              "right": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "file": "house-22-floorplan-dg.png",
       "kind": "floorplan",
       "source": "pdf",
       "view": null,
       "floor": "dg",
-      "title": "DG-Grundriss",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "title": "Dachgeschoss",
+      "imported_at": "2026-06-02T15:04:23Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 3,
         "bbox_pdf_units": [
-          0.0,
-          0.0,
-          612.0,
-          412.0
+          1.6400000000000006,
+          13.620000000000001,
+          436.36,
+          345.38
         ],
-        "dpi": 300
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 2,
+          "history": [
+            {
+              "top": false,
+              "bottom": true,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": false,
+              "left": false,
+              "right": false
+            }
+          ]
+        }
       }
     },
     {
-      "file": "house-22-schnitt-gebaeude.jpg",
+      "file": "house-22-section-section.png",
       "kind": "section",
       "source": "pdf",
-      "view": "building",
+      "view": null,
       "floor": null,
-      "title": "Schnitt Gebaeude",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "title": "Schnitt-Gebaeude",
+      "imported_at": "2026-06-02T15:04:27Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 4,
         "bbox_pdf_units": [
           0.0,
-          20.0,
+          0.0,
           612.0,
-          272.5
+          421.1000061035156
         ],
-        "dpi": 300
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 6,
+          "history": [
+            {
+              "top": true,
+              "bottom": true,
+              "left": false,
+              "right": false
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": false,
+              "right": false
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": false,
+              "right": false
+            }
+          ]
+        }
       }
     },
     {
-      "file": "house-22-schnitt-garage.jpg",
+      "file": "house-22-schnitt-garage.png",
       "kind": "section",
       "source": "pdf",
-      "view": "garage",
+      "view": null,
       "floor": null,
-      "title": "Schnitt Garage",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "title": "Schnitt-Garage",
+      "imported_at": "2026-06-02T15:04:28Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 4,
         "bbox_pdf_units": [
           0.0,
-          215.0,
-          455.0,
-          402.5
+          189.76772157055663,
+          423.82181160000005,
+          421.1000061035156
         ],
-        "dpi": 300
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 6,
+          "history": [
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            }
+          ]
+        }
       }
     },
     {
-      "file": "house-22-ansicht-ost.jpg",
+      "file": "house-22-elevation-east.png",
       "kind": "elevation",
       "source": "pdf",
       "view": "east",
       "floor": null,
-      "title": "Ostansicht",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "title": "Ansicht-Osten",
+      "imported_at": "2026-06-02T15:04:29Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 5,
         "bbox_pdf_units": [
+          6.184319999999984,
           0.0,
-          15.0,
-          612.0,
-          237.5
+          522.6316800000001,
+          219.3
         ],
-        "dpi": 300
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 5,
+          "history": [
+            {
+              "top": true,
+              "bottom": false,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": false,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": false,
+              "left": true,
+              "right": false
+            },
+            {
+              "top": true,
+              "bottom": false,
+              "left": true,
+              "right": false
+            },
+            {
+              "top": true,
+              "bottom": false,
+              "left": false,
+              "right": false
+            }
+          ]
+        }
       }
     },
     {
-      "file": "house-22-ansicht-nord.jpg",
+      "file": "house-22-elevation-north.png",
       "kind": "elevation",
       "source": "pdf",
       "view": "north",
       "floor": null,
-      "title": "Nordansicht",
-      "imported_at": "2026-05-31T22:06:35Z",
+      "title": "Ansicht-Norden",
+      "imported_at": "2026-06-02T15:04:33Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 5,
         "bbox_pdf_units": [
           0.0,
-          215.0,
+          94.82152963452148,
           612.0,
-          410.0
+          419.70001220703125
         ],
-        "dpi": 300
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 6,
+          "history": [
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": true,
+              "left": true,
+              "right": false
+            }
+          ]
+        }
       }
     },
     {
-      "file": "house-22-ansicht-sued.jpg",
+      "file": "house-22-elevation-south.png",
       "kind": "elevation",
       "source": "pdf",
       "view": "south",
       "floor": null,
-      "title": "Suedansicht",
-      "imported_at": "2026-05-31T22:06:36Z",
+      "title": "Ansicht-Sueden",
+      "imported_at": "2026-06-02T15:04:34Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 6,
         "bbox_pdf_units": [
+          8.232000000000001,
           0.0,
-          15.0,
-          612.0,
-          235.0
+          516.168,
+          224.4
         ],
-        "dpi": 300
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 3,
+          "history": [
+            {
+              "top": true,
+              "bottom": false,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": false,
+              "left": false,
+              "right": true
+            },
+            {
+              "top": true,
+              "bottom": false,
+              "left": false,
+              "right": false
+            }
+          ]
+        }
       }
     },
     {
-      "file": "house-22-ansicht-west.jpg",
+      "file": "house-22-elevation-west.png",
       "kind": "elevation",
       "source": "pdf",
       "view": "west",
       "floor": null,
-      "title": "Westansicht",
-      "imported_at": "2026-05-31T22:06:36Z",
+      "title": "Ansicht-Westen",
+      "imported_at": "2026-06-02T15:04:37Z",
       "crop_from": {
         "pdf_file": "house-22.pdf",
         "page": 6,
         "bbox_pdf_units": [
           0.0,
-          215.0,
+          208.43400024414063,
           612.0,
-          422.5
+          441.29998779296875
         ],
-        "dpi": 300
+        "dpi": 600,
+        "clip_expand": {
+          "expanded": true,
+          "iters": 6,
+          "history": [
+            {
+              "top": true,
+              "bottom": false,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": false,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": false,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            },
+            {
+              "top": false,
+              "bottom": true,
+              "left": true,
+              "right": true
+            }
+          ]
+        }
       }
     }
   ]

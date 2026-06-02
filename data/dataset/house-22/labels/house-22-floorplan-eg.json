@@ -7,649 +7,142 @@
   "scene_orientation": null,
   "scene_level": "eg",
   "image_size_px": [
-    4636,
+    5100,
     3445
   ],
   "labels": [
     {
-      "id": "lab-34beeb4e8d",
-      "type": "dimensioned_distance",
+      "id": "lab-49a9351b25",
+      "type": "wall",
       "geometry": {
         "start": [
-          1130.0,
-          250.0
+          1474,
+          1139
         ],
         "end": [
-          2148.0,
-          295.0
+          2613,
+          1156
         ]
       },
       "attributes": {
-        "value_mm": 9860.0,
-        "is_reference": true,
-        "target_orientation": "horizontal"
+        "thickness_mm": null
       },
-      "status": "readable"
+      "status": "readable",
+      "notes": "Main house outer TOP wall (north), x1474-2613. refine_wall conf 0.96, thickness ~26px."
     },
     {
-      "id": "lab-70bf4a9186",
-      "type": "dimension_number",
-      "geometry": {
-        "anchor": [
-          1638.3817432380922,
-          286.4863418582686
-        ]
-      },
-      "attributes": {
-        "text": "9.86",
-        "parsed_value_mm": 9860.0
-      },
-      "relations": [
-        {
-          "kind": "labels",
-          "other_id": "lab-34beeb4e8d"
-        }
-      ],
-      "status": "readable"
-    },
-    {
-      "id": "lab-11fc579a4e",
-      "type": "dimensioned_distance",
+      "id": "lab-d86850efed",
+      "type": "wall",
       "geometry": {
         "start": [
-          228.0,
-          1056.0
+          2613,
+          1156
         ],
         "end": [
-          197.0,
-          2147.0
+          2612,
+          1664
         ]
       },
       "attributes": {
-        "value_mm": 9080.0,
-        "is_reference": true,
-        "target_orientation": "vertical"
+        "thickness_mm": null
       },
-      "status": "readable"
+      "status": "readable",
+      "notes": "Main house outer EAST wall, x2613 (right of Gast). refine_wall conf 1.0, thickness ~25px."
     },
     {
-      "id": "lab-8db4d01347",
-      "type": "dimension_number",
+      "id": "lab-83c95f2e41",
+      "type": "wall",
       "geometry": {
-        "anchor": [
-          198.50564818672498,
-          1601.1023603059473
+        "start": [
+          2612,
+          1664
+        ],
+        "end": [
+          1459,
+          1649
         ]
       },
       "attributes": {
-        "text": "9.08",
-        "parsed_value_mm": 9080.0
+        "thickness_mm": null
       },
-      "relations": [
-        {
-          "kind": "labels",
-          "other_id": "lab-11fc579a4e"
-        }
-      ],
-      "status": "readable"
+      "status": "readable",
+      "notes": "Main house outer BOTTOM wall (south), x1459-2612 at y~1656. refine_wall conf 0.88, thickness ~27px."
+    },
+    {
+      "id": "lab-9d453f815e",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1459,
+          1649
+        ],
+        "end": [
+          1474,
+          1139
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "notes": "Main house outer LEFT wall (west), x~1466. refine_wall conf 1.0."
     },
     {
       "type": "wall",
       "geometry": {
         "start": [
-          1140,
-          1160
+          1466,
+          1319
         ],
         "end": [
-          2215,
-          1165
+          1895,
+          1319
         ]
       },
-      "status": "readable",
       "attributes": {
-        "thickness_mm": 317
+        "thickness_mm": null
       },
-      "id": "lab-8551eb32aa"
+      "status": "readable",
+      "notes": "Interior horizontal partition (DU/WC above, Kuche below). refine_wall conf 1.0, thick 18px. T into left wall + meets vertical x1895.",
+      "id": "lab-30e6c8c0b4"
     },
     {
       "type": "wall",
       "geometry": {
         "start": [
-          2215,
-          1165
+          1895,
+          1319
         ],
         "end": [
-          2140,
-          2145
+          1894,
+          1656
         ]
       },
-      "status": "readable",
       "attributes": {
-        "thickness_mm": 317
+        "thickness_mm": null
       },
-      "id": "lab-eacb52996e"
+      "status": "readable",
+      "notes": "Interior vertical partition (Kuche/left rooms vs Diele). refine_wall conf 1.0, thick 19px. Top meets horizontal partition; bottom T into bottom wall.",
+      "id": "lab-6a07984800"
     },
     {
       "type": "wall",
       "geometry": {
         "start": [
-          2140,
-          2145
+          2283,
+          1156
         ],
         "end": [
-          1230,
-          2145
+          2282,
+          1656
         ]
       },
-      "status": "readable",
       "attributes": {
-        "thickness_mm": 317
-      },
-      "id": "lab-c40ed384c1"
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          1230,
-          2145
-        ],
-        "end": [
-          1220,
-          1750
-        ]
+        "thickness_mm": null
       },
       "status": "readable",
-      "attributes": {
-        "thickness_mm": 317
-      },
-      "id": "lab-3de583b7c3"
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          1220,
-          1750
-        ],
-        "end": [
-          1145,
-          1645
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 317
-      },
-      "id": "lab-b5a1a9ff24"
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          1145,
-          1645
-        ],
-        "end": [
-          1140,
-          1160
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 317
-      },
-      "id": "lab-ed1e748277"
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          2210,
-          1510
-        ],
-        "end": [
-          2670,
-          1510
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 317
-      },
-      "id": "lab-5270c20abc"
-    },
-    {
-      "id": "lab-cab34a19d8",
-      "type": "wall",
-      "geometry": {
-        "start": [
-          2635,
-          1510
-        ],
-        "end": [
-          2635,
-          2245
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 317
-      }
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          2635,
-          2245
-        ],
-        "end": [
-          2225,
-          2245
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 317
-      },
-      "id": "lab-ad6d499ee1"
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          2225,
-          2245
-        ],
-        "end": [
-          2225,
-          1510
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 317
-      },
-      "id": "lab-8137a232e7"
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          1145,
-          1300
-        ],
-        "end": [
-          1505,
-          1300
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 122
-      },
-      "id": "lab-b53ff62f20"
-    },
-    {
-      "id": "lab-f37d4271c5",
-      "type": "wall",
-      "geometry": {
-        "start": [
-          1545,
-          1300
-        ],
-        "end": [
-          1545,
-          1660
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 122
-      }
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          1845,
-          1640
-        ],
-        "end": [
-          2160,
-          1640
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 122
-      },
-      "id": "lab-48adcc19b7"
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          1180,
-          1645
-        ],
-        "end": [
-          1565,
-          1645
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 122
-      },
-      "id": "lab-d8d33f2e41"
-    },
-    {
-      "type": "wall",
-      "geometry": {
-        "start": [
-          1930,
-          1145
-        ],
-        "end": [
-          1930,
-          1548
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "thickness_mm": 122
-      },
-      "id": "lab-8acc193273"
-    },
-    {
-      "type": "floorplan_opening",
-      "geometry": {
-        "quad": [
-          [
-            1290,
-            1105
-          ],
-          [
-            1415,
-            1105
-          ],
-          [
-            1415,
-            1205
-          ],
-          [
-            1290,
-            1205
-          ]
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "opening_kind": "window",
-        "swing": "none",
-        "swing_side": "none"
-      },
-      "relations": [
-        {
-          "kind": "belongs_to",
-          "other_id": "lab-8551eb32aa"
-        }
-      ],
-      "id": "lab-1af5add644"
-    },
-    {
-      "type": "floorplan_opening",
-      "geometry": {
-        "quad": [
-          [
-            1670,
-            1105
-          ],
-          [
-            1745,
-            1105
-          ],
-          [
-            1745,
-            1205
-          ],
-          [
-            1670,
-            1205
-          ]
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "opening_kind": "window",
-        "swing": "none",
-        "swing_side": "none"
-      },
-      "relations": [
-        {
-          "kind": "belongs_to",
-          "other_id": "lab-8551eb32aa"
-        }
-      ],
-      "id": "lab-dfcd2d176d"
-    },
-    {
-      "type": "floorplan_opening",
-      "geometry": {
-        "quad": [
-          [
-            1290,
-            2105
-          ],
-          [
-            1605,
-            2105
-          ],
-          [
-            1605,
-            2190
-          ],
-          [
-            1290,
-            2190
-          ]
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "opening_kind": "window",
-        "swing": "none",
-        "swing_side": "none"
-      },
-      "relations": [
-        {
-          "kind": "belongs_to",
-          "other_id": "lab-c40ed384c1"
-        }
-      ],
-      "id": "lab-62674a2879"
-    },
-    {
-      "type": "floorplan_opening",
-      "geometry": {
-        "quad": [
-          [
-            1840,
-            2105
-          ],
-          [
-            2070,
-            2105
-          ],
-          [
-            2070,
-            2190
-          ],
-          [
-            1840,
-            2190
-          ]
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "opening_kind": "window",
-        "swing": "none",
-        "swing_side": "none"
-      },
-      "relations": [
-        {
-          "kind": "belongs_to",
-          "other_id": "lab-c40ed384c1"
-        }
-      ],
-      "id": "lab-508d7b4810"
-    },
-    {
-      "type": "floorplan_opening",
-      "geometry": {
-        "quad": [
-          [
-            1095,
-            1375
-          ],
-          [
-            1190,
-            1375
-          ],
-          [
-            1190,
-            1525
-          ],
-          [
-            1095,
-            1525
-          ]
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "opening_kind": "window",
-        "swing": "none",
-        "swing_side": "none"
-      },
-      "relations": [
-        {
-          "kind": "belongs_to",
-          "other_id": "lab-ed1e748277"
-        }
-      ],
-      "id": "lab-eee28ca5ab"
-    },
-    {
-      "type": "floorplan_opening",
-      "geometry": {
-        "quad": [
-          [
-            2100,
-            1840
-          ],
-          [
-            2190,
-            1840
-          ],
-          [
-            2190,
-            1995
-          ],
-          [
-            2100,
-            1995
-          ]
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "opening_kind": "window",
-        "swing": "none",
-        "swing_side": "none"
-      },
-      "relations": [
-        {
-          "kind": "belongs_to",
-          "other_id": "lab-eacb52996e"
-        }
-      ],
-      "id": "lab-9bedfb5170"
-    },
-    {
-      "type": "floorplan_opening",
-      "geometry": {
-        "quad": [
-          [
-            2340,
-            2200
-          ],
-          [
-            2525,
-            2200
-          ],
-          [
-            2525,
-            2290
-          ],
-          [
-            2340,
-            2290
-          ]
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "opening_kind": "garage_door",
-        "swing": "none",
-        "swing_side": "none"
-      },
-      "relations": [
-        {
-          "kind": "belongs_to",
-          "other_id": "lab-ad6d499ee1"
-        }
-      ],
-      "id": "lab-1d0c1e2b29"
-    },
-    {
-      "type": "floorplan_opening",
-      "geometry": {
-        "quad": [
-          [
-            1515,
-            1545
-          ],
-          [
-            1605,
-            1545
-          ],
-          [
-            1605,
-            1675
-          ],
-          [
-            1515,
-            1675
-          ]
-        ]
-      },
-      "status": "readable",
-      "attributes": {
-        "opening_kind": "door",
-        "swing": "in",
-        "swing_side": "left"
-      },
-      "relations": [
-        {
-          "kind": "belongs_to",
-          "other_id": "lab-f37d4271c5"
-        }
-      ],
-      "id": "lab-412855ee3f"
+      "notes": "Interior vertical partition (Diele/zum-KG vs Gast). refine_wall conf 0.92, thick 18px. T into top wall; bottom T into bottom wall.",
+      "id": "lab-4f1db099d4"
     }
   ]
 }

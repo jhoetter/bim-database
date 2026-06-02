@@ -1,239 +1,116 @@
 {
   "schema_version": "1.1",
-  "workflow": {
-    "schema_version": "1.1",
-    "phase": "inventory",
-    "phase_completed_at": {
-      "inventory": null,
-      "height_anchor": null,
-      "footprint": null,
-      "orientation": null,
-      "bezugsmasse": null,
-      "detail": null
-    },
-    "source_scene": {
-      "inventory": null,
-      "height_anchor": null,
-      "footprint": null,
-      "orientation": null,
-      "bezugsmasse": null,
-      "detail": null
-    },
-    "user_skipped": {}
+  "extent": {
+    "sources": {}
   },
+  "heights": {
+    "sources": {}
+  },
+  "wall_thickness": {},
+  "openings_catalog": [],
+  "calibration_per_scene": {},
   "scene_metadata": {
+    "house-22-floorplan-ug.png": {
+      "scene_tag": "grundriss",
+      "orientation": null,
+      "level": "ug",
+      "image_size_px": [
+        5100,
+        3364
+      ]
+    },
     "house-22-floorplan-eg.png": {
       "scene_tag": "grundriss",
       "orientation": null,
       "level": "eg",
       "image_size_px": [
-        4636,
+        5100,
         3445
       ]
     },
-    "house-22-floorplan-ug.jpg": {
-      "scene_tag": "grundriss",
-      "orientation": null,
-      "level": "ug",
-      "image_size_px": [
-        2550,
-        1682
-      ]
-    },
-    "house-22-floorplan-dg.jpg": {
+    "house-22-floorplan-dg.png": {
       "scene_tag": "grundriss",
       "orientation": null,
       "level": "dg",
       "image_size_px": [
-        2550,
-        1717
+        3624,
+        2766
       ]
     },
-    "house-22-schnitt-gebaeude.jpg": {
+    "house-22-section-section.png": {
       "scene_tag": "schnitt",
       "orientation": null,
       "level": null,
       "image_size_px": [
-        2550,
-        1053
-      ],
-      "bezug_y_px": 609
+        5100,
+        3510
+      ]
     },
-    "house-22-schnitt-garage.jpg": {
+    "house-22-schnitt-garage.png": {
       "scene_tag": "schnitt",
       "orientation": null,
       "level": null,
       "image_size_px": [
-        1896,
-        783
+        3532,
+        1929
       ]
     },
-    "house-22-ansicht-ost.jpg": {
+    "house-22-elevation-east.png": {
       "scene_tag": "ansicht",
       "orientation": "east",
       "level": null,
       "image_size_px": [
-        2550,
-        928
+        4305,
+        1828
       ]
     },
-    "house-22-ansicht-nord.jpg": {
+    "house-22-elevation-north.png": {
       "scene_tag": "ansicht",
       "orientation": "north",
       "level": null,
       "image_size_px": [
-        2550,
-        814
+        5100,
+        2708
       ]
     },
-    "house-22-ansicht-sued.jpg": {
+    "house-22-elevation-south.png": {
       "scene_tag": "ansicht",
       "orientation": "south",
       "level": null,
       "image_size_px": [
-        2550,
-        918
+        4234,
+        1870
       ]
     },
-    "house-22-ansicht-west.jpg": {
+    "house-22-elevation-west.png": {
       "scene_tag": "ansicht",
       "orientation": "west",
       "level": null,
       "image_size_px": [
-        2550,
-        866
+        5100,
+        1942
       ]
     }
   },
-  "calibration_per_scene": {
-    "house-22-floorplan-eg.png": {
-      "px_per_mm": 0.11177446931484793,
-      "computed_from": "M1-both",
-      "single_ref_assumed_isotropic": false
-    }
-  },
-  "openings_catalog": [],
-  "extent": {
-    "sources": {
-      "width_mm": [
-        "house-22-floorplan-eg.png#dim:lab-34beeb4e8d"
-      ],
-      "depth_mm": [
-        "house-22-floorplan-eg.png#dim:lab-11fc579a4e"
-      ]
+  "orientation": null,
+  "workflow": {
+    "schema_version": "1.2",
+    "phase": "inventory",
+    "phase_completed_at": {
+      "inventory": null,
+      "floorplans": null,
+      "sections": null,
+      "elevations": null,
+      "review": null
     },
-    "width_mm": 9860,
-    "depth_mm": 9080
-  },
-  "heights": {
-    "sources": {
-      "first_mm": [
-        "house-22-schnitt-gebaeude.jpg#hm:lab-ec9e206186"
-      ],
-      "traufe_mm": [
-        "house-22-schnitt-gebaeude.jpg#hm:lab-ac6d91a580"
-      ],
-      "geschoss_mm": [
-        "house-22-schnitt-gebaeude.jpg#hm:lab-095f79b719",
-        "house-22-schnitt-gebaeude.jpg#hm:lab-1aec083d9b"
-      ],
-      "bezug_mm": [
-        "house-22-schnitt-gebaeude.jpg#hm:lab-21c78ab903"
-      ],
-      "ok_ffb_eg_mm": [
-        "house-22-schnitt-gebaeude.jpg#hm:lab-21c78ab903"
-      ]
+    "source_scene": {
+      "inventory": null,
+      "floorplans": null,
+      "sections": null,
+      "elevations": null,
+      "review": null
     },
-    "first_mm": 7210,
-    "traufe_mm": 4580,
-    "geschoss_mm": -2860,
-    "bezug_mm": 0,
-    "ok_ffb_eg_mm": 0
+    "user_skipped": {}
   },
-  "wall_thickness": {
-    "outer_mm": 317,
-    "sources": {
-      "outer": "EG dimension chain shows exterior wall 31.7 cm"
-    }
-  },
-  "building_global": {
-    "schema": 1,
-    "facts": {
-      "FH_mm": {
-        "value": 7210.0,
-        "unit": "mm",
-        "confidence": "high",
-        "source": {
-          "scene": "house-22-schnitt-gebaeude.jpg",
-          "label_id": "lab-ec9e206186"
-        },
-        "notes": "Height ladder reads FH +7.21."
-      },
-      "TH_mm": {
-        "value": 4580.0,
-        "unit": "mm",
-        "confidence": "high",
-        "source": {
-          "scene": "house-22-schnitt-gebaeude.jpg",
-          "label_id": "lab-ac6d91a580"
-        },
-        "notes": "Height ladder reads TH +4.58."
-      },
-      "DG_mm": {
-        "value": 2970.0,
-        "unit": "mm",
-        "confidence": "high",
-        "source": {
-          "scene": "house-22-schnitt-gebaeude.jpg",
-          "label_id": "lab-095f79b719"
-        },
-        "notes": "Height ladder reads DG +2.97."
-      },
-      "EG_mm": {
-        "value": 0.0,
-        "unit": "mm",
-        "confidence": "high",
-        "source": {
-          "scene": "house-22-schnitt-gebaeude.jpg",
-          "label_id": "lab-21c78ab903"
-        },
-        "notes": "Height ladder reads EG ±0.00."
-      },
-      "UG_mm": {
-        "value": -2860.0,
-        "unit": "mm",
-        "confidence": "high",
-        "source": {
-          "scene": "house-22-schnitt-gebaeude.jpg",
-          "label_id": "lab-1aec083d9b"
-        },
-        "notes": "Height ladder reads UG -2.86."
-      },
-      "EG_munn_mm": {
-        "value": 843800.0,
-        "unit": "mm",
-        "confidence": "high",
-        "source": {
-          "scene": "house-22-schnitt-gebaeude.jpg",
-          "label_id": "lab-21c78ab903"
-        },
-        "notes": "Section/plan reads EFH 843.80 m ü.M. at EG ±0.00."
-      },
-      "roof_pitch_deg": {
-        "value": 30.0,
-        "unit": "deg",
-        "confidence": "high",
-        "source": {
-          "scene": "house-22-schnitt-gebaeude.jpg",
-          "label_id": null
-        },
-        "notes": "Section title reads Dachneigung 30°."
-      }
-    }
-  },
-  "orientation": {
-    "north_angle_deg": 0,
-    "assumed": true,
-    "source": "north arrow on floorplans points to page top"
-  }
+  "derived_facts": {}
 }

@@ -2,13 +2,13 @@
   "schema_version": "1.0",
   "scope": "dataset",
   "scene_key": "house-22",
-  "scene_file": "house-22-ansicht-ost.jpg",
+  "scene_file": "house-22-elevation-west.png",
   "scene_tag": "ansicht",
-  "scene_orientation": "east",
+  "scene_orientation": "west",
   "scene_level": null,
   "image_size_px": [
-    2550,
-    928
+    5100,
+    1942
   ],
   "labels": []
 }

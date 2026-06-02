@@ -2,13 +2,319 @@
   "schema_version": "1.0",
   "scope": "dataset",
   "scene_key": "house-22",
-  "scene_file": "house-22-floorplan-ug.jpg",
+  "scene_file": "house-22-floorplan-ug.png",
   "scene_tag": "grundriss",
   "scene_orientation": null,
   "scene_level": "ug",
   "image_size_px": [
-    2550,
-    1682
+    5100,
+    3364
   ],
-  "labels": []
+  "labels": [
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1494,
+          1190
+        ],
+        "end": [
+          1490,
+          2210
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-8c600c0f5e"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1494,
+          1190
+        ],
+        "end": [
+          2595,
+          1208
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-129a344563"
+    },
+    {
+      "id": "lab-e30c88819d",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2595,
+          1208
+        ],
+        "end": [
+          2526,
+          2206
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable"
+    },
+    {
+      "id": "lab-0f9888bdd4",
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1494,
+          2209
+        ],
+        "end": [
+          2030,
+          2200
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2640,
+          1551
+        ],
+        "end": [
+          3093,
+          1554
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-54bdc49372"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          3093,
+          1554
+        ],
+        "end": [
+          3093,
+          2295
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-2008791974"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2660,
+          2295
+        ],
+        "end": [
+          3093,
+          2295
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-31b98b2f96"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2640,
+          1551
+        ],
+        "end": [
+          2660,
+          2295
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "uncertain",
+      "id": "lab-5408d3157c"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1494,
+          1721
+        ],
+        "end": [
+          2526,
+          1724
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-a877487191"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2027,
+          1721
+        ],
+        "end": [
+          2028,
+          2202
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-15153f9dfc"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1535,
+          1721
+        ],
+        "end": [
+          1523,
+          2139
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-3a599159ab"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1740,
+          1473
+        ],
+        "end": [
+          1760,
+          1721
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-eb42b8b175"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2253,
+          1200
+        ],
+        "end": [
+          2224,
+          1690
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-8a80e60f2d"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          1535,
+          1468
+        ],
+        "end": [
+          1799,
+          1479
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-1f7fa5b96a"
+    },
+    {
+      "type": "wall",
+      "geometry": {
+        "start": [
+          2459,
+          1724
+        ],
+        "end": [
+          2460,
+          2202
+        ]
+      },
+      "attributes": {
+        "thickness_mm": null
+      },
+      "status": "readable",
+      "id": "lab-794e793ee2"
+    },
+    {
+      "type": "floorplan_opening",
+      "geometry": {
+        "quad": [
+          [
+            1640,
+            1708
+          ],
+          [
+            1760,
+            1708
+          ],
+          [
+            1760,
+            1734
+          ],
+          [
+            1640,
+            1734
+          ]
+        ]
+      },
+      "attributes": {
+        "opening_kind": "door",
+        "width_mm": null
+      },
+      "status": "readable",
+      "relations": [
+        {
+          "kind": "belongs_to",
+          "other_id": "lab-a877487191"
+        }
+      ],
+      "id": "lab-972b63bf27"
+    }
+  ]
 }
