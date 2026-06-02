@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -36,6 +37,8 @@ PDFS_DIR = BASE / "data" / "pdfs"
 INCOMING_DIR = PDFS_DIR / "incoming"
 SUBMISSIONS_DIR = PDFS_DIR / "submissions"
 UI_DIST = BASE / "ui" / "dist"
+
+log = logging.getLogger("bim-db-api")
 
 app = FastAPI(
     title="BIM Dataset API",
@@ -170,9 +173,14 @@ def _load_dataset_manifest(key: str) -> dict | None:
                 lab = json.loads(label_file.read_text())
                 d["labeled"] = True
                 d["label_count"] = len(lab.get("labels") or [])
-            except Exception:  # noqa: BLE001
+            except (json.JSONDecodeError, OSError) as e:
+                # A corrupt/unreadable label file is NOT the same as "no
+                # labels": flag it so the UI/agent can spot data damage
+                # (M1) instead of silently treating the scene as unlabeled.
+                log.warning("label file %s unreadable: %s", label_file, e)
                 d["labeled"] = False
                 d["label_count"] = 0
+                d["corrupt"] = True
         else:
             d["labeled"] = False
             d["label_count"] = 0
@@ -195,8 +203,8 @@ def _load_dataset_manifest(key: str) -> dict | None:
             if wf.get("driven_by"):
                 data["driven_by"] = wf.get("driven_by")
                 data["driven_by_run_id"] = wf.get("driven_by_run_id")
-        except Exception:  # noqa: BLE001
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning("house_facts %s unreadable: %s", facts_path, e)
     return data
 
 
@@ -352,7 +360,7 @@ def _plan_http_error(e: Exception):
 LABELS_SCHEMA_PATH = BASE / "schema" / "scene_labels.schema.json"
 try:
     LABELS_SCHEMA = json.loads(LABELS_SCHEMA_PATH.read_text()) if LABELS_SCHEMA_PATH.exists() else None
-except Exception:  # noqa: BLE001
+except (json.JSONDecodeError, OSError):
     LABELS_SCHEMA = None
 
 try:

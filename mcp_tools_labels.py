@@ -353,7 +353,12 @@ async def upsert_label(
                     "must_verify_before_downstream": bool(check.get("must_verify_before_downstream")),
                     "anchoring_check_region": check.get("region"),
                 })
-        except Exception:  # noqa: BLE001
+        except (httpx.HTTPError, httpx.RequestError) as e:
+            # API unreachable → fall back to the safe "must verify" default.
+            # Narrowed from a bare except (M1) so a genuine bug in the
+            # anchoring path surfaces instead of masquerading as "unchecked".
+            mcp_server.log.warning(
+                "anchoring-check transport error for %s/%s: %s", key, file, e)
             result["data"].update({
                 "anchoring_status": "unchecked",
                 "recommended_tool": "upsert_wall_anchored",
