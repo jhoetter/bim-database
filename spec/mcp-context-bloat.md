@@ -289,7 +289,9 @@ Shipped checkpoints:
 - **MCB9 prompt policy:** MCP `label-house` prompt now instructs agents to use
   context summaries, `image_delivery="auto"`, bounded QA output, and
   `write_scene_handoff_summary`. Focused tests:
-  `tests/test_mcp_prompt_policy.py`.
+  `tests/test_mcp_prompt_policy.py`. The repo-level `AGENTS.md` now mirrors
+  this as the default MCP labeling methodology so fresh sessions inherit the
+  context-saving flow even when they are not launched through the MCP prompt.
 
 Focused verification command:
 

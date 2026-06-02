@@ -8,6 +8,48 @@ When an agent (you) adds a new house, the goal is *fill in as much ontology
 as you can* so the data is sliceable by future filters and easy to compare
 across records.
 
+When an agent labels extracted BIM scenes through the MCP server, the default
+methodology is the context-saving labeling flow in
+[`spec/mcp-context-bloat.md`](spec/mcp-context-bloat.md). Do not run a
+whole-house labeling session by repeatedly loading full manifests, full plan
+state, and inline full-scene images unless the current decision genuinely
+needs that detail.
+
+## Default MCP labeling methodology
+
+Use this flow for house labeling unless the user explicitly asks for a
+different mode.
+
+1. **Start compact.** Read `get_house_context_summary(key)` first, then
+   `get_scene_context_summary(key, file)` for the active scene. Use full
+   `get_house`, full plan state, full labels, or full Markdown only for a
+   specific deep check.
+2. **Keep visual inspection first-class, but bounded.** Use full-scene views
+   for orientation and global topology, then switch to crop-first reads for
+   coordinate work. For image tools that support it, pass
+   `image_delivery="auto"` so small crops remain inspectable inline while
+   large renders return handles.
+3. **Verify edits with tight crops.** After geometry writes, prefer
+   `verify_label_placement` or bounded `get_scene_view_with_labels` crops
+   over repeated full labeled scene renders. Full labeled QA is for major
+   topology checks and final scene review.
+4. **Bound large tool outputs.** For scoring, topology, anomalies, and QA
+   tools, pass limits such as `max_items` and `summary_only=true` where the
+   tool supports them. Escalate to full output only when the summary exposes
+   an actionable defect that needs details.
+5. **Persist handoffs.** At scene or phase boundaries, call
+   `write_scene_handoff_summary` with compact status, changed labels,
+   unresolved defects, calibration notes, and next actions. Resume from
+   `get_scene_handoff_summary` instead of replaying old visual history.
+6. **Measure and report honestly.** If a full-size image or full state read is
+   necessary, use it. Mention repeated large reads, unclear client image-handle
+   behavior, or remaining context pressure in the run summary.
+
+For expected gains, assumptions, and the current implementation status, see
+the MCP context-bloat tracker. The working target is roughly a 5x token
+efficiency improvement versus the original house-22 style run, with visual
+inspection preserved.
+
 ---
 
 ## Repo layout
