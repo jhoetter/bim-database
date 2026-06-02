@@ -168,16 +168,24 @@ def _meta(started_at: float | None, status_code: int | None) -> dict:
     }
 
 
-async def _api_get(path: str, params: dict | None = None) -> tuple[int, Any]:
-    """GET wrapper that surfaces httpx errors as transport_error envelopes
-    when called from a tool. Returns (status_code, body) on HTTP success
-    (including 4xx). Raises httpx exceptions on transport failure."""
-    r = await _client().get(path, params=params)
+def _status_and_body(r: httpx.Response) -> tuple[int, Any]:
+    """Decode an httpx response into (status_code, json-or-text body).
+
+    Single source for the verb wrappers below (M4) — they previously each
+    carried an identical 4-line json/text fallback block.
+    """
     try:
         body = r.json() if r.content else None
     except json.JSONDecodeError:
         body = r.text
     return r.status_code, body
+
+
+async def _api_get(path: str, params: dict | None = None) -> tuple[int, Any]:
+    """GET wrapper that surfaces httpx errors as transport_error envelopes
+    when called from a tool. Returns (status_code, body) on HTTP success
+    (including 4xx). Raises httpx exceptions on transport failure."""
+    return _status_and_body(await _client().get(path, params=params))
 
 
 async def _api_get_bytes(path: str, params: dict | None = None) -> tuple[int, bytes, str]:
@@ -187,30 +195,15 @@ async def _api_get_bytes(path: str, params: dict | None = None) -> tuple[int, by
 
 
 async def _api_post(path: str, json_body: Any = None, params: dict | None = None) -> tuple[int, Any]:
-    r = await _client().post(path, json=json_body, params=params)
-    try:
-        body = r.json() if r.content else None
-    except json.JSONDecodeError:
-        body = r.text
-    return r.status_code, body
+    return _status_and_body(await _client().post(path, json=json_body, params=params))
 
 
 async def _api_put(path: str, json_body: Any) -> tuple[int, Any]:
-    r = await _client().put(path, json=json_body)
-    try:
-        body = r.json() if r.content else None
-    except json.JSONDecodeError:
-        body = r.text
-    return r.status_code, body
+    return _status_and_body(await _client().put(path, json=json_body))
 
 
 async def _api_delete(path: str) -> tuple[int, Any]:
-    r = await _client().delete(path)
-    try:
-        body = r.json() if r.content else None
-    except json.JSONDecodeError:
-        body = r.text
-    return r.status_code, body
+    return _status_and_body(await _client().delete(path))
 
 
 async def _api_patch(path: str, json_body: dict, started: float) -> dict | None:
