@@ -22,9 +22,9 @@ Criticality is **risk-to-the-system**, not effort. An item can be Critical *and*
 
 | ID | Title | Severity | Effort | Status |
 |----|-------|----------|--------|--------|
-| C1 | Non-atomic JSON writes → corruption on crash | 🔴 Critical | S | OPEN |
-| C2 | No locking → lost updates on concurrent writes | 🔴 Critical | M | OPEN |
-| H1 | TOCTOU in optimistic plan-state version check | 🟠 High | S | OPEN |
+| C1 | Non-atomic JSON writes → corruption on crash | 🔴 Critical | S | ✅ DONE (80f4a5f) |
+| C2 | No locking → lost updates on concurrent writes | 🔴 Critical | M | ✅ DONE (dd9f98e) |
+| H1 | TOCTOU in optimistic plan-state version check | 🟠 High | S | ✅ DONE (dd9f98e, via C2) |
 | H2 | Full-house fact recompute on every label write | 🟠 High | M | OPEN |
 | H3 | MCP transport-error contract honored by only ~half the tools | 🟠 High | M | OPEN |
 | H4 | Destructive reset tools have zero test coverage | 🟠 High | S | OPEN |
@@ -81,7 +81,14 @@ scope (the focus is bim-database) but noted because they surround the integratio
 # 🔴 CRITICAL
 
 ## C1 — Non-atomic JSON writes → corruption on crash
-**Severity:** 🔴 Critical · **Effort:** S · **Status:** OPEN · **Related:** C2, H2
+**Severity:** 🔴 Critical · **Effort:** S · **Status:** ✅ DONE (80f4a5f) · **Related:** C2
+
+> **Resolution.** Added `api/persistence.py` with `atomic_write_json` /
+> `atomic_write_text` (temp-file + fsync + `os.replace`). Wired through all ~30
+> data write sites (manifests, labels, house_facts, plan-state JSON+Markdown,
+> exports). Self-healing cache sentinels intentionally left as bare writes.
+> Regression test in `tests/test_persistence.py` proves the original file
+> survives an interrupted write with no stranded temp., H2
 
 **Locations (representative; ~33 write sites total):**
 - `api/main.py:300` — manifest / drawing patch write
@@ -131,7 +138,20 @@ valid JSON afterward.
 ---
 
 ## C2 — No locking → lost updates on concurrent writes
-**Severity:** 🔴 Critical · **Effort:** M · **Status:** OPEN · **Related:** C1, H1, H2
+**Severity:** 🔴 Critical · **Effort:** M · **Status:** ✅ DONE (dd9f98e) · **Related:** C1, H1, H2
+
+> **Resolution.** Added `api/persistence.locked_path()` — a process-local mutex
+> keyed by absolute path plus an advisory `fcntl.flock` sidecar — held across
+> the whole read→mutate→write. Wired around every genuine RMW: house_facts
+> (`recompute_facts_after_label_write` now a locked wrapper over
+> `_recompute_facts_impl`, `prune_scene_from_facts`, `_persist_scene_calibration`,
+> `put_house_facts`), the manifest (`patch_scene_attrs`), and plan/plan-state
+> (`write_plan_state`, `save_plan`). No nested same-path acquisition (prune
+> releases before the locked recompute). Concurrency tests in
+> `tests/test_persistence.py` (30-thread no-lost-update, mutual exclusion).
+> **Note:** the full H2 fix (scope/debounce the per-write recompute) is still
+> open — C2 serializes facts writers but does not eliminate the per-label
+> full-house recompute.
 
 **Locations:** all persistence paths. Most acute:
 - `api/main.py:1373–1441` — `put_labels` performs read-modify-write with **no version check at all**
@@ -174,7 +194,11 @@ present (no lost updates) and the file is always valid JSON.
 # 🟠 HIGH
 
 ## H1 — TOCTOU in the optimistic plan-state version check
-**Severity:** 🟠 High · **Effort:** S · **Status:** OPEN · **Related:** C2
+**Severity:** 🟠 High · **Effort:** S · **Status:** ✅ DONE (dd9f98e, via C2) · **Related:** C2
+
+> **Resolution.** `write_plan_state` (and `save_plan`) now hold `locked_path`
+> across the version comparison *and* the write, so two writers with the same
+> `expected_version` can no longer both pass and clobber.
 
 **Location:** `api/scene_plan_state.py:311–317` (`write_plan_state`); version hash at L112–114
 (`version_for_state` = sha256 of sorted JSON).
