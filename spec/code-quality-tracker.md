@@ -36,7 +36,7 @@ Criticality is **risk-to-the-system**, not effort. An item can be Critical *and*
 | M5 | No request models / no return types / non-uniform responses | 🟡 Medium | L | OPEN |
 | M6 | `scene_plan_state.py` + `topology_repair.py` lack dedicated unit tests | 🟡 Medium | M | OPEN |
 | L1 | CORS wide open (`allow_origins=["*"]`) | 🟢 Low | S | OPEN |
-| L2 | ~735 lines of prompt text embedded in `mcp_server.py` | 🟢 Low | S | OPEN |
+| L2 | ~735 lines of prompt text embedded in `mcp_server.py` | 🟢 Low | S | ✅ DONE (7c1f270) |
 | L3 | FastMCP private-internal access (`_tool_manager._tools`) | 🟢 Low | S | OPEN |
 | L4 | ~40 lazy in-body imports hide dependency graph | 🟢 Low | M | OPEN |
 | L5 | Deprecated `asyncio.get_event_loop()` at shutdown | 🟢 Low | S | OPEN |
@@ -552,12 +552,22 @@ hand-built fixtures. Pair with H4 (the destructive-tool tests).
 beyond `127.0.0.1`, any origin can drive it. **Fix:** restrict origins via env/config; default to localhost.
 
 ## L2 — ~735 lines of prompt text embedded in `mcp_server.py`
-**Severity:** 🟢 Low · **Effort:** S · **Status:** OPEN
-**Location:** `mcp_server.py:5229–5959` — `prompt_*` / `resource_*` functions are mostly hardcoded
-multi-page prompt strings (`prompt_label_house` L5229–5403 alone is ~175 lines).
-**What/why.** This is *content*, not logic, inflating the god file and making prompt edits a code change.
-**Fix.** Move prompt bodies to resource files (e.g. `prompts/*.md`) loaded at startup; keep the tool/resource
-registration thin.
+**Severity:** 🟢 Low · **Effort:** S · **Status:** ✅ DONE (7c1f270)
+**Location:** `mcp_server.py:5229–5959` — `prompt_*` / `resource_*` functions were mostly hardcoded
+multi-page prompt strings.
+
+> **Resolution.** Prompt bodies + the grid-coordinates doc moved to
+> `prompts/*.md` templates (string.Template `$key`/`$file`/`$spec_notice`),
+> loaded by `mcp_prompts.register(mcp, …)`. Verified byte-identical to the
+> prior output. This was the first step of the larger `mcp_server.py` split.
+
+> **`mcp_server.py` god file — fully resolved (H5 follow-on).** Beyond L2, the
+> 78 tool definitions were carved into 10 per-domain modules
+> (`mcp_tools_{discovery,intake,scene,plan,geometry,labels,reference,facts,export,audit}.py`).
+> **`mcp_server.py`: 6,040 → 1,181 lines** — now just HTTP plumbing, envelopes,
+> shared helpers, config, tool profiles, entry, and re-exports. Commits
+> 7c1f270 (prompts), 004f251 (re-exec guard + audit pilot), 391960f (remaining
+> 9 domains).
 
 ## L3 — FastMCP private-internal access
 **Severity:** 🟢 Low · **Effort:** S · **Status:** OPEN
