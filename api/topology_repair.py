@@ -192,6 +192,9 @@ def current_findings_from_results(
             })
         for idx, seg in enumerate(score_walls_result.get("off_ink_segments") or [], start=1):
             payload = {"region": seg, "review_region": seg}
+            wall_id = _wall_id_for_score_segment(labels_doc, seg)
+            if wall_id:
+                payload["wall_id"] = wall_id
             fp = finding_fingerprint(file, "score_walls", "off_ink_segment", payload)
             findings.append({
                 "fingerprint": fp,
@@ -325,6 +328,35 @@ def _finding_wall_ids(finding: dict[str, Any]) -> set[str]:
     return ids
 
 
+def _wall_id_for_score_segment(labels_doc: dict[str, Any], seg: Any) -> str | None:
+    if not (isinstance(seg, (list, tuple)) and len(seg) >= 4):
+        return None
+    try:
+        sx0, sy0, sx1, sy1 = [int(round(float(v))) for v in seg[:4]]
+    except (TypeError, ValueError):
+        return None
+    best_id = None
+    best_delta = None
+    for lab in labels_doc.get("labels") or []:
+        if not isinstance(lab, dict) or lab.get("type") != "wall":
+            continue
+        wall = _wall_segment(lab)
+        if wall is None:
+            continue
+        (a, b) = wall
+        candidates = [
+            abs(int(round(a[0])) - sx0) + abs(int(round(a[1])) - sy0)
+            + abs(int(round(b[0])) - sx1) + abs(int(round(b[1])) - sy1),
+            abs(int(round(a[0])) - sx1) + abs(int(round(a[1])) - sy1)
+            + abs(int(round(b[0])) - sx0) + abs(int(round(b[1])) - sy0),
+        ]
+        delta = min(candidates)
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
+            best_id = str(lab.get("id") or "")
+    return best_id if best_delta is not None and best_delta <= 12 else None
+
+
 def _cluster_type(cluster: dict[str, Any], labels_doc: dict[str, Any]) -> str:
     cats = set(cluster.get("categories") or [])
     if _near_opening(cluster.get("region"), labels_doc):
@@ -365,11 +397,20 @@ def _cluster_summary(cluster_type: str, cluster: dict[str, Any]) -> str:
     return f"{count} topology finding(s) need review."
 
 
-def generate_repair_candidates(labels_doc: dict[str, Any], topology_result: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def generate_repair_candidates(
+    labels_doc: dict[str, Any],
+    topology_result: dict[str, Any] | None = None,
+    score_walls_result: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     if topology_result is None:
         from .wall_topology import wall_topology_qa
         topology_result = wall_topology_qa(labels_doc.get("labels") or [])
-    findings = current_findings_from_results(file=str(labels_doc.get("scene_file") or ""), labels_doc=labels_doc, topology_result=topology_result)
+    findings = current_findings_from_results(
+        file=str(labels_doc.get("scene_file") or ""),
+        labels_doc=labels_doc,
+        score_walls_result=score_walls_result,
+        topology_result=topology_result,
+    )
     clusters = cluster_findings(findings, labels_doc)
     labels_by_id = {str(l.get("id")): l for l in labels_doc.get("labels") or [] if isinstance(l, dict) and l.get("id")}
     candidates: list[dict[str, Any]] = []
@@ -394,6 +435,16 @@ def generate_repair_candidates(labels_doc: dict[str, Any], topology_result: dict
                 cand = _delete_stub_candidate(cluster, payload, labels_by_id)
                 if cand:
                     cluster_candidates.append(cand)
+            elif finding.get("category") == "off_ink_segment":
+                move = _move_off_ink_to_missing_region_candidate(cluster, payload, labels_by_id)
+                if move:
+                    cluster_candidates.append(move)
+                cand = _reanchor_off_ink_candidate(cluster, payload, labels_by_id)
+                if cand:
+                    cluster_candidates.append(cand)
+                delete = _delete_off_ink_candidate(cluster, payload, labels_by_id)
+                if delete:
+                    cluster_candidates.append(delete)
         if not cluster_candidates and cluster.get("cluster_type") == "intentional_opening_gap_candidate":
             cluster_candidates.append(_no_edit_candidate(cluster, "intentional_opening_gap"))
         if not cluster_candidates:
@@ -410,6 +461,109 @@ def generate_repair_candidates(labels_doc: dict[str, Any], topology_result: dict
             candidates.append(cand)
     candidates.sort(key=lambda c: ({"low": 0, "medium": 1, "high": 2}.get(str(c.get("risk")), 9), -float(c.get("confidence", 0.0)), c.get("candidate_id", "")))
     return candidates
+
+
+def _move_off_ink_to_missing_region_candidate(cluster: dict[str, Any], payload: dict[str, Any], labels_by_id: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    wall_id = str(payload.get("wall_id") or "")
+    wall = labels_by_id.get(wall_id)
+    seg = _wall_segment(wall) if wall else None
+    if wall is None or seg is None:
+        return None
+    missing = next(
+        (
+            f for f in cluster.get("findings") or []
+            if f.get("category") == "missing_region" and isinstance(f.get("region"), list) and len(f.get("region")) >= 4
+        ),
+        None,
+    )
+    if missing is None:
+        return None
+    region = [float(v) for v in missing["region"][:4]]
+    cx = (region[0] + region[2]) / 2.0
+    cy = (region[1] + region[3]) / 2.0
+    (s, e) = seg
+    dx = e[0] - s[0]
+    dy = e[1] - s[1]
+    if abs(dx) >= abs(dy):
+        shift = cy - ((s[1] + e[1]) / 2.0)
+        if abs(shift) > 140:
+            return None
+        new_start = [s[0], s[1] + shift]
+        new_end = [e[0], e[1] + shift]
+    else:
+        shift = cx - ((s[0] + e[0]) / 2.0)
+        if abs(shift) > 140:
+            return None
+        new_start = [s[0] + shift, s[1]]
+        new_end = [e[0] + shift, e[1]]
+    return {
+        "op": "move_off_ink_wall_to_score_region",
+        "confidence": 0.62,
+        "risk": "medium",
+        "expected_gain": "moves a misplaced wall toward nearby uncovered wall ink reported in the same score cluster",
+        "why": [
+            f"off-ink wall {wall_id} is clustered with a missing wall-ink region",
+            f"estimated perpendicular shift {shift:.1f}px",
+            "must be verified in ink_compare overlay before applying",
+        ],
+        "edits": [
+            {"label_id": wall_id, "endpoint": "start", "to": new_start},
+            {"label_id": wall_id, "endpoint": "end", "to": new_end},
+        ],
+        "candidate_wall": [new_start, new_end],
+        "predicted_delta": {"off_ink_segments": -1, "missing_regions": -1},
+    }
+
+
+def _reanchor_off_ink_candidate(cluster: dict[str, Any], payload: dict[str, Any], labels_by_id: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    wall_id = str(payload.get("wall_id") or "")
+    wall = labels_by_id.get(wall_id)
+    seg = _wall_segment(wall) if wall else None
+    if wall is None or seg is None:
+        return None
+    overlap = None
+    region = payload.get("region")
+    if isinstance(region, (list, tuple)) and len(region) >= 5:
+        overlap = region[4]
+    return {
+        "op": "reanchor_off_ink_wall",
+        "confidence": 0.82,
+        "risk": "low",
+        "apply_mode": "tool_required",
+        "expected_gain": "replaces a misplaced wall with the measured ink-anchored centerline via upsert_wall_anchored",
+        "why": [
+            f"score_walls flagged wall {wall_id} as off-ink",
+            f"overlap {overlap}" if overlap is not None else "low local ink overlap",
+            "candidate uses measured refine_wall path instead of visual guessing",
+        ],
+        "edits": [{
+            "label_id": wall_id,
+            "suggested_tool": "upsert_wall_anchored",
+            "candidate": {
+                "id": wall_id,
+                "start": [seg[0][0], seg[0][1]],
+                "end": [seg[1][0], seg[1][1]],
+                "attributes": wall.get("attributes") or {},
+            },
+            "anchor": {"search_px": 60, "min_confidence": 0.72, "min_overlap": 0.6, "snap_corners": True},
+        }],
+        "predicted_delta": {"off_ink_segments": -1},
+    }
+
+
+def _delete_off_ink_candidate(cluster: dict[str, Any], payload: dict[str, Any], labels_by_id: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    wall_id = str(payload.get("wall_id") or "")
+    if wall_id not in labels_by_id:
+        return None
+    return {
+        "op": "delete_off_ink_wall_if_false_positive",
+        "confidence": 0.35,
+        "risk": "high",
+        "expected_gain": "removes a wall label only if visual review confirms it is a speculative room/furniture/site rectangle",
+        "why": [f"wall {wall_id} is off-ink; delete only after crop review rejects it as a real wall"],
+        "edits": [{"label_id": wall_id, "delete": True}],
+        "predicted_delta": {"off_ink_segments": -1},
+    }
 
 
 def _snap_candidate(cluster: dict[str, Any], payload: dict[str, Any], labels_by_id: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
@@ -518,7 +672,7 @@ def apply_candidate_to_labels(labels_doc: dict[str, Any], candidate: dict[str, A
     out = copy.deepcopy(labels_doc)
     labels = out.setdefault("labels", [])
     by_id = {str(l.get("id")): l for l in labels if isinstance(l, dict) and l.get("id")}
-    if candidate.get("op") == "no_edit_classification":
+    if candidate.get("op") in {"no_edit_classification", "reanchor_off_ink_wall"}:
         return out
     if candidate.get("op") == "merge_collinear_fragments":
         edits = candidate.get("edits") or []
@@ -604,9 +758,17 @@ def repair_candidate_report(
     if topology_result is None:
         from .wall_topology import wall_topology_qa
         topology_result = wall_topology_qa(labels_doc.get("labels") or [])
-    findings = current_findings_from_results(file=str(labels_doc.get("scene_file") or ""), labels_doc=labels_doc, topology_result=topology_result)
+    score_walls_result = None
+    if isinstance(plan_state, dict):
+        score_walls_result = (((plan_state.get("current_state") or {}).get("scores") or {}).get("score_walls"))
+    findings = current_findings_from_results(
+        file=str(labels_doc.get("scene_file") or ""),
+        labels_doc=labels_doc,
+        score_walls_result=score_walls_result,
+        topology_result=topology_result,
+    )
     clusters = cluster_findings(findings, labels_doc)
-    candidates = generate_repair_candidates(labels_doc, topology_result=topology_result)
+    candidates = generate_repair_candidates(labels_doc, topology_result=topology_result, score_walls_result=score_walls_result)
     candidates_by_cluster: dict[str, list[dict[str, Any]]] = {}
     for cand in candidates:
         cand = dict(cand)

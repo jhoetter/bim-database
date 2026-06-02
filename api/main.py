@@ -779,9 +779,13 @@ def get_scene_repair_candidates_route(key: str, file: str, limit: int = 20):
     return {"ok": True, "data": data}
 
 
-def _find_repair_candidate(labels_doc: dict[str, Any], candidate_id: str) -> dict[str, Any]:
+def _find_repair_candidate(labels_doc: dict[str, Any], candidate_id: str, key: str | None = None, file: str | None = None) -> dict[str, Any]:
     from .topology_repair import repair_candidate_report
-    report = repair_candidate_report(labels_doc, limit=200)
+    plan_state = None
+    if key and file:
+        from .scene_plan_state import read_plan_state
+        plan_state = (read_plan_state(DATASET_DIR, key, file).get("state") or None)
+    report = repair_candidate_report(labels_doc, limit=200, plan_state=plan_state)
     for cluster in report.get("clusters") or []:
         for cand in cluster.get("candidates") or []:
             if cand.get("candidate_id") == candidate_id:
@@ -794,7 +798,7 @@ def apply_repair_candidate_route(key: str, file: str, candidate_id: str, body: d
     _ensure_dataset_scene(key, file)
     labels_doc = get_labels("dataset", key, file)
     try:
-        candidate = _find_repair_candidate(labels_doc, candidate_id)
+        candidate = _find_repair_candidate(labels_doc, candidate_id, key, file)
         if body.get("expected_candidate_op") and body.get("expected_candidate_op") != candidate.get("op"):
             raise ValueError("candidate op changed; refresh repair candidates")
         from .topology_repair import apply_candidate_to_labels, simulate_candidate
@@ -838,7 +842,7 @@ def decide_repair_candidate_route(key: str, file: str, candidate_id: str, body: 
     _ensure_dataset_scene(key, file)
     labels_doc = get_labels("dataset", key, file)
     try:
-        candidate = _find_repair_candidate(labels_doc, candidate_id)
+        candidate = _find_repair_candidate(labels_doc, candidate_id, key, file)
         if body.get("expected_candidate_op") and body.get("expected_candidate_op") != candidate.get("op"):
             raise ValueError("candidate op changed; refresh repair candidates")
         outcome = str(body.get("outcome") or "")
@@ -908,7 +912,7 @@ def render_repair_candidate_overlay_route(
         raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
     labels_doc = get_labels("dataset", key, file)
     try:
-        candidate = _find_repair_candidate(labels_doc, candidate_id)
+        candidate = _find_repair_candidate(labels_doc, candidate_id, key, file)
     except Exception as e:  # noqa: BLE001
         _plan_http_error(e)
     region = candidate.get("region")
@@ -1178,6 +1182,66 @@ def _wall_segment(label: dict[str, Any]) -> tuple[tuple[float, float], tuple[flo
     return (start, end)
 
 
+def _wall_label_id() -> str:
+    return f"lab-{hashlib.sha256(str(_dt.datetime.now().timestamp()).encode()).hexdigest()[:10]}"
+
+
+def _wall_bbox_region(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    *,
+    pad_px: int = 96,
+    image_size: tuple[int, int] | None = None,
+) -> tuple[int, int, int, int]:
+    x0 = int(round(min(start[0], end[0]) - pad_px))
+    y0 = int(round(min(start[1], end[1]) - pad_px))
+    x1 = int(round(max(start[0], end[0]) + pad_px))
+    y1 = int(round(max(start[1], end[1]) + pad_px))
+    if image_size:
+        w, h = image_size
+        x0 = max(0, min(w, x0))
+        y0 = max(0, min(h, y0))
+        x1 = max(x0 + 1, min(w, x1))
+        y1 = max(y0 + 1, min(h, y1))
+    return (x0, y0, x1, y1)
+
+
+def _wall_ink_overlap(
+    image: Any,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    *,
+    min_wall_px: int = 8,
+    tol_px: int = 18,
+    thin_aware: bool = True,
+    close_px: int = 82,
+    thresh: int | None = None,
+    region: tuple[int, int, int, int] | None = None,
+) -> dict[str, Any]:
+    from .wall_score import score_walls
+
+    if region is None:
+        region = _wall_bbox_region(start, end, image_size=getattr(image, "size", None))
+    res = score_walls(
+        image,
+        [(start, end)],
+        region=region,
+        min_wall_px=min_wall_px,
+        tol_px=tol_px,
+        thresh=thresh,
+        thin_aware=thin_aware,
+        close_px=close_px,
+    )
+    off = res.get("off_ink_segments") or []
+    overlap = 1.0 if not off else float(off[0][4])
+    return {
+        "ink_overlap": round(overlap, 3),
+        "status": "on_ink" if overlap >= 0.6 else "off_ink",
+        "score": res,
+        "region": list(region),
+    }
+
+
 def _validate_dependent_labels(payload: dict[str, Any]) -> None:
     """Reject label sets the UI cannot honestly create.
 
@@ -1237,6 +1301,16 @@ def _validate_dependent_labels(payload: dict[str, Any]) -> None:
                 raise HTTPException(
                     status_code=422,
                     detail=f"floorplan_opening {label_id!r} belongs_to target must be an existing wall",
+                )
+            parent_attrs = parent.get("attributes") or {}
+            if parent_attrs.get("quality_status") in {"off_ink", "unanchored"}:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"floorplan_opening {label_id!r} cannot belong_to parent wall "
+                        f"{parent.get('id')!r} while parent quality_status="
+                        f"{parent_attrs.get('quality_status')!r}; repair with upsert_wall_anchored first"
+                    ),
                 )
             opening_axis = _floorplan_opening_axis(lab)
             opening_depth_axis = _floorplan_opening_depth_axis(lab)
@@ -1317,6 +1391,33 @@ def put_labels(scope: str, key: str, file: str, payload: dict[str, Any] = Body(.
         except _jsonschema.ValidationError as e:
             raise HTTPException(status_code=422, detail=f"schema: {e.message} at {list(e.absolute_path)}")
     _validate_dependent_labels(payload)
+    if scope == "dataset":
+        strict_walls = [
+            lab for lab in (payload.get("labels") or [])
+            if isinstance(lab, dict)
+            and lab.get("type") == "wall"
+            and lab.get("status", "readable") == "readable"
+            and (lab.get("attributes") or {}).get("anchoring_required") is True
+        ]
+        if strict_walls:
+            img_path = _scene_image_path(scope, key, file)
+            if img_path.exists():
+                from PIL import Image as PILImage
+                with PILImage.open(img_path) as src_img:
+                    src = src_img.convert("RGB")
+                    for lab in strict_walls:
+                        seg = _wall_segment(lab)
+                        if seg is None:
+                            continue
+                        check = _wall_ink_overlap(src, seg[0], seg[1])
+                        if check["status"] == "off_ink":
+                            raise HTTPException(
+                                status_code=422,
+                                detail=(
+                                    f"wall {lab.get('id')!r} has anchoring_required=true but "
+                                    f"ink_overlap={check['ink_overlap']}; use upsert_wall_anchored"
+                                ),
+                            )
     label_path.parent.mkdir(parents=True, exist_ok=True)
     label_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
     # G1 (agentic-labeling-followups-tracker): server-side fact derivation.
@@ -2495,6 +2596,181 @@ def refine_wall(
             search_px=search_px, n_samples=n_samples, thresh=thresh,
         )
     return {"ok": True, "data": res}
+
+
+@app.post("/datasets/{key}/{file}/wall-labels/anchored", tags=["pdfs"])
+def upsert_wall_anchored_route(
+    key: str,
+    file: str,
+    body: dict[str, Any] = Body(...),
+):
+    """Create/replace a floorplan wall only after measuring it against ink.
+
+    The route treats the input as a draft centerline, refines it with the same
+    CV primitive exposed by /refine-wall, scores local ink overlap, and only
+    persists a readable wall when both confidence and overlap pass.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    candidate = body.get("candidate") or {}
+    if not isinstance(candidate, dict):
+        raise HTTPException(status_code=400, detail="body.candidate object required")
+    start = _as_point(candidate.get("start"))
+    end = _as_point(candidate.get("end"))
+    if start is None or end is None:
+        raise HTTPException(status_code=400, detail="candidate.start and candidate.end must be [x,y]")
+    anchor = body.get("anchor") or {}
+    if not isinstance(anchor, dict):
+        anchor = {}
+    search_px = int(anchor.get("search_px", 40))
+    n_samples = int(anchor.get("n_samples", 31))
+    min_confidence = float(anchor.get("min_confidence", 0.82))
+    min_overlap = float(anchor.get("min_overlap", 0.6))
+    tol_px = int(anchor.get("tol_px", 18))
+    min_wall_px = int(anchor.get("min_wall_px", 8))
+    close_px = int(anchor.get("close_px", 82))
+    snap_corners = bool(anchor.get("snap_corners", False))
+    status_if_unanchored = str(body.get("status_if_unanchored") or "reject")
+    evidence_id = body.get("evidence_id")
+
+    from PIL import Image as PILImage
+    from .wall_refine import refine_segment
+    from .corner_detect import check_corner
+
+    with PILImage.open(img_path) as src_img:
+        src = src_img.convert("RGB")
+        refined = refine_segment(src, start, end, search_px=search_px, n_samples=n_samples)
+        refined_start = _as_point(refined.get("start")) or start
+        refined_end = _as_point(refined.get("end")) or end
+        if snap_corners:
+            snapped: list[tuple[float, float]] = []
+            for pt in (refined_start, refined_end):
+                corner = check_corner(src, int(round(pt[0])), int(round(pt[1])), search_px=max(18, search_px), min_wall_px=min_wall_px)
+                if corner.get("found") and isinstance(corner.get("nearest"), list):
+                    snapped.append((float(corner["nearest"][0]), float(corner["nearest"][1])))
+                else:
+                    snapped.append(pt)
+            refined_start, refined_end = snapped[0], snapped[1]
+        overlap = _wall_ink_overlap(
+            src,
+            refined_start,
+            refined_end,
+            min_wall_px=min_wall_px,
+            tol_px=tol_px,
+            thin_aware=True,
+            close_px=close_px,
+        )
+
+    confidence = float(refined.get("confidence") or 0.0)
+    ink_overlap = float(overlap["ink_overlap"])
+    passes = confidence >= min_confidence and ink_overlap >= min_overlap
+    status = "readable" if passes else "uncertain"
+    persisted = passes or status_if_unanchored == "uncertain"
+    if not passes and status_if_unanchored == "uncertain" and not evidence_id:
+        raise HTTPException(
+            status_code=400,
+            detail="status_if_unanchored='uncertain' requires evidence_id; otherwise leave it non-persisted",
+        )
+    label_id = str(candidate.get("id") or body.get("label_id") or _wall_label_id())
+    dx = ((refined_start[0] - start[0]) + (refined_end[0] - end[0])) / 2.0
+    dy = ((refined_start[1] - start[1]) + (refined_end[1] - end[1])) / 2.0
+    data: dict[str, Any] = {
+        "label_id": label_id if persisted else None,
+        "persisted": persisted,
+        "anchoring_status": "ink_anchored" if passes else "failed",
+        "original": {"start": [start[0], start[1]], "end": [end[0], end[1]]},
+        "anchored": {"start": [refined_start[0], refined_start[1]], "end": [refined_end[0], refined_end[1]]},
+        "confidence": round(confidence, 3),
+        "ink_overlap": ink_overlap,
+        "delta_px": [round(dx, 2), round(dy, 2)],
+        "suggested_next_crop": overlap["region"],
+        "score": overlap["score"],
+    }
+    if not persisted:
+        data["reason"] = (
+            f"confidence {confidence:.2f} / overlap {ink_overlap:.2f} below "
+            f"thresholds {min_confidence:.2f} / {min_overlap:.2f}"
+        )
+        return {"ok": True, "data": data}
+
+    doc = get_labels("dataset", key, file)
+    attrs = {
+        **(candidate.get("attributes") or {}),
+        "quality_status": "ink_anchored" if passes else "uncertain",
+        "anchoring": {
+            "method": "refine_wall",
+            "confidence": round(confidence, 3),
+            "ink_overlap": ink_overlap,
+            "original_start": [start[0], start[1]],
+            "original_end": [end[0], end[1]],
+            "delta_px": [round(dx, 2), round(dy, 2)],
+            "evidence_id": evidence_id,
+        },
+    }
+    thickness_mm = candidate.get("thickness_mm", (candidate.get("attributes") or {}).get("thickness_mm"))
+    if thickness_mm is not None:
+        attrs["thickness_mm"] = thickness_mm
+    label = {
+        "id": label_id,
+        "type": "wall",
+        "status": status,
+        "geometry": {"start": [refined_start[0], refined_start[1]], "end": [refined_end[0], refined_end[1]]},
+        "attributes": attrs,
+    }
+    labels = doc.setdefault("labels", [])
+    idx = next((i for i, lab in enumerate(labels) if lab.get("id") == label_id), None)
+    if idx is None:
+        labels.append(label)
+        action = "created"
+    else:
+        labels[idx] = label
+        action = "replaced"
+    put_labels("dataset", key, file, doc)
+    data["label_id"] = label_id
+    data["action"] = action
+    return {"ok": True, "data": data}
+
+
+@app.post("/datasets/{key}/{file}/wall-labels/anchoring-check", tags=["pdfs"])
+def wall_label_anchoring_check_route(
+    key: str,
+    file: str,
+    body: dict[str, Any] = Body(...),
+):
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    label = body.get("label") if isinstance(body.get("label"), dict) else body
+    if not isinstance(label, dict):
+        raise HTTPException(status_code=400, detail="label object required")
+    seg = _wall_segment(label)
+    if seg is None:
+        raise HTTPException(status_code=400, detail="wall label geometry.start/end required")
+    from PIL import Image as PILImage
+    with PILImage.open(img_path) as src_img:
+        src = src_img.convert("RGB")
+        data = _wall_ink_overlap(
+            src,
+            seg[0],
+            seg[1],
+            min_wall_px=int(body.get("min_wall_px", 8)),
+            tol_px=int(body.get("tol_px", 18)),
+            thin_aware=bool(body.get("thin_aware", True)),
+            close_px=int(body.get("close_px", 82)),
+        )
+    data.update({
+        "anchoring_status": data["status"],
+        "recommended_tool": "upsert_wall_anchored",
+        "must_verify_before_downstream": data["status"] == "off_ink",
+    })
+    return {"ok": True, "data": data}
 
 
 @app.get("/datasets/{key}/{file}/score-walls", tags=["pdfs"])

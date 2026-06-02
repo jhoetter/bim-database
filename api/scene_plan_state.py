@@ -161,10 +161,10 @@ def _tasks_for(scene_tag: str) -> list[dict[str, Any]]:
         return [
             _task("CLASSIFY_SCENE", "Set scene tag and floor level", "analysis", "classification", gates=["SCENE_CLASSIFIED"]),
             _task("ANALYZE_SILHOUETTE", "Describe outer masses, excluded non-walls, and endpoint rules", "analysis", "walls", gates=["HAS_SILHOUETTE_HYPOTHESIS"]),
-            _task("TRACE_OUTER_WALLS", "Place outer structural walls before openings", "editing", "walls", gates=["WALLS_EXIST"], depends_on=["CLASSIFY_SCENE", "ANALYZE_SILHOUETTE"], invalidates=["VERIFY_OUTER_TOPOLOGY", "VERIFY_INTERIOR_TOPOLOGY", "PLACE_OPENINGS", "VERIFY_OPENINGS", "READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"]),
-            _task("VERIFY_OUTER_TOPOLOGY", "Verify outer wall topology and wall score", "verification", "walls", gates=["TOPOLOGY_REVIEWED", "WALL_SCORE_REVIEWED"], depends_on=["TRACE_OUTER_WALLS"]),
-            _task("TRACE_INTERIOR_WALLS", "Place interior structural walls", "editing", "walls", gates=["WALLS_EXIST"], depends_on=["VERIFY_OUTER_TOPOLOGY"], invalidates=["VERIFY_INTERIOR_TOPOLOGY", "PLACE_OPENINGS", "VERIFY_OPENINGS", "READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"]),
-            _task("VERIFY_INTERIOR_TOPOLOGY", "Verify interior wall topology and score", "verification", "walls", gates=["TOPOLOGY_REVIEWED", "WALL_SCORE_REVIEWED"], depends_on=["TRACE_INTERIOR_WALLS"]),
+            _task("TRACE_OUTER_WALLS", "Place outer structural walls before openings", "editing", "walls", gates=["WALLS_EXIST", "WALL_INK_ANCHORED"], depends_on=["CLASSIFY_SCENE", "ANALYZE_SILHOUETTE"], invalidates=["VERIFY_OUTER_TOPOLOGY", "VERIFY_INTERIOR_TOPOLOGY", "PLACE_OPENINGS", "VERIFY_OPENINGS", "READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"]),
+            _task("VERIFY_OUTER_TOPOLOGY", "Verify outer wall topology and wall score", "verification", "walls", gates=["TOPOLOGY_REVIEWED", "WALL_SCORE_REVIEWED", "WALL_INK_ANCHORED"], depends_on=["TRACE_OUTER_WALLS"]),
+            _task("TRACE_INTERIOR_WALLS", "Place interior structural walls", "editing", "walls", gates=["WALLS_EXIST", "WALL_INK_ANCHORED"], depends_on=["VERIFY_OUTER_TOPOLOGY"], invalidates=["VERIFY_INTERIOR_TOPOLOGY", "PLACE_OPENINGS", "VERIFY_OPENINGS", "READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"]),
+            _task("VERIFY_INTERIOR_TOPOLOGY", "Verify interior wall topology and score", "verification", "walls", gates=["TOPOLOGY_REVIEWED", "WALL_SCORE_REVIEWED", "WALL_INK_ANCHORED"], depends_on=["TRACE_INTERIOR_WALLS"]),
             _task("PLACE_OPENINGS", "Place doors, windows, passages, and garage doors on parent walls", "editing", "openings", gates=["OPENINGS_HAVE_PARENT_WALL"], depends_on=["VERIFY_INTERIOR_TOPOLOGY"], invalidates=["VERIFY_OPENINGS", "READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"]),
             _task("VERIFY_OPENINGS", "Verify opening relations and on-wall placement", "verification", "openings", gates=["OPENINGS_HAVE_PARENT_WALL", "OPENINGS_ON_WALL"], depends_on=["PLACE_OPENINGS"], invalidates=["READ_DIMENSIONS", "VERIFY_MEASUREMENTS", "FINAL_QA"]),
             _task("READ_DIMENSIONS", "Inspect and label readable dimension chains after walls/openings", "analysis", "dimensions", gates=["DIMENSIONS_REVIEWED"], depends_on=["VERIFY_OPENINGS"], invalidates=["VERIFY_MEASUREMENTS", "FINAL_QA"]),
@@ -758,6 +758,20 @@ def start_action(
     action = _action_by_id(state, action_id)
     if not action:
         raise KeyError(f"action {action_id!r} not found")
+    task_id = str(action.get("task_id") or action.get("id") or "")
+    wall_anchor_blockers = _open_wall_anchoring_blockers(state)
+    if task_id in _DOWNSTREAM_WALL_DEPENDENT_TASKS and wall_anchor_blockers:
+        first_blocker = str(wall_anchor_blockers[0].get("id"))
+        blocker_ids = ", ".join(str(d.get("id")) for d in wall_anchor_blockers[:8])
+        raise ValueError(
+            "code=wall_ink_anchor_blocked; "
+            f"first_blocker={first_blocker}; "
+            f"recommended_action_id=ACT-{first_blocker}; "
+            "recommended_tools=get_scene_repair_candidates,"
+            "get_scene_view_with_repair_candidate,apply_repair_candidate,"
+            "upsert_wall_anchored,score_walls; "
+            f"finish wall anchoring before downstream {task_id}; blocker(s): {blocker_ids}"
+        )
     now = _now_iso()
     action = {**action, "status": "in_progress", "agent_id": agent_id, "started_at": now, "updated_at": now}
     _store_action(state, action)
@@ -799,6 +813,7 @@ def record_attempt(
     action = _action_by_id(state, action_id)
     if not action:
         raise KeyError(f"action {action_id!r} not found")
+    _assert_attempt_allowed(action, attempt.get("edits") or [])
     attempts = action.setdefault("attempts", [])
     item = {
         "id": attempt.get("id") or _next_id(attempts, "ATT"),
@@ -1169,6 +1184,23 @@ def _open_defects(state: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _open_blockers(state: dict[str, Any]) -> list[dict[str, Any]]:
     return [d for d in _open_defects(state) if d.get("severity") == "blocker"]
+
+
+_WALL_ANCHOR_BLOCK_CATEGORIES = {"wall_missing_region", "wall_off_ink", "missing_geometry"}
+_DOWNSTREAM_WALL_DEPENDENT_TASKS = {
+    "PLACE_OPENINGS",
+    "VERIFY_OPENINGS",
+    "READ_DIMENSIONS",
+    "VERIFY_MEASUREMENTS",
+    "FINAL_QA",
+}
+
+
+def _open_wall_anchoring_blockers(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        d for d in _open_blockers(state)
+        if d.get("category") in _WALL_ANCHOR_BLOCK_CATEGORIES
+    ]
 
 
 def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -1665,6 +1697,36 @@ def evaluate_gates(
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
             )
         score_findings = [f for f in current_findings if f.get("source") == "score_walls"]
+        off_ink_wall_ids = {
+            str(((f.get("payload") or {}).get("wall_id")))
+            for f in score_findings
+            if f.get("category") == "off_ink_segment" and ((f.get("payload") or {}).get("wall_id"))
+        }
+        wall_quality_by_id: dict[str, Any] = {}
+        labels_changed = False
+        if scene_tag == "grundriss":
+            for wall in walls:
+                wall_id = str(wall.get("id") or "")
+                if not wall_id:
+                    continue
+                attrs = wall.setdefault("attributes", {})
+                if wall_id in off_ink_wall_ids:
+                    wall["status"] = "uncertain"
+                    attrs["quality_status"] = "off_ink"
+                    labels_changed = True
+                    wall_quality_by_id[wall_id] = {"quality_status": "off_ink", "reason": "score_walls.off_ink_segment"}
+                elif attrs.get("quality_status") == "off_ink":
+                    anchoring = attrs.get("anchoring") or {}
+                    attrs["quality_status"] = "ink_anchored" if float(anchoring.get("ink_overlap") or 0.0) >= 0.6 else "unanchored"
+                    wall["status"] = "readable"
+                    labels_changed = True
+                    wall_quality_by_id[wall_id] = {"quality_status": attrs["quality_status"], "reason": "latest score no longer reports off-ink segment"}
+        if wall_quality_by_id:
+            current_state["wall_quality_by_label_id"] = wall_quality_by_id
+        if labels_changed:
+            label_path = dataset_root / key / "labels" / f"{Path(file).stem}.json"
+            if label_path.exists():
+                label_path.write_text(json.dumps(labels_doc, indent=2, ensure_ascii=False))
         for idx, finding in enumerate([f for f in score_findings if f.get("category") == "missing_region"], start=1):
             region = finding.get("region")
             _upsert_auto_defect(
@@ -1674,9 +1736,26 @@ def evaluate_gates(
                 category="wall_missing_region",
                 region=region,
                 description="score_walls reports wall ink not covered by saved wall labels.",
-                expected_resolution="Re-read the crop visually; add/repair a wall or reject this as non-wall ink with evidence.",
+                expected_resolution="Re-read the crop visually; repair/add with upsert_wall_anchored or reject this as non-wall ink with evidence.",
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
                 fingerprint=str(finding.get("fingerprint") or ""),
+            )
+        if isinstance(latest_score_walls.get("precision"), (int, float)) and float(latest_score_walls["precision"]) < 0.70:
+            precision_fp = f"score_walls:low_precision:{file}"
+            current_fingerprints.add(precision_fp)
+            _upsert_auto_defect(
+                state,
+                title="Wall score precision below anchoring threshold",
+                severity="blocker",
+                category="wall_off_ink",
+                region=None,
+                description=(
+                    f"score_walls precision {latest_score_walls.get('precision')} is below the "
+                    "floorplan wall-ink threshold 0.70."
+                ),
+                expected_resolution="Review repair candidates and re-anchor/delete off-ink wall labels before downstream openings or dimensions.",
+                evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
+                fingerprint=precision_fp,
             )
         for idx, finding in enumerate([f for f in score_findings if f.get("category") == "off_ink_segment"], start=1):
             seg = finding.get("region")
@@ -1687,7 +1766,7 @@ def evaluate_gates(
                 category="wall_off_ink",
                 region=seg,
                 description="score_walls reports a saved wall segment does not sit on wall ink.",
-                expected_resolution="Re-locate/refine the wall or mark it uncertain with visual evidence.",
+                expected_resolution="Use repair candidates or upsert_wall_anchored to re-locate/refine this wall before placing openings/dimensions; mark uncertain only with visual evidence.",
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
                 fingerprint=str(finding.get("fingerprint") or ""),
             )
@@ -1791,6 +1870,14 @@ def evaluate_gates(
         d for d in open_blockers
         if d.get("category") in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "missing_geometry"}
     ]
+    wall_anchor_blockers = _open_wall_anchoring_blockers(state)
+    current_state["wall_anchoring"] = {
+        "status": "failed" if wall_anchor_blockers else "passed" if walls and latest_score_walls else "pending",
+        "blocker_ids": [str(d.get("id")) for d in wall_anchor_blockers],
+        "off_ink_count": len([d for d in wall_anchor_blockers if d.get("category") == "wall_off_ink"]),
+        "missing_region_count": len([d for d in wall_anchor_blockers if d.get("category") == "wall_missing_region"]),
+        "precision": latest_score_walls.get("precision") if isinstance(latest_score_walls, dict) else None,
+    }
     opening_blockers = [
         d for d in open_blockers
         if str(d.get("category") or "").startswith("opening_")
@@ -1820,6 +1907,15 @@ def evaluate_gates(
             _set_gate(task, "HAS_SILHOUETTE_HYPOTHESIS", "passed" if has_analysis_evidence else "pending")
         elif task_id in {"TRACE_OUTER_WALLS", "TRACE_INTERIOR_WALLS"}:
             _set_gate(task, "WALLS_EXIST", "passed" if walls else "failed")
+            _set_gate(
+                task,
+                "WALL_INK_ANCHORED",
+                "failed" if wall_anchor_blockers else "passed" if walls and latest_score_walls else "pending",
+                [evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
+            )
+            if wall_anchor_blockers and task.get("status") != "accepted_incomplete":
+                task["status"] = "needs_repair"
+                task["blocked_by"] = [d["id"] for d in wall_anchor_blockers]
         elif task_id in {"VERIFY_OUTER_TOPOLOGY", "VERIFY_INTERIOR_TOPOLOGY"}:
             _set_gate(
                 task,
@@ -1831,6 +1927,12 @@ def evaluate_gates(
                 task,
                 "WALL_SCORE_REVIEWED",
                 "failed" if wall_blockers else "passed" if latest_score_walls else "pending",
+                [evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
+            )
+            _set_gate(
+                task,
+                "WALL_INK_ANCHORED",
+                "failed" if wall_anchor_blockers else "passed" if walls and latest_score_walls else "pending",
                 [evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
             )
             if wall_blockers and task.get("status") != "accepted_incomplete":
@@ -1910,6 +2012,14 @@ def evaluate_gates(
     terminality = _status_for_state(state)
     state["status"] = terminality["status"]
     current_state["summary"] = terminality["summary"]
+    wall_anchor_summary = current_state.get("wall_anchoring") or {}
+    if wall_anchor_summary.get("status") == "failed":
+        current_state["summary"] = (
+            "Wall ink anchoring failed: "
+            f"{wall_anchor_summary.get('off_ink_count', 0)} readable wall segment(s) are off ink; "
+            f"{wall_anchor_summary.get('missing_region_count', 0)} missing wall-ink region(s). "
+            + terminality["summary"]
+        )
     current_state["terminality"] = terminality
     result = write_plan_state(dataset_root, state, expected_version=expected_version)
     data = result["state"]
@@ -2031,6 +2141,57 @@ def _store_action(state: dict[str, Any], action: dict[str, Any]) -> None:
     actions.append(action)
 
 
+def _edit_label_types(edits: list[Any]) -> set[str]:
+    label_types: set[str] = set()
+    for edit in edits:
+        if not isinstance(edit, dict):
+            continue
+        for key in ("label_type", "type"):
+            if isinstance(edit.get(key), str) and edit.get(key) in {
+                "wall",
+                "floorplan_opening",
+                "view_opening",
+                "dimensioned_distance",
+                "dimension_number",
+                "component_line",
+                "height_mark",
+            }:
+                label_types.add(str(edit[key]))
+        label = edit.get("label")
+        if isinstance(label, dict) and isinstance(label.get("type"), str):
+            label_types.add(str(label["type"]))
+        for key in ("labels", "labels_added", "labels_updated", "upserted_labels"):
+            values = edit.get(key)
+            if isinstance(values, list):
+                for item in values:
+                    if isinstance(item, dict) and isinstance(item.get("type"), str):
+                        label_types.add(str(item["type"]))
+        if edit.get("op") in {"upsert_label", "add_label", "replace_label"} and not label_types:
+            label_types.add("*")
+    return label_types
+
+
+def _assert_attempt_allowed(action: dict[str, Any], edits: list[Any]) -> None:
+    label_types = _edit_label_types(edits)
+    if not label_types:
+        return
+    task_id = str(action.get("task_id") or action.get("id") or "")
+    if task_id == "CLASSIFY_SCENE":
+        raise ValueError("action_scope_violation: CLASSIFY_SCENE cannot record geometry edits")
+    allowed = set(action.get("allowed_label_types") or [])
+    forbidden = set(action.get("forbidden_label_types") or [])
+    concrete = {t for t in label_types if t != "*"}
+    if "*" in label_types and not allowed:
+        raise ValueError("action_scope_violation: geometry edit recorded under an action with no allowed_label_types")
+    bad_forbidden = sorted(concrete & forbidden)
+    if bad_forbidden:
+        raise ValueError(f"action_scope_violation: label type(s) {bad_forbidden} forbidden for this action")
+    if allowed:
+        bad = sorted(concrete - allowed)
+        if bad:
+            raise ValueError(f"action_scope_violation: label type(s) {bad} not allowed for this action; allowed={sorted(allowed)}")
+
+
 def _rejected_attempts_for_action(state: dict[str, Any], action_id: str) -> list[dict[str, Any]]:
     action = _action_by_id_from_history(state, action_id)
     if not action:
@@ -2079,7 +2240,7 @@ def _forbidden_label_types_for_defect(category: str) -> list[str]:
 def _allowed_tools_for_defect(category: str) -> list[str]:
     common = ["get_scene_view", "get_scene_view_with_labels", "add_scene_plan_evidence", "evaluate_scene_plan_gates"]
     if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
-        return common + ["get_scene_repair_candidates", "get_scene_view_with_repair_candidate", "apply_repair_candidate", "decide_repair_candidate", "get_scene_plan_quality_report", "get_scene_topology_snapshot", "wall_topology_qa", "wall_continuity_check", "score_walls", "resolve_scene_point", "upsert_label", "delete_label", "classify_plan_defect"]
+        return common + ["get_scene_repair_candidates", "get_scene_view_with_repair_candidate", "apply_repair_candidate", "decide_repair_candidate", "get_scene_plan_quality_report", "get_scene_topology_snapshot", "wall_topology_qa", "wall_continuity_check", "score_walls", "resolve_scene_point", "upsert_wall_anchored", "upsert_label", "delete_label", "classify_plan_defect"]
     if category == "opening_relation":
         return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "verify_label_placement", "upsert_label", "update_label_attrs"]
     if category == "dimension":

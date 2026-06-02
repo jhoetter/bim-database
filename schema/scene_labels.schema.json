@@ -163,7 +163,30 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "thickness_mm": {"type": ["number", "null"]}
+              "thickness_mm": {"type": ["number", "null"]},
+              "anchoring_required": {"type": "boolean"},
+              "quality_status": {
+                "type": "string",
+                "enum": ["ink_anchored", "off_ink", "unanchored", "uncertain"]
+              },
+              "anchoring": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "method": {"type": "string"},
+                  "confidence": {"type": ["number", "null"]},
+                  "ink_overlap": {"type": ["number", "null"]},
+                  "original_start": {"$ref": "#/$defs/Point"},
+                  "original_end": {"$ref": "#/$defs/Point"},
+                  "delta_px": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "evidence_id": {"type": ["string", "null"]}
+                }
+              }
             }
           }
         }

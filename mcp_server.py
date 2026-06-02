@@ -3821,6 +3821,42 @@ async def _write_labels(key: str, file: str, payload: dict, started: float) -> d
                started_at=started, status_code=put_status)
 
 
+async def _current_action_write_warning(key: str, file: str, label_type: str) -> dict | None:
+    try:
+        status, body = await _api_get(f"/datasets/{key}/{file}/plan-state")
+    except Exception:  # noqa: BLE001
+        return None
+    if status >= 400 or not isinstance(body, dict):
+        return None
+    state = ((body.get("data") or {}).get("state") or {})
+    current = ((state.get("current_state") or {}).get("current_action_id") or "")
+    if not current:
+        return None
+    actions = state.get("actions") or []
+    action = next((a for a in actions if a.get("action_id") == current), None)
+    allowed = set((action or {}).get("allowed_label_types") or [])
+    forbidden = set((action or {}).get("forbidden_label_types") or [])
+    task_id = str((action or {}).get("task_id") or (action or {}).get("id") or current.replace("ACT-", ""))
+    warnings: list[str] = []
+    if task_id == "CLASSIFY_SCENE":
+        warnings.append("CLASSIFY_SCENE is classification-only; geometry writes belong under wall/opening/dimension tasks.")
+    if label_type in forbidden:
+        warnings.append(f"label type {label_type!r} is forbidden for current action {current}.")
+    if allowed and label_type not in allowed:
+        warnings.append(f"label type {label_type!r} is outside current action allowed_label_types={sorted(allowed)}.")
+    wall_anchoring = (state.get("current_state") or {}).get("wall_anchoring") or {}
+    if label_type in {"floorplan_opening", "dimensioned_distance", "dimension_number"} and wall_anchoring.get("status") == "failed":
+        warnings.append("wall ink anchoring is failed; do not write openings/dimensions until wall blockers are repaired.")
+    if not warnings:
+        return None
+    return {
+        "code": "action_scope_warning",
+        "current_action_id": current,
+        "task_id": task_id,
+        "warnings": warnings,
+    }
+
+
 @mcp.tool()
 async def upsert_label(
     key: str,
@@ -3893,7 +3929,80 @@ async def upsert_label(
         return result
     result["data"]["label_id"] = label_id
     result["data"]["action"] = action
+    warning = await _current_action_write_warning(key, file, str(label.get("type") or ""))
+    if warning:
+        result["data"]["action_scope_warning"] = warning
+    if label.get("type") == "wall":
+        try:
+            status, body = await _api_post(
+                f"/datasets/{key}/{file}/wall-labels/anchoring-check",
+                {"label": label},
+            )
+            if status < 400 and isinstance(body, dict):
+                check = body.get("data") or {}
+                result["data"].update({
+                    "anchoring_status": check.get("anchoring_status") or check.get("status") or "unchecked",
+                    "ink_overlap": check.get("ink_overlap"),
+                    "recommended_tool": "upsert_wall_anchored",
+                    "must_verify_before_downstream": bool(check.get("must_verify_before_downstream")),
+                    "anchoring_check_region": check.get("region"),
+                })
+        except Exception:  # noqa: BLE001
+            result["data"].update({
+                "anchoring_status": "unchecked",
+                "recommended_tool": "upsert_wall_anchored",
+                "must_verify_before_downstream": True,
+            })
     return result
+
+
+@mcp.tool()
+async def upsert_wall_anchored(
+    key: str,
+    file: str,
+    candidate: dict,
+    anchor: dict | None = None,
+    status_if_unanchored: str = "reject",
+    evidence_id: str | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Create or replace a floorplan wall after snapping/refining it to ink.
+
+    USE instead of raw `upsert_label(type='wall')` when placing Grundriss
+    walls. The tool treats `candidate.start/end` as a draft, refines to the
+    measured wall band, checks local ink overlap, and persists a readable wall
+    only when confidence + overlap pass.
+
+    Args:
+      candidate: {"start":[x,y], "end":[x,y], "thickness_mm":300, "id": optional}
+      anchor: optional {"search_px":40, "min_confidence":0.82,
+              "min_overlap":0.6, "snap_corners":true}
+      status_if_unanchored: "reject" (default) or "uncertain". Uncertain
+              persistence requires evidence_id so the dataset stays honest.
+    """
+    started = time.time()
+    if not isinstance(candidate, dict):
+        return _err("schema_invalid", "candidate must be an object",
+                    started_at=started)
+    body = {
+        "candidate": candidate,
+        "anchor": anchor or {},
+        "status_if_unanchored": status_if_unanchored,
+        "evidence_id": evidence_id,
+    }
+    try:
+        status, resp = await _api_post(f"/datasets/{key}/{file}/wall-labels/anchored", body)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, resp = await _api_post(f"/datasets/{key}/{file}/wall-labels/anchored", body)
+    if status >= 400:
+        return _http_status_to_error(status, resp, started)
+    data = (resp or {}).get("data") or resp
+    warning = await _current_action_write_warning(key, file, "wall")
+    if warning and isinstance(data, dict):
+        data["action_scope_warning"] = warning
+    return _ok(data, started_at=started, status_code=status)
 
 
 @mcp.tool()

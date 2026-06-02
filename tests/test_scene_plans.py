@@ -246,7 +246,10 @@ def test_scene_plan_state_reset_preserves_sidecar_but_marks_stale(scene):
         json={
             "status": "verified",
             "note": "verified before reset",
-            "gate_updates": [{"id": "WALLS_EXIST", "status": "passed"}],
+            "gate_updates": [
+                {"id": "WALLS_EXIST", "status": "passed"},
+                {"id": "WALL_INK_ANCHORED", "status": "passed"},
+            ],
         },
     ).status_code == 200
 
@@ -314,7 +317,10 @@ def test_scene_plan_state_task_verified_requires_passed_gates_and_evidence(scene
         json={
             "status": "verified",
             "note": "verified with label overlay",
-            "gate_updates": [{"id": "WALLS_EXIST", "status": "passed"}],
+            "gate_updates": [
+                {"id": "WALLS_EXIST", "status": "passed"},
+                {"id": "WALL_INK_ANCHORED", "status": "passed"},
+            ],
         },
     )
     assert ok.status_code == 200, ok.text
@@ -585,7 +591,10 @@ def test_scene_plan_reopen_task_invalidates_dependents(scene):
     client = TestClient(api_main.app)
     assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
     for task_id, gate_updates in [
-        ("TRACE_OUTER_WALLS", [{"id": "WALLS_EXIST", "status": "passed"}]),
+        ("TRACE_OUTER_WALLS", [
+            {"id": "WALLS_EXIST", "status": "passed"},
+            {"id": "WALL_INK_ANCHORED", "status": "passed"},
+        ]),
         ("VERIFY_OPENINGS", [
             {"id": "OPENINGS_HAVE_PARENT_WALL", "status": "passed"},
             {"id": "OPENINGS_ON_WALL", "status": "passed"},
@@ -752,6 +761,103 @@ def test_scene_plan_rejected_false_positive_score_defect_does_not_reopen(scene):
     defect = next(d for d in second.json()["data"]["state"]["defects"] if d["id"] == defect_id)
     assert defect["status"] == "rejected"
     assert defect["classification"] == "false_positive"
+
+
+def test_scene_plan_blocks_downstream_actions_when_wall_anchoring_failed(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["labels"] = [
+        {
+            "id": "wall-1",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [10, 20], "end": [200, 20]},
+            "attributes": {},
+        }
+    ]
+    assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+    evaluated = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": False,
+            "run_continuity_check": False,
+            "score_walls": {
+                "precision": 0.1,
+                "recall": 0.5,
+                "f1": 0.16,
+                "missing_regions": [[0, 50, 220, 20, 1200]],
+                "off_ink_segments": [[10, 20, 200, 20, 0.0]],
+            },
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    tasks = {t["id"]: t for t in evaluated.json()["data"]["state"]["tasks"]}
+    verify_gates = {g["id"]: g["status"] for g in tasks["VERIFY_INTERIOR_TOPOLOGY"]["gates"]}
+    assert verify_gates["WALL_INK_ANCHORED"] == "failed"
+    updated_labels = client.get(f"/labels/dataset/{key}/{file}").json()["labels"]
+    assert updated_labels[0]["status"] == "uncertain"
+    assert updated_labels[0]["attributes"]["quality_status"] == "off_ink"
+    candidates = client.get(f"/datasets/{key}/{file}/plan-state/repair-candidates").json()["data"]
+    ops = {
+        cand["op"]
+        for cluster in candidates["clusters"]
+        for cand in cluster.get("candidates") or []
+    }
+    assert "move_off_ink_wall_to_score_region" in ops
+    assert "reanchor_off_ink_wall" in ops
+    assert "delete_off_ink_wall_if_false_positive" in ops
+    start = client.post(f"/datasets/{key}/{file}/plan-state/actions/ACT-PLACE_OPENINGS/start", json={})
+    assert start.status_code == 400
+    assert "wall_ink_anchor_blocked" in start.text
+
+
+def test_scene_plan_rejects_geometry_attempt_under_classify_action(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    r = client.post(
+        f"/datasets/{key}/{file}/plan-state/actions/ACT-CLASSIFY_SCENE/attempts",
+        json={
+            "hypothesis": "wrong action",
+            "edits": [{"op": "upsert_label", "label": {"type": "wall"}}],
+        },
+    )
+    assert r.status_code == 400
+    assert "CLASSIFY_SCENE cannot record geometry edits" in r.text
+
+
+def test_opening_cannot_use_off_ink_parent_wall(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["labels"] = [
+        {
+            "id": "wall-1",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [20, 40], "end": [200, 40]},
+            "attributes": {"quality_status": "off_ink"},
+        },
+        {
+            "id": "op-1",
+            "type": "floorplan_opening",
+            "status": "readable",
+            "geometry": {"quad": [[70, 30], [120, 30], [120, 50], [70, 50]]},
+            "attributes": {"opening_kind": "door"},
+            "relations": [{"kind": "belongs_to", "other_id": "wall-1"}],
+        },
+    ]
+    r = client.put(f"/labels/dataset/{key}/{file}", json=labels)
+    assert r.status_code == 422
+    assert "quality_status='off_ink'" in r.text
 
 
 def test_scene_plan_closed_opening_absence_waives_opening_tasks(scene):
@@ -1048,6 +1154,7 @@ def test_scene_plan_wall_blockers_keep_topology_tasks_in_repair(scene):
         assert {g["id"]: g["status"] for g in tasks[task_id]["gates"]} == {
             "TOPOLOGY_REVIEWED": "failed",
             "WALL_SCORE_REVIEWED": "failed",
+            "WALL_INK_ANCHORED": "failed",
         }
 
 
