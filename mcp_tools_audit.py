@@ -17,8 +17,6 @@ import mcp_server
 from mcp_server import (
     _err,
     _ok,
-    get_house_facts,
-    get_workflow_state,
     mcp,
 )
 
@@ -49,7 +47,7 @@ async def list_anomalies(key: str) -> dict:
     (G4-3) + uncertain labels (B6).
     """
     started = time.time()
-    wf = await get_workflow_state(key=key)
+    wf = await mcp_server.get_workflow_state(key=key)
     if not wf.get("ok"):
         return wf
     state = wf["data"]
@@ -68,7 +66,7 @@ async def list_anomalies(key: str) -> dict:
 
     # G5-2: derivation warnings from fact_derivation.recompute_…
     # (HOUSE_FACTS_STRICT mode drops fields, surfaces them here).
-    facts_env = await get_house_facts(key=key)
+    facts_env = await mcp_server.get_house_facts(key=key)
     facts = (facts_env or {}).get("data") or {}
     for w in facts.get("_derivation_warnings", []) or []:
         anomalies.append({
@@ -164,7 +162,7 @@ async def dump_run_summary(key: str, run_id: str, notes: str = "") -> dict:
     if not safe_run:
         return _err("schema_invalid", "run_id must be non-empty alphanumeric",
                     started_at=started)
-    wf_env = await get_workflow_state(key=key)
+    wf_env = await mcp_server.get_workflow_state(key=key)
     if not wf_env.get("ok"):
         return wf_env
     state = wf_env["data"]
