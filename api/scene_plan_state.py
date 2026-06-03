@@ -108,6 +108,39 @@ def _provenance_fields(
     }
 
 
+def _safe_handoff_token(value: str | None, fallback: str) -> str:
+    import re
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "")).strip("-")
+    return token or fallback
+
+
+def _latest_plan_provenance(state: dict[str, Any]) -> dict[str, str | None]:
+    current_action_id = str((state.get("current_state") or {}).get("current_action_id") or "")
+    sources: list[dict[str, Any]] = []
+    for action in reversed(state.get("actions") or []):
+        if current_action_id and action.get("action_id") == current_action_id:
+            sources.insert(0, action)
+        else:
+            sources.append(action)
+        for attempt in reversed(action.get("attempts") or []):
+            if isinstance(attempt, dict):
+                sources.append(attempt)
+    sources.extend(reversed(state.get("evidence") or []))
+    sources.extend(reversed(state.get("decision_log") or []))
+    sources.extend(reversed(state.get("tasks") or []))
+    sources.extend(reversed(state.get("defects") or []))
+    out = {"run_id": None, "agent_id": None, "subagent_id": None}
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in out:
+            if out[key] is None and source.get(key):
+                out[key] = str(source.get(key))
+        if all(out.values()):
+            break
+    return out
+
+
 class PlanStateConflictError(RuntimeError):
     pass
 
@@ -334,6 +367,119 @@ def read_plan_state(dataset_root: Path, key: str, file: str) -> dict[str, Any]:
     }
 
 
+def _bounded_strings(values: list[Any], max_items: int = 20) -> tuple[list[str], dict[str, int]]:
+    strings = [str(v) for v in values if v is not None]
+    return strings[:max_items], {
+        "total": len(strings),
+        "returned": min(len(strings), max_items),
+        "omitted": max(0, len(strings) - max_items),
+    }
+
+
+def _repo_root_for_dataset(dataset_root: Path) -> Path:
+    root = dataset_root.resolve()
+    if root.name == "dataset" and root.parent.name == "data":
+        return root.parent.parent
+    return root.parent
+
+
+def _write_terminal_handoff_if_needed(
+    dataset_root: Path,
+    state: dict[str, Any],
+    terminality: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not terminality.get("terminal"):
+        return None
+    key = str(state.get("key") or "")
+    file = str(state.get("file") or "")
+    if not key or not file:
+        return None
+    provenance = _latest_plan_provenance(state)
+    run_id = provenance.get("run_id") or "auto-terminality"
+    run_slug = _safe_handoff_token(run_id, "auto-terminality")
+    target = _safe_handoff_token(file, "scene")
+    repo_root = _repo_root_for_dataset(dataset_root)
+    base = repo_root / "tmp" / "agent-runs" / run_slug / "handoffs"
+    base.mkdir(parents=True, exist_ok=True)
+
+    current = state.get("current_state") or {}
+    final_qa = terminality.get("final_qa_summary") or current.get("final_qa_summary") or {}
+    open_defects, defect_counts = _bounded_strings([
+        f"{d.get('id')}: {d.get('severity')} {d.get('category')} - {d.get('title')}"
+        for d in _open_defects(state)
+        if isinstance(d, dict)
+    ])
+    uncertain_labels, uncertain_counts = _bounded_strings(
+        list(final_qa.get("uncertainties") or []) + list(final_qa.get("missing_or_unreadable") or [])
+    )
+    all_evidence_refs = [ev.get("id") for ev in state.get("evidence") or [] if isinstance(ev, dict)]
+    evidence_refs, evidence_counts = _bounded_strings(all_evidence_refs[-20:])
+    evidence_counts["total"] = len(all_evidence_refs)
+    evidence_counts["omitted"] = max(0, len(all_evidence_refs) - evidence_counts["returned"])
+
+    payload = {
+        "summary_contract": "mcp-context-bloat/handoff-summary-v1",
+        "key": key,
+        "file": file,
+        "phase": state.get("scene_tag") or "scene",
+        "status": terminality.get("status") or state.get("status") or "unknown",
+        "labels_added": 0,
+        "labels_changed": 0,
+        "open_defects": open_defects,
+        "uncertain_labels": uncertain_labels,
+        "calibration": {
+            "transferred_facts": final_qa.get("transferred_facts") or [],
+            "source_unreadable": final_qa.get("source_unreadable") or [],
+        },
+        "quality": {
+            "quality_tier": terminality.get("quality_tier"),
+            "completion_state": terminality.get("completion_state"),
+            "review_debt": terminality.get("review_debt"),
+            "final_qa_allowed": terminality.get("final_qa_allowed"),
+            "final_qa_summary": final_qa,
+        },
+        "evidence_refs": evidence_refs,
+        "next_action": None,
+        "notes": terminality.get("summary") or current.get("summary") or "",
+        "run_id": run_id,
+        "agent_id": provenance.get("agent_id"),
+        "subagent_id": provenance.get("subagent_id"),
+        "truncated": any(c["omitted"] for c in (defect_counts, uncertain_counts, evidence_counts)),
+        "truncation": {
+            "open_defects": defect_counts,
+            "uncertain_labels": uncertain_counts,
+            "evidence_refs": evidence_counts,
+        },
+        "written_at": _now_iso(),
+    }
+    json_path = base / f"{target}.json"
+    md_path = base / f"{target}.md"
+    atomic_write_json(json_path, payload, sort_keys=True, trailing_newline=True)
+    atomic_write_text(md_path, "\n".join([
+        f"# Handoff {key}",
+        "",
+        f"- File: {file}",
+        f"- Phase: {payload['phase']}",
+        f"- Status: {payload['status']}",
+        f"- Quality: {payload['quality'].get('quality_tier') or 'unknown'}",
+        f"- Review debt: {payload['quality'].get('review_debt') or 0}",
+        f"- Open defects: {defect_counts['total']}",
+        f"- Uncertain labels: {uncertain_counts['total']}",
+        f"- Run: {run_id}",
+        "",
+        str(payload["notes"] or ""),
+    ]) + "\n")
+    return {
+        "summary_contract": payload["summary_contract"],
+        "run_id": run_id,
+        "json_path": str(json_path.relative_to(repo_root)),
+        "markdown_path": str(md_path.relative_to(repo_root)),
+        "written_at": payload["written_at"],
+        "status": payload["status"],
+        "quality_tier": payload["quality"].get("quality_tier"),
+    }
+
+
 def write_plan_state(
     dataset_root: Path,
     state: dict[str, Any],
@@ -344,6 +490,13 @@ def write_plan_state(
     key = str(state.get("key") or "")
     file = str(state.get("file") or "")
     p = plan_state_path(dataset_root, key, file)
+    terminality = _status_for_state(state) if key and file else {}
+    if terminality.get("terminal"):
+        state.setdefault("current_state", {})["auto_handoff"] = _write_terminal_handoff_if_needed(
+            dataset_root,
+            state,
+            terminality,
+        )
     # C2/H1: hold the lock across the version check AND the write so the
     # optimistic-concurrency check is no longer TOCTOU-racy — two writers
     # with the same expected_version can no longer both pass and clobber.
@@ -1866,6 +2019,9 @@ def evaluate_gates(
     continuity_result: dict[str, Any] | None = None,
     visual_evidence: bool = False,
     quality_profile: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     scene_tag = labels_doc.get("scene_tag") or "nicht_klassifiziert"
@@ -1901,6 +2057,7 @@ def evaluate_gates(
             "tool": tool,
             "params": {},
             "result": result,
+            **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
             "observation_id": None,
             "image_url": None,
             "created_at": _now_iso(),
@@ -1916,6 +2073,7 @@ def evaluate_gates(
             "tool": "get_scene_view_with_labels",
             "params": {},
             "result": {"visual_evidence": True},
+            **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
             "observation_id": None,
             "image_url": None,
             "created_at": _now_iso(),

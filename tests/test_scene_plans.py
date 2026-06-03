@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -385,6 +386,35 @@ def test_scene_plan_state_score_regression_creates_defect(scene):
     assert second.status_code == 200, second.text
     defects = second.json()["data"]["state"]["defects"]
     assert any(d["category"] == "score_regression" for d in defects)
+
+
+def test_scene_plan_gate_evaluation_preserves_run_agent_provenance(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "sonstiges"}).status_code == 200
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "sonstiges"
+    assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+    evaluated = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": False,
+            "run_continuity_check": False,
+            "visual_evidence": True,
+            "run_id": "gate-run-1",
+            "agent_id": "orchestrator",
+            "subagent_id": "qa-worker",
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    evidence = evaluated.json()["data"]["state"]["evidence"][-1]
+    assert evidence["kind"] == "label_view"
+    assert evidence["run_id"] == "gate-run-1"
+    assert evidence["agent_id"] == "orchestrator"
+    assert evidence["subagent_id"] == "qa-worker"
 
 
 def test_scene_plan_state_stale_evidence_blocks_visual_gate(scene):
@@ -1331,6 +1361,63 @@ def test_scene_plan_terminal_status_has_no_next_action(scene):
     assert data["terminal"] is True
     assert data["next_action_available"] is False
     assert data["next_action"] is None
+
+
+def test_scene_plan_terminality_writes_auto_handoff_summary(scene):
+    key, file = scene
+    run_id = "terminal-handoff-run"
+    run_dir = REPO_ROOT / "tmp" / "agent-runs" / run_id
+    shutil.rmtree(run_dir, ignore_errors=True)
+    client = TestClient(api_main.app)
+    try:
+        assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "sonstiges"}).status_code == 200
+        evidence = client.post(
+            f"/datasets/{key}/{file}/plan-state/evidence",
+            json={
+                "kind": "human_note",
+                "mode": "analysis",
+                "summary": "Auxiliary scene inspected.",
+                "run_id": run_id,
+                "agent_id": "orchestrator",
+                "subagent_id": "inspect-worker",
+            },
+        )
+        assert evidence.status_code == 200, evidence.text
+        ev_id = evidence.json()["data"]["state"]["evidence"][-1]["id"]
+        for task_id, gate_id in [
+            ("CLASSIFY_SCENE", "SCENE_CLASSIFIED"),
+            ("INSPECT_SCENE", "HAS_ANALYSIS_EVIDENCE"),
+            ("FINAL_QA", "NO_BLOCKER_DEFECTS"),
+        ]:
+            updated = client.patch(
+                f"/datasets/{key}/{file}/plan-state/tasks/{task_id}",
+                json={
+                    "status": "verified",
+                    "evidence_ids": [ev_id],
+                    "gate_updates": [{"id": gate_id, "status": "passed"}],
+                    "run_id": run_id,
+                    "agent_id": "orchestrator",
+                    "subagent_id": "inspect-worker",
+                },
+            )
+            assert updated.status_code == 200, updated.text
+
+        status = client.get(f"/datasets/{key}/{file}/plan-state/status")
+        assert status.status_code == 200, status.text
+        assert status.json()["data"]["terminal"] is True
+        state = client.get(f"/datasets/{key}/{file}/plan-state").json()["data"]["state"]
+        handoff = state["current_state"]["auto_handoff"]
+        assert handoff["run_id"] == run_id
+        payload_path = REPO_ROOT / handoff["json_path"]
+        assert payload_path.exists()
+        payload = json.loads(payload_path.read_text())
+        assert payload["summary_contract"] == "mcp-context-bloat/handoff-summary-v1"
+        assert payload["file"] == file
+        assert payload["quality"]["quality_tier"] == "gold"
+        assert payload["agent_id"] == "orchestrator"
+        assert payload["subagent_id"] == "inspect-worker"
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
 
 
 def test_scene_plan_rejects_accepted_incomplete_required_task(scene):

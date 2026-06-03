@@ -396,6 +396,9 @@ def evaluate_scene_plan_gates_route(key: str, file: str, body: dict[str, Any] = 
             continuity_result=inputs["continuity_result"],
             visual_evidence=bool(body.get("visual_evidence", False)),
             quality_profile=body.get("quality_profile"),
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001

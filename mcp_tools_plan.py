@@ -816,6 +816,9 @@ async def evaluate_scene_plan_gates(
     run_topology_qa: bool = True,
     visual_evidence: bool = False,
     run_continuity_check: bool = False,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -836,6 +839,9 @@ async def evaluate_scene_plan_gates(
         "run_topology_qa": run_topology_qa,
         "visual_evidence": visual_evidence,
         "run_continuity_check": run_continuity_check,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "expected_version": expected_version,
     }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/plan-state/evaluate-gates", body)
