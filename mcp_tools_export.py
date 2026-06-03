@@ -163,6 +163,16 @@ async def validate_export_readiness(key: str) -> dict:
         scene_quality_rows.append(row)
     quality_summary = aggregate_house_quality(scene_quality_rows)
     high_confidence_complete = honest_complete and bool(quality_summary.get("high_confidence_complete"))
+    fact_ledger = None
+    try:
+        from api.building_facts import build_global_view
+        fact_ledger = build_global_view(
+            (facts or {}).get("building_global") if isinstance(facts, dict) else None,
+            [d.get("file") for d in drawings if d.get("file")],
+            extent=(facts or {}).get("extent") if isinstance(facts, dict) else None,
+        ).get("fact_ledger")
+    except Exception:  # noqa: BLE001 - readiness must not fail on optional ledger enrichment
+        fact_ledger = None
 
     return _ok({
         "ready": honest_complete,
@@ -176,6 +186,7 @@ async def validate_export_readiness(key: str) -> dict:
         "labeled_scenes": sum(1 for d in drawings if d.get("labeled")),
         "quality_summary": quality_summary,
         "crop_replacement_warnings": crop_replacement_warnings,
+        "fact_ledger": fact_ledger or {"conflicts": [], "review_required": False, "provenance_counts": {}},
         "calibration_assumptions": {
             "single_ref_assumed_isotropic": assumed_isotropic_scenes,
             "approximate_calibrations": approximate_calibrations,

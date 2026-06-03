@@ -365,6 +365,36 @@ async def set_building_global_fact(
         )
     except ValueError as e:
         return _err("bad_fact", str(e), started_at=started)
+    cur_status, current = await mcp_server._api_get(f"/datasets/{key}/house_facts")
+    current_facts = current if cur_status == 200 and isinstance(current, dict) else {}
+    existing = (
+        ((current_facts.get("building_global") or {}).get("facts") or {}).get(fact)
+        if isinstance(current_facts.get("building_global"), dict)
+        else None
+    )
+    if (
+        isinstance(existing, dict)
+        and isinstance(existing.get("value"), (int, float))
+        and abs(float(existing["value"]) - float(value)) > 100
+    ):
+        previous_values = []
+        if isinstance(existing.get("previous_values"), list):
+            previous_values.extend(v for v in existing["previous_values"] if isinstance(v, dict))
+        previous_values.append({
+            "value": existing.get("value"),
+            "unit": existing.get("unit"),
+            "source": existing.get("source"),
+            "confidence": existing.get("confidence"),
+            "provenance_quality": existing.get("provenance_quality") or "direct_read",
+            "notes": existing.get("notes"),
+        })
+        entry["previous_values"] = previous_values[-5:]
+        entry["provenance_quality"] = "conflicting"
+        entry["review_required"] = True
+        entry["conflict_note"] = (
+            f"Existing {fact} value {existing.get('value')} {existing.get('unit') or 'mm'} "
+            f"differs from new value {value} {unit}."
+        )
     patch = {"building_global": {"schema": SCHEMA, "facts": {fact: entry}}}
     res = await set_house_facts(key=key, patch=patch)
     if not res.get("ok"):
@@ -388,11 +418,13 @@ async def get_building_global_facts(key: str) -> dict:
 
     Returns: `data` = {
       facts:        stored values, each with {value, unit, confidence,
-                    source:{scene,label_id}},
+                    source:{scene,label_id}, provenance_quality,
+                    review_required, conflicts},
       derived:      deterministically computed facts (math, not OCR), each
                     flagged derived:true + needs_cross_check:true — e.g.
                     <X>_munn_mm = EG_munn_mm + <X>_mm; storey heights from
                     level deltas; roof rise from pitch (+ extent depth),
+      fact_ledger:  conflict/review summary for cross-scene consumers,
       propagation:  {applies_to_scenes:[...]} — these hold on every scene.
     }
     """

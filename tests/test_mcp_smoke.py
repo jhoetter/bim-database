@@ -779,10 +779,15 @@ def test_building_global_fact_round_trip_with_provenance():
         assert facts["EG_munn_mm"]["source"]["scene"] == file
         assert facts["FH_mm"]["source"]["label_id"] == "hm:lab-fh"
         assert facts["FH_mm"]["confidence"] == "high"
+        assert facts["FH_mm"]["provenance_quality"] == "direct_read"
+        assert facts["FH_mm"]["review_required"] is False
 
         derived = {d["name"]: d for d in g["data"]["derived"]}
         assert derived["FH_munn_mm"]["value"] == 851010
         assert derived["FH_munn_mm"]["needs_cross_check"] is True
+        assert derived["FH_munn_mm"]["provenance_quality"] == "derived"
+
+        assert g["data"]["fact_ledger"]["provenance_counts"]["direct_read"] >= 2
 
         # Propagation: building-wide, available on every scene.
         assert file in g["data"]["propagation"]["applies_to_scenes"]
@@ -817,6 +822,68 @@ def test_building_global_fact_requires_provenance():
     assert r["error"]["code"] == "missing_provenance"
 
 
+def test_building_global_fact_conflicting_reread_is_preserved():
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    p, original = _snapshot_house_facts(key)
+    try:
+        first = _run(mcp_server.set_building_global_fact(
+            key=key, fact="EG_munn_mm", value=843800, source_scene=file,
+            source_label_id="hm:old", confidence="high",
+        ))
+        assert first["ok"], first.get("error")
+        second = _run(mcp_server.set_building_global_fact(
+            key=key, fact="EG_munn_mm", value=840000, source_scene=file,
+            source_label_id="hm:new", confidence="medium",
+            notes="faint alternate datum read",
+        ))
+        assert second["ok"], second.get("error")
+
+        g = _run(mcp_server.get_building_global_facts(key=key))
+        assert g["ok"], g.get("error")
+        fact = g["data"]["facts"]["EG_munn_mm"]
+        assert fact["value"] == 840000
+        assert fact["provenance_quality"] == "conflicting"
+        assert fact["review_required"] is True
+        assert fact["previous_values"][0]["value"] == 843800
+        conflicts = g["data"]["fact_ledger"]["conflicts"]
+        assert any(c["kind"] == "same_fact_conflicting_readings" for c in conflicts)
+    finally:
+        _restore_house_facts(p, original)
+
+
+def test_building_global_fact_ledger_detects_absolute_datum_divergence():
+    key, file = _first_scene_with_label_file()
+    if key is None:
+        pytest.skip("no scene")
+    p, original = _snapshot_house_facts(key)
+    try:
+        eg = _run(mcp_server.set_building_global_fact(
+            key=key, fact="EG_munn_mm", value=843800, source_scene=file,
+            source_label_id="hm:eg", confidence="high",
+        ))
+        assert eg["ok"], eg.get("error")
+        bezug = _run(mcp_server.set_building_global_fact(
+            key=key, fact="bezug_mm", value=840000, source_scene=file,
+            source_label_id="hm:terrain", confidence="medium",
+            notes="terrain reference, not EG datum",
+        ))
+        assert bezug["ok"], bezug.get("error")
+
+        g = _run(mcp_server.get_building_global_facts(key=key))
+        assert g["ok"], g.get("error")
+        assert g["data"]["fact_ledger"]["review_required"] is True
+        assert any(
+            c["kind"] == "absolute_datum_claims_diverge"
+            for c in g["data"]["fact_ledger"]["conflicts"]
+        )
+        assert g["data"]["facts"]["EG_munn_mm"]["provenance_quality"] == "conflicting"
+        assert g["data"]["facts"]["bezug_mm"]["review_required"] is True
+    finally:
+        _restore_house_facts(p, original)
+
+
 # ── §5.8 Export ──────────────────────────────────────────────────────────
 
 
@@ -839,6 +906,8 @@ def test_validate_export_readiness_smoke():
     assert "quality_summary" in d
     assert "tier_counts" in d["quality_summary"]
     assert "crop_replacement_warnings" in d
+    assert "fact_ledger" in d
+    assert "conflicts" in d["fact_ledger"]
     # ready must agree with blockers being empty.
     assert d["ready"] == (len(d["blockers"]) == 0)
     pc = d["phase_completeness"]

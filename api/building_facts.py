@@ -41,6 +41,13 @@ from typing import Any
 SCHEMA = 1
 
 CONFIDENCE_LEVELS = ("low", "medium", "high")
+PROVENANCE_QUALITY_LEVELS = (
+    "direct_read",
+    "derived",
+    "transferred",
+    "conflicting",
+    "review_required",
+)
 
 # Relative-height fact names (measured from EG ±0.00), in bottom→top order.
 # Used both to validate fact names and to compute storey deltas.
@@ -68,14 +75,26 @@ def make_fact(
     confidence: str = "medium",
     unit: str = "mm",
     notes: str | None = None,
+    provenance_quality: str = "direct_read",
+    review_required: bool | None = None,
 ) -> dict:
     """Build one building-global fact entry with provenance + confidence."""
     if confidence not in CONFIDENCE_LEVELS:
         raise ValueError(f"confidence must be one of {CONFIDENCE_LEVELS}, got {confidence!r}")
+    if provenance_quality not in PROVENANCE_QUALITY_LEVELS:
+        raise ValueError(
+            f"provenance_quality must be one of {PROVENANCE_QUALITY_LEVELS}, got {provenance_quality!r}"
+        )
     entry: dict[str, Any] = {
         "value": value,
         "unit": unit,
         "confidence": confidence,
+        "provenance_quality": provenance_quality,
+        "review_required": (
+            bool(review_required)
+            if review_required is not None
+            else confidence != "high" or provenance_quality in {"transferred", "conflicting", "review_required"}
+        ),
         "source": {"scene": source_scene, "label_id": source_label_id},
     }
     if notes:
@@ -98,9 +117,103 @@ def _derived(name: str, value: float, *, unit: str, formula: str, inputs: list[s
         "unit": unit,
         "derived": True,
         "needs_cross_check": True,
+        "provenance_quality": "derived",
+        "review_required": True,
         "formula": formula,
         "inputs": inputs,
     }
+
+
+def _fact_with_defaults(name: str, entry: dict[str, Any]) -> dict[str, Any]:
+    out = dict(entry)
+    out.setdefault("name", name)
+    confidence = str(out.get("confidence") or "medium")
+    provenance_quality = str(out.get("provenance_quality") or "direct_read")
+    if provenance_quality not in PROVENANCE_QUALITY_LEVELS:
+        provenance_quality = "review_required"
+    out["provenance_quality"] = provenance_quality
+    out["review_required"] = bool(
+        out.get("review_required")
+        or confidence != "high"
+        or provenance_quality in {"transferred", "conflicting", "review_required"}
+        or out.get("conflicts")
+    )
+    return out
+
+
+def _claim_value(entry: dict[str, Any]) -> float | None:
+    value = entry.get("value")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def detect_fact_conflicts(facts: dict[str, dict[str, Any]], *, tolerance_mm: float = 100.0) -> list[dict[str, Any]]:
+    """Return machine-readable review warnings for contradictory fact claims.
+
+    The fact tier intentionally stores the best current value per fact name,
+    but agents can still introduce conflicting datum/elevation claims through
+    repeated reads or by mixing absolute datum fields. Conflicts are warnings:
+    they do not prove which value is wrong, but they must be visible to the
+    reviewer and to transferred-calibration consumers.
+    """
+    conflicts: list[dict[str, Any]] = []
+
+    for name, entry in facts.items():
+        previous_values = entry.get("previous_values") if isinstance(entry.get("previous_values"), list) else []
+        current_value = _claim_value(entry)
+        differing_previous = [
+            prev for prev in previous_values
+            if isinstance(prev, dict)
+            and isinstance(prev.get("value"), (int, float))
+            and current_value is not None
+            and abs(float(prev["value"]) - current_value) > tolerance_mm
+        ]
+        if differing_previous:
+            conflicts.append({
+                "id": f"{name}:previous-value-conflict",
+                "kind": "same_fact_conflicting_readings",
+                "fact": name,
+                "unit": entry.get("unit") or "mm",
+                "current": {
+                    "value": current_value,
+                    "source": entry.get("source"),
+                    "confidence": entry.get("confidence"),
+                },
+                "previous_values": differing_previous,
+                "review_required": True,
+            })
+
+    datum_claims = []
+    for name in ("EG_munn_mm", "bezug_mm"):
+        entry = facts.get(name)
+        if not isinstance(entry, dict):
+            continue
+        value = _claim_value(entry)
+        if value is None:
+            continue
+        datum_claims.append({
+            "fact": name,
+            "value": value,
+            "unit": entry.get("unit") or "mm",
+            "source": entry.get("source"),
+            "confidence": entry.get("confidence"),
+        })
+    if len(datum_claims) >= 2:
+        values = [claim["value"] for claim in datum_claims]
+        if max(values) - min(values) > tolerance_mm:
+            conflicts.append({
+                "id": "absolute-datum-claims-diverge",
+                "kind": "absolute_datum_claims_diverge",
+                "facts": datum_claims,
+                "delta_mm": max(values) - min(values),
+                "review_required": True,
+                "note": (
+                    "Absolute datum-like claims differ. This can be legitimate "
+                    "when one value is terrain/reference and another is EG +/-0.00, "
+                    "but transferred calibration must cite the intended datum."
+                ),
+            })
+
+    return conflicts
 
 
 def derive_building_geometry(facts: dict) -> list[dict]:
@@ -187,7 +300,26 @@ def build_global_view(
                        once from the best source.
     """
     bg = building_global or {}
-    facts = dict(bg.get("facts") or {})
+    raw_facts = bg.get("facts") if isinstance(bg.get("facts"), dict) else {}
+    facts = {
+        name: _fact_with_defaults(name, entry)
+        for name, entry in raw_facts.items()
+        if isinstance(entry, dict)
+    }
+    conflicts = detect_fact_conflicts(facts)
+    conflict_ids_by_fact: dict[str, list[str]] = {}
+    for conflict in conflicts:
+        if conflict.get("fact"):
+            conflict_ids_by_fact.setdefault(str(conflict["fact"]), []).append(str(conflict["id"]))
+        for claim in conflict.get("facts") or []:
+            if isinstance(claim, dict) and claim.get("fact"):
+                conflict_ids_by_fact.setdefault(str(claim["fact"]), []).append(str(conflict["id"]))
+    for name, ids in conflict_ids_by_fact.items():
+        if name not in facts:
+            continue
+        facts[name]["conflicts"] = sorted(set(ids))
+        facts[name]["provenance_quality"] = "conflicting"
+        facts[name]["review_required"] = True
 
     # Thread extent.depth_mm into derivation inputs (read-only; not stored
     # in the tier) so roof ridge rise can be computed when available.
@@ -199,6 +331,18 @@ def build_global_view(
         "schema": bg.get("schema", SCHEMA),
         "facts": facts,
         "derived": derive_building_geometry(deriv_facts),
+        "fact_ledger": {
+            "conflicts": conflicts,
+            "review_required": bool(conflicts or any(f.get("review_required") for f in facts.values())),
+            "provenance_counts": {
+                quality: sum(1 for f in facts.values() if f.get("provenance_quality") == quality)
+                for quality in PROVENANCE_QUALITY_LEVELS
+            },
+            "consumer_note": (
+                "Agents must inspect this ledger before section/elevation labeling "
+                "and before recording transferred calibration."
+            ),
+        },
         "propagation": {
             "applies_to_scenes": list(scene_files),
             "note": (
