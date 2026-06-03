@@ -57,6 +57,7 @@ EVIDENCE_KINDS = {
     "label_view",
     "score_walls",
     "score_measurements",
+    "dimension_chain_review",
     "topology_qa",
     "continuity_check",
     "repair_candidate_decision",
@@ -66,6 +67,8 @@ EVIDENCE_KINDS = {
     "reset",
     "gate_evaluation",
 }
+
+DIMENSION_CHAIN_REVIEW_DECISIONS = {"readable", "partially_readable", "source_unreadable"}
 
 REPAIR_CANDIDATE_OUTCOMES = {
     "accepted_applied",
@@ -453,6 +456,22 @@ def add_evidence(
                 "subagent_report unresolved_blockers does not match plan state: "
                 f"expected {current_blockers}, got {reported_blockers}"
             )
+    if kind == "dimension_chain_review":
+        result = evidence.get("result") or {}
+        if not isinstance(result, dict):
+            raise ValueError("dimension_chain_review result must be an object")
+        decision = result.get("decision")
+        if decision not in DIMENSION_CHAIN_REVIEW_DECISIONS:
+            raise ValueError(
+                "dimension_chain_review decision must be one of "
+                + ", ".join(sorted(DIMENSION_CHAIN_REVIEW_DECISIONS))
+            )
+        required = {"chain_region", "orientation", "readable_values", "unreadable_fragments"}
+        missing = sorted(k for k in required if k not in result)
+        if missing:
+            raise ValueError("dimension_chain_review missing required field(s): " + ", ".join(missing))
+        if decision == "source_unreadable" and not result.get("unreadable_fragments"):
+            raise ValueError("source_unreadable dimension_chain_review requires unreadable_fragments")
     item = {
         "id": evidence.get("id") or _next_id(state.get("evidence") or [], "EV"),
         "kind": kind or "human_note",
@@ -1305,6 +1324,27 @@ def _label_quality_summary(labels: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _dimension_chain_reviews(state: dict[str, Any], decision: str | None = None) -> list[dict[str, Any]]:
+    reviews: list[dict[str, Any]] = []
+    for ev in state.get("evidence") or []:
+        if not isinstance(ev, dict) or ev.get("kind") != "dimension_chain_review":
+            continue
+        result = ev.get("result") if isinstance(ev.get("result"), dict) else {}
+        if decision is not None and result.get("decision") != decision:
+            continue
+        reviews.append({
+            "evidence_id": ev.get("id"),
+            "decision": result.get("decision"),
+            "chain_region": result.get("chain_region"),
+            "orientation": result.get("orientation"),
+            "readable_values": result.get("readable_values") or [],
+            "unreadable_fragments": result.get("unreadable_fragments") or [],
+            "reason": result.get("reason") or ev.get("summary") or "",
+            "enhance": result.get("enhance"),
+        })
+    return reviews
+
+
 def _quality_for_state(
     state: dict[str, Any],
     *,
@@ -1335,6 +1375,7 @@ def _quality_for_state(
         and d.get("status") in DEFECT_TERMINAL_STATUSES
     ]
     transferred_facts = current.get("transferred_facts") if isinstance(current.get("transferred_facts"), list) else []
+    source_unreadable_reviews = current.get("source_unreadable") if isinstance(current.get("source_unreadable"), list) else []
     human_review_required = bool(
         blockers
         or warnings
@@ -1344,10 +1385,11 @@ def _quality_for_state(
         or accepted_tasks
         or accepted_uncertain_defects
         or transferred_facts
+        or source_unreadable_reviews
     )
     if blockers or incomplete_required or stale or status in {"needs_repair", "blocked_external", "active", "blocked"}:
         tier = "blocked"
-    elif accepted_tasks or accepted_uncertain_defects or missing_total or not_readable_total or status == "accepted_incomplete":
+    elif accepted_tasks or accepted_uncertain_defects or source_unreadable_reviews or missing_total or not_readable_total or status == "accepted_incomplete":
         tier = "bronze"
     elif warnings or uncertain_total or transferred_facts:
         tier = "silver"
@@ -1377,6 +1419,7 @@ def _quality_for_state(
         + len(accepted_uncertain_defects) * 5
         + len([d for d in terminal_warning_decisions if d.get("status") in {"rejected_false_positive", "rejected"}])
         + len(transferred_facts) * 4
+        + len(source_unreadable_reviews) * 6
         + len(stale) * 5
     )
     uncertainties: list[str] = []
@@ -1389,6 +1432,8 @@ def _quality_for_state(
         uncertainties.append(f"{len(accepted_uncertain_defects)} accepted risk/source-limited defect(s)")
     if transferred_facts:
         uncertainties.append(f"{len(transferred_facts)} transferred calibration/fact item(s)")
+    if source_unreadable_reviews:
+        uncertainties.append(f"{len(source_unreadable_reviews)} source-unreadable dimension chain(s)")
 
     missing_or_unreadable: list[str] = []
     if missing_total:
@@ -1401,6 +1446,10 @@ def _quality_for_state(
         )
     if stale:
         missing_or_unreadable.append("stale evidence: " + ", ".join(stale))
+    for review in source_unreadable_reviews[:5]:
+        missing_or_unreadable.append(
+            f"source-unreadable {review.get('orientation') or 'dimension'} chain at {review.get('chain_region')}"
+        )
 
     strengths: list[str] = []
     if not blockers:
@@ -1423,6 +1472,7 @@ def _quality_for_state(
             "uncertainty_reasons": uncertain_reasons,
             "missing_or_unreadable": missing_or_unreadable,
             "transferred_facts": transferred_facts,
+            "source_unreadable": source_unreadable_reviews,
             "human_review_required": human_review_required,
             "review_debt": review_debt,
             "terminal_warning_decisions": len(terminal_warning_decisions),
@@ -1791,6 +1841,10 @@ def evaluate_gates(
             scene_calibration = {}
     calibration_transferred = scene_calibration.get("status") == "transferred"
     has_analysis_evidence = any((ev.get("mode") == "analysis") for ev in state.get("evidence") or [])
+    source_unreadable_reviews = _dimension_chain_reviews(state, decision="source_unreadable")
+    source_unreadable_evidence_ids = [
+        str(review.get("evidence_id")) for review in source_unreadable_reviews if review.get("evidence_id")
+    ]
     has_dimension_defect = any(
         d.get("category") == "dimension" and d.get("status") in {"open", "in_progress", "accepted_uncertain", "rejected"}
         for d in state.get("defects") or []
@@ -1816,6 +1870,7 @@ def evaluate_gates(
     current_state = state.setdefault("current_state", {})
     current_state["label_counts"] = counts
     current_state["label_quality"] = _label_quality_summary(labels)
+    current_state["source_unreadable"] = source_unreadable_reviews
     if calibration_transferred:
         current_state["transferred_facts"] = [{
             "kind": "calibration",
@@ -2189,14 +2244,28 @@ def evaluate_gates(
             if passed and task.get("status") in {"todo", "in_progress"}:
                 task["status"] = "verified"
         elif task_id == "READ_DIMENSIONS":
-            passed = bool(dim_labels or has_dimension_defect)
-            _set_gate(task, "DIMENSIONS_REVIEWED", "passed" if passed else "pending", [evidence_ids_by_kind["score_measurements"]] if "score_measurements" in evidence_ids_by_kind else [])
+            passed = bool(dim_labels or has_dimension_defect or source_unreadable_reviews)
+            evidence_ids = [evidence_ids_by_kind["score_measurements"]] if "score_measurements" in evidence_ids_by_kind else source_unreadable_evidence_ids
+            _set_gate(
+                task,
+                "DIMENSIONS_REVIEWED",
+                "passed" if passed else "pending",
+                evidence_ids,
+                waiver_reason="Readable dimension chain source is documented as unreadable." if source_unreadable_reviews and not dim_labels else None,
+            )
             if not passed and task.get("status") == "verified":
                 task["status"] = "needs_repair"
         elif task_id == "VERIFY_MEASUREMENTS":
             measurements_have_labeled_dims = bool(latest_measurements and measurement_label_count > 0)
-            passed = bool(measurements_have_labeled_dims or has_dimension_defect)
-            _set_gate(task, "MEASUREMENTS_REVIEWED", "passed" if passed else "pending", [evidence_ids_by_kind["score_measurements"]] if "score_measurements" in evidence_ids_by_kind else [])
+            passed = bool(measurements_have_labeled_dims or has_dimension_defect or source_unreadable_reviews)
+            evidence_ids = [evidence_ids_by_kind["score_measurements"]] if "score_measurements" in evidence_ids_by_kind else source_unreadable_evidence_ids
+            _set_gate(
+                task,
+                "MEASUREMENTS_REVIEWED",
+                "passed" if passed else "pending",
+                evidence_ids,
+                waiver_reason="Measurement verification closed from source-unreadable chain review." if source_unreadable_reviews and not measurements_have_labeled_dims else None,
+            )
             if not passed and task.get("status") == "verified":
                 task["status"] = "needs_repair"
         elif task_id == "ANALYZE_SILHOUETTE":

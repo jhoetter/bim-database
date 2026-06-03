@@ -375,6 +375,61 @@ async def batch_close_scene_plan_warnings(
 
 
 @mcp.tool()
+async def record_dimension_chain_review(
+    key: str,
+    file: str,
+    chain_region: list,
+    orientation: str,
+    decision: str,
+    readable_values: list | None = None,
+    unreadable_fragments: list | None = None,
+    reason: str | None = None,
+    enhance: str | None = None,
+    task_ids: list[str] | None = None,
+    expected_version: str | None = None,
+    response_mode: str = "compact",
+) -> dict:
+    """Record a structured review of a dimension chain.
+
+    USE when:
+      - A floorplan/elevation/section dimension chain has been inspected.
+      - Values were readable, partially readable, or source-unreadable and
+        should affect measurement/calibration gates.
+
+    For `decision='source_unreadable'`, include the crop region,
+    enhancement mode if used, visible/unreadable fragments, and a reason.
+    This lets gates close honestly without inventing dimension values.
+    """
+    started = time.time()
+    body = {
+        "kind": "dimension_chain_review",
+        "mode": "analysis",
+        "summary": reason or f"Dimension chain review: {decision}",
+        "tool": "record_dimension_chain_review",
+        "task_ids": task_ids or [],
+        "result": {
+            "chain_region": chain_region,
+            "orientation": orientation,
+            "decision": decision,
+            "readable_values": readable_values or [],
+            "unreadable_fragments": unreadable_fragments or [],
+            "reason": reason or "",
+            "enhance": enhance,
+        },
+        "expected_version": expected_version,
+    }
+    status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/plan-state/evidence", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="record_dimension_chain_review")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)
+
+
+@mcp.tool()
 async def classify_plan_defect(
     key: str,
     file: str,

@@ -1555,6 +1555,7 @@ def test_tool_descriptions_are_present():
         mcp_server.finish_scene_plan_action,
         mcp_server.classify_plan_defect,
         mcp_server.batch_close_scene_plan_warnings,
+        mcp_server.record_dimension_chain_review,
         mcp_server.add_scene_plan_evidence,
         mcp_server.set_scene_plan_task_state,
         mcp_server.evaluate_scene_plan_gates,
@@ -1603,6 +1604,39 @@ def test_mcp_plan_mutations_return_compact_summary():
     assert "state" not in data
     assert "markdown" not in data
     assert data["key"] == key
+
+
+def test_mcp_record_dimension_chain_review_source_unreadable():
+    key, file = _write_scratch_scene("house-zzmcp-dimreview")
+    created = _run(mcp_server.create_scene_plan_state_from_template(
+        key=key,
+        file=file,
+        scene_tag="grundriss",
+        level_or_orientation="eg",
+        overwrite=True,
+    ))
+    assert created["ok"], created.get("error")
+
+    review = _run(mcp_server.record_dimension_chain_review(
+        key=key,
+        file=file,
+        chain_region=[10, 20, 120, 60],
+        orientation="horizontal",
+        decision="source_unreadable",
+        unreadable_fragments=["dimension text washed out"],
+        reason="Values are still illegible after enhanced zoom.",
+        enhance="threshold",
+    ))
+    assert review["ok"], review.get("error")
+    assert review["data"]["summary_contract"] == "plan-mutation-summary/v1"
+    assert review["data"]["label_counts"] == {}
+
+    state = _run(mcp_server.get_scene_plan_state(key=key, file=file))
+    assert state["ok"], state.get("error")
+    evidence = state["data"]["state"]["evidence"][-1]
+    assert evidence["kind"] == "dimension_chain_review"
+    assert evidence["result"]["decision"] == "source_unreadable"
+    assert evidence["result"]["unreadable_fragments"] == ["dimension text washed out"]
 
 
 # ── H4: destructive reset tools ────────────────────────────────────────────

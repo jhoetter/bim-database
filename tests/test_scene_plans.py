@@ -500,6 +500,7 @@ def _quality_state(
     defect: dict | None = None,
     label_quality: dict | None = None,
     transferred: bool = False,
+    source_unreadable: bool = False,
 ) -> dict:
     state = {
         "schema_version": "scene-plan-state-v1",
@@ -529,6 +530,16 @@ def _quality_state(
             "source_scene": "section.jpg",
             "transfer_kind": "section_scale",
             "review_required": True,
+        }]
+    if source_unreadable:
+        state["current_state"]["source_unreadable"] = [{
+            "evidence_id": "EV-001",
+            "decision": "source_unreadable",
+            "chain_region": [10, 20, 120, 60],
+            "orientation": "horizontal",
+            "readable_values": [],
+            "unreadable_fragments": ["washed out perimeter dimension values"],
+            "reason": "Values are too faint after zoom and enhancement.",
         }]
     return state
 
@@ -563,6 +574,16 @@ def test_scene_plan_quality_tier_bronze_for_accepted_incomplete():
     assert status["quality_tier"] == "bronze"
     assert status["completion_state"] == "accepted_incomplete"
     assert status["final_qa_summary"]["human_review_required"] is True
+
+
+def test_scene_plan_quality_tier_bronze_for_source_unreadable_dimensions():
+    status = _status_for_state(_quality_state(source_unreadable=True))
+    assert status["quality_tier"] == "bronze"
+    assert status["completion_state"] == "accepted_incomplete"
+    assert status["review_debt"] >= 6
+    assert status["final_qa_summary"]["human_review_required"] is True
+    assert status["final_qa_summary"]["source_unreadable"][0]["evidence_id"] == "EV-001"
+    assert "source-unreadable dimension chain(s)" in status["final_qa_summary"]["uncertainties"][0]
 
 
 def test_scene_plan_quality_tier_blocked_for_blocker_defect():
@@ -1266,6 +1287,86 @@ def test_scene_plan_zero_dimension_measurement_result_does_not_verify_dimension_
     assert tasks["VERIFY_MEASUREMENTS"]["status"] != "verified"
     assert tasks["READ_DIMENSIONS"]["gates"][0]["status"] == "pending"
     assert tasks["VERIFY_MEASUREMENTS"]["gates"][0]["status"] == "pending"
+
+
+def test_scene_plan_rejects_source_unreadable_dimension_review_without_fragments(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+
+    review = client.post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        json={
+            "kind": "dimension_chain_review",
+            "mode": "analysis",
+            "summary": "Perimeter chain is unreadable.",
+            "result": {
+                "chain_region": [10, 20, 120, 60],
+                "orientation": "horizontal",
+                "decision": "source_unreadable",
+                "readable_values": [],
+                "unreadable_fragments": [],
+            },
+        },
+    )
+    assert review.status_code == 400
+    assert "unreadable_fragments" in review.text
+
+
+def test_scene_plan_source_unreadable_dimension_review_closes_measurement_gates(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+    review = client.post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        json={
+            "kind": "dimension_chain_review",
+            "mode": "analysis",
+            "summary": "Horizontal perimeter chain is source-unreadable after enhanced zoom.",
+            "tool": "record_dimension_chain_review",
+            "result": {
+                "chain_region": [10, 20, 120, 60],
+                "orientation": "horizontal",
+                "decision": "source_unreadable",
+                "readable_values": [],
+                "unreadable_fragments": ["dimension text washed out", "ticks visible but numbers illegible"],
+                "reason": "Values remain illegible after threshold enhancement.",
+                "enhance": "threshold",
+            },
+        },
+    )
+    assert review.status_code == 200, review.text
+    ev_id = review.json()["data"]["state"]["evidence"][-1]["id"]
+
+    evaluated = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": False,
+            "run_continuity_check": False,
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    state = evaluated.json()["data"]["state"]
+    tasks = {t["id"]: t for t in state["tasks"]}
+    read_gate = tasks["READ_DIMENSIONS"]["gates"][0]
+    verify_gate = tasks["VERIFY_MEASUREMENTS"]["gates"][0]
+    assert read_gate["status"] == "passed"
+    assert read_gate["evidence_ids"] == [ev_id]
+    assert read_gate["waiver_reason"] == "Readable dimension chain source is documented as unreadable."
+    assert verify_gate["status"] == "passed"
+    assert verify_gate["evidence_ids"] == [ev_id]
+    assert verify_gate["waiver_reason"] == "Measurement verification closed from source-unreadable chain review."
+    assert state["current_state"]["source_unreadable"][0]["evidence_id"] == ev_id
+    assert state["current_state"]["quality_tier"] == "blocked"
+    assert state["current_state"]["review_debt"] >= 6
+    assert state["current_state"]["final_qa_summary"]["source_unreadable"][0]["evidence_id"] == ev_id
 
 
 def test_scene_plan_wall_blockers_keep_topology_tasks_in_repair(scene):

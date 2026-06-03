@@ -39,7 +39,9 @@ Preferred transaction tools:
   `review_opening_candidate`, `review_opening_candidates_batch`,
   `upsert_opening_on_wall`.
 - Dimensions: `dimension_station_graph`, `dimension_chain_transaction`,
-  `reference_dim_review`.
+  `reference_dim_review`. When a chain is not readable after zoom/enhancement,
+  call `record_dimension_chain_review(decision='source_unreadable', ...)` with
+  the crop region and unreadable fragments; do not invent values.
 - Calibration: prefer measured local reference dimensions via
   `add_reference_dim` + `recompute_homography`. If an Ansicht/Schnitt has no
   readable local reference dimensions, do not invent one; use
