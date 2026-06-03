@@ -328,6 +328,57 @@ async def score_walls_structural(
 
 
 @mcp.tool()
+async def review_wall_centerline_between_rails(
+    key: str,
+    file: str,
+    label_id: str,
+    review_region: list[float],
+    rail_evidence: list[str],
+    reason: str,
+    confidence: str = "medium",
+    confidence_reason: str = "faint_double_rail_centerline",
+    task_ids: list[str] | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Accept a floorplan wall as centerline-plausible after visual review.
+
+    USE when:
+      - `score_walls` flags a saved wall as off-ink, but a detail crop shows
+        a faint/freehand/double-rail wall band and the saved wall is the
+        intended centerline between the rails.
+      - You need downstream openings/dimensions to attach to that parent wall
+        while preserving review debt.
+
+    DON'T USE when:
+      - The wall is actually misplaced, only one unrelated line is visible, or
+        the parent wall has not been inspected in a detail crop. Repair with
+        `upsert_wall_anchored` or reject/delete the label instead.
+
+    This tool records `wall_centerline_review` evidence, sets
+    `attributes.quality_status='centerline_plausible'`, keeps the label
+    `status='uncertain'`, and closes matching off-ink score defects as
+    accepted source-limited. It is silver-quality evidence, not gold.
+    """
+    started = time.time()
+    body = {
+        "review_region": review_region,
+        "rail_evidence": rail_evidence,
+        "reason": reason,
+        "confidence": confidence,
+        "confidence_reason": confidence_reason,
+        "task_ids": task_ids or [],
+        "expected_version": expected_version,
+    }
+    status, res = await mcp_server._api_post(
+        f"/datasets/{key}/{file}/walls/{label_id}/centerline-review",
+        body,
+    )
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+
+
+@mcp.tool()
 async def score_measurements(
     key: str,
     file: str,

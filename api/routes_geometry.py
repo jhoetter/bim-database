@@ -667,6 +667,136 @@ def upsert_wall_anchored_route(
     return {"ok": True, "data": data}
 
 
+@router.post("/datasets/{key}/{file}/walls/{label_id}/centerline-review", tags=["pdfs"])
+def review_wall_centerline_route(
+    key: str,
+    file: str,
+    label_id: str,
+    body: dict[str, Any] = Body(...),
+) -> dict:
+    """Mark a scorer-off-ink wall as reviewed centerline-plausible.
+
+    This is for faint/double-rail floorplan walls where the saved wall is the
+    intended wall centerline but `score_walls` sees one or both rails as
+    off-ink/missing. It records review evidence and keeps the wall uncertain,
+    but changes `quality_status` from hard `off_ink` to
+    `centerline_plausible` so downstream openings can use the parent wall with
+    explicit review debt.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file or "/" in label_id or ".." in label_id:
+        raise HTTPException(status_code=400, detail="bad file or label id")
+    doc = get_labels("dataset", key, file)
+    labels = doc.setdefault("labels", [])
+    wall = next((lab for lab in labels if lab.get("id") == label_id and lab.get("type") == "wall"), None)
+    if wall is None:
+        raise HTTPException(status_code=404, detail=f"wall label not found: {label_id}")
+    reason = str(body.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+    rail_evidence = body.get("rail_evidence") or []
+    if not isinstance(rail_evidence, list) or not rail_evidence:
+        raise HTTPException(status_code=400, detail="rail_evidence must be a non-empty list")
+    review_region = body.get("review_region")
+    if not isinstance(review_region, list) or len(review_region) < 4:
+        raise HTTPException(status_code=400, detail="review_region must be [x0,y0,x1,y1]")
+    confidence = str(body.get("confidence") or "medium")
+    if confidence not in {"low", "medium", "high"}:
+        raise HTTPException(status_code=400, detail="confidence must be low, medium, or high")
+    confidence_reason = str(body.get("confidence_reason") or "faint_double_rail_centerline")
+    expected_version = body.get("expected_version")
+
+    attrs = wall.setdefault("attributes", {})
+    previous_quality_status = attrs.get("quality_status")
+    wall["status"] = "uncertain"
+    attrs["quality_status"] = "centerline_plausible"
+    attrs["confidence_reason"] = confidence_reason
+    attrs["review_required"] = True
+    attrs["centerline_review"] = {
+        "method": "wall_centerline_review",
+        "decision": "centerline_plausible",
+        "confidence": confidence,
+        "review_region": review_region,
+        "rail_evidence": rail_evidence,
+        "reason": reason,
+        "previous_quality_status": previous_quality_status,
+    }
+    put_labels("dataset", key, file, doc)
+
+    try:
+        from .scene_plan_state import add_evidence, read_plan_state, write_plan_state
+
+        evidence_result = add_evidence(
+            DATASET_DIR,
+            key,
+            file,
+            {
+                "kind": "wall_centerline_review",
+                "mode": "verification",
+                "summary": reason,
+                "tool": "review_wall_centerline_between_rails",
+                "task_ids": body.get("task_ids") or [],
+                "result": {
+                    "wall_id": label_id,
+                    "decision": "centerline_plausible",
+                    "review_region": review_region,
+                    "rail_evidence": rail_evidence,
+                    "reason": reason,
+                    "confidence": confidence,
+                    "confidence_reason": confidence_reason,
+                    "previous_quality_status": previous_quality_status,
+                },
+            },
+            expected_version=expected_version,
+        )
+        evidence_id = evidence_result["state"]["evidence"][-1]["id"]
+        state_doc = read_plan_state(DATASET_DIR, key, file)
+        state = state_doc.get("state") or {}
+        closed_defect_ids: list[str] = []
+        now = _dt.datetime.now(_dt.UTC).isoformat()
+        for defect in state.get("defects") or []:
+            if defect.get("status") not in {"open", "in_progress"}:
+                continue
+            if defect.get("category") != "wall_off_ink":
+                continue
+            payload = defect.get("payload") if isinstance(defect.get("payload"), dict) else {}
+            if payload.get("wall_id") != label_id:
+                continue
+            defect["status"] = "accepted_source_limited"
+            defect["classification"] = "centerline_plausible_double_rail"
+            defect["terminal_reason"] = reason
+            defect["updated_at"] = now
+            existing = defect.setdefault("evidence_ids", [])
+            if evidence_id not in existing:
+                existing.append(evidence_id)
+            closed_defect_ids.append(str(defect.get("id")))
+        if closed_defect_ids:
+            state.setdefault("decision_log", []).append({
+                "time": now,
+                "mode": "verification",
+                "evidence_ids": [evidence_id],
+                "decision": f"Accepted {len(closed_defect_ids)} wall off-ink defect(s) as centerline-plausible",
+                "result": reason,
+                "defect_ids": closed_defect_ids,
+            })
+            write_plan_state(DATASET_DIR, state)
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+
+    return {
+        "ok": True,
+        "data": {
+            "label_id": label_id,
+            "quality_status": "centerline_plausible",
+            "status": wall.get("status"),
+            "evidence_id": locals().get("evidence_id"),
+            "closed_defect_ids": locals().get("closed_defect_ids", []),
+            "review_region": review_region,
+            "review_required": True,
+        },
+    }
+
+
 def _mass_edges_from_rect(body: dict[str, Any]) -> list[list[list[float]]]:
     corners = body.get("rough_corners")
     if corners is not None:

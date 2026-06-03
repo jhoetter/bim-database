@@ -58,6 +58,7 @@ EVIDENCE_KINDS = {
     "score_walls",
     "score_measurements",
     "dimension_chain_review",
+    "wall_centerline_review",
     "topology_qa",
     "continuity_check",
     "repair_candidate_decision",
@@ -69,6 +70,7 @@ EVIDENCE_KINDS = {
 }
 
 DIMENSION_CHAIN_REVIEW_DECISIONS = {"readable", "partially_readable", "source_unreadable"}
+WALL_CENTERLINE_REVIEW_DECISIONS = {"centerline_plausible", "rejected"}
 
 REPAIR_CANDIDATE_OUTCOMES = {
     "accepted_applied",
@@ -472,6 +474,22 @@ def add_evidence(
             raise ValueError("dimension_chain_review missing required field(s): " + ", ".join(missing))
         if decision == "source_unreadable" and not result.get("unreadable_fragments"):
             raise ValueError("source_unreadable dimension_chain_review requires unreadable_fragments")
+    if kind == "wall_centerline_review":
+        result = evidence.get("result") or {}
+        if not isinstance(result, dict):
+            raise ValueError("wall_centerline_review result must be an object")
+        decision = result.get("decision")
+        if decision not in WALL_CENTERLINE_REVIEW_DECISIONS:
+            raise ValueError(
+                "wall_centerline_review decision must be one of "
+                + ", ".join(sorted(WALL_CENTERLINE_REVIEW_DECISIONS))
+            )
+        required = {"wall_id", "review_region", "rail_evidence", "reason"}
+        missing = sorted(k for k in required if k not in result)
+        if missing:
+            raise ValueError("wall_centerline_review missing required field(s): " + ", ".join(missing))
+        if decision == "centerline_plausible" and not result.get("rail_evidence"):
+            raise ValueError("centerline_plausible wall_centerline_review requires rail_evidence")
     item = {
         "id": evidence.get("id") or _next_id(state.get("evidence") or [], "EV"),
         "kind": kind or "human_note",
@@ -628,6 +646,7 @@ DEFECT_CLASSIFICATIONS = {
     "dimension_or_annotation",
     "site_or_boundary_line",
     "separate_structure",
+    "centerline_plausible_double_rail",
     "false_positive",
     "ambiguous",
 }
@@ -1289,6 +1308,7 @@ def _label_quality_summary(labels: list[dict[str, Any]]) -> dict[str, Any]:
     by_status: Counter[str] = Counter()
     uncertain_by_type: Counter[str] = Counter()
     uncertain_reasons: Counter[str] = Counter()
+    quality_statuses: Counter[str] = Counter()
     structural_uncertain = 0
     total = 0
     for lab in labels:
@@ -1298,9 +1318,12 @@ def _label_quality_summary(labels: list[dict[str, Any]]) -> dict[str, Any]:
         label_type = str(lab.get("type") or "unknown")
         status = str(lab.get("status") or "readable")
         by_status[status] += 1
+        attrs = lab.get("attributes") if isinstance(lab.get("attributes"), dict) else {}
+        quality_status = attrs.get("quality_status")
+        if quality_status:
+            quality_statuses[str(quality_status)] += 1
         if status != "readable":
             uncertain_by_type[label_type] += 1
-            attrs = lab.get("attributes") if isinstance(lab.get("attributes"), dict) else {}
             reason = (
                 attrs.get("confidence_reason")
                 or attrs.get("quality_reason")
@@ -1317,6 +1340,7 @@ def _label_quality_summary(labels: list[dict[str, Any]]) -> dict[str, Any]:
         "uncertain_total": uncertain_total,
         "uncertain_by_type": dict(sorted(uncertain_by_type.items())),
         "uncertain_reasons": dict(sorted(uncertain_reasons.items())),
+        "quality_statuses": dict(sorted(quality_statuses.items())),
         "structural_uncertain": structural_uncertain,
         "missing_total": by_status.get("missing", 0),
         "not_readable_total": by_status.get("not_readable", 0),
@@ -1363,6 +1387,8 @@ def _quality_for_state(
     not_readable_total = int(label_quality.get("not_readable_total") or 0)
     uncertain_by_type = label_quality.get("uncertain_by_type") if isinstance(label_quality.get("uncertain_by_type"), dict) else {}
     uncertain_reasons = label_quality.get("uncertain_reasons") if isinstance(label_quality.get("uncertain_reasons"), dict) else {}
+    quality_statuses = label_quality.get("quality_statuses") if isinstance(label_quality.get("quality_statuses"), dict) else {}
+    centerline_plausible_total = int(quality_statuses.get("centerline_plausible") or 0)
     accepted_tasks = [t for t in tasks if isinstance(t, dict) and t.get("status") == "accepted_incomplete"]
     accepted_uncertain_defects = [
         d for d in defects
@@ -1426,6 +1452,8 @@ def _quality_for_state(
     if uncertain_total:
         by_type = ", ".join(f"{k}={v}" for k, v in sorted(uncertain_by_type.items())) or str(uncertain_total)
         uncertainties.append(f"{uncertain_total} non-readable/uncertain label(s): {by_type}")
+    if centerline_plausible_total:
+        uncertainties.append(f"{centerline_plausible_total} centerline-plausible wall(s)")
     if warnings:
         uncertainties.append(f"{len(warnings)} open warning defect(s)")
     if accepted_uncertain_defects:
@@ -1658,6 +1686,7 @@ def _upsert_auto_defect(
     region: Any = None,
     evidence_ids: list[str] | None = None,
     fingerprint: str | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> str:
     now = _now_iso()
     key = fingerprint or _defect_key(category, title)
@@ -1688,6 +1717,8 @@ def _upsert_auto_defect(
                 "region": region,
                 "updated_at": now,
             })
+            if payload is not None:
+                defect["payload"] = payload
             if evidence_ids:
                 existing = defect.setdefault("evidence_ids", [])
                 for ev_id in evidence_ids:
@@ -1707,6 +1738,7 @@ def _upsert_auto_defect(
         "region": region,
         "description": description,
         "expected_resolution": expected_resolution,
+        "payload": payload or {},
         "evidence_ids": evidence_ids or [],
         "created_at": now,
         "updated_at": now,
@@ -2053,6 +2085,16 @@ def evaluate_gates(
             for f in score_findings
             if f.get("category") == "off_ink_segment" and ((f.get("payload") or {}).get("wall_id"))
         }
+        centerline_plausible_wall_ids = {
+            str(wall.get("id"))
+            for wall in walls
+            if ((wall.get("attributes") or {}).get("quality_status") == "centerline_plausible")
+        }
+        unreviewed_off_ink_findings = [
+            f for f in score_findings
+            if f.get("category") == "off_ink_segment"
+            and str(((f.get("payload") or {}).get("wall_id") or "")) not in centerline_plausible_wall_ids
+        ]
         wall_quality_by_id: dict[str, Any] = {}
         labels_changed = False
         if scene_tag == "grundriss":
@@ -2062,11 +2104,18 @@ def evaluate_gates(
                     continue
                 attrs = wall.setdefault("attributes", {})
                 if wall_id in off_ink_wall_ids:
-                    wall["status"] = "uncertain"
-                    attrs["quality_status"] = "off_ink"
-                    labels_changed = True
-                    wall_quality_by_id[wall_id] = {"quality_status": "off_ink", "reason": "score_walls.off_ink_segment"}
-                elif attrs.get("quality_status") == "off_ink":
+                    if attrs.get("quality_status") == "centerline_plausible":
+                        wall["status"] = "uncertain"
+                        wall_quality_by_id[wall_id] = {
+                            "quality_status": "centerline_plausible",
+                            "reason": "reviewed double-rail centerline remains scorer-off-ink",
+                        }
+                    else:
+                        wall["status"] = "uncertain"
+                        attrs["quality_status"] = "off_ink"
+                        labels_changed = True
+                        wall_quality_by_id[wall_id] = {"quality_status": "off_ink", "reason": "score_walls.off_ink_segment"}
+                elif attrs.get("quality_status") in {"off_ink", "centerline_plausible"}:
                     anchoring = attrs.get("anchoring") or {}
                     attrs["quality_status"] = "ink_anchored" if float(anchoring.get("ink_overlap") or 0.0) >= 0.6 else "unanchored"
                     wall["status"] = "readable"
@@ -2090,8 +2139,14 @@ def evaluate_gates(
                 expected_resolution="Re-read the crop visually; repair/add with upsert_wall_anchored or reject this as non-wall ink with evidence.",
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
                 fingerprint=str(finding.get("fingerprint") or ""),
+                payload=finding.get("payload") if isinstance(finding.get("payload"), dict) else None,
             )
-        if isinstance(latest_score_walls.get("precision"), (int, float)) and float(latest_score_walls["precision"]) < 0.70:
+        low_precision_explained = bool(off_ink_wall_ids) and not unreviewed_off_ink_findings
+        if (
+            isinstance(latest_score_walls.get("precision"), (int, float))
+            and float(latest_score_walls["precision"]) < 0.70
+            and not low_precision_explained
+        ):
             precision_fp = f"score_walls:low_precision:{file}"
             current_fingerprints.add(precision_fp)
             _upsert_auto_defect(
@@ -2108,7 +2163,7 @@ def evaluate_gates(
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
                 fingerprint=precision_fp,
             )
-        for idx, finding in enumerate([f for f in score_findings if f.get("category") == "off_ink_segment"], start=1):
+        for idx, finding in enumerate(unreviewed_off_ink_findings, start=1):
             seg = finding.get("region")
             _upsert_auto_defect(
                 state,
@@ -2120,6 +2175,7 @@ def evaluate_gates(
                 expected_resolution="Use repair candidates or upsert_wall_anchored to re-locate/refine this wall before placing openings/dimensions; mark uncertain only with visual evidence.",
                 evidence_ids=[evidence_ids_by_kind["score_walls"]] if "score_walls" in evidence_ids_by_kind else [],
                 fingerprint=str(finding.get("fingerprint") or ""),
+                payload=finding.get("payload") if isinstance(finding.get("payload"), dict) else None,
             )
     if latest_topology:
         topology_findings = [f for f in current_findings if f.get("source") == "wall_topology_qa"]
@@ -2227,6 +2283,10 @@ def evaluate_gates(
         "blocker_ids": [str(d.get("id")) for d in wall_anchor_blockers],
         "off_ink_count": len([d for d in wall_anchor_blockers if d.get("category") == "wall_off_ink"]),
         "missing_region_count": len([d for d in wall_anchor_blockers if d.get("category") == "wall_missing_region"]),
+        "centerline_plausible_count": len([
+            wall for wall in walls
+            if ((wall.get("attributes") or {}).get("quality_status") == "centerline_plausible")
+        ]),
         "precision": latest_score_walls.get("precision") if isinstance(latest_score_walls, dict) else None,
     }
     opening_blockers = [

@@ -1565,6 +1565,7 @@ def test_tool_descriptions_are_present():
         mcp_server.apply_opening_candidate,
         mcp_server.decide_opening_candidate,
         mcp_server.view_geometry_candidates,
+        mcp_server.review_wall_centerline_between_rails,
     ]
     for tool in tools:
         # Tool objects are decorated; unwrap if needed.

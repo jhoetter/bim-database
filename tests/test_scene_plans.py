@@ -1045,6 +1045,119 @@ def test_opening_cannot_use_off_ink_parent_wall(scene):
     assert "quality_status='off_ink'" in r.text
 
 
+def test_opening_can_use_centerline_plausible_parent_wall(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["labels"] = [
+        {
+            "id": "wall-1",
+            "type": "wall",
+            "status": "uncertain",
+            "geometry": {"start": [20, 40], "end": [200, 40]},
+            "attributes": {
+                "quality_status": "centerline_plausible",
+                "confidence_reason": "faint_double_rail_centerline",
+                "review_required": True,
+            },
+        },
+        {
+            "id": "op-1",
+            "type": "floorplan_opening",
+            "status": "readable",
+            "geometry": {"quad": [[70, 30], [120, 30], [120, 50], [70, 50]]},
+            "attributes": {"opening_kind": "door"},
+            "relations": [{"kind": "belongs_to", "other_id": "wall-1"}],
+        },
+    ]
+    r = client.put(f"/labels/dataset/{key}/{file}", json=labels)
+    assert r.status_code == 200, r.text
+
+
+def test_wall_centerline_review_closes_matching_off_ink_blocker(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["labels"] = [
+        {
+            "id": "wall-1",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [10, 20], "end": [200, 20]},
+            "attributes": {},
+        }
+    ]
+    assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+    first = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": False,
+            "run_continuity_check": False,
+            "score_walls": {
+                "precision": 0.9,
+                "recall": 0.9,
+                "f1": 0.9,
+                "missing_regions": [],
+                "off_ink_segments": [[10, 20, 200, 20, 0.0]],
+            },
+        },
+    )
+    assert first.status_code == 200, first.text
+    defect = next(d for d in first.json()["data"]["state"]["defects"] if d["category"] == "wall_off_ink")
+    assert defect["payload"]["wall_id"] == "wall-1"
+
+    review = client.post(
+        f"/datasets/{key}/{file}/walls/wall-1/centerline-review",
+        json={
+            "review_region": [0, 0, 220, 50],
+            "rail_evidence": ["upper rail y~12", "lower rail y~28", "saved centerline y~20"],
+            "reason": "Detail crop shows a faint double-rail wall; saved wall is the intended centerline.",
+            "confidence": "high",
+        },
+    )
+    assert review.status_code == 200, review.text
+    assert review.json()["data"]["closed_defect_ids"] == [defect["id"]]
+
+    second = client.post(
+        f"/datasets/{key}/{file}/plan-state/evaluate-gates",
+        json={
+            "run_score_walls": False,
+            "run_score_measurements": False,
+            "run_topology_qa": False,
+            "run_continuity_check": False,
+            "score_walls": {
+                "precision": 0.9,
+                "recall": 0.9,
+                "f1": 0.9,
+                "missing_regions": [],
+                "off_ink_segments": [[10, 20, 200, 20, 0.0]],
+            },
+        },
+    )
+    assert second.status_code == 200, second.text
+    state = second.json()["data"]["state"]
+    defects = {d["id"]: d for d in state["defects"]}
+    assert defects[defect["id"]]["status"] == "accepted_source_limited"
+    assert defects[defect["id"]]["classification"] == "centerline_plausible_double_rail"
+    labels_after = client.get(f"/labels/dataset/{key}/{file}").json()["labels"]
+    wall = labels_after[0]
+    assert wall["status"] == "uncertain"
+    assert wall["attributes"]["quality_status"] == "centerline_plausible"
+    tasks = {t["id"]: t for t in state["tasks"]}
+    trace_gates = {g["id"]: g["status"] for g in tasks["TRACE_OUTER_WALLS"]["gates"]}
+    assert trace_gates["WALL_INK_ANCHORED"] == "passed"
+    assert state["current_state"]["wall_anchoring"]["centerline_plausible_count"] == 1
+    assert state["current_state"]["label_quality"]["quality_statuses"]["centerline_plausible"] == 1
+
+
 def test_scene_plan_closed_opening_absence_waives_opening_tasks(scene):
     key, file = scene
     client = TestClient(api_main.app)

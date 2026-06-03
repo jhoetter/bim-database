@@ -34,7 +34,11 @@ Preferred transaction tools:
   `upsert_wall_anchored(detail_mode=...)` for local details. Mass transactions
   return `transaction_verification` edge groups for overlay review. Confirmed
   structural masses require strong visible wall evidence; use uncertain or
-  projection modes for roof/hatching/context ink.
+  projection modes for roof/hatching/context ink. If `score_walls` flags a
+  visually correct faint/double-rail wall as off-ink, inspect a detail crop and
+  call `review_wall_centerline_between_rails`; this is silver-quality
+  review-required evidence, not a substitute for repairing genuinely misplaced
+  walls.
 - Openings: `opening_candidates`, `get_scene_view_with_opening_candidate`,
   `review_opening_candidate`, `review_opening_candidates_batch`,
   `upsert_opening_on_wall`.

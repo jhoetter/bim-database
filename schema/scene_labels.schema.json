@@ -195,7 +195,41 @@
               },
               "quality_status": {
                 "type": "string",
-                "enum": ["ink_anchored", "off_ink", "unanchored", "uncertain"]
+                "enum": ["ink_anchored", "centerline_plausible", "off_ink", "unanchored", "uncertain"]
+              },
+              "confidence_reason": {"type": "string"},
+              "quality_reason": {"type": "string"},
+              "uncertainty_reason": {"type": "string"},
+              "review_required": {"type": "boolean"},
+              "centerline_review": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "method": {"type": "string"},
+                  "decision": {
+                    "type": "string",
+                    "enum": ["centerline_plausible", "rejected"]
+                  },
+                  "confidence": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"]
+                  },
+                  "review_region": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "minItems": 4,
+                    "maxItems": 4
+                  },
+                  "rail_evidence": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                  },
+                  "reason": {"type": "string"},
+                  "previous_quality_status": {
+                    "type": ["string", "null"],
+                    "enum": ["ink_anchored", "centerline_plausible", "off_ink", "unanchored", "uncertain", null]
+                  }
+                }
               },
               "detail_mode": {
                 "type": "string",
