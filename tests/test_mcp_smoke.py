@@ -350,6 +350,54 @@ def test_scene_plan_mcp_template_and_status_smoke():
     assert classified["status"] == "verified"
 
 
+def test_classify_plan_defect_mcp_smoke():
+    key, file = _write_scratch_scene("house-zzmcp-defect-classify")
+    created = _run(mcp_server.create_scene_plan_state_from_template(
+        key=key,
+        file=file,
+        scene_tag="grundriss",
+        level_or_orientation="eg",
+        created_by="pytest",
+    ))
+    assert created["ok"], created.get("error")
+
+    status, defect_body = _run(mcp_server._api_post(
+        f"/datasets/{key}/{file}/plan-state/defects",
+        {
+            "title": "Wall score missing region 1",
+            "severity": "blocker",
+            "category": "wall_missing_region",
+            "description": "Uncovered score ink.",
+            "expected_resolution": "Classify and repair or reject.",
+        },
+    ))
+    assert status == 200, defect_body
+    defect_id = defect_body["data"]["state"]["defects"][0]["id"]
+
+    ev = _run(mcp_server.add_scene_plan_evidence(
+        key=key,
+        file=file,
+        kind="human_note",
+        summary="Reviewed score region: furniture, not wall.",
+    ))
+    assert ev["ok"], ev.get("error")
+    evidence_id = ev["data"]["latest_evidence_id"]
+
+    classified = _run(mcp_server.classify_plan_defect(
+        key=key,
+        file=file,
+        defect_id=defect_id,
+        classification="furniture_or_fixture",
+        evidence_ids=[evidence_id],
+        note="False positive score region from furniture.",
+    ))
+    assert classified["ok"], classified.get("error")
+    state = _run(mcp_server.get_scene_plan_state(key=key, file=file))
+    defect = state["data"]["state"]["defects"][0]
+    assert defect["classification"] == "furniture_or_fixture"
+    assert evidence_id in defect["evidence_ids"]
+
+
 def test_recommended_next_action_prioritizes_eg_scene_plan():
     key, file = _write_scratch_scene("house-zzmcp-eg-priority")
 
@@ -1463,6 +1511,7 @@ def test_tool_descriptions_are_present():
         mcp_server.start_scene_plan_action,
         mcp_server.record_scene_plan_attempt,
         mcp_server.finish_scene_plan_action,
+        mcp_server.classify_plan_defect,
         mcp_server.add_scene_plan_evidence,
         mcp_server.set_scene_plan_task_state,
         mcp_server.evaluate_scene_plan_gates,

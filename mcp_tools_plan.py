@@ -323,6 +323,52 @@ async def finish_scene_plan_action(
 
 
 @mcp.tool()
+async def classify_plan_defect(
+    key: str,
+    file: str,
+    defect_id: str,
+    classification: str,
+    evidence_ids: list[str] | None = None,
+    note: str | None = None,
+    expected_version: str | None = None,
+    response_mode: str = "compact",
+) -> dict:
+    """Classify one scene-plan defect before closing it.
+
+    USE when:
+      - A wall-score missing/off-ink defect has been visually reviewed and is
+        not automatically repairable.
+      - You need to close a score defect as rejected/accepted_uncertain/fixed;
+        wall_missing_region and wall_off_ink defects require this first.
+
+    Classifications:
+      real_missing_wall, bad_existing_wall, duplicate_wall_face_not_centerline,
+      opening_symbol, door_swing_or_hint, dashed_projection,
+      furniture_or_fixture, dimension_or_annotation, site_or_boundary_line,
+      separate_structure, false_positive, ambiguous.
+    """
+    started = time.time()
+    body = {
+        "classification": classification,
+        "evidence_ids": evidence_ids or [],
+        "note": note,
+        "expected_version": expected_version,
+    }
+    status, res = await mcp_server._api_post(
+        f"/datasets/{key}/{file}/plan-state/defects/{defect_id}/classify",
+        body,
+    )
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="classify_defect")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)
+
+
+@mcp.tool()
 async def get_scene_repair_candidates(key: str, file: str, limit: int = 20) -> dict:
     """Return clustered current topology findings with deterministic repair candidates.
 

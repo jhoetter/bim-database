@@ -13,7 +13,9 @@ Routine scene loop:
 6. `record_scene_plan_attempt`
 7. Verify with label/score/topology tools
 8. `evaluate_scene_plan_gates`
-9. `finish_scene_plan_action`
+9. For wall-score missing/off-ink defects, call `classify_plan_defect` before
+   closing the defect action
+10. `finish_scene_plan_action`
 
 Named view modes:
 
