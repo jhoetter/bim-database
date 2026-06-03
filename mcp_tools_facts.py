@@ -237,6 +237,40 @@ async def record_transferred_calibration(
             "matched_facade_extent, matched_storey_height, manual_review_transfer",
             started_at=started,
         )
+    cur_status, current = await mcp_server._api_get(f"/datasets/{key}/house_facts")
+    current_facts = current if cur_status == 200 and isinstance(current, dict) else {}
+    calibration_per_scene = current_facts.get("calibration_per_scene") if isinstance(current_facts.get("calibration_per_scene"), dict) else {}
+    source_calibration = calibration_per_scene.get(source_scene) if isinstance(calibration_per_scene.get(source_scene), dict) else {}
+    source_has_direct_scale = bool(
+        source_calibration
+        and source_calibration.get("status") != "transferred"
+        and (
+            source_calibration.get("px_per_mm") is not None
+            or source_calibration.get("status") == "ok"
+            or source_calibration.get("computed_from") not in {None, "transferred"}
+        )
+    )
+    building_global = current_facts.get("building_global") if isinstance(current_facts.get("building_global"), dict) else {}
+    building_facts = building_global.get("facts") if isinstance(building_global.get("facts"), dict) else {}
+    missing_source_facts = [
+        fact_id for fact_id in (source_fact_ids or [])
+        if fact_id not in building_facts
+    ]
+    has_source_facts = bool(source_fact_ids) and not missing_source_facts
+    if missing_source_facts:
+        return _err(
+            "missing_provenance",
+            "source_fact_ids are not present in building_global.facts: " + ", ".join(missing_source_facts),
+            hint="record the building-global facts with set_building_global_fact first, or cite a directly calibrated source_scene",
+            started_at=started,
+        )
+    if not source_has_direct_scale and not has_source_facts:
+        return _err(
+            "missing_provenance",
+            "transferred calibration requires a directly calibrated source_scene or existing source_fact_ids",
+            hint="run add_reference_dim/recompute_homography on the source scene, or record building-global facts before transferring scale",
+            started_at=started,
+        )
     entry = {
         "status": "transferred",
         "computed_from": "transferred",
@@ -383,4 +417,3 @@ async def get_building_global_facts(key: str) -> dict:
         extent=(facts or {}).get("extent"),
     )
     return _ok(view, started_at=started, status_code=200)
-

@@ -666,6 +666,32 @@ def test_record_transferred_calibration_round_trip():
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir(parents=True, exist_ok=True)
     try:
+        seeded = _run(mcp_server.set_house_facts(key=key, patch={
+            "calibration_per_scene": {
+                "section.jpg": {
+                    "status": "ok",
+                    "px_per_mm": 0.08,
+                    "computed_from": "M1-both",
+                }
+            }
+        }))
+        assert seeded["ok"], seeded.get("error")
+        eg_fact = _run(mcp_server.set_building_global_fact(
+            key=key,
+            fact="EG_munn_mm",
+            value=843800,
+            source_scene="section.jpg",
+            confidence="high",
+        ))
+        assert eg_fact["ok"], eg_fact.get("error")
+        th_fact = _run(mcp_server.set_building_global_fact(
+            key=key,
+            fact="TH_mm",
+            value=4580,
+            source_scene="section.jpg",
+            confidence="high",
+        ))
+        assert th_fact["ok"], th_fact.get("error")
         r = _run(mcp_server.record_transferred_calibration(
             key=key,
             file="north.jpg",
@@ -686,6 +712,26 @@ def test_record_transferred_calibration_round_trip():
         facts = _run(mcp_server.get_house_facts(key=key))
         assert facts["ok"], facts.get("error")
         assert facts["data"]["calibration_per_scene"]["north.jpg"] == calibration
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_record_transferred_calibration_requires_provenance():
+    key = "house-zztransferred-calibration-invalid"
+    root = api_main.DATASET_DIR / key
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        r = _run(mcp_server.record_transferred_calibration(
+            key=key,
+            file="north.jpg",
+            source_scene="section.jpg",
+            transfer_kind="section_scale",
+            confidence="medium",
+            reason="north elevation has no readable local reference dimensions",
+        ))
+        assert not r["ok"]
+        assert r["error"]["code"] == "missing_provenance"
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
