@@ -260,6 +260,21 @@ export interface ScenePlanTerminality {
   terminal?: boolean;
   status?: string;
   summary?: string;
+  quality_tier?: 'gold' | 'silver' | 'bronze' | 'blocked' | string;
+  completion_state?: string;
+  review_debt?: number;
+  uncertainty_counters?: Record<string, unknown>;
+  final_qa_summary?: {
+    tier?: string;
+    completion_state?: string;
+    strengths?: string[];
+    uncertainties?: string[];
+    uncertainty_reasons?: Record<string, number>;
+    missing_or_unreadable?: string[];
+    transferred_facts?: Array<Record<string, unknown>>;
+    human_review_required?: boolean;
+    review_debt?: number;
+  };
   required_complete?: boolean;
   percent_complete?: number;
   open_blockers?: number;
@@ -340,6 +355,10 @@ export interface ScenePlanState {
     }>;
     blockers?: string[];
     stale_evidence?: string[];
+    quality_tier?: string;
+    completion_state?: string;
+    review_debt?: number;
+    final_qa_summary?: ScenePlanTerminality['final_qa_summary'];
     current_action_id?: string | null;
     terminality?: ScenePlanTerminality;
   };
@@ -380,6 +399,10 @@ export interface SceneWorkbenchState {
     version?: string | null;
     status?: string | null;
     summary?: string;
+    quality_tier?: string;
+    completion_state?: string;
+    review_debt?: number;
+    final_qa_summary?: ScenePlanTerminality['final_qa_summary'];
     terminal?: boolean;
     required_complete?: boolean;
     percent_complete?: number;

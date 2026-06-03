@@ -1187,6 +1187,161 @@ _DOWNSTREAM_WALL_DEPENDENT_TASKS = {
     "FINAL_QA",
 }
 
+QUALITY_STRUCTURAL_LABEL_TYPES = {"wall", "component_line", "floorplan_opening", "view_opening"}
+
+
+def _label_quality_summary(labels: list[dict[str, Any]]) -> dict[str, Any]:
+    by_status: Counter[str] = Counter()
+    uncertain_by_type: Counter[str] = Counter()
+    uncertain_reasons: Counter[str] = Counter()
+    structural_uncertain = 0
+    total = 0
+    for lab in labels:
+        if not isinstance(lab, dict):
+            continue
+        total += 1
+        label_type = str(lab.get("type") or "unknown")
+        status = str(lab.get("status") or "readable")
+        by_status[status] += 1
+        if status != "readable":
+            uncertain_by_type[label_type] += 1
+            attrs = lab.get("attributes") if isinstance(lab.get("attributes"), dict) else {}
+            reason = (
+                attrs.get("confidence_reason")
+                or attrs.get("quality_reason")
+                or attrs.get("uncertainty_reason")
+                or status
+            )
+            uncertain_reasons[str(reason)] += 1
+            if label_type in QUALITY_STRUCTURAL_LABEL_TYPES:
+                structural_uncertain += 1
+    uncertain_total = total - by_status.get("readable", 0)
+    return {
+        "total": total,
+        "by_status": dict(sorted(by_status.items())),
+        "uncertain_total": uncertain_total,
+        "uncertain_by_type": dict(sorted(uncertain_by_type.items())),
+        "uncertain_reasons": dict(sorted(uncertain_reasons.items())),
+        "structural_uncertain": structural_uncertain,
+        "missing_total": by_status.get("missing", 0),
+        "not_readable_total": by_status.get("not_readable", 0),
+        "uncertain_ratio": (uncertain_total / total) if total else 0,
+    }
+
+
+def _quality_for_state(
+    state: dict[str, Any],
+    *,
+    status: str,
+    blockers: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+    incomplete_required: list[dict[str, Any]],
+    stale: list[str],
+) -> dict[str, Any]:
+    tasks = state.get("tasks") or []
+    defects = state.get("defects") or []
+    current = state.get("current_state") or {}
+    label_quality = current.get("label_quality") if isinstance(current.get("label_quality"), dict) else {}
+    uncertain_total = int(label_quality.get("uncertain_total") or 0)
+    missing_total = int(label_quality.get("missing_total") or 0)
+    not_readable_total = int(label_quality.get("not_readable_total") or 0)
+    uncertain_by_type = label_quality.get("uncertain_by_type") if isinstance(label_quality.get("uncertain_by_type"), dict) else {}
+    uncertain_reasons = label_quality.get("uncertain_reasons") if isinstance(label_quality.get("uncertain_reasons"), dict) else {}
+    accepted_tasks = [t for t in tasks if isinstance(t, dict) and t.get("status") == "accepted_incomplete"]
+    accepted_uncertain_defects = [d for d in defects if isinstance(d, dict) and d.get("status") == "accepted_uncertain"]
+    transferred_facts = current.get("transferred_facts") if isinstance(current.get("transferred_facts"), list) else []
+    human_review_required = bool(
+        blockers
+        or warnings
+        or incomplete_required
+        or stale
+        or uncertain_total
+        or accepted_tasks
+        or accepted_uncertain_defects
+        or transferred_facts
+    )
+    if blockers or incomplete_required or stale or status in {"needs_repair", "blocked_external", "active", "blocked"}:
+        tier = "blocked"
+    elif accepted_tasks or accepted_uncertain_defects or missing_total or not_readable_total or status == "accepted_incomplete":
+        tier = "bronze"
+    elif warnings or uncertain_total or transferred_facts:
+        tier = "silver"
+    else:
+        tier = "gold"
+
+    if blockers:
+        completion_state = "blocked_quality_regression"
+    elif status == "blocked_external":
+        completion_state = "blocked_tooling"
+    elif incomplete_required or stale:
+        completion_state = "blocked_quality_regression"
+    elif tier == "bronze":
+        completion_state = "accepted_incomplete"
+    elif tier == "silver":
+        completion_state = "verified_with_uncertainty"
+    else:
+        completion_state = "verified_high_confidence"
+
+    review_debt = (
+        len(blockers) * 20
+        + len(warnings) * 4
+        + uncertain_total * 2
+        + missing_total * 3
+        + not_readable_total * 3
+        + len(accepted_tasks) * 8
+        + len(accepted_uncertain_defects) * 5
+        + len(transferred_facts) * 4
+        + len(stale) * 5
+    )
+    uncertainties: list[str] = []
+    if uncertain_total:
+        by_type = ", ".join(f"{k}={v}" for k, v in sorted(uncertain_by_type.items())) or str(uncertain_total)
+        uncertainties.append(f"{uncertain_total} non-readable/uncertain label(s): {by_type}")
+    if warnings:
+        uncertainties.append(f"{len(warnings)} open warning defect(s)")
+    if accepted_uncertain_defects:
+        uncertainties.append(f"{len(accepted_uncertain_defects)} accepted uncertain defect(s)")
+    if transferred_facts:
+        uncertainties.append(f"{len(transferred_facts)} transferred calibration/fact item(s)")
+
+    missing_or_unreadable: list[str] = []
+    if missing_total:
+        missing_or_unreadable.append(f"{missing_total} missing label marker(s)")
+    if not_readable_total:
+        missing_or_unreadable.append(f"{not_readable_total} not-readable label marker(s)")
+    if incomplete_required:
+        missing_or_unreadable.append(
+            "required tasks open: " + ", ".join(str(t.get("id")) for t in incomplete_required)
+        )
+    if stale:
+        missing_or_unreadable.append("stale evidence: " + ", ".join(stale))
+
+    strengths: list[str] = []
+    if not blockers:
+        strengths.append("no open blocker defects")
+    if not incomplete_required:
+        strengths.append("required tasks closed")
+    if not uncertain_total:
+        strengths.append("no uncertain labels recorded")
+
+    return {
+        "quality_tier": tier,
+        "completion_state": completion_state,
+        "review_debt": review_debt,
+        "uncertainty_counters": label_quality,
+        "final_qa_summary": {
+            "tier": tier,
+            "completion_state": completion_state,
+            "strengths": strengths,
+            "uncertainties": uncertainties,
+            "uncertainty_reasons": uncertain_reasons,
+            "missing_or_unreadable": missing_or_unreadable,
+            "transferred_facts": transferred_facts,
+            "human_review_required": human_review_required,
+            "review_debt": review_debt,
+        },
+    }
+
 
 def _open_wall_anchoring_blockers(state: dict[str, Any]) -> list[dict[str, Any]]:
     return [
@@ -1247,10 +1402,23 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
     stale = sorted(set((state.get("current_state") or {}).get("stale_evidence") or []))
     current_findings = ((state.get("current_state") or {}).get("findings") or {})
     current_clusters = ((state.get("current_state") or {}).get("finding_clusters") or {})
+    quality = _quality_for_state(
+        state,
+        status=status,
+        blockers=blockers,
+        warnings=warnings,
+        incomplete_required=incomplete_required,
+        stale=stale,
+    )
     return {
         "terminal": terminal,
         "status": status,
         "summary": summary,
+        "quality_tier": quality["quality_tier"],
+        "completion_state": quality["completion_state"],
+        "review_debt": quality["review_debt"],
+        "uncertainty_counters": quality["uncertainty_counters"],
+        "final_qa_summary": quality["final_qa_summary"],
         "required_complete": not incomplete_required,
         "percent_complete": int(round((closed / total) * 100)),
         "open_blockers": len(blockers),
@@ -1300,6 +1468,21 @@ def plan_status(dataset_root: Path, key: str, file: str) -> dict[str, Any]:
             "terminal": False,
             "status": "draft",
             "summary": "No structured scene plan exists.",
+            "quality_tier": "blocked",
+            "completion_state": "blocked_tooling",
+            "review_debt": 20,
+            "uncertainty_counters": {},
+            "final_qa_summary": {
+                "tier": "blocked",
+                "completion_state": "blocked_tooling",
+                "strengths": [],
+                "uncertainties": [],
+                "uncertainty_reasons": {},
+                "missing_or_unreadable": ["missing plan state"],
+                "transferred_facts": [],
+                "human_review_required": True,
+                "review_debt": 20,
+            },
             "required_complete": False,
             "percent_complete": 0,
             "open_blockers": 0,
@@ -1538,6 +1721,22 @@ def evaluate_gates(
 
     current_state = state.setdefault("current_state", {})
     current_state["label_counts"] = counts
+    current_state["label_quality"] = _label_quality_summary(labels)
+    if calibration_transferred:
+        current_state["transferred_facts"] = [{
+            "kind": "calibration",
+            "file": file,
+            "source_scene": scene_calibration.get("source_scene"),
+            "transfer_kind": scene_calibration.get("transfer_kind"),
+            "confidence": scene_calibration.get("confidence"),
+            "reason": scene_calibration.get("reason"),
+            "review_required": scene_calibration.get("review_required", True),
+        }]
+    else:
+        current_state["transferred_facts"] = [
+            item for item in (current_state.get("transferred_facts") or [])
+            if not (isinstance(item, dict) and item.get("kind") == "calibration" and item.get("file") == file)
+        ]
     current_state["scores"] = {}
     if latest_score_walls:
         current_state["scores"]["score_walls"] = latest_score_walls
@@ -2023,6 +2222,10 @@ def evaluate_gates(
     terminality = _status_for_state(state)
     state["status"] = terminality["status"]
     current_state["summary"] = terminality["summary"]
+    current_state["quality_tier"] = terminality.get("quality_tier")
+    current_state["completion_state"] = terminality.get("completion_state")
+    current_state["review_debt"] = terminality.get("review_debt")
+    current_state["final_qa_summary"] = terminality.get("final_qa_summary")
     wall_anchor_summary = current_state.get("wall_anchoring") or {}
     if wall_anchor_summary.get("status") == "failed":
         current_state["summary"] = (
@@ -2551,6 +2754,7 @@ def render_markdown(state: dict[str, Any]) -> str:
     topology = current.get("topology") or {}
     findings = current.get("findings") or {}
     finding_clusters = current.get("finding_clusters") or {}
+    final_qa = current.get("final_qa_summary") or ((current.get("terminality") or {}).get("final_qa_summary") or {})
     open_defects = _open_defects(state)
     actions = next_actions_from_state(state, limit=5)
 
@@ -2569,6 +2773,12 @@ def render_markdown(state: dict[str, Any]) -> str:
         "## 1. Current State",
         "",
         f"- Summary: {current.get('summary') or ''}",
+        f"- Quality: {final_qa.get('tier') or current.get('quality_tier') or 'unknown'} / "
+        f"{final_qa.get('completion_state') or current.get('completion_state') or 'unknown'}; "
+        f"review_debt={final_qa.get('review_debt', current.get('review_debt', 0))}",
+        f"- Human review required: {final_qa.get('human_review_required', False)}",
+        f"- Uncertainties: {'; '.join(final_qa.get('uncertainties') or []) or 'none'}",
+        f"- Missing/unreadable: {'; '.join(final_qa.get('missing_or_unreadable') or []) or 'none'}",
         f"- Label counts: {', '.join(f'{k}={v}' for k, v in sorted(counts.items())) or 'none'}",
         f"- Score walls: {_score_summary(scores.get('score_walls'))}",
         f"- Score measurements: {_measurement_summary(scores.get('score_measurements'))}",

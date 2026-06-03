@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import api.main as api_main  # noqa: E402
+from api.scene_plan_state import _label_quality_summary, _status_for_state  # noqa: E402
 
 
 @pytest.fixture
@@ -490,6 +491,91 @@ def test_scene_plan_status_distinguishes_needs_repair_from_terminal(scene):
     assert data["terminal"] is False
     assert data["next_action_available"] is True
     assert data["next_action"]["mode"] == "scene-defect-repair"
+
+
+def _quality_state(
+    *,
+    task_status: str = "verified",
+    task_required: bool = True,
+    defect: dict | None = None,
+    label_quality: dict | None = None,
+    transferred: bool = False,
+) -> dict:
+    state = {
+        "schema_version": "scene-plan-state-v1",
+        "key": "house-quality",
+        "file": "scene.jpg",
+        "scene_tag": "ansicht",
+        "status": "verified",
+        "tasks": [
+            {
+                "id": "FINAL_QA",
+                "title": "Final QA",
+                "phase": "verification",
+                "category": "qa",
+                "required": task_required,
+                "status": task_status,
+                "blocked_by": [],
+                "gates": [{"id": "NO_BLOCKER_DEFECTS", "status": "passed"}],
+            }
+        ],
+        "defects": [defect] if defect else [],
+        "current_state": {"label_quality": label_quality or _label_quality_summary([])},
+    }
+    if transferred:
+        state["current_state"]["transferred_facts"] = [{
+            "kind": "calibration",
+            "file": "scene.jpg",
+            "source_scene": "section.jpg",
+            "transfer_kind": "section_scale",
+            "review_required": True,
+        }]
+    return state
+
+
+def test_scene_plan_quality_tier_gold_for_clean_verified_state():
+    status = _status_for_state(_quality_state())
+    assert status["quality_tier"] == "gold"
+    assert status["completion_state"] == "verified_high_confidence"
+    assert status["review_debt"] == 0
+    assert status["final_qa_summary"]["human_review_required"] is False
+
+
+def test_scene_plan_quality_tier_silver_for_uncertainty_or_transfer():
+    labels = [
+        {"type": "wall", "status": "readable", "attributes": {}},
+        {
+            "type": "wall",
+            "status": "uncertain",
+            "attributes": {"confidence_reason": "faint_double_rail_centerline"},
+        },
+    ]
+    status = _status_for_state(_quality_state(label_quality=_label_quality_summary(labels), transferred=True))
+    assert status["quality_tier"] == "silver"
+    assert status["completion_state"] == "verified_with_uncertainty"
+    assert status["review_debt"] > 0
+    assert "faint_double_rail_centerline" in status["final_qa_summary"]["uncertainty_reasons"]
+    assert status["final_qa_summary"]["transferred_facts"][0]["source_scene"] == "section.jpg"
+
+
+def test_scene_plan_quality_tier_bronze_for_accepted_incomplete():
+    status = _status_for_state(_quality_state(task_status="accepted_incomplete", task_required=False))
+    assert status["quality_tier"] == "bronze"
+    assert status["completion_state"] == "accepted_incomplete"
+    assert status["final_qa_summary"]["human_review_required"] is True
+
+
+def test_scene_plan_quality_tier_blocked_for_blocker_defect():
+    status = _status_for_state(_quality_state(defect={
+        "id": "DEF-001",
+        "title": "Missing wall",
+        "status": "open",
+        "severity": "blocker",
+        "category": "wall_missing_region",
+    }))
+    assert status["quality_tier"] == "blocked"
+    assert status["completion_state"] == "blocked_quality_regression"
+    assert status["final_qa_summary"]["human_review_required"] is True
 
 
 def test_scene_plan_singular_action_attempt_and_finish(scene):

@@ -883,46 +883,55 @@ def test_add_reference_dim_unlocks_w4_via_server_derivation():
     if target_key is None:
         pytest.skip("no elevation/section scene in corpus")
 
-    # G4-1 introduced a 2-ref-dim-per-orientation cap. If a prior test
-    # left ref dims behind, our adds would hit the cap. Defensive prune
-    # of any existing is_reference dims so this test always starts clean.
-    existing = _run(mcp_server.list_scene_labels(key=target_key, file=target_file))
-    for lab in existing["data"]["labels"]:
-        if lab.get("type") == "dimensioned_distance":
-            _run(mcp_server.delete_label(
-                key=target_key, file=target_file, label_id=lab["id"],
-            ))
-    # Re-snapshot post-prune
-    existing = _run(mcp_server.list_scene_labels(key=target_key, file=target_file))
-    snapshot_label_ids = [l["id"] for l in existing["data"]["labels"]]
-
-    # Tag as ansicht so the predicate counts it
-    _run(mcp_server.set_scene_tag(key=target_key, file=target_file, tag="ansicht"))
-
-    # Add a horizontal + vertical reference dim. Coords keyed to the
-    # actual image size so G4-2 (endpoint-out-of-image) doesn't bite.
-    meta = _run(mcp_server.get_scene_meta(key=target_key, file=target_file))
-    iw, ih = meta["data"].get("image_size_px") or [2000, 1000]
-    r_h = _run(mcp_server.add_reference_dim(
-        key=target_key, file=target_file,
-        orientation="horizontal",
-        start=[iw * 0.1, ih * 0.5], end=[iw * 0.9, ih * 0.5],
-        value_mm=10000,
-        allow_plan_order_override=True,
-        override_reason="smoke test writes synthetic reference dims to verify W4 derivation",
-    ))
-    assert r_h["ok"], r_h.get("error")
-    r_v = _run(mcp_server.add_reference_dim(
-        key=target_key, file=target_file,
-        orientation="vertical",
-        start=[iw * 0.5, ih * 0.1], end=[iw * 0.5, ih * 0.9],
-        value_mm=10000,
-        allow_plan_order_override=True,
-        override_reason="smoke test writes synthetic reference dims to verify W4 derivation",
-    ))
-    assert r_v["ok"], r_v.get("error")
+    label_path = api_main.DATASET_DIR / target_key / "labels" / f"{Path(target_file).stem}.json"
+    facts_path = api_main.DATASET_DIR / target_key / "house_facts.json"
+    original_label_text = label_path.read_text()
+    original_facts_text = facts_path.read_text() if facts_path.exists() else None
 
     try:
+        # G4-1 introduced a 2-ref-dim-per-orientation cap. If a dirty local
+        # corpus already has ref dims, prune the distance + paired number
+        # labels directly from this smoke-test snapshot.
+        payload = json.loads(original_label_text)
+        labels = payload.get("labels") or []
+        ref_ids = {
+            lab.get("id") for lab in labels
+            if lab.get("type") == "dimensioned_distance"
+            and (lab.get("attributes") or {}).get("is_reference")
+        }
+        payload["labels"] = [
+            lab for lab in labels
+            if lab.get("id") not in ref_ids
+            and not any((rel or {}).get("other_id") in ref_ids for rel in (lab.get("relations") or []))
+        ]
+        label_path.write_text(json.dumps(payload, indent=2))
+
+        # Tag as ansicht so the predicate counts it
+        _run(mcp_server.set_scene_tag(key=target_key, file=target_file, tag="ansicht"))
+
+        # Add a horizontal + vertical reference dim. Coords keyed to the
+        # actual image size so G4-2 (endpoint-out-of-image) doesn't bite.
+        meta = _run(mcp_server.get_scene_meta(key=target_key, file=target_file))
+        iw, ih = meta["data"].get("image_size_px") or [2000, 1000]
+        r_h = _run(mcp_server.add_reference_dim(
+            key=target_key, file=target_file,
+            orientation="horizontal",
+            start=[iw * 0.1, ih * 0.5], end=[iw * 0.9, ih * 0.5],
+            value_mm=10000,
+            allow_plan_order_override=True,
+            override_reason="smoke test writes synthetic reference dims to verify W4 derivation",
+        ))
+        assert r_h["ok"], r_h.get("error")
+        r_v = _run(mcp_server.add_reference_dim(
+            key=target_key, file=target_file,
+            orientation="vertical",
+            start=[iw * 0.5, ih * 0.1], end=[iw * 0.5, ih * 0.9],
+            value_mm=10000,
+            allow_plan_order_override=True,
+            override_reason="smoke test writes synthetic reference dims to verify W4 derivation",
+        ))
+        assert r_v["ok"], r_v.get("error")
+
         # Re-fetch facts; calibration_per_scene should now have the file
         facts = _run(mcp_server.get_house_facts(key=target_key))
         assert facts["ok"]
@@ -932,13 +941,11 @@ def test_add_reference_dim_unlocks_w4_via_server_derivation():
         # And computed_from should reflect both axes
         assert cps[target_file]["computed_from"] == "M1-both"
     finally:
-        # Clean up — delete any label whose id wasn't in the snapshot
-        after = _run(mcp_server.list_scene_labels(key=target_key, file=target_file))
-        for lab in after["data"]["labels"]:
-            if lab["id"] not in snapshot_label_ids:
-                _run(mcp_server.delete_label(
-                    key=target_key, file=target_file, label_id=lab["id"],
-                ))
+        label_path.write_text(original_label_text)
+        if original_facts_text is None:
+            facts_path.unlink(missing_ok=True)
+        else:
+            facts_path.write_text(original_facts_text)
 
 
 # ── G4: tool-side guards (followups-tracker §G4-5) ────────────────────────

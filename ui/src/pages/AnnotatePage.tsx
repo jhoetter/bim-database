@@ -5193,9 +5193,17 @@ function ScenePlanPanel({
                   <div className="mt-2 rounded border border-zinc-200 bg-white p-2 text-[0.74rem] text-zinc-700">
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
                       <span><span className="text-zinc-500">Status</span> <span className="font-semibold">{terminality.status}</span></span>
+                      <span><span className="text-zinc-500">Quality</span> <span className="font-semibold">{terminality.quality_tier ?? state.current_state?.quality_tier ?? 'unknown'}</span></span>
+                      <span><span className="text-zinc-500">State</span> <span className="font-semibold">{terminality.completion_state ?? state.current_state?.completion_state ?? 'unknown'}</span></span>
+                      <span><span className="text-zinc-500">Debt</span> <span className="font-semibold">{terminality.review_debt ?? state.current_state?.review_debt ?? 0}</span></span>
                       <span><span className="text-zinc-500">Complete</span> <span className="font-semibold">{terminality.percent_complete ?? 0}%</span></span>
                       <span><span className="text-zinc-500">Final QA</span> <span className={terminality.final_qa_allowed ? 'font-semibold text-emerald-700' : 'font-semibold text-red-700'}>{terminality.final_qa_allowed ? 'allowed' : 'blocked'}</span></span>
                     </div>
+                    {((terminality.final_qa_summary?.uncertainties ?? state.current_state?.final_qa_summary?.uncertainties ?? []).length > 0) && (
+                      <div className="mt-1 text-zinc-600">
+                        {(terminality.final_qa_summary?.uncertainties ?? state.current_state?.final_qa_summary?.uncertainties ?? []).slice(0, 2).join('; ')}
+                      </div>
+                    )}
                     {(terminality.terminality_reasons ?? []).length > 0 && (
                       <div className="mt-1 text-zinc-600">{(terminality.terminality_reasons ?? []).join('; ')}</div>
                     )}
