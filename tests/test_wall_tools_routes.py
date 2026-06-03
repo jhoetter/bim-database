@@ -10,12 +10,40 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 import api.main as api_main
+from api.routes_geometry import _mass_edge_quality_status
 from api.main import app
 
 client = TestClient(app)
 
 _SCENE_REL = "data/dataset/house-22/house-22-floorplan-eg.png"
 _has_house22 = os.path.exists(_SCENE_REL)
+
+
+def test_mass_edge_quality_status_vocab():
+    assert _mass_edge_quality_status(
+        accepted=True,
+        excluded=False,
+        edge_policy="refine_to_ink",
+        mass_mode="structural_confirmed",
+    ) == "ink_anchored"
+    assert _mass_edge_quality_status(
+        accepted=True,
+        excluded=False,
+        edge_policy="use_given",
+        mass_mode="structural_confirmed",
+    ) == "centerline_plausible"
+    assert _mass_edge_quality_status(
+        accepted=False,
+        excluded=False,
+        edge_policy="refine_to_ink",
+        mass_mode="structural_uncertain",
+    ) == "off_ink"
+    assert _mass_edge_quality_status(
+        accepted=False,
+        excluded=False,
+        edge_policy="refine_to_ink",
+        mass_mode="structural_confirmed",
+    ) == "rejected"
 
 
 def test_connect_corners_route_closed_square():
@@ -175,6 +203,8 @@ def test_upsert_rect_mass_persists_grouped_walls_idempotently():
         assert len(verification["after_edges"]) == 4
         assert len(verification["accepted_edges"]) == 4
         assert verification["rejected_edges"] == []
+        assert {e["quality_status"] for e in data["edge_reports"]} == {"centerline_plausible"}
+        assert {e["quality_status"] for e in verification["after_edges"]} == {"centerline_plausible"}
 
         second = client.post(f"/datasets/{key}/{file}/wall-masses/rect", json=body)
         assert second.status_code == 200, second.text
@@ -186,6 +216,7 @@ def test_upsert_rect_mass_persists_grouped_walls_idempotently():
         assert len(walls) == 4
         assert {w["attributes"]["mass_id"] for w in walls} == {"garage-1"}
         assert {w["attributes"]["endpoint_reason_start"] for w in walls} == {"mass_corner"}
+        assert {w["attributes"]["quality_status"] for w in walls} == {"centerline_plausible"}
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -464,6 +495,8 @@ def test_confirmed_rect_mass_with_low_confidence_does_not_persist_uncertain_wall
         data = r.json()["data"]
         assert data["persisted"] is False
         assert data["rejected_edges"]
+        assert {e["quality_status"] for e in data["edge_reports"]} == {"rejected"}
+        assert {e["quality_status"] for e in data["rejected_edges"]} == {"rejected"}
         doc = client.get(f"/labels/dataset/{key}/{file}").json()
         assert doc["labels"] == []
     finally:

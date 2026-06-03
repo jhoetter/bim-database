@@ -827,6 +827,22 @@ def _mass_edges_from_vertices(body: dict[str, Any]) -> list[list[list[float]]]:
     return [[pts[i], pts[(i + 1) % len(pts)]] for i in range(len(pts))]
 
 
+def _mass_edge_quality_status(
+    *,
+    accepted: bool,
+    excluded: bool,
+    edge_policy: str,
+    mass_mode: str,
+) -> str:
+    if excluded or mass_mode == "projection_non_wall":
+        return "rejected"
+    if accepted:
+        return "centerline_plausible" if edge_policy == "use_given" else "ink_anchored"
+    if mass_mode == "structural_confirmed":
+        return "rejected"
+    return "off_ink"
+
+
 def _upsert_mass_walls(
     *,
     key: str,
@@ -942,13 +958,20 @@ def _upsert_mass_walls(
                 confidence = float(refined.get("confidence") or 0.0)
                 thickness_px = refined.get("thickness_px")
             fitted_edges.append((refined_start, refined_end))
+            accepted = (not excluded) and (edge_policy == "use_given" or confidence >= min_confidence)
             edge_reports.append({
                 "edge_index": idx,
                 "source": [[start[0], start[1]], [end[0], end[1]]],
                 "fitted": [[refined_start[0], refined_start[1]], [refined_end[0], refined_end[1]]],
                 "confidence": round(confidence, 3),
                 "thickness_px": thickness_px,
-                "accepted": (not excluded) and (edge_policy == "use_given" or confidence >= min_confidence),
+                "accepted": accepted,
+                "quality_status": _mass_edge_quality_status(
+                    accepted=accepted,
+                    excluded=excluded,
+                    edge_policy=edge_policy,
+                    mass_mode=mass_mode,
+                ),
                 "excluded": excluded,
             })
     connected = connect_corners(fitted_edges, closed=True)
@@ -989,6 +1012,7 @@ def _upsert_mass_walls(
             "mass_edge_count": len(source_edges),
             "mass_role": "exterior",
             "edge_confidence": edge_reports[idx]["confidence"],
+            "quality_status": edge_reports[idx]["quality_status"],
             "endpoint_reason_start": "mass_corner",
             "endpoint_reason_end": "mass_corner",
         }
@@ -1013,6 +1037,7 @@ def _upsert_mass_walls(
             "label_id": label_id,
             "edge": [[wall[0][0], wall[0][1]], [wall[1][0], wall[1][1]]],
             "accepted": accepted,
+            "quality_status": edge_reports[idx]["quality_status"],
         })
     score_summary: dict[str, Any] = {}
     topology_summary: dict[str, Any] = {}
