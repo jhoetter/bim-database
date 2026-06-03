@@ -162,10 +162,19 @@ def test_upsert_rect_mass_persists_grouped_walls_idempotently():
         assert data["mass_id"] == "garage-1"
         assert len(data["wall_label_ids"]) == 4
         assert not data["rejected_edges"]
+        verification = data["transaction_verification"]
+        assert verification["verification_contract"] == "wall-mass-transaction-verification/v1"
+        assert verification["view_mode"] == "topology_qa_view"
+        assert len(verification["source_edges"]) == 4
+        assert len(verification["after_edges"]) == 4
+        assert len(verification["accepted_edges"]) == 4
+        assert verification["rejected_edges"] == []
 
         second = client.post(f"/datasets/{key}/{file}/wall-masses/rect", json=body)
         assert second.status_code == 200, second.text
-        assert second.json()["data"]["wall_label_ids"] == data["wall_label_ids"]
+        second_data = second.json()["data"]
+        assert second_data["wall_label_ids"] == data["wall_label_ids"]
+        assert len(second_data["transaction_verification"]["before_edges"]) == 4
         doc = client.get(f"/labels/dataset/{key}/{file}").json()
         walls = [lab for lab in doc["labels"] if lab["type"] == "wall"]
         assert len(walls) == 4
@@ -243,6 +252,69 @@ def test_manual_wall_write_warns_on_missing_endpoint_reasons_and_disconnected_co
         assert "warnings" in data
         assert any("endpoint_reasons" in warning for warning in data["warnings"])
         assert data["disconnected_component_warning"]["after_components"] > data["disconnected_component_warning"]["before_components"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_detail_wall_mode_requires_evidence_and_endpoint_reasons():
+    key = "house-detail-wall-mode"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        img = Image.new("RGB", (320, 180), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.line([40, 90, 280, 90], fill=(0, 0, 0), width=18)
+        img.save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        missing_evidence = client.post(
+            f"/datasets/{key}/{file}/wall-labels/anchored",
+            json={
+                "detail_mode": "detail_refinement",
+                "candidate": {
+                    "start": [45, 92],
+                    "end": [275, 92],
+                    "endpoint_reasons": {"start": "t_junction", "end": "real_endpoint"},
+                },
+            },
+        )
+        assert missing_evidence.status_code == 400
+        assert "detail_mode requires evidence_id" in missing_evidence.text
+
+        missing_reasons = client.post(
+            f"/datasets/{key}/{file}/wall-labels/anchored",
+            json={
+                "detail_mode": "detail_refinement",
+                "evidence_id": "EV-001",
+                "candidate": {"start": [45, 92], "end": [275, 92]},
+            },
+        )
+        assert missing_reasons.status_code == 400
+        assert "endpoint_reasons.start/end" in missing_reasons.text
+
+        ok = client.post(
+            f"/datasets/{key}/{file}/wall-labels/anchored",
+            json={
+                "detail_mode": "detail_refinement",
+                "evidence_id": "EV-001",
+                "candidate": {
+                    "start": [45, 92],
+                    "end": [275, 92],
+                    "endpoint_reasons": {"start": "t_junction", "end": "real_endpoint"},
+                },
+                "anchor": {"search_px": 24, "min_confidence": 0.5, "min_overlap": 0.5},
+            },
+        )
+        assert ok.status_code == 200, ok.text
+        data = ok.json()["data"]
+        assert data["persisted"] is True
+        assert data["detail_mode"] == "detail_refinement"
+        doc = client.get(f"/labels/dataset/{key}/{file}").json()
+        assert doc["labels"][0]["attributes"]["detail_mode"] == "detail_refinement"
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

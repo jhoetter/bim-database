@@ -28,8 +28,9 @@ Named view modes:
 
 Preferred transaction tools:
 
-- Walls: `upsert_rect_mass`, `upsert_stepped_mass`, then `upsert_wall_anchored`
-  for local details.
+- Walls: `upsert_rect_mass`, `upsert_stepped_mass`, then
+  `upsert_wall_anchored(detail_mode=...)` for local details. Mass transactions
+  return `transaction_verification` edge groups for overlay review.
 - Openings: `opening_candidates`, `get_scene_view_with_opening_candidate`,
   `review_opening_candidate`, `review_opening_candidates_batch`,
   `upsert_opening_on_wall`.
@@ -42,3 +43,4 @@ Context hygiene:
 - Use compact summaries for routing: `get_house_context_summary`,
   `get_scene_context_summary`, and `get_scene_workbench_state`.
 - Request full plan state only for audit/debug work.
+- Repair candidates may include `semantic_context` from classified ink regions.

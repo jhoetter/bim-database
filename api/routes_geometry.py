@@ -504,6 +504,21 @@ def upsert_wall_anchored_route(
     snap_corners = bool(anchor.get("snap_corners", False))
     status_if_unanchored = str(body.get("status_if_unanchored") or "reject")
     evidence_id = body.get("evidence_id")
+    detail_mode = body.get("detail_mode")
+    if detail_mode is not None:
+        detail_mode = str(detail_mode)
+        if detail_mode not in {"detail_refinement", "mass_exception", "repair_candidate"}:
+            raise HTTPException(status_code=400, detail="detail_mode must be detail_refinement, mass_exception, or repair_candidate")
+        if not evidence_id:
+            raise HTTPException(status_code=400, detail="detail_mode requires evidence_id")
+        endpoint_reasons = candidate.get("endpoint_reasons")
+        attrs = candidate.get("attributes") or {}
+        has_start_reason = isinstance(endpoint_reasons, dict) and bool(endpoint_reasons.get("start"))
+        has_end_reason = isinstance(endpoint_reasons, dict) and bool(endpoint_reasons.get("end"))
+        has_start_reason = has_start_reason or bool(attrs.get("endpoint_reason_start"))
+        has_end_reason = has_end_reason or bool(attrs.get("endpoint_reason_end"))
+        if not (attrs.get("mass_id") or (has_start_reason and has_end_reason)):
+            raise HTTPException(status_code=400, detail="detail_mode requires endpoint_reasons.start/end or existing endpoint reason attributes")
     try:
         from .scene_plan_state import preflight_label_write
         plan_preflight = preflight_label_write(
@@ -570,6 +585,7 @@ def upsert_wall_anchored_route(
         "delta_px": [round(dx, 2), round(dy, 2)],
         "suggested_next_crop": overlap["region"],
         "score": overlap["score"],
+        "detail_mode": detail_mode,
     }
     if not persisted:
         data["reason"] = (
@@ -582,11 +598,11 @@ def upsert_wall_anchored_route(
     attrs = {
         **(candidate.get("attributes") or {}),
         "quality_status": "ink_anchored" if passes else "uncertain",
-        "anchoring": {
-            "method": "refine_wall",
-            "confidence": round(confidence, 3),
-            "ink_overlap": ink_overlap,
-            "original_start": [start[0], start[1]],
+            "anchoring": {
+                "method": "refine_wall",
+                "confidence": round(confidence, 3),
+                "ink_overlap": ink_overlap,
+                "original_start": [start[0], start[1]],
             "original_end": [end[0], end[1]],
             "delta_px": [round(dx, 2), round(dy, 2)],
             "evidence_id": evidence_id,
@@ -595,6 +611,8 @@ def upsert_wall_anchored_route(
     thickness_mm = candidate.get("thickness_mm", (candidate.get("attributes") or {}).get("thickness_mm"))
     if thickness_mm is not None:
         attrs["thickness_mm"] = thickness_mm
+    if detail_mode is not None:
+        attrs["detail_mode"] = detail_mode
     label = {
         "id": label_id,
         "type": "wall",
@@ -759,8 +777,18 @@ def _upsert_mass_walls(
         and (lab.get("attributes") or {}).get("mass_id") == mass_id
         and isinstance((lab.get("attributes") or {}).get("mass_edge_index"), int)
     }
+    before_edges = []
+    for idx, lab in sorted(existing_by_edge.items()):
+        seg = _wall_segment(lab)
+        if seg is not None:
+            before_edges.append({
+                "edge_index": idx,
+                "label_id": lab.get("id"),
+                "edge": [[seg[0][0], seg[0][1]], [seg[1][0], seg[1][1]]],
+            })
     changed_ids: list[str] = []
     wall_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    after_edges = []
     for idx, wall in enumerate(connected):
         if idx in excluded_edges:
             continue
@@ -795,6 +823,12 @@ def _upsert_mass_walls(
             labels[pos] = label
         changed_ids.append(label_id)
         wall_segments.append(wall)
+        after_edges.append({
+            "edge_index": idx,
+            "label_id": label_id,
+            "edge": [[wall[0][0], wall[0][1]], [wall[1][0], wall[1][1]]],
+            "accepted": accepted,
+        })
     put_labels("dataset", key, file, doc)
 
     score_summary: dict[str, Any] = {}
@@ -820,6 +854,25 @@ def _upsert_mass_walls(
     warnings = []
     if rejected:
         warnings.append(f"{len(rejected)} edge(s) persisted uncertain due to low refine confidence")
+    transaction_verification = {
+        "verification_contract": "wall-mass-transaction-verification/v1",
+        "view_mode": "topology_qa_view",
+        "source_edges": [
+            {"edge_index": idx, "edge": [[float(v) for v in edge[0]], [float(v) for v in edge[1]]]}
+            for idx, edge in enumerate(source_edges)
+        ],
+        "before_edges": before_edges,
+        "after_edges": after_edges,
+        "accepted_edges": [e for e in edge_reports if e["accepted"]],
+        "rejected_edges": rejected,
+        "changed_label_ids": changed_ids,
+        "overlay_guidance": [
+            "source_edges=thin draft silhouette",
+            "accepted_edges=green fitted/connected walls",
+            "rejected_edges=amber uncertain edges requiring detail refinement",
+            "before_edges=gray existing mass walls when replacing a mass",
+        ],
+    }
     return {
         "mass_contract": "wall-mass-transaction/v1",
         "tool": tool,
@@ -831,6 +884,7 @@ def _upsert_mass_walls(
         "edge_reports": edge_reports,
         "rejected_edges": rejected,
         "warnings": warnings,
+        "transaction_verification": transaction_verification,
         "score_summary": score_summary,
         "topology_summary": topology_summary,
         "plan_preflight": plan_preflight,

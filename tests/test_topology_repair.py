@@ -19,6 +19,7 @@ from api.topology_repair import (  # noqa: E402
     apply_candidate_to_labels,
     cluster_findings,
     finding_fingerprint,
+    repair_candidate_report,
     simulate_candidate,
 )
 
@@ -133,3 +134,37 @@ def test_simulate_returns_before_after_delta():
     assert set(sim) == {"before", "after", "delta"}
     # A no-op candidate leaves every topology count unchanged.
     assert all(v == 0 for v in sim["delta"].values())
+
+
+def test_repair_report_includes_nearby_semantic_context():
+    labels_doc = {"scene_file": "scene.png", "labels": []}
+    plan_state = {
+        "evidence": [{
+            "id": "EV-001",
+            "kind": "semantic_ink_region",
+            "summary": "Site boundary, not a structural wall.",
+            "result": {
+                "semantic_class": "site_boundary",
+                "region": [5, 15, 60, 50],
+                "bbox_format": "xywh",
+                "confidence": "high",
+                "applies_to_wall_score": True,
+            },
+        }],
+        "current_state": {
+            "scores": {
+                "score_walls": {
+                    "missing_regions": [[10, 20, 30, 40, 1200]],
+                    "off_ink_segments": [],
+                },
+            },
+        },
+    }
+
+    report = repair_candidate_report(labels_doc, topology_result={}, plan_state=plan_state)
+
+    assert report["semantic_context_count"] == 1
+    cluster = report["clusters"][0]
+    assert cluster["semantic_context"][0]["evidence_id"] == "EV-001"
+    assert cluster["semantic_context"][0]["semantic_class"] == "site_boundary"
+    assert cluster["candidates"][0]["semantic_context"][0]["applies_to_wall_score"] is True

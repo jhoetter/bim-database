@@ -386,6 +386,7 @@ async def upsert_wall_anchored(
     anchor: dict | None = None,
     status_if_unanchored: str = "reject",
     evidence_id: str | None = None,
+    detail_mode: str | None = None,
     idempotency_key: str | None = None,
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
@@ -403,6 +404,9 @@ async def upsert_wall_anchored(
               "min_overlap":0.6, "snap_corners":true}
       status_if_unanchored: "reject" (default) or "uncertain". Uncertain
               persistence requires evidence_id so the dataset stays honest.
+      detail_mode: optional explicit detail-pencil mode:
+              detail_refinement, mass_exception, or repair_candidate.
+              When set, evidence_id and endpoint reasons are required.
     """
     started = time.time()
     if not isinstance(candidate, dict):
@@ -424,6 +428,7 @@ async def upsert_wall_anchored(
         "anchor": anchor or {},
         "status_if_unanchored": status_if_unanchored,
         "evidence_id": evidence_id,
+        "detail_mode": detail_mode,
         "allow_plan_order_override": allow_plan_order_override,
         "override_reason": override_reason,
     }
@@ -585,4 +590,3 @@ async def set_label_status(
     if result.get("ok"):
         result["data"]["plan_preflight"] = preflight
     return result
-

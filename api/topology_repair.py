@@ -74,6 +74,19 @@ def _bbox_union(regions: list[Any]) -> list[float] | None:
     ]
 
 
+def _region_to_xyxy(region: Any, bbox_format: str | None = None) -> list[float] | None:
+    if not (isinstance(region, (list, tuple)) and len(region) >= 4):
+        return None
+    if not all(isinstance(v, (int, float)) for v in region[:4]):
+        return None
+    x0, y0, a, b = [float(v) for v in region[:4]]
+    if bbox_format == "xywh":
+        return [x0, y0, x0 + max(0.0, a), y0 + max(0.0, b)]
+    if a < x0 or b < y0:
+        return [x0, y0, x0 + max(0.0, a), y0 + max(0.0, b)]
+    return [x0, y0, a, b]
+
+
 def _regions_overlap_or_near(a: Any, b: Any, pad: float = 24.0) -> bool:
     au = _bbox_union([a])
     bu = _bbox_union([b])
@@ -85,6 +98,42 @@ def _regions_overlap_or_near(a: Any, b: Any, pad: float = 24.0) -> bool:
         or au[3] + pad < bu[1]
         or bu[3] + pad < au[1]
     )
+
+
+def _semantic_context_from_plan_state(plan_state: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(plan_state, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for evidence in plan_state.get("evidence") or []:
+        if not isinstance(evidence, dict) or evidence.get("kind") != "semantic_ink_region":
+            continue
+        result = evidence.get("result") or {}
+        bbox_format = str(result.get("bbox_format") or "xywh")
+        bbox = _region_to_xyxy(result.get("region"), bbox_format)
+        if bbox is None:
+            continue
+        out.append({
+            "evidence_id": evidence.get("id"),
+            "semantic_class": result.get("semantic_class") or "unknown",
+            "confidence": result.get("confidence") or "medium",
+            "region": result.get("region"),
+            "bbox_format": bbox_format,
+            "bbox_xyxy": bbox,
+            "applies_to_wall_score": bool(result.get("applies_to_wall_score")),
+            "summary": evidence.get("summary") or "",
+        })
+    return out
+
+
+def _semantic_context_for_region(region: Any, semantic_regions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    bbox = _region_to_xyxy(region, None)
+    if bbox is None:
+        return []
+    matches = []
+    for semantic in semantic_regions:
+        if _regions_overlap_or_near(bbox, semantic.get("bbox_xyxy"), pad=32.0):
+            matches.append(semantic)
+    return matches[:3]
 
 
 def _point_line_projection(pt: Point, seg: Segment) -> tuple[Point, float, float]:
@@ -752,6 +801,7 @@ def repair_candidate_report(
     )
     clusters = cluster_findings(findings, labels_doc)
     candidates = generate_repair_candidates(labels_doc, topology_result=topology_result, score_walls_result=score_walls_result)
+    semantic_regions = _semantic_context_from_plan_state(plan_state)
     candidates_by_cluster: dict[str, list[dict[str, Any]]] = {}
     for cand in candidates:
         cand = dict(cand)
@@ -764,6 +814,9 @@ def repair_candidate_report(
     decisions = (((plan_state or {}).get("current_state") or {}).get("repair_candidate_decisions") or {})
     for cluster in clusters[:limit]:
         public = {k: v for k, v in cluster.items() if k != "findings"}
+        semantic_context = _semantic_context_for_region(public.get("region"), semantic_regions)
+        if semantic_context:
+            public["semantic_context"] = semantic_context
         decision = _decision_for_cluster(public, decisions)
         if decision:
             public["decision"] = {
@@ -772,7 +825,13 @@ def repair_candidate_report(
                 "updated_at": decision.get("updated_at"),
                 "evidence_ids": decision.get("evidence_ids") or [],
             }
-        public["candidates"] = candidates_by_cluster.get(str(cluster.get("cluster_id")), [])[:3]
+        cluster_candidates = []
+        for cand in candidates_by_cluster.get(str(cluster.get("cluster_id")), [])[:3]:
+            if semantic_context:
+                cand = dict(cand)
+                cand["semantic_context"] = semantic_context
+            cluster_candidates.append(cand)
+        public["candidates"] = cluster_candidates
         compact_clusters.append(public)
     reviewed_clusters = len([c for c in compact_clusters if c.get("decision")])
     high_conf_unclassified = len([
@@ -786,6 +845,7 @@ def repair_candidate_report(
         "reviewed_cluster_count": reviewed_clusters,
         "high_confidence_unclassified_count": high_conf_unclassified,
         "candidate_count": len(candidates),
+        "semantic_context_count": len(semantic_regions),
         "clusters": compact_clusters,
     }
 

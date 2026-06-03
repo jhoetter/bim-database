@@ -193,6 +193,10 @@
                 "type": "string",
                 "enum": ["ink_anchored", "off_ink", "unanchored", "uncertain"]
               },
+              "detail_mode": {
+                "type": "string",
+                "enum": ["detail_refinement", "mass_exception", "repair_candidate"]
+              },
               "anchoring": {
                 "type": "object",
                 "additionalProperties": false,
