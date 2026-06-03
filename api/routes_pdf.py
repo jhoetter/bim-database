@@ -55,6 +55,69 @@ MAX_RENDER_DPI = 600
 MAX_EXTRACT_DPI = 1200
 
 
+def _scene_has_labels_or_plan(ds_dir: Path, file_name: str) -> dict[str, Any]:
+    labels_path = ds_dir / "labels" / f"{file_name}.json"
+    if not labels_path.exists():
+        labels_path = ds_dir / "labels" / f"{Path(file_name).stem}.json"
+    label_count = 0
+    if labels_path.exists():
+        try:
+            labels_doc = json.loads(labels_path.read_text())
+            label_count = len(labels_doc.get("labels") or [])
+        except Exception:  # noqa: BLE001
+            label_count = 0
+    plan_path = ds_dir / "plans" / f"{Path(file_name).stem}.plan.json"
+    return {
+        "label_count": label_count,
+        "plan_exists": plan_path.exists(),
+        "labels_path": str(labels_path) if labels_path.exists() else None,
+        "plan_path": str(plan_path) if plan_path.exists() else None,
+    }
+
+
+def _crop_regression_warnings(
+    prior_entry: dict[str, Any] | None,
+    new_bbox: list[float],
+    *,
+    crop_intent: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(prior_entry, dict):
+        return []
+    prior_bbox = (((prior_entry.get("crop_from") or {}).get("bbox_pdf_units")) or [])
+    if not (isinstance(prior_bbox, list) and len(prior_bbox) == 4):
+        return []
+    try:
+        px0, py0, px1, py1 = [float(v) for v in prior_bbox]
+        nx0, ny0, nx1, ny1 = [float(v) for v in new_bbox]
+    except Exception:  # noqa: BLE001
+        return []
+    prior_area = max(0.0, px1 - px0) * max(0.0, py1 - py0)
+    new_area = max(0.0, nx1 - nx0) * max(0.0, ny1 - ny0)
+    if prior_area <= 0:
+        return []
+    warnings: list[dict[str, Any]] = []
+    area_ratio = new_area / prior_area
+    if area_ratio < 0.75 and crop_intent == "scene_full_context":
+        warnings.append({
+            "kind": "crop_regression",
+            "severity": "warning",
+            "message": "new scene_full_context crop is substantially tighter than prior crop",
+            "prior_bbox_pdf_units": prior_bbox,
+            "new_bbox_pdf_units": new_bbox,
+            "area_ratio": round(area_ratio, 3),
+        })
+    prior_contains_new = nx0 >= px0 and ny0 >= py0 and nx1 <= px1 and ny1 <= py1
+    if prior_contains_new and area_ratio < 0.9 and crop_intent == "scene_full_context":
+        warnings.append({
+            "kind": "possible_context_loss",
+            "severity": "warning",
+            "message": "new crop is nested inside prior crop; check dimension chains and context marks before labeling",
+            "prior_bbox_pdf_units": prior_bbox,
+            "new_bbox_pdf_units": new_bbox,
+        })
+    return warnings
+
+
 @router.get("/pdfs/incoming", tags=["pdfs"])
 def list_incoming_pdfs():
     """List every per-house PDF intake bundle + its manifest. Each entry
@@ -966,6 +1029,12 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
             if not (x1 > x0 and y1 > y0):
                 raise HTTPException(status_code=400, detail="bbox must have positive area")
             kind = (raw.get("kind") or "detail").strip().lower()
+            crop_intent = str(raw.get("crop_intent") or ("scene_full_context" if kind == "floorplan" else "drawing_only")).strip()
+            if crop_intent not in {"scene_full_context", "drawing_only", "detail_crop", "authoritative_manual"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="crop_intent must be scene_full_context, drawing_only, detail_crop, or authoritative_manual",
+                )
             view = raw.get("view")
             floor = raw.get("floor")
             dpi = int(raw.get("dpi", 600))
@@ -1011,6 +1080,31 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
             _ext = "png" if fmt == "png" else "jpg"
             file_name = f"{slug}.{_ext}"
             out_path = ds_dir / file_name
+            existing_idx = next((i for i, d in enumerate(drawings) if d.get("file") == file_name), None)
+            existing_entry = drawings[existing_idx] if existing_idx is not None else None
+            crop_warnings = _crop_regression_warnings(
+                existing_entry,
+                [x0, y0, x1, y1],
+                crop_intent=crop_intent,
+            )
+            if existing_idx is not None:
+                overwrite_state = _scene_has_labels_or_plan(ds_dir, file_name)
+                if (
+                    (overwrite_state["label_count"] > 0 or overwrite_state["plan_exists"])
+                    and not bool(raw.get("confirm_reextract_existing_scene"))
+                    and not bool(raw.get("allow_destructive_reextract"))
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "message": "re-extracting this scene would overwrite a crop that already has labels or a scene plan",
+                            "scene_file": file_name,
+                            "label_count": overwrite_state["label_count"],
+                            "plan_exists": overwrite_state["plan_exists"],
+                            "required_confirmation": "confirm_reextract_existing_scene=true",
+                            "crop_warnings": crop_warnings,
+                        },
+                    )
 
             page = doc.load_page(page_n - 1)
 
@@ -1097,6 +1191,8 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
                 "floor": floor,
                 "title": raw.get("title"),
                 "imported_at": _now_iso(),
+                "crop_intent": crop_intent,
+                **({"crop_warnings": crop_warnings} if crop_warnings else {}),
                 "crop_from": {
                     "pdf_file": pdf.name,
                     "page": page_n,
@@ -1106,7 +1202,6 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
                 },
             }
             # Replace existing entry with same file name (re-extract) else append.
-            existing_idx = next((i for i, d in enumerate(drawings) if d.get("file") == file_name), None)
             if existing_idx is not None:
                 drawings[existing_idx] = entry
             else:

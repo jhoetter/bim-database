@@ -257,6 +257,7 @@ async def classify_ink_region(
     file: str,
     region: list[float],
     semantic_class: str,
+    bbox_format: str | None = None,
     confidence: str = "medium",
     summary: str | None = None,
     note: str | None = None,
@@ -274,10 +275,17 @@ async def classify_ink_region(
     DON'T USE when:
       - The ink might be structural wall. Use semantic_class='possible_wall' or
         leave it unresolved instead of excluding it.
+
+    IMPORTANT:
+      - Coordinates are typed. Pass bbox_format='xyxy' for grid corner bboxes
+        [x0,y0,x1,y1], or bbox_format='xywh' for [x,y,width,height].
+      - If bbox_format is omitted, the API infers only when one interpretation
+        is clearly valid in scene bounds; ambiguous regions are rejected.
     """
     started = time.time()
     payload = {
         "region": region,
+        "bbox_format": bbox_format,
         "semantic_class": semantic_class,
         "confidence": confidence,
         "summary": summary,
@@ -1107,11 +1115,13 @@ async def upsert_rect_mass(
     rough_corners: list[list[float]] | None = None,
     mass_id: str | None = None,
     kind: str = "main_house",
+    mass_mode: str = "structural_confirmed",
     edge_policy: str = "refine_to_ink",
     thickness_mm: float | None = None,
     evidence_summary: str | None = None,
     search_px: int = 32,
     min_confidence: float = 0.55,
+    allow_semantic_overlap_override: bool = False,
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
 ) -> dict:
@@ -1127,6 +1137,15 @@ async def upsert_rect_mass(
       - The outline is L/T/U-shaped; use `upsert_stepped_mass`.
       - You are repairing one ambiguous local endpoint; use detail wall tools
         with endpoint reasons.
+
+    Confidence contract:
+      - Use mass_mode='structural_confirmed' only when all edges are visible
+        structural wall evidence. Confirmed masses require min_confidence>=0.75
+        and low-confidence edges make the transaction return persisted=false.
+      - Use mass_mode='structural_uncertain' or 'partial_mass_hypothesis' for
+        faint/ambiguous geometry.
+      - Use mass_mode='projection_non_wall' for roof/terrace/garage projections
+        that should not create wall labels.
     """
     started = time.time()
     payload = {
@@ -1134,11 +1153,13 @@ async def upsert_rect_mass(
         "rough_corners": rough_corners,
         "mass_id": mass_id,
         "kind": kind,
+        "mass_mode": mass_mode,
         "edge_policy": edge_policy,
         "thickness_mm": thickness_mm,
         "evidence_summary": evidence_summary,
         "search_px": search_px,
         "min_confidence": min_confidence,
+        "allow_semantic_overlap_override": allow_semantic_overlap_override,
         "allow_plan_order_override": allow_plan_order_override,
         "override_reason": override_reason,
     }
@@ -1152,12 +1173,14 @@ async def upsert_stepped_mass(
     ordered_vertices: list[list[float]],
     mass_id: str | None = None,
     kind: str = "main_house",
+    mass_mode: str = "structural_confirmed",
     edge_policy: str = "refine_to_ink",
     thickness_mm: float | None = None,
     excluded_edges: list[int] | None = None,
     evidence_summary: str | None = None,
     search_px: int = 32,
     min_confidence: float = 0.55,
+    allow_semantic_overlap_override: bool = False,
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
 ) -> dict:
@@ -1172,18 +1195,24 @@ async def upsert_stepped_mass(
       - The mass is a simple rectangle; `upsert_rect_mass` is clearer.
       - The vertices are unordered or still exploratory; analyze silhouette
         first and pass a clockwise/counterclockwise sequence.
+
+    Confidence contract is the same as `upsert_rect_mass`: confirmed structural
+    masses require strong visible wall evidence; use uncertain/hypothesis modes
+    for faint geometry and projection_non_wall for roof/hatching projections.
     """
     started = time.time()
     payload = {
         "ordered_vertices": ordered_vertices,
         "mass_id": mass_id,
         "kind": kind,
+        "mass_mode": mass_mode,
         "edge_policy": edge_policy,
         "thickness_mm": thickness_mm,
         "excluded_edges": excluded_edges or [],
         "evidence_summary": evidence_summary,
         "search_px": search_px,
         "min_confidence": min_confidence,
+        "allow_semantic_overlap_override": allow_semantic_overlap_override,
         "allow_plan_order_override": allow_plan_order_override,
         "override_reason": override_reason,
     }

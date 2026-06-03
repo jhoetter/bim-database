@@ -21,6 +21,37 @@ from mcp_server import (
 )
 
 
+def _bbox_from_label(label: dict) -> list[float] | None:
+    geom = label.get("geometry") or {}
+    pts = []
+    if label.get("type") == "wall":
+        for key in ("start", "end"):
+            p = geom.get(key)
+            if isinstance(p, list) and len(p) >= 2:
+                pts.append(p)
+    elif label.get("type") == "floorplan_opening":
+        pts.extend(p for p in (geom.get("quad") or []) if isinstance(p, list) and len(p) >= 2)
+    elif label.get("type") in {"dimensioned_distance", "component_line"}:
+        if isinstance(geom.get("points"), list):
+            pts.extend(p for p in geom.get("points") if isinstance(p, list) and len(p) >= 2)
+        for key in ("start", "end"):
+            p = geom.get(key)
+            if isinstance(p, list) and len(p) >= 2:
+                pts.append(p)
+    elif label.get("type") in {"height_mark", "dimension_number"}:
+        p = geom.get("anchor")
+        if isinstance(p, list) and len(p) >= 2:
+            pts.append(p)
+        bbox = geom.get("bbox")
+        if isinstance(bbox, list):
+            pts.extend(p for p in bbox if isinstance(p, list) and len(p) >= 2)
+    if not pts:
+        return None
+    xs = [float(p[0]) for p in pts]
+    ys = [float(p[1]) for p in pts]
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
 @mcp.tool()
 async def list_anomalies(key: str) -> dict:
     """List validator-flagged issues for a house — everything blocking
@@ -93,9 +124,25 @@ async def list_anomalies(key: str) -> dict:
             f = d.get("file")
             if not f:
                 continue
+            for warning in d.get("crop_warnings") or []:
+                anomalies.append({
+                    "phase": "W0",
+                    "kind": warning.get("kind") or "crop_warning",
+                    "message": f"{f}: {warning.get('message') or 'crop warning'}",
+                    "severity": warning.get("severity") or "warning",
+                    "details": {"file": f, **warning},
+                })
             lbl_status, lbl = await mcp_server._api_get(f"/labels/dataset/{key}/{f}")
             if lbl_status != 200 or not isinstance(lbl, dict):
                 continue
+            image_size = None
+            try:
+                from PIL import Image as PILImage
+                img_path = Path(mcp_server.__file__).parent / "data" / "dataset" / key / f
+                with PILImage.open(img_path) as img:
+                    image_size = (int(img.width), int(img.height))
+            except Exception:  # noqa: BLE001
+                image_size = None
             uncertain = sum(
                 1 for lab in (lbl.get("labels") or [])
                 if lab.get("status") == "uncertain"
@@ -107,6 +154,52 @@ async def list_anomalies(key: str) -> dict:
                     "severity": "info",
                     "details": {"file": f, "count": uncertain},
                 })
+            for lab in lbl.get("labels") or []:
+                attrs = lab.get("attributes") or {}
+                if attrs.get("mass_id") and lab.get("status") == "uncertain":
+                    anomalies.append({
+                        "phase": "labels",
+                        "kind": "uncertain_mass_edge",
+                        "message": f"{f}: mass edge {lab.get('id')} is uncertain"
+                                   + (f" (confidence={attrs.get('edge_confidence')})" if attrs.get("edge_confidence") is not None else ""),
+                        "severity": "warning",
+                        "details": {"file": f, "label_id": lab.get("id"), "mass_id": attrs.get("mass_id"), "edge_confidence": attrs.get("edge_confidence")},
+                    })
+                if image_size is not None:
+                    bbox = _bbox_from_label(lab)
+                    if bbox and (bbox[0] < 0 or bbox[1] < 0 or bbox[2] > image_size[0] or bbox[3] > image_size[1]):
+                        anomalies.append({
+                            "phase": "labels",
+                            "kind": "label_out_of_bounds",
+                            "message": f"{f}: label {lab.get('id')} extends outside scene bounds",
+                            "severity": "blocker",
+                            "details": {"file": f, "label_id": lab.get("id"), "bbox_xyxy": bbox, "image_size_px": list(image_size)},
+                        })
+            plan_status, plan_body = await mcp_server._api_get(f"/datasets/{key}/{f}/plan-state")
+            if plan_status == 200 and isinstance(plan_body, dict):
+                plan_state = ((plan_body.get("data") or {}).get("state") or {})
+                for ev in plan_state.get("evidence") or []:
+                    if ev.get("kind") != "semantic_ink_region":
+                        continue
+                    result = ev.get("result") or {}
+                    bbox = result.get("bbox_xyxy")
+                    if not (isinstance(bbox, list) and len(bbox) >= 4):
+                        anomalies.append({
+                            "phase": "plans",
+                            "kind": "semantic_region_missing_normalized_bbox",
+                            "message": f"{f}: semantic evidence {ev.get('id')} has no normalized bbox_xyxy",
+                            "severity": "warning",
+                            "details": {"file": f, "evidence_id": ev.get("id"), "region": result.get("region"), "bbox_format": result.get("bbox_format")},
+                        })
+                        continue
+                    if image_size is not None and (bbox[0] < 0 or bbox[1] < 0 or bbox[2] > image_size[0] or bbox[3] > image_size[1]):
+                        anomalies.append({
+                            "phase": "plans",
+                            "kind": "semantic_region_out_of_bounds",
+                            "message": f"{f}: semantic evidence {ev.get('id')} extends outside scene bounds",
+                            "severity": "warning",
+                            "details": {"file": f, "evidence_id": ev.get("id"), "bbox_xyxy": bbox, "image_size_px": list(image_size)},
+                        })
             # H3: missing orientation on ansicht/schnitt is now a warning,
             # not a W0 blocker. Surface for reviewer triage.
             tag = lbl.get("scene_tag")
@@ -285,5 +378,3 @@ async def write_handoff_summary(
         "bytes": json_path.stat().st_size,
         "summary": payload,
     }, started_at=started)
-
-

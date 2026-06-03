@@ -107,6 +107,12 @@ async def extract_scenes(
                                       //   auto-expansion (issue #25)
           "bbox_is_authoritative": false // optional (V1.1); YOUR chosen bbox
                                       //   is final — never auto-expand it
+          "crop_intent": "scene_full_context", // scene_full_context|
+                                      // drawing_only|detail_crop|
+                                      // authoritative_manual
+          "confirm_reextract_existing_scene": false // required when
+                                      // overwriting a scene that already has
+                                      // labels or a scene plan
         }
       idempotency_key: optional driver-supplied key for crash-replay safety.
 
@@ -126,6 +132,13 @@ async def extract_scenes(
     extent flow — building + all dim chains + Nordpfeil + datum), pass
     `bbox_is_authoritative: true` so the auto-expansion never overrides your
     chosen crop. The recorded crop_from bbox then equals your input exactly.
+
+    Crop safety: floorplans default to `crop_intent='scene_full_context'`, which
+    should include the drawing plus visible dimension chains, north/context
+    marks, datum/scale/title when present. Use `detail_crop` only for temporary
+    close-ups, not for full scene extraction. Re-extracting an existing scene
+    with labels or a plan requires `confirm_reextract_existing_scene=true` and
+    may return crop-regression warnings if the new crop is much tighter.
 
     Returns: `data` = {extracted: [...new manifest entries...], intake_state: ...}
 
@@ -181,6 +194,9 @@ async def extract_scenes(
             "format": fmt,
             "allow_blank": bool(raw.get("allow_blank", False)),
             "no_clip_expand": bool(raw.get("no_clip_expand", False)),
+            "crop_intent": raw.get("crop_intent"),
+            "confirm_reextract_existing_scene": bool(raw.get("confirm_reextract_existing_scene", False)),
+            "allow_destructive_reextract": bool(raw.get("allow_destructive_reextract", False)),
             # V1.1: when YOU (the vision-LLM) have chosen the crop extent
             # deliberately — building + all dim chains + Nordpfeil + datum —
             # set this so the #25 auto-expansion never overrides it.
@@ -330,5 +346,3 @@ async def split_scene(
         {"created": created, "retired": retired, "parent_dims_px": list(parent_dims)},
         started_at=started, status_code=ex_status,
     )
-
-

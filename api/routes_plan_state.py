@@ -17,6 +17,7 @@ from fastapi.responses import Response
 from .main import (
     DATASET_DIR,
     _ensure_dataset_scene,
+    _load_dataset_manifest,
     _parse_label_render_style,
     _plan_http_error,
     _scene_image_path,
@@ -24,6 +25,7 @@ from .main import (
     get_labels,
     put_labels,
 )
+from .region_contract import normalize_bbox_region
 
 router = APIRouter()
 
@@ -54,9 +56,21 @@ def _semantic_exclusion_regions_for_plan(key: str, file: str) -> list[dict[str, 
             continue
         region = result.get("region")
         if isinstance(region, list) and len(region) >= 4:
+            bbox_xyxy = result.get("bbox_xyxy")
+            bbox_format = result.get("bbox_format") or "xywh"
+            if not isinstance(bbox_xyxy, list) or len(bbox_xyxy) < 4:
+                try:
+                    bbox_xyxy = normalize_bbox_region(
+                        region,
+                        bbox_format=bbox_format,
+                        reject_out_of_bounds=False,
+                    ).bbox_xyxy
+                except ValueError:
+                    continue
             out.append({
-                "region": region[:4],
-                "bbox_format": result.get("bbox_format") or "xywh",
+                "region": bbox_xyxy[:4],
+                "bbox_format": "xyxy",
+                "bbox_xyxy": bbox_xyxy[:4],
                 "semantic_class": result.get("semantic_class"),
                 "evidence_id": evidence.get("id"),
             })
@@ -562,6 +576,8 @@ def get_scene_workbench_state_route(key: str, file: str) -> dict:
     plan = read_plan_state(DATASET_DIR, key, file)
     state = plan.get("state") or {}
     current = state.get("current_state") or {}
+    manifest = _load_dataset_manifest(key) or {}
+    scene_entry = next((d for d in manifest.get("drawings") or [] if d.get("file") == file), {})
     recent_evidence = []
     for item in (state.get("evidence") or [])[-5:]:
         if isinstance(item, dict):
@@ -596,6 +612,7 @@ def get_scene_workbench_state_route(key: str, file: str) -> dict:
         "allowed_tools": (action or {}).get("allowed_tools") or [],
         "forbidden_writes": (action or {}).get("forbidden_label_types") or [],
         "required_evidence": (action or {}).get("required_evidence") or [],
+        "crop_warnings": scene_entry.get("crop_warnings") or [],
         "labels_summary": {
             "total": len(labels_doc.get("labels") or []),
             "by_type": _label_type_counts(labels_doc),

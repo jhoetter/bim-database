@@ -39,6 +39,19 @@ def test_workbench_state_is_compact_next_action_entrypoint() -> None:
         "attributes": {"thickness_mm": 300},
     }]
     (root / "labels" / f"{Path(file).stem}.json").write_text(json.dumps(labels))
+    (root / "manifest.json").write_text(json.dumps({
+        "key": key,
+        "drawings": [{
+            "file": file,
+            "kind": "floorplan",
+            "floor": "eg",
+            "crop_warnings": [{
+                "kind": "crop_regression",
+                "severity": "warning",
+                "message": "new crop is tighter than prior crop",
+            }],
+        }],
+    }))
     try:
         client = TestClient(api_main.app)
         created = client.post(
@@ -71,6 +84,7 @@ def test_workbench_state_is_compact_next_action_entrypoint() -> None:
         assert "transaction_history" in data
         assert "allowed_tools" in data
         assert "required_evidence" in data
+        assert data["crop_warnings"][0]["kind"] == "crop_regression"
         assert "candidate_queue_summary" in data
         assert "markdown" not in data
         assert "tasks" not in data

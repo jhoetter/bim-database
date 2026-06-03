@@ -10,6 +10,7 @@ old bounding box). This locks the fix.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -88,6 +89,45 @@ def test_reextract_overwrites_same_scene(client, install_pdf):
     ds = client.get(f"/datasets/{KEY}").json()
     eg_scenes = [d["file"] for d in ds["drawings"] if "floorplan-eg" in d["file"]]
     assert eg_scenes == ["house-slug-floorplan-eg.jpg"], eg_scenes
+
+
+def test_reextract_with_existing_labels_requires_confirmation(client, install_pdf, tmp_path):
+    install_pdf()
+    r1 = _extract(client, slug_override="house-slug-floorplan-eg",
+                  bbox=[20, 20, 430, 430])
+    assert r1.status_code == 201, r1.text
+    file_name = r1.json()["extracted"][0]["file"]
+    labels_dir = tmp_path / "dataset" / KEY / "labels"
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    (labels_dir / f"{Path(file_name).stem}.json").write_text(json.dumps({
+        "scene_file": file_name,
+        "scene_tag": "grundriss",
+        "scene_level": "eg",
+        "labels": [{
+            "id": "wall-1",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [10, 10], "end": [100, 10]},
+            "attributes": {},
+        }],
+    }))
+
+    blocked = _extract(client, slug_override="house-slug-floorplan-eg",
+                       bbox=[50, 50, 250, 250])
+    assert blocked.status_code == 409
+    detail = blocked.json()["detail"]
+    assert detail["required_confirmation"] == "confirm_reextract_existing_scene=true"
+    assert detail["crop_warnings"]
+
+    confirmed = client.post(f"/pdfs/{KEY}/extract", json={"items": [{
+        "page": 1, "bbox_pdf_units": [50, 50, 250, 250], "kind": "floorplan",
+        "floor": "eg", "slug_override": "house-slug-floorplan-eg", "dpi": 150,
+        "bbox_is_authoritative": True, "confirm_reextract_existing_scene": True,
+    }]})
+    assert confirmed.status_code == 201, confirmed.text
+    entry = confirmed.json()["extracted"][0]
+    assert entry["crop_intent"] == "scene_full_context"
+    assert entry["crop_warnings"]
 
 
 def test_override_without_key_prefix_still_works(client, install_pdf):

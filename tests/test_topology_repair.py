@@ -168,3 +168,22 @@ def test_repair_report_includes_nearby_semantic_context():
     assert cluster["semantic_context"][0]["evidence_id"] == "EV-001"
     assert cluster["semantic_context"][0]["semantic_class"] == "site_boundary"
     assert cluster["candidates"][0]["semantic_context"][0]["applies_to_wall_score"] is True
+
+
+def test_off_ink_segment_review_region_is_line_bbox_not_xywh():
+    from api.topology_repair import current_findings_from_results
+
+    findings = current_findings_from_results(
+        file="scene.png",
+        labels_doc={"scene_file": "scene.png", "labels": []},
+        score_walls_result={
+            "missing_regions": [],
+            "off_ink_segments": [[2547, 1460, 2058, 1426, 0.0]],
+        },
+    )
+
+    assert len(findings) == 1
+    assert findings[0]["category"] == "off_ink_segment"
+    # Reversed endpoint line plus 16px review padding. The old xywh path made
+    # this thousands of pixels wide/high.
+    assert findings[0]["region"] == [2042.0, 1410.0, 2563.0, 1476.0]

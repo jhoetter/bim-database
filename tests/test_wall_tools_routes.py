@@ -353,6 +353,7 @@ def test_classify_ink_region_excludes_site_boundary_from_structural_score():
             f"/datasets/{key}/{file}/classify-ink-region",
             json={
                 "region": [250, 145, 160, 35],
+                "bbox_format": "xywh",
                 "semantic_class": "site_boundary",
                 "confidence": "high",
                 "summary": "Baugrenze/site line, not structural wall",
@@ -370,6 +371,176 @@ def test_classify_ink_region_excludes_site_boundary_from_structural_score():
         assert data["score_contract"] == "score-walls-structural/v1"
         assert data["semantic_exclusion_count"] == 1
         assert data["missing_region_count"] == 0
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_classify_ink_region_infers_corner_bbox_when_xywh_would_exceed_bounds():
+    key = "house-semantic-xyxy"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        Image.new("RGB", (220, 160), (255, 255, 255)).save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        classified = client.post(
+            f"/datasets/{key}/{file}/classify-ink-region",
+            json={
+                "region": [170, 100, 210, 140],
+                "semantic_class": "hatching_projection",
+                "confidence": "high",
+                "summary": "grid-corner bbox, not xywh",
+            },
+        )
+        assert classified.status_code == 200, classified.text
+        data = classified.json()["data"]
+        assert data["bbox_format"] == "xyxy"
+        assert data["bbox_xyxy"] == [170.0, 100.0, 210.0, 140.0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_classify_ink_region_rejects_ambiguous_or_explicit_out_of_bounds_bbox():
+    key = "house-semantic-ambiguous"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        Image.new("RGB", (220, 160), (255, 255, 255)).save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        ambiguous = client.post(
+            f"/datasets/{key}/{file}/classify-ink-region",
+            json={"region": [10, 10, 20, 20], "semantic_class": "ignored_noise"},
+        )
+        assert ambiguous.status_code == 400
+        assert "ambiguous" in ambiguous.text
+
+        explicit_bad = client.post(
+            f"/datasets/{key}/{file}/classify-ink-region",
+            json={"region": [170, 100, 210, 140], "bbox_format": "xywh", "semantic_class": "ignored_noise"},
+        )
+        assert explicit_bad.status_code == 400
+        assert "outside image bounds" in explicit_bad.text
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_confirmed_rect_mass_with_low_confidence_does_not_persist_uncertain_walls():
+    key = "house-rect-mass-low-conf"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        Image.new("RGB", (320, 240), (255, 255, 255)).save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        body = {
+            "mass_id": "garage-ambiguous",
+            "kind": "detached_garage",
+            "bbox": [40, 50, 260, 190],
+            "edge_policy": "refine_to_ink",
+            "min_confidence": 0.75,
+            "thickness_mm": 180,
+        }
+        r = client.post(f"/datasets/{key}/{file}/wall-masses/rect", json=body)
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["persisted"] is False
+        assert data["rejected_edges"]
+        doc = client.get(f"/labels/dataset/{key}/{file}").json()
+        assert doc["labels"] == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_uncertain_rect_mass_persists_uncertain_edges_explicitly():
+    key = "house-rect-mass-uncertain"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        Image.new("RGB", (320, 240), (255, 255, 255)).save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        body = {
+            "mass_id": "garage-hypothesis",
+            "kind": "detached_garage",
+            "mass_mode": "partial_mass_hypothesis",
+            "bbox": [40, 50, 260, 190],
+            "edge_policy": "refine_to_ink",
+            "min_confidence": 0.75,
+            "thickness_mm": 180,
+        }
+        r = client.post(f"/datasets/{key}/{file}/wall-masses/rect", json=body)
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["persisted"] is True
+        assert data["mass_mode"] == "partial_mass_hypothesis"
+        doc = client.get(f"/labels/dataset/{key}/{file}").json()
+        walls = [lab for lab in doc["labels"] if lab["type"] == "wall"]
+        assert len(walls) == 4
+        assert {lab["status"] for lab in walls} == {"uncertain"}
+        assert {lab["attributes"]["mass_mode"] for lab in walls} == {"partial_mass_hypothesis"}
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_confirmed_mass_overlapping_semantic_projection_requires_override():
+    key = "house-rect-mass-semantic-overlap"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        Image.new("RGB", (320, 240), (255, 255, 255)).save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        classified = client.post(
+            f"/datasets/{key}/{file}/classify-ink-region",
+            json={
+                "region": [60, 60, 240, 180],
+                "bbox_format": "xyxy",
+                "semantic_class": "hatching_projection",
+                "confidence": "high",
+            },
+        )
+        assert classified.status_code == 200, classified.text
+
+        body = {
+            "mass_id": "garage-projection",
+            "kind": "detached_garage",
+            "bbox": [40, 50, 260, 190],
+            "edge_policy": "use_given",
+            "thickness_mm": 180,
+            "allow_plan_order_override": True,
+            "override_reason": "test semantic overlap guard",
+        }
+        blocked = client.post(f"/datasets/{key}/{file}/wall-masses/rect", json=body)
+        assert blocked.status_code == 400
+        assert "semantic context" in blocked.text
+
+        allowed = client.post(
+            f"/datasets/{key}/{file}/wall-masses/rect",
+            json={**body, "mass_mode": "partial_mass_hypothesis"},
+        )
+        assert allowed.status_code == 200, allowed.text
+        assert allowed.json()["data"]["warnings"]
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

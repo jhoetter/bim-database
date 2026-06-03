@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
+from .region_contract import normalize_bbox_region
 from .wall_score import WALL_SCORE_DEFAULTS
 
 from .main import (
@@ -715,6 +716,56 @@ def _upsert_mass_walls(
     if edge_policy not in {"refine_to_ink", "use_given", "mixed"}:
         raise HTTPException(status_code=400, detail="edge_policy must be refine_to_ink, use_given, or mixed")
     min_confidence = float(body.get("min_confidence", 0.55))
+    mass_mode = str(body.get("mass_mode") or "structural_confirmed")
+    if mass_mode not in {"structural_confirmed", "structural_uncertain", "projection_non_wall", "partial_mass_hypothesis"}:
+        raise HTTPException(
+            status_code=400,
+            detail="mass_mode must be structural_confirmed, structural_uncertain, projection_non_wall, or partial_mass_hypothesis",
+        )
+    if mass_mode == "structural_confirmed" and edge_policy != "use_given" and min_confidence < 0.75:
+        raise HTTPException(
+            status_code=400,
+            detail="confirmed structural masses require min_confidence >= 0.75; use mass_mode='structural_uncertain' for hypotheses",
+        )
+    semantic_overlap_warnings: list[str] = []
+    try:
+        pts = [pt for edge in source_edges for pt in edge if isinstance(pt, list) and len(pt) >= 2]
+        draft_bbox = [
+            min(float(p[0]) for p in pts),
+            min(float(p[1]) for p in pts),
+            max(float(p[0]) for p in pts),
+            max(float(p[1]) for p in pts),
+        ] if pts else None
+        if draft_bbox:
+            for semantic in _semantic_regions_from_plan(key, file):
+                if semantic.get("semantic_class") not in NON_WALL_SEMANTIC_CLASSES:
+                    continue
+                sb = semantic.get("bbox_xyxy") or semantic.get("region")
+                if not (isinstance(sb, list) and len(sb) >= 4):
+                    continue
+                overlaps = not (
+                    draft_bbox[2] < float(sb[0])
+                    or float(sb[2]) < draft_bbox[0]
+                    or draft_bbox[3] < float(sb[1])
+                    or float(sb[3]) < draft_bbox[1]
+                )
+                if overlaps:
+                    semantic_overlap_warnings.append(
+                        f"mass overlaps semantic {semantic.get('semantic_class')} region {semantic.get('evidence_id')}"
+                    )
+        if semantic_overlap_warnings and mass_mode == "structural_confirmed" and not bool(body.get("allow_semantic_overlap_override")):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "confirmed structural mass overlaps non-wall semantic context",
+                    "required_override": "allow_semantic_overlap_override=true",
+                    "warnings": semantic_overlap_warnings,
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:  # noqa: BLE001
+        semantic_overlap_warnings = []
     search_px = int(body.get("search_px", 32))
     n_samples = int(body.get("n_samples", 31))
     thickness_mm = body.get("thickness_mm")
@@ -799,6 +850,7 @@ def _upsert_mass_walls(
             **((existing or {}).get("attributes") or {}),
             "mass_id": mass_id,
             "mass_kind": mass_kind,
+            "mass_mode": mass_mode,
             "mass_tool": tool,
             "mass_edge_index": idx,
             "mass_edge_count": len(source_edges),
@@ -812,7 +864,7 @@ def _upsert_mass_walls(
         label = {
             "id": label_id,
             "type": "wall",
-            "status": "readable" if accepted else "uncertain",
+            "status": "readable" if accepted and mass_mode == "structural_confirmed" else "uncertain",
             "geometry": {"start": [wall[0][0], wall[0][1]], "end": [wall[1][0], wall[1][1]]},
             "attributes": attrs,
         }
@@ -829,8 +881,6 @@ def _upsert_mass_walls(
             "edge": [[wall[0][0], wall[0][1]], [wall[1][0], wall[1][1]]],
             "accepted": accepted,
         })
-    put_labels("dataset", key, file, doc)
-
     score_summary: dict[str, Any] = {}
     topology_summary: dict[str, Any] = {}
     try:
@@ -852,8 +902,20 @@ def _upsert_mass_walls(
         topology_summary = {"error": str(e)}
     rejected = [e for e in edge_reports if not e["accepted"] and not e["excluded"]]
     warnings = []
+    warnings.extend(semantic_overlap_warnings)
     if rejected:
-        warnings.append(f"{len(rejected)} edge(s) persisted uncertain due to low refine confidence")
+        if mass_mode == "structural_confirmed":
+            warnings.append(f"{len(rejected)} edge(s) rejected due to low refine confidence; no confirmed structural mass was persisted")
+        else:
+            warnings.append(f"{len(rejected)} edge(s) persisted uncertain due to low refine confidence")
+    persisted = mass_mode != "projection_non_wall" and not (mass_mode == "structural_confirmed" and bool(rejected))
+    if persisted:
+        put_labels("dataset", key, file, doc)
+    else:
+        changed_ids = []
+        after_edges = []
+        if mass_mode == "projection_non_wall":
+            warnings.append("projection_non_wall records no structural wall labels")
     transaction_verification = {
         "verification_contract": "wall-mass-transaction-verification/v1",
         "view_mode": "topology_qa_view",
@@ -878,6 +940,8 @@ def _upsert_mass_walls(
         "tool": tool,
         "mass_id": mass_id,
         "mass_kind": mass_kind,
+        "mass_mode": mass_mode,
+        "persisted": persisted,
         "edge_policy": edge_policy,
         "wall_label_ids": changed_ids,
         "changed_label_ids": changed_ids,
@@ -1015,11 +1079,23 @@ def _semantic_regions_from_plan(key: str, file: str) -> list[dict[str, Any]]:
         semantic_class = result.get("semantic_class")
         region = result.get("region")
         if semantic_class and isinstance(region, list) and len(region) >= 4:
+            bbox_xyxy = result.get("bbox_xyxy")
+            bbox_format = result.get("bbox_format") or "xywh"
+            if not isinstance(bbox_xyxy, list) or len(bbox_xyxy) < 4:
+                try:
+                    bbox_xyxy = normalize_bbox_region(
+                        region,
+                        bbox_format=bbox_format,
+                        reject_out_of_bounds=False,
+                    ).bbox_xyxy
+                except ValueError:
+                    continue
             regions.append({
                 "evidence_id": evidence.get("id"),
                 "semantic_class": semantic_class,
-                "region": region[:4],
-                "bbox_format": result.get("bbox_format") or "xywh",
+                "region": bbox_xyxy[:4],
+                "bbox_format": "xyxy",
+                "bbox_xyxy": bbox_xyxy[:4],
                 "confidence": result.get("confidence"),
             })
     return regions
@@ -1038,11 +1114,26 @@ def classify_ink_region_route(key: str, file: str, body: dict[str, Any] = Body(.
         raise HTTPException(status_code=400, detail=f"semantic_class must be one of {sorted(SEMANTIC_INK_CLASSES)}")
     region = body.get("region")
     if not isinstance(region, list) or len(region) < 4:
-        raise HTTPException(status_code=400, detail="region must be [x,y,w,h]")
+        raise HTTPException(status_code=400, detail="region must be a four-value bbox")
+    from PIL import Image as PILImage
+    img_path = _scene_image_path("dataset", key, file)
+    with PILImage.open(img_path) as src_img:
+        image_size = (int(src_img.width), int(src_img.height))
+    try:
+        normalized = normalize_bbox_region(
+            region,
+            bbox_format=body.get("bbox_format"),
+            image_size=image_size,
+            reject_out_of_bounds=True,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     result = {
         "semantic_class": semantic_class,
-        "region": [float(v) for v in region[:4]],
-        "bbox_format": body.get("bbox_format") or "xywh",
+        "region": normalized.region,
+        "bbox_format": normalized.bbox_format,
+        "bbox_xyxy": normalized.bbox_xyxy,
+        "image_size_px": list(image_size),
         "confidence": body.get("confidence") or "medium",
         "applies_to_wall_score": semantic_class in NON_WALL_SEMANTIC_CLASSES,
         "note": body.get("note") or "",
@@ -1052,7 +1143,11 @@ def classify_ink_region_route(key: str, file: str, body: dict[str, Any] = Body(.
         "mode": body.get("mode") or "analysis",
         "summary": body.get("summary") or f"Classified ink region as {semantic_class}",
         "tool": "classify_ink_region",
-        "params": {"region": result["region"], "semantic_class": semantic_class},
+        "params": {
+            "region": result["region"],
+            "bbox_format": result["bbox_format"],
+            "semantic_class": semantic_class,
+        },
         "result": result,
         "task_ids": body.get("task_ids") or [],
         "image_url": body.get("image_url"),
@@ -1071,6 +1166,7 @@ def classify_ink_region_route(key: str, file: str, body: dict[str, Any] = Body(.
         "semantic_class": semantic_class,
         "region": result["region"],
         "bbox_format": result["bbox_format"],
+        "bbox_xyxy": result["bbox_xyxy"],
         "applies_to_wall_score": result["applies_to_wall_score"],
     }}
 

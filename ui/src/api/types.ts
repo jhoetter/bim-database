@@ -395,6 +395,7 @@ export interface SceneWorkbenchState {
   allowed_tools?: string[];
   forbidden_writes?: string[];
   required_evidence?: string[];
+  crop_warnings?: Array<Record<string, unknown>>;
   labels_summary?: {
     total?: number;
     by_type?: Record<string, number>;

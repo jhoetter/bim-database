@@ -14,6 +14,7 @@ from typing import Any
 from .geometry_util import as_point as _as_point
 from .geometry_util import dist as _dist
 from .geometry_util import wall_segment as _wall_segment
+from .region_contract import normalize_bbox_region, normalize_review_region
 
 Point = tuple[float, float]
 Segment = tuple[Point, Point]
@@ -61,9 +62,7 @@ def _bbox_union(regions: list[Any]) -> list[float] | None:
         if not (isinstance(reg, (list, tuple)) and len(reg) >= 4):
             continue
         x0, y0, x1, y1 = [float(v) for v in reg[:4]]
-        if x1 < x0 or y1 < y0:
-            x0, y0, x1, y1 = x0, y0, x0 + max(0.0, x1), y0 + max(0.0, y1)
-        boxes.append((x0, y0, x1, y1))
+        boxes.append((min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
     if not boxes:
         return None
     return [
@@ -75,16 +74,15 @@ def _bbox_union(regions: list[Any]) -> list[float] | None:
 
 
 def _region_to_xyxy(region: Any, bbox_format: str | None = None) -> list[float] | None:
-    if not (isinstance(region, (list, tuple)) and len(region) >= 4):
+    try:
+        normalized = normalize_bbox_region(
+            region,
+            bbox_format=bbox_format,
+            reject_out_of_bounds=False,
+        )
+        return normalized.bbox_xyxy
+    except ValueError:
         return None
-    if not all(isinstance(v, (int, float)) for v in region[:4]):
-        return None
-    x0, y0, a, b = [float(v) for v in region[:4]]
-    if bbox_format == "xywh":
-        return [x0, y0, x0 + max(0.0, a), y0 + max(0.0, b)]
-    if a < x0 or b < y0:
-        return [x0, y0, x0 + max(0.0, a), y0 + max(0.0, b)]
-    return [x0, y0, a, b]
 
 
 def _regions_overlap_or_near(a: Any, b: Any, pad: float = 24.0) -> bool:
@@ -109,7 +107,9 @@ def _semantic_context_from_plan_state(plan_state: dict[str, Any] | None) -> list
             continue
         result = evidence.get("result") or {}
         bbox_format = str(result.get("bbox_format") or "xywh")
-        bbox = _region_to_xyxy(result.get("region"), bbox_format)
+        bbox = result.get("bbox_xyxy")
+        if not (isinstance(bbox, list) and len(bbox) >= 4):
+            bbox = _region_to_xyxy(result.get("region"), bbox_format)
         if bbox is None:
             continue
         out.append({
@@ -126,7 +126,7 @@ def _semantic_context_from_plan_state(plan_state: dict[str, Any] | None) -> list
 
 
 def _semantic_context_for_region(region: Any, semantic_regions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    bbox = _region_to_xyxy(region, None)
+    bbox = _region_to_xyxy(region, "xyxy")
     if bbox is None:
         return []
     matches = []
@@ -208,7 +208,8 @@ def current_findings_from_results(
     findings: list[dict[str, Any]] = []
     if score_walls_result:
         for idx, region in enumerate(score_walls_result.get("missing_regions") or [], start=1):
-            review_region = _score_missing_region_bbox(region) or region
+            normalized = normalize_review_region(region, region_kind="missing_region_xywh")
+            review_region = (normalized or {}).get("bbox_xyxy") or _score_missing_region_bbox(region) or region
             payload = {"region": region, "review_region": review_region}
             if isinstance(region, (list, tuple)) and len(region) >= 5 and isinstance(region[4], (int, float)):
                 payload["area_px"] = region[4]
@@ -223,7 +224,9 @@ def current_findings_from_results(
                 "payload": payload,
             })
         for idx, seg in enumerate(score_walls_result.get("off_ink_segments") or [], start=1):
-            payload = {"region": seg, "review_region": seg}
+            normalized = normalize_review_region(seg, region_kind="off_ink_segment_line", pad_px=16)
+            review_region = (normalized or {}).get("bbox_xyxy") or seg
+            payload = {"region": seg, "review_region": review_region}
             wall_id = _wall_id_for_score_segment(labels_doc, seg)
             if wall_id:
                 payload["wall_id"] = wall_id
@@ -233,7 +236,7 @@ def current_findings_from_results(
                 "source": "score_walls",
                 "category": "off_ink_segment",
                 "severity": "blocker",
-                "region": seg,
+                "region": review_region,
                 "title": f"Wall score off-ink segment {idx}",
                 "payload": payload,
             })

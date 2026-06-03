@@ -2842,8 +2842,8 @@ export function AnnotatePage() {
     + `&view_mode=${encodeURIComponent(agentViewMode)}`
     + `&v=${encodeURIComponent(String(lastSavedAt ?? labels.length))}`;
   const semanticExclusionRegions = useMemo(
-    () => collectSemanticExclusionRegions(scenePlan?.state ?? null),
-    [scenePlan?.state],
+    () => collectSemanticExclusionRegions(scenePlan?.state ?? null, imageSize),
+    [scenePlan?.state, imageSize],
   );
   const labelsWithoutPlan = labels.length > 0 && scenePlan?.exists === false;
   const createPlan = async () => {
@@ -3235,6 +3235,7 @@ export function AnnotatePage() {
             loading={planLoading}
             error={planError}
             labels={labels}
+            clippedSemanticRegionCount={semanticExclusionRegions.filter((r) => r.clipped).length}
             onClose={() => setPlanOpen(false)}
             onCreate={createPlan}
           />
@@ -5017,6 +5018,7 @@ function ScenePlanPanel({
   loading,
   error,
   labels,
+  clippedSemanticRegionCount,
   onClose,
   onCreate,
 }: {
@@ -5026,12 +5028,16 @@ function ScenePlanPanel({
   loading: boolean;
   error: Error | null;
   labels: Label[];
+  clippedSemanticRegionCount?: number;
   onClose: () => void;
   onCreate: () => void;
 }) {
   const exists = !!plan?.exists;
   const hasLabels = labels.length > 0;
   const warnings = scenePlanWarnings(plan, labels);
+  if ((clippedSemanticRegionCount ?? 0) > 0) {
+    warnings.push(`${clippedSemanticRegionCount} semantic evidence region(s) were clipped to scene bounds.`);
+  }
   const state = plan?.state ?? null;
   const sceneTag = state?.scene_tag ?? plan?.state?.scene_tag;
   const { data: workbench } = useResource<SceneWorkbenchState | null>(
@@ -5209,7 +5215,20 @@ function ScenePlanPanel({
                         {formatCounts(workbench.candidate_queue_summary?.by_kind)}
                       </div>
                     </div>
+                    <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
+                      <div className="text-zinc-500">Crop warnings</div>
+                      <div className={(workbench.crop_warnings?.length ?? 0) > 0 ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>
+                        {(workbench.crop_warnings?.length ?? 0) || 'none'}
+                      </div>
+                    </div>
                   </div>
+                  {(workbench.crop_warnings ?? []).length > 0 && (
+                    <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[0.72rem] text-amber-900">
+                      {(workbench.crop_warnings ?? []).slice(0, 2).map((w, idx) => (
+                        <div key={`${String(w.kind ?? 'crop')}-${idx}`}>{String(w.message ?? w.kind ?? 'crop warning')}</div>
+                      ))}
+                    </div>
+                  )}
                   {(workbench.labels_summary?.mass_groups ?? []).length > 0 && (
                     <div className="mt-3">
                       <div className="text-[0.7rem] uppercase tracking-wide font-semibold text-zinc-500 mb-1.5">Mass Groups</div>
@@ -5576,27 +5595,37 @@ type SemanticExclusionRegion = {
   y: number;
   w: number;
   h: number;
+  clipped?: boolean;
   semanticClass: string;
   evidenceId?: string;
 };
 
-function collectSemanticExclusionRegions(state: ScenePlanState | null): SemanticExclusionRegion[] {
+function collectSemanticExclusionRegions(state: ScenePlanState | null, imageSize: [number, number]): SemanticExclusionRegion[] {
   const out: SemanticExclusionRegion[] = [];
+  const [imageW, imageH] = imageSize;
   for (const ev of state?.evidence ?? []) {
     if (ev.kind !== 'semantic_ink_region') continue;
     const result = ev.result ?? {};
     const semanticClass = typeof result.semantic_class === 'string' ? result.semantic_class : 'unknown';
-    const region = Array.isArray(result.region) ? result.region : null;
+    const region = Array.isArray(result.bbox_xyxy) ? result.bbox_xyxy : (Array.isArray(result.region) ? result.region : null);
     if (!region || region.length < 4) continue;
     const nums = region.slice(0, 4).map((v) => Number(v));
     if (!nums.every(Number.isFinite)) continue;
-    const bboxFormat = typeof result.bbox_format === 'string' ? result.bbox_format : 'xywh';
+    const bboxFormat = Array.isArray(result.bbox_xyxy)
+      ? 'xyxy'
+      : (typeof result.bbox_format === 'string' ? result.bbox_format : 'xywh');
     const [a, b, c, d] = nums;
     const rect = bboxFormat === 'xyxy'
       ? { x: a, y: b, w: c - a, h: d - b }
       : { x: a, y: b, w: c, h: d };
     if (rect.w <= 0 || rect.h <= 0) continue;
-    out.push({ ...rect, semanticClass, evidenceId: ev.id });
+    const x0 = Math.max(0, Math.min(imageW, rect.x));
+    const y0 = Math.max(0, Math.min(imageH, rect.y));
+    const x1 = Math.max(0, Math.min(imageW, rect.x + rect.w));
+    const y1 = Math.max(0, Math.min(imageH, rect.y + rect.h));
+    if (x1 <= x0 || y1 <= y0) continue;
+    const clipped = x0 !== rect.x || y0 !== rect.y || x1 !== rect.x + rect.w || y1 !== rect.y + rect.h;
+    out.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0, clipped, semanticClass, evidenceId: ev.id });
   }
   return out;
 }
@@ -5612,10 +5641,10 @@ function SemanticExclusionOverlay({ regions }: { regions: SemanticExclusionRegio
             width={r.w}
             height={r.h}
             fill="#f59e0b"
-            opacity={0.12}
-            stroke="#d97706"
-            strokeWidth={1}
-            strokeDasharray="8,4"
+            opacity={r.clipped ? 0.18 : 0.12}
+            stroke={r.clipped ? '#dc2626' : '#d97706'}
+            strokeWidth={r.clipped ? 2 : 1}
+            strokeDasharray={r.clipped ? '3,3' : '8,4'}
           />
           <text
             x={r.x + 4}
@@ -5627,7 +5656,7 @@ function SemanticExclusionOverlay({ regions }: { regions: SemanticExclusionRegio
             stroke="white"
             strokeWidth={3}
           >
-            {r.semanticClass}
+            {r.clipped ? `clipped:${r.semanticClass}` : r.semanticClass}
           </text>
         </g>
       ))}

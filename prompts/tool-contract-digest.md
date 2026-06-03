@@ -30,7 +30,9 @@ Preferred transaction tools:
 
 - Walls: `upsert_rect_mass`, `upsert_stepped_mass`, then
   `upsert_wall_anchored(detail_mode=...)` for local details. Mass transactions
-  return `transaction_verification` edge groups for overlay review.
+  return `transaction_verification` edge groups for overlay review. Confirmed
+  structural masses require strong visible wall evidence; use uncertain or
+  projection modes for roof/hatching/context ink.
 - Openings: `opening_candidates`, `get_scene_view_with_opening_candidate`,
   `review_opening_candidate`, `review_opening_candidates_batch`,
   `upsert_opening_on_wall`.
@@ -40,6 +42,8 @@ Preferred transaction tools:
 Context hygiene:
 
 - Large images default to handle delivery.
+- Semantic ink regions are typed: pass `bbox_format='xyxy'` for grid-corner
+  bboxes and `bbox_format='xywh'` only for width/height bboxes.
 - Use compact summaries for routing: `get_house_context_summary`,
   `get_scene_context_summary`, and `get_scene_workbench_state`.
 - Request full plan state only for audit/debug work.

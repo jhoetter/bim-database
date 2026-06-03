@@ -170,6 +170,10 @@
                 "type": "string",
                 "enum": ["main_house", "detached_garage", "projection", "wing", "other"]
               },
+              "mass_mode": {
+                "type": "string",
+                "enum": ["structural_confirmed", "structural_uncertain", "projection_non_wall", "partial_mass_hypothesis"]
+              },
               "mass_tool": {
                 "type": "string",
                 "enum": ["upsert_rect_mass", "upsert_stepped_mass", "upsert_wall_system"]
