@@ -233,7 +233,13 @@
               "opening_kind": {"type": "string", "enum": ["door", "window", "passage", "garage_door", "other"]},
               "width_mm": {"type": ["number", "null"]},
               "swing": {"type": "string", "enum": ["in", "out", "sliding", "none"]},
-              "swing_side": {"type": "string", "enum": ["left", "right", "none"]}
+              "swing_side": {"type": "string", "enum": ["left", "right", "none"]},
+              "transaction_id": {"type": "string"},
+              "source_candidate_id": {"type": "string"},
+              "source_candidate_fingerprint": {"type": "string"},
+              "parent_wall_id": {"type": "string"},
+              "opening_axis": {"$ref": "#/$defs/Polyline"},
+              "qa_status": {"type": "string", "enum": ["passed", "failed", "needs_review"]}
             }
           }
         }
@@ -366,6 +372,30 @@
               "is_reference": {
                 "type": "boolean",
                 "description": "Anchors the homography computation. Strokes with this true + a value_mm are what model 1 must detect."
+              },
+              "dimension_semantic": {
+                "type": "string",
+                "enum": ["building", "site_setback", "elevation_datum", "unknown"]
+              },
+              "calibration_role": {
+                "type": "string",
+                "enum": ["none", "building_metric", "site_metric", "transferred", "assumed_isotropic"]
+              },
+              "calibration_confidence": {
+                "type": "string",
+                "enum": ["low", "medium", "high"]
+              },
+              "reference_review": {"type": "string"},
+              "reference_review_evidence_ids": {
+                "type": "array",
+                "items": {"type": "string"}
+              },
+              "transaction_id": {"type": "string"},
+              "span_id": {"type": "string"},
+              "chain_id": {"type": "string"},
+              "station_ids": {
+                "type": "array",
+                "items": {"type": "string"}
               }
             }
           }

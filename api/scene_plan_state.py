@@ -2410,9 +2410,9 @@ def _allowed_tools_for_defect(category: str) -> list[str]:
     if category in {"wall_missing_region", "wall_off_ink", "wall_topology", "possible_split_wall", "wall_continuity", "topology_candidate_review"}:
         return common + ["get_scene_repair_candidates", "get_scene_view_with_repair_candidate", "apply_repair_candidate", "decide_repair_candidate", "get_scene_plan_quality_report", "get_scene_topology_snapshot", "wall_topology_qa", "wall_continuity_check", "score_walls", "resolve_scene_point", "upsert_rect_mass", "upsert_stepped_mass", "upsert_wall_anchored", "upsert_label", "delete_label", "classify_plan_defect"]
     if category == "opening_relation":
-        return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "verify_label_placement", "upsert_label", "update_label_attrs"]
+        return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "review_opening_candidate", "review_opening_candidates_batch", "upsert_opening_on_wall", "verify_label_placement", "upsert_label", "update_label_attrs"]
     if category == "dimension":
-        return common + ["dimension_chain_context", "dimension_station_graph", "score_measurements", "add_reference_dim", "upsert_label"]
+        return common + ["dimension_chain_context", "dimension_station_graph", "dimension_chain_transaction", "reference_dim_review", "score_measurements", "add_reference_dim", "upsert_label"]
     return common
 
 
@@ -2479,9 +2479,9 @@ def _allowed_tools_for_task(task: dict[str, Any]) -> list[str]:
         if category == "walls":
             return common + ["building_silhouette", "upsert_rect_mass", "upsert_stepped_mass", "upsert_wall_anchored", "upsert_label", "delete_label", "score_walls"]
         if category == "openings":
-            return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "upsert_label", "update_label_attrs", "verify_label_placement"]
+            return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "review_opening_candidate", "review_opening_candidates_batch", "upsert_opening_on_wall", "upsert_label", "update_label_attrs", "verify_label_placement"]
         if category == "dimensions":
-            return common + ["dimension_chain_context", "dimension_station_graph", "add_reference_dim", "upsert_label", "score_measurements"]
+            return common + ["dimension_chain_context", "dimension_station_graph", "dimension_chain_transaction", "reference_dim_review", "add_reference_dim", "upsert_label", "score_measurements"]
         return common + ["upsert_label"]
     return ["get_scene_view_with_labels", "verify_label_placement", "score_walls", "score_measurements", "wall_topology_qa", "evaluate_scene_plan_gates"]
 

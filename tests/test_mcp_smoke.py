@@ -268,6 +268,8 @@ def test_validate_export_readiness_surfaces_calibration_assumptions():
     ca = r["data"]["calibration_assumptions"]
     assert "single_ref_assumed_isotropic" in ca
     assert isinstance(ca["single_ref_assumed_isotropic"], list)
+    assert "approximate_calibrations" in ca
+    assert isinstance(ca["approximate_calibrations"], list)
 
 
 def test_workflow_state_full_geometry_with_scene_is_done():

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -1257,6 +1258,140 @@ def _next_label_id(labels_doc: dict[str, Any], prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4()}"
 
 
+def _now_iso() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _point2(value: Any) -> tuple[float, float] | None:
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        try:
+            return float(value[0]), float(value[1])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _label_by_id(labels_doc: dict[str, Any], label_id: str) -> dict[str, Any] | None:
+    for lab in labels_doc.get("labels") or []:
+        if isinstance(lab, dict) and lab.get("id") == label_id:
+            return lab
+    return None
+
+
+def _opening_axes_from_quad(quad: list[Any]) -> tuple[tuple[tuple[float, float], tuple[float, float]], tuple[tuple[float, float], tuple[float, float]]] | None:
+    pts = [_point2(p) for p in quad]
+    if len(pts) != 4 or any(p is None for p in pts):
+        return None
+    p0, p1, p2, p3 = pts  # type: ignore[misc]
+    axis = (((p0[0] + p3[0]) / 2.0, (p0[1] + p3[1]) / 2.0), ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0))
+    depth = (((p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0), ((p3[0] + p2[0]) / 2.0, (p3[1] + p2[1]) / 2.0))
+    return axis, depth
+
+
+def _opening_local_qa(labels_doc: dict[str, Any], opening: dict[str, Any], *, expected_depth_px: float | None = None) -> dict[str, Any]:
+    parent_ids = [
+        rel.get("other_id")
+        for rel in (opening.get("relations") or [])
+        if isinstance(rel, dict) and rel.get("kind") == "belongs_to"
+    ]
+    parent = None
+    for parent_id in parent_ids:
+        if isinstance(parent_id, str):
+            lab = _label_by_id(labels_doc, parent_id)
+            if lab and lab.get("type") == "wall":
+                parent = lab
+                break
+    if parent is None:
+        return {
+            "ok": False,
+            "defects": [{"category": "missing_parent_wall", "message": "opening has no existing wall parent"}],
+            "parent_wall_id": parent_ids[0] if parent_ids else None,
+        }
+    parent_seg = _wall_segment(parent)
+    quad = ((opening.get("geometry") or {}).get("quad") or [])
+    axes = _opening_axes_from_quad(quad)
+    if parent_seg is None or axes is None:
+        return {
+            "ok": False,
+            "defects": [{"category": "bad_geometry", "message": "opening or parent wall geometry is invalid"}],
+            "parent_wall_id": parent.get("id"),
+        }
+    from .geometry_checks import floorplan_opening_quality
+    quality = floorplan_opening_quality(
+        axes[0],
+        axes[1],
+        parent_seg,
+        tol_px=30.0,
+        is_garage_door=(opening.get("attributes") or {}).get("opening_kind") == "garage_door",
+        expected_depth_px=expected_depth_px,
+    )
+    quality["parent_wall_id"] = parent.get("id")
+    quality["relation_ok"] = True
+    return quality
+
+
+def _opening_label_from_wall_span(
+    labels_doc: dict[str, Any],
+    *,
+    parent_wall_id: str,
+    span_start: list[float],
+    span_end: list[float],
+    opening_kind: str,
+    width_mm: float | None = None,
+    swing: str | None = None,
+    swing_side: str | None = None,
+    wall_half_width_px: float = 12.0,
+    transaction_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    parent = _label_by_id(labels_doc, parent_wall_id)
+    if parent is None or parent.get("type") != "wall":
+        raise ValueError(f"parent wall {parent_wall_id!r} does not exist")
+    parent_seg = _wall_segment(parent)
+    a = _point2(span_start)
+    b = _point2(span_end)
+    if parent_seg is None or a is None or b is None:
+        raise ValueError("parent wall and span endpoints must be valid points")
+    if math.hypot(b[0] - a[0], b[1] - a[1]) < 1:
+        raise ValueError("opening span must be non-degenerate")
+    w0, w1 = parent_seg
+    dx, dy = w1[0] - w0[0], w1[1] - w0[1]
+    length = math.hypot(dx, dy)
+    if length < 1:
+        raise ValueError("parent wall is degenerate")
+    nx, ny = -dy / length, dx / length
+    half = max(1.0, float(wall_half_width_px))
+    quad = [
+        [round(a[0] + nx * half, 1), round(a[1] + ny * half, 1)],
+        [round(b[0] + nx * half, 1), round(b[1] + ny * half, 1)],
+        [round(b[0] - nx * half, 1), round(b[1] - ny * half, 1)],
+        [round(a[0] - nx * half, 1), round(a[1] - ny * half, 1)],
+    ]
+    now = _now_iso()
+    attrs = {
+        "opening_kind": opening_kind,
+        "parent_wall_id": parent_wall_id,
+        "opening_axis": [[round(a[0], 1), round(a[1], 1)], [round(b[0], 1), round(b[1], 1)]],
+        "transaction_id": transaction_id or f"opening-txn-{_next_label_id(labels_doc, 'tmp')}",
+    }
+    if width_mm is not None:
+        attrs["width_mm"] = width_mm
+    if swing is not None:
+        attrs["swing"] = swing
+    if swing_side is not None:
+        attrs["swing_side"] = swing_side
+    label = {
+        "id": _next_label_id(labels_doc, "opening"),
+        "type": "floorplan_opening",
+        "status": "readable",
+        "geometry": {"quad": quad},
+        "attributes": attrs,
+        "relations": [{"kind": "belongs_to", "other_id": parent_wall_id}],
+        "created_at": now,
+        "updated_at": now,
+    }
+    return label, _opening_local_qa({"labels": (labels_doc.get("labels") or []) + [label]}, label, expected_depth_px=half * 2.0)
+
+
 def _apply_opening_candidate_to_labels(
     labels_doc: dict[str, Any],
     candidate: dict[str, Any],
@@ -1369,6 +1504,307 @@ def decide_opening_candidate_route(key: str, file: str, candidate_id: str, body:
     except Exception as e:  # noqa: BLE001
         _plan_http_error(e)
     return {"ok": True, "data": data}
+
+
+@router.post("/datasets/{key}/{file}/opening-candidates/{candidate_id}/review", tags=["pdfs"])
+def review_opening_candidate_route(key: str, file: str, candidate_id: str, body: dict[str, Any] = Body(...)) -> dict:
+    """Unified candidate review flow.
+
+    `outcome=accepted_applied` persists the suggested opening and records the
+    decision. Reject/manual outcomes only write the plan-state decision.
+    """
+    outcome = str(body.get("outcome") or "")
+    if outcome == "accepted_applied":
+        return apply_opening_candidate_route(key, file, candidate_id, body)
+    return decide_opening_candidate_route(key, file, candidate_id, body)
+
+
+@router.post("/datasets/{key}/{file}/opening-candidates/review-batch", tags=["pdfs"])
+def review_opening_candidates_batch_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    reviews = body.get("reviews")
+    if not isinstance(reviews, list) or not reviews:
+        raise HTTPException(status_code=400, detail="reviews must be a non-empty list")
+    results = []
+    for review in reviews:
+        if not isinstance(review, dict):
+            results.append({"ok": False, "error": "review item must be an object"})
+            continue
+        candidate_id = str(review.get("candidate_id") or "")
+        if not candidate_id:
+            results.append({"ok": False, "error": "candidate_id is required"})
+            continue
+        try:
+            res = review_opening_candidate_route(key, file, candidate_id, {**body, **review})
+            results.append({
+                "ok": True,
+                "candidate_id": candidate_id,
+                "outcome": review.get("outcome"),
+                "data": res.get("data"),
+            })
+        except HTTPException as e:
+            results.append({"ok": False, "candidate_id": candidate_id, "status_code": e.status_code, "error": e.detail})
+        except Exception as e:  # noqa: BLE001
+            results.append({"ok": False, "candidate_id": candidate_id, "error": str(e)})
+    return {
+        "ok": True,
+        "data": {
+            "transaction_contract": "opening-candidate-review-batch/v1",
+            "count": len(results),
+            "applied": len([r for r in results if r.get("ok") and r.get("outcome") == "accepted_applied"]),
+            "failed": len([r for r in results if not r.get("ok")]),
+            "results": results,
+        },
+    }
+
+
+@router.post("/datasets/{key}/{file}/openings/on-wall", tags=["pdfs"])
+def upsert_opening_on_wall_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    labels_doc = get_labels("dataset", key, file)
+    try:
+        from .scene_plan_state import preflight_label_write
+        plan_preflight = preflight_label_write(
+            DATASET_DIR,
+            key,
+            file,
+            ["floorplan_opening"],
+            tool="upsert_opening_on_wall",
+            allow_override=bool(body.get("allow_plan_order_override", False)),
+            override_reason=body.get("override_reason"),
+        )
+        opening_kind = str(body.get("opening_kind") or "door")
+        if opening_kind not in {"door", "window", "passage", "garage_door", "other"}:
+            raise ValueError("opening_kind must be door, window, passage, garage_door, or other")
+        transaction_id = body.get("transaction_id") or f"opening-txn-{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d%H%M%S')}"
+        label, qa = _opening_label_from_wall_span(
+            labels_doc,
+            parent_wall_id=str(body.get("parent_wall_id") or ""),
+            span_start=body.get("span_start") or body.get("start"),
+            span_end=body.get("span_end") or body.get("end"),
+            opening_kind=opening_kind,
+            width_mm=body.get("width_mm"),
+            swing=body.get("swing"),
+            swing_side=body.get("swing_side"),
+            wall_half_width_px=float(body.get("wall_half_width_px") or 12.0),
+            transaction_id=transaction_id,
+        )
+        label.setdefault("attributes", {})["qa_status"] = "passed" if qa.get("ok") else "failed"
+        if not qa.get("ok") and not bool(body.get("persist_failed", False)):
+            return {
+                "ok": True,
+                "data": {
+                    "transaction_contract": "opening-on-wall/v1",
+                    "persisted": False,
+                    "label_preview": label,
+                    "local_qa": qa,
+                    "plan_preflight": plan_preflight,
+                },
+            }
+        new_doc = json.loads(json.dumps(labels_doc))
+        # Replace same id if caller supplied one, otherwise append.
+        if isinstance(body.get("label_id"), str) and body.get("label_id"):
+            label["id"] = body["label_id"]
+        replaced = False
+        for idx, existing in enumerate(new_doc.get("labels") or []):
+            if isinstance(existing, dict) and existing.get("id") == label.get("id"):
+                new_doc["labels"][idx] = label
+                replaced = True
+                break
+        if not replaced:
+            new_doc.setdefault("labels", []).append(label)
+        put_labels("dataset", key, file, new_doc)
+        qa = _opening_local_qa(new_doc, label, expected_depth_px=float(body.get("wall_half_width_px") or 12.0) * 2.0)
+        return {
+            "ok": True,
+            "data": {
+                "transaction_contract": "opening-on-wall/v1",
+                "persisted": True,
+                "label_id": label.get("id"),
+                "parent_wall_id": body.get("parent_wall_id"),
+                "local_qa": qa,
+                "plan_preflight": plan_preflight,
+            },
+        }
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+
+
+DIMENSION_SEMANTICS = {"building", "site_setback", "elevation_datum", "unknown"}
+CALIBRATION_ROLES = {"none", "building_metric", "site_metric", "transferred", "assumed_isotropic"}
+CONFIDENCE_VALUES = {"low", "medium", "high"}
+
+
+def _dimension_semantic(value: Any) -> str:
+    v = str(value or "unknown")
+    if v not in DIMENSION_SEMANTICS:
+        raise ValueError("dimension_semantic must be building, site_setback, elevation_datum, or unknown")
+    return v
+
+
+def _calibration_role(value: Any, *, is_reference: bool) -> str:
+    v = str(value or ("building_metric" if is_reference else "none"))
+    if v not in CALIBRATION_ROLES:
+        raise ValueError("calibration_role must be none, building_metric, site_metric, transferred, or assumed_isotropic")
+    return v
+
+
+@router.post("/datasets/{key}/{file}/dimension-chain-transaction", tags=["pdfs"])
+def dimension_chain_transaction_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    labels_doc = get_labels("dataset", key, file)
+    spans = body.get("spans")
+    if not isinstance(spans, list) or not spans:
+        raise HTTPException(status_code=400, detail="spans must be a non-empty list")
+    orientation = str(body.get("orientation") or "unknown")
+    if orientation not in {"horizontal", "vertical", "unknown"}:
+        raise HTTPException(status_code=400, detail="orientation must be horizontal, vertical, or unknown")
+    transaction_id = str(body.get("transaction_id") or f"dim-chain-{_dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d%H%M%S')}")
+    chain_id = str(body.get("chain_id") or "CHAIN-001")
+    now = _now_iso()
+    new_doc = json.loads(json.dumps(labels_doc))
+    written = []
+    values_sum = 0.0
+    for idx, span in enumerate(spans, start=1):
+        if not isinstance(span, dict):
+            raise HTTPException(status_code=400, detail="each span must be an object")
+        start = _point2(span.get("start"))
+        end = _point2(span.get("end"))
+        if start is None or end is None:
+            raise HTTPException(status_code=400, detail="span start/end must be [x,y]")
+        value_mm = span.get("value_mm")
+        if value_mm is not None:
+            value_mm = float(value_mm)
+            values_sum += value_mm
+        is_reference = bool(span.get("is_reference", body.get("is_reference", False)))
+        semantic = _dimension_semantic(span.get("dimension_semantic", body.get("dimension_semantic")))
+        role = _calibration_role(span.get("calibration_role", body.get("calibration_role")), is_reference=is_reference)
+        confidence = str(span.get("calibration_confidence", body.get("calibration_confidence", "medium")))
+        if confidence not in CONFIDENCE_VALUES:
+            raise HTTPException(status_code=400, detail="calibration_confidence must be low, medium, or high")
+        dim_id = str(span.get("dimension_id") or _next_label_id(new_doc, "dim"))
+        num_id = str(span.get("number_id") or _next_label_id(new_doc, "dimnum"))
+        station_ids = span.get("station_ids") or []
+        if not isinstance(station_ids, list):
+            station_ids = []
+        attrs = {
+            "value_mm": value_mm,
+            "target_orientation": orientation,
+            "is_reference": is_reference,
+            "dimension_semantic": semantic,
+            "calibration_role": role,
+            "calibration_confidence": confidence,
+            "transaction_id": transaction_id,
+            "span_id": str(span.get("span_id") or f"DSP-{idx:03d}"),
+            "chain_id": chain_id,
+            "station_ids": [str(s) for s in station_ids],
+        }
+        if span.get("reference_review"):
+            attrs["reference_review"] = str(span.get("reference_review"))
+        dim_label = {
+            "id": dim_id,
+            "type": "dimensioned_distance",
+            "status": "readable",
+            "geometry": {"start": [start[0], start[1]], "end": [end[0], end[1]]},
+            "attributes": attrs,
+            "created_at": now,
+            "updated_at": now,
+        }
+        anchor = span.get("number_anchor")
+        if _point2(anchor) is None:
+            anchor = [(start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0]
+        num_label = {
+            "id": num_id,
+            "type": "dimension_number",
+            "status": "readable",
+            "geometry": {"anchor": [float(anchor[0]), float(anchor[1])]},
+            "attributes": {
+                "text": str(span.get("dimension_text") or span.get("text") or ""),
+                "parsed_value_mm": value_mm,
+            },
+            "relations": [{"kind": "labels", "other_id": dim_id}],
+            "created_at": now,
+            "updated_at": now,
+        }
+        new_doc.setdefault("labels", []).extend([dim_label, num_label])
+        written.append({"span_id": attrs["span_id"], "dimension_id": dim_id, "number_id": num_id, "value_mm": value_mm, "is_reference": is_reference, "dimension_semantic": semantic, "calibration_role": role})
+    overall = body.get("overall_value_mm")
+    sum_check = None
+    if overall is not None:
+        overall = float(overall)
+        tolerance_mm = float(body.get("sum_tolerance_mm") or 10.0)
+        delta = values_sum - overall
+        sum_check = {
+            "ok": abs(delta) <= tolerance_mm,
+            "parts_sum_mm": round(values_sum, 2),
+            "overall_value_mm": overall,
+            "delta_mm": round(delta, 2),
+            "tolerance_mm": tolerance_mm,
+        }
+    put_labels("dataset", key, file, new_doc)
+    from .fact_derivation import compute_scene_calibration
+    calibration = compute_scene_calibration(new_doc.get("labels") or [])
+    return {
+        "ok": True,
+        "data": {
+            "transaction_contract": "dimension-chain-transaction/v1",
+            "transaction_id": transaction_id,
+            "chain_id": chain_id,
+            "persisted": True,
+            "written": written,
+            "sum_check": sum_check,
+            "calibration_after": calibration,
+        },
+    }
+
+
+@router.post("/datasets/{key}/{file}/reference-dim-review", tags=["pdfs"])
+def reference_dim_review_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    label_id = str(body.get("label_id") or "")
+    if not label_id:
+        raise HTTPException(status_code=400, detail="label_id is required")
+    labels_doc = get_labels("dataset", key, file)
+    new_doc = json.loads(json.dumps(labels_doc))
+    target = _label_by_id(new_doc, label_id)
+    if target is None or target.get("type") != "dimensioned_distance":
+        raise HTTPException(status_code=404, detail="dimensioned_distance label not found")
+    is_reference = bool(body.get("is_reference", True))
+    semantic = _dimension_semantic(body.get("dimension_semantic"))
+    role = _calibration_role(body.get("calibration_role"), is_reference=is_reference)
+    confidence = str(body.get("calibration_confidence") or "medium")
+    if confidence not in CONFIDENCE_VALUES:
+        raise HTTPException(status_code=400, detail="calibration_confidence must be low, medium, or high")
+    attrs = target.setdefault("attributes", {})
+    attrs["is_reference"] = is_reference
+    attrs["dimension_semantic"] = semantic
+    attrs["calibration_role"] = role
+    attrs["calibration_confidence"] = confidence
+    attrs["reference_review"] = str(body.get("review") or body.get("reference_review") or "")
+    attrs["reference_review_evidence_ids"] = [str(e) for e in (body.get("evidence_ids") or [])]
+    target["updated_at"] = _now_iso()
+    put_labels("dataset", key, file, new_doc)
+    from .fact_derivation import compute_scene_calibration
+    calibration = compute_scene_calibration(new_doc.get("labels") or [])
+    return {
+        "ok": True,
+        "data": {
+            "review_contract": "reference-dim-review/v1",
+            "label_id": label_id,
+            "dimension_semantic": semantic,
+            "calibration_role": role,
+            "calibration_confidence": confidence,
+            "calibration_after": calibration,
+        },
+    }
 
 
 @router.get("/datasets/{key}/{file}/building-silhouette", tags=["pdfs"])

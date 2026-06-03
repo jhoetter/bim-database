@@ -128,6 +128,7 @@ async def validate_export_readiness(key: str) -> dict:
     # single-ref isotropic (square-pixel) assumption — they count as
     # calibrated, but an honest export should record the assumption.
     assumed_isotropic_scenes = phases["W4"].get("assumed_isotropic_scenes") or []
+    approximate_calibrations = phases["W4"].get("approximate_calibrations") or []
 
     return _ok({
         "ready": honest_complete,
@@ -140,6 +141,7 @@ async def validate_export_readiness(key: str) -> dict:
         "labeled_scenes": sum(1 for d in drawings if d.get("labeled")),
         "calibration_assumptions": {
             "single_ref_assumed_isotropic": assumed_isotropic_scenes,
+            "approximate_calibrations": approximate_calibrations,
         },
     }, started_at=started, status_code=status)
 
@@ -203,5 +205,4 @@ async def export_house(
     if status >= 400:
         return _http_status_to_error(status, body, started)
     return _ok(body, started_at=started, status_code=status)
-
 

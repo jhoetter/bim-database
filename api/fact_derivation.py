@@ -212,6 +212,7 @@ def compute_scene_calibration(labels: list[dict]) -> dict | None:
     """
     h_calib: float | None = None
     v_calib: float | None = None
+    ref_meta: list[dict] = []
     for lab in labels:
         if lab.get("type") != "dimensioned_distance":
             continue
@@ -231,10 +232,35 @@ def compute_scene_calibration(labels: list[dict]) -> dict | None:
         if len_px < 1:
             continue
         px_per_mm = len_px / value_mm
+        meta = {
+            "label_id": lab.get("id"),
+            "orientation": orient,
+            "dimension_semantic": attrs.get("dimension_semantic") or "unknown",
+            "calibration_role": attrs.get("calibration_role") or "building_metric",
+            "calibration_confidence": attrs.get("calibration_confidence") or "medium",
+            "reference_reviewed": bool(attrs.get("reference_review")),
+        }
+        ref_meta.append(meta)
         if orient == "horizontal":
             h_calib = px_per_mm
         else:
             v_calib = px_per_mm
+    roles = {str(m.get("calibration_role") or "building_metric") for m in ref_meta}
+    semantics = {str(m.get("dimension_semantic") or "unknown") for m in ref_meta}
+
+    def _quality(single_ref: bool) -> dict:
+        approximate = bool(
+            {"site_metric", "transferred", "assumed_isotropic"} & roles
+            or {"site_setback", "unknown"} & semantics
+            or single_ref
+        )
+        return {
+            "calibration_quality": "approximate" if approximate else "building_metric",
+            "calibration_approximate": approximate,
+            "reference_dimensions": ref_meta,
+            "calibration_source_semantics": sorted(semantics),
+            "calibration_roles": sorted(roles),
+        }
     # Issue #26 honesty flag: with a reference dim on only ONE axis, the
     # other axis's scale is assumed equal under the square-pixel (isotropic)
     # assumption — valid for axis-aligned orthographic drawings (German
@@ -245,18 +271,21 @@ def compute_scene_calibration(labels: list[dict]) -> dict | None:
             "px_per_mm": (h_calib + v_calib) / 2.0,
             "computed_from": "M1-both",
             "single_ref_assumed_isotropic": False,
+            **_quality(False),
         }
     if h_calib is not None:
         return {
             "px_per_mm": h_calib,
             "computed_from": "M1-H-Bezug",
             "single_ref_assumed_isotropic": True,
+            **_quality(True),
         }
     if v_calib is not None:
         return {
             "px_per_mm": v_calib,
             "computed_from": "M1-V-Bezug",
             "single_ref_assumed_isotropic": True,
+            **_quality(True),
         }
     return None
 

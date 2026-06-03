@@ -476,6 +476,7 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
     cps = facts.get("calibration_per_scene") or {}
     w4_blockers: list[str] = []
     w4_assumed_isotropic: list[str] = []
+    w4_approximate_calibrations: list[dict[str, Any]] = []
     has_calibration_targets = False
     for d in drawings:
         f = d.get("file")
@@ -487,6 +488,13 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
                 w4_blockers.append(f"{f}: not calibrated")
             elif isinstance(calib, dict) and calib.get("single_ref_assumed_isotropic"):
                 w4_assumed_isotropic.append(f)
+            if isinstance(calib, dict) and calib.get("calibration_approximate"):
+                w4_approximate_calibrations.append({
+                    "file": f,
+                    "quality": calib.get("calibration_quality") or "approximate",
+                    "roles": calib.get("calibration_roles") or [],
+                    "semantics": calib.get("calibration_source_semantics") or [],
+                })
     w4_status = "done" if has_calibration_targets and not w4_blockers else "pending"
 
     # Wgeo (V5.1): every scene of a geometry-bearing type carries the
@@ -539,7 +547,8 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
         "W3": {"status": w3_status, "blockers": [] if w3_status == "done"
                else ([no_scenes_blocker] if not has_scenes else ["orientation not set"])},
         "W4": {"status": w4_status, "blockers": w4_blockers,
-               "assumed_isotropic_scenes": w4_assumed_isotropic},
+               "assumed_isotropic_scenes": w4_assumed_isotropic,
+               "approximate_calibrations": w4_approximate_calibrations},
         "Wgeo": {"status": wgeo_status, "blockers": [] if wgeo_status == "done"
                  else ([no_scenes_blocker] if not has_scenes else wgeo_blockers),
                  "groundfloor_blockers": wgeo_groundfloor_blockers},
@@ -1136,9 +1145,10 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
         "delete_label", "update_label_attrs", "set_label_status",
         "add_reference_dim", "dimension_chain_candidates", "dimension_chain_context",
-        "dimension_station_graph", "opening_candidates",
+        "dimension_station_graph", "dimension_chain_transaction", "reference_dim_review", "opening_candidates",
         "get_scene_view_with_opening_candidate",
-        "apply_opening_candidate", "decide_opening_candidate",
+        "apply_opening_candidate", "decide_opening_candidate", "review_opening_candidate",
+        "review_opening_candidates_batch", "upsert_opening_on_wall",
         "score_walls", "score_walls_structural", "score_measurements", "wall_topology_qa",
         "wall_continuity_check", "ambiguous_line_context", "propose_wall_edit",
         "upsert_rect_mass", "upsert_stepped_mass",

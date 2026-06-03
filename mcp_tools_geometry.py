@@ -755,6 +755,149 @@ async def decide_opening_candidate(
 
 
 @mcp.tool()
+async def review_opening_candidate(
+    key: str,
+    file: str,
+    candidate_id: str,
+    outcome: str,
+    expected_candidate_kind: str | None = None,
+    expected_candidate_fingerprint: str | None = None,
+    opening_kind: str | None = None,
+    width_mm: float | None = None,
+    swing: str | None = None,
+    swing_side: str | None = None,
+    evidence_ids: list[str] | None = None,
+    expected_version: str | None = None,
+    note: str | None = None,
+    response_mode: str = "compact",
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
+) -> dict:
+    """Review one opening candidate in a single result flow.
+
+    Use `outcome='accepted_applied'` to persist the suggested opening after
+    visual inspection. Use reject/manual outcomes to record the decision
+    without mutating labels.
+    """
+    started = time.time()
+    body = {
+        "outcome": outcome,
+        "expected_candidate_kind": expected_candidate_kind,
+        "expected_candidate_fingerprint": expected_candidate_fingerprint,
+        "opening_kind": opening_kind,
+        "width_mm": width_mm,
+        "swing": swing,
+        "swing_side": swing_side,
+        "evidence_ids": evidence_ids or [],
+        "expected_version": expected_version,
+        "note": note,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
+    }
+    status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/review", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    if outcome == "accepted_applied":
+        payload = data if response_mode == "full" else _compact_opening_candidate_apply(data)
+    else:
+        try:
+            payload = _response_mode_payload(data, response_mode=response_mode, action="review_opening_candidate")
+        except ValueError as e:
+            return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def review_opening_candidates_batch(
+    key: str,
+    file: str,
+    reviews: list[dict],
+    expected_version: str | None = None,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
+) -> dict:
+    """Review multiple opening candidates with per-candidate results.
+
+    Each review must include `candidate_id` and `outcome`. Accepted-applied
+    items persist openings; reject/manual items only record decisions.
+    """
+    started = time.time()
+    body = {
+        "reviews": reviews,
+        "expected_version": expected_version,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
+    }
+    status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/opening-candidates/review-batch", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_truncate_lists(data, {"results": 12}), started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def upsert_opening_on_wall(
+    key: str,
+    file: str,
+    parent_wall_id: str,
+    span_start: list[float],
+    span_end: list[float],
+    opening_kind: str = "door",
+    wall_half_width_px: float = 12.0,
+    width_mm: float | None = None,
+    swing: str | None = None,
+    swing_side: str | None = None,
+    label_id: str | None = None,
+    evidence_ids: list[str] | None = None,
+    transaction_id: str | None = None,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
+    persist_failed: bool = False,
+) -> dict:
+    """Create or replace an opening by deriving its quad from a parent wall.
+
+    The agent supplies the parent wall and span endpoints on that wall; the
+    server constructs the quad, attaches the relation, and returns local QA.
+    """
+    started = time.time()
+    preflight, preflight_err = await _preflight_label_write(
+        key,
+        file,
+        ["floorplan_opening"],
+        tool="upsert_opening_on_wall",
+        allow_override=allow_plan_order_override,
+        override_reason=override_reason,
+        started_at=started,
+    )
+    if preflight_err is not None:
+        return preflight_err
+    body = {
+        "parent_wall_id": parent_wall_id,
+        "span_start": span_start,
+        "span_end": span_end,
+        "opening_kind": opening_kind,
+        "wall_half_width_px": wall_half_width_px,
+        "width_mm": width_mm,
+        "swing": swing,
+        "swing_side": swing_side,
+        "label_id": label_id,
+        "evidence_ids": evidence_ids or [],
+        "transaction_id": transaction_id,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
+        "persist_failed": persist_failed,
+    }
+    status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/openings/on-wall", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    if isinstance(data, dict):
+        data["plan_preflight"] = data.get("plan_preflight") or preflight
+    return _ok(data, started_at=started, status_code=status)
+
+
+@mcp.tool()
 async def dimension_chain_context(
     key: str,
     file: str,
@@ -833,6 +976,82 @@ async def dimension_chain_context(
         status_code=img_status,
         image_delivery=image_delivery,
     )
+
+
+@mcp.tool()
+async def dimension_chain_transaction(
+    key: str,
+    file: str,
+    spans: list[dict],
+    orientation: str = "unknown",
+    chain_id: str = "CHAIN-001",
+    transaction_id: str | None = None,
+    dimension_semantic: str = "unknown",
+    calibration_role: str | None = None,
+    calibration_confidence: str = "medium",
+    is_reference: bool = False,
+    overall_value_mm: float | None = None,
+    sum_tolerance_mm: float = 10.0,
+) -> dict:
+    """Persist a reviewed dimension chain as distance+number label pairs.
+
+    Use after `dimension_station_graph`: the agent reads printed values from
+    the crop, maps them to reviewed spans, and this transaction writes labels
+    plus part-sum and calibration-provenance checks.
+    """
+    started = time.time()
+    body = {
+        "spans": spans,
+        "orientation": orientation,
+        "chain_id": chain_id,
+        "transaction_id": transaction_id,
+        "dimension_semantic": dimension_semantic,
+        "calibration_role": calibration_role,
+        "calibration_confidence": calibration_confidence,
+        "is_reference": is_reference,
+        "overall_value_mm": overall_value_mm,
+        "sum_tolerance_mm": sum_tolerance_mm,
+    }
+    status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/dimension-chain-transaction", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(_truncate_lists(data, {"written": 12}), started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def reference_dim_review(
+    key: str,
+    file: str,
+    label_id: str,
+    dimension_semantic: str,
+    calibration_role: str,
+    calibration_confidence: str = "medium",
+    review: str = "",
+    evidence_ids: list[str] | None = None,
+    is_reference: bool = True,
+) -> dict:
+    """Record why a reference dimension is valid for calibration.
+
+    This updates the dimensioned_distance with semantic type, calibration
+    role, confidence, and review evidence so site/transferred assumptions are
+    visible in readiness/export outputs.
+    """
+    started = time.time()
+    body = {
+        "label_id": label_id,
+        "dimension_semantic": dimension_semantic,
+        "calibration_role": calibration_role,
+        "calibration_confidence": calibration_confidence,
+        "review": review,
+        "evidence_ids": evidence_ids or [],
+        "is_reference": is_reference,
+    }
+    status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/reference-dim-review", body)
+    if status >= 400:
+        return _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    return _ok(data, started_at=started, status_code=status)
 
 
 @mcp.tool()

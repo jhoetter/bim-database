@@ -150,6 +150,122 @@ def test_dimension_station_graph_returns_spans_and_wall_anchor_context():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_upsert_opening_on_wall_derives_quad_and_returns_local_qa():
+    key = "house-zzopeningtxn"
+    file = f"{key}-scene.jpg"
+    root = _scene_root(key)
+    Image.new("RGB", (520, 240), "white").save(root / file)
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["image_size_px"] = [520, 240]
+    labels["labels"] = [{
+        "id": "wall-1",
+        "type": "wall",
+        "status": "readable",
+        "geometry": {"start": [40, 120], "end": [480, 120]},
+        "attributes": {"thickness_mm": 300},
+    }]
+    (root / "labels" / f"{Path(file).stem}.json").write_text(json.dumps(labels))
+    try:
+        client = TestClient(api_main.app)
+        r = client.post(
+            f"/datasets/{key}/{file}/openings/on-wall",
+            json={
+                "parent_wall_id": "wall-1",
+                "span_start": [180, 120],
+                "span_end": [245, 120],
+                "opening_kind": "door",
+                "wall_half_width_px": 10,
+                "allow_plan_order_override": True,
+                "override_reason": "transaction route test",
+            },
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["persisted"] is True
+        assert data["local_qa"]["ok"] is True
+        saved = client.get(f"/labels/dataset/{key}/{file}").json()
+        op = next(l for l in saved["labels"] if l["type"] == "floorplan_opening")
+        assert op["relations"] == [{"kind": "belongs_to", "other_id": "wall-1"}]
+        assert op["attributes"]["qa_status"] == "passed"
+        assert op["attributes"]["parent_wall_id"] == "wall-1"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_dimension_chain_transaction_writes_pairs_and_calibration_provenance():
+    key = "house-zzdimtxn"
+    file = f"{key}-scene.jpg"
+    root = _scene_root(key)
+    Image.new("RGB", (500, 300), "white").save(root / file)
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "ansicht"
+    labels["scene_orientation"] = "north"
+    labels["image_size_px"] = [500, 300]
+    (root / "labels" / f"{Path(file).stem}.json").write_text(json.dumps(labels))
+    try:
+        client = TestClient(api_main.app)
+        r = client.post(
+            f"/datasets/{key}/{file}/dimension-chain-transaction",
+            json={
+                "orientation": "horizontal",
+                "dimension_semantic": "site_setback",
+                "calibration_role": "site_metric",
+                "calibration_confidence": "medium",
+                "overall_value_mm": 6000,
+                "spans": [
+                    {
+                        "span_id": "DSP-001",
+                        "start": [50, 220],
+                        "end": [250, 220],
+                        "value_mm": 3000,
+                        "dimension_text": "3,00",
+                        "is_reference": True,
+                        "reference_review": "site line used only as approximate calibration",
+                    },
+                    {
+                        "span_id": "DSP-002",
+                        "start": [250, 220],
+                        "end": [450, 220],
+                        "value_mm": 3000,
+                        "dimension_text": "3,00",
+                    },
+                ],
+            },
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["sum_check"]["ok"] is True
+        assert len(data["written"]) == 2
+        cal = data["calibration_after"]
+        assert cal["calibration_approximate"] is True
+        assert cal["calibration_roles"] == ["site_metric"]
+        assert cal["calibration_source_semantics"] == ["site_setback"]
+        saved = client.get(f"/labels/dataset/{key}/{file}").json()
+        assert len([l for l in saved["labels"] if l["type"] == "dimensioned_distance"]) == 2
+        assert len([l for l in saved["labels"] if l["type"] == "dimension_number"]) == 2
+
+        dim_id = data["written"][1]["dimension_id"]
+        review = client.post(
+            f"/datasets/{key}/{file}/reference-dim-review",
+            json={
+                "label_id": dim_id,
+                "dimension_semantic": "building",
+                "calibration_role": "building_metric",
+                "calibration_confidence": "high",
+                "review": "reviewed against building facade dimension",
+                "evidence_ids": ["ev-1"],
+            },
+        )
+        assert review.status_code == 200, review.text
+        reviewed = review.json()["data"]
+        assert reviewed["calibration_role"] == "building_metric"
+        assert reviewed["calibration_after"]["calibration_roles"] == ["building_metric", "site_metric"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_view_geometry_candidates_route_returns_component_and_opening_priors():
     key = "house-zzviewcandidates"
     file = f"{key}-scene.jpg"
