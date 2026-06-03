@@ -621,6 +621,9 @@ def upsert_wall_anchored_route(
         "geometry": {"start": [refined_start[0], refined_start[1]], "end": [refined_end[0], refined_end[1]]},
         "attributes": attrs,
     }
+    for provenance_key in ("run_id", "agent_id", "subagent_id"):
+        if body.get(provenance_key) is not None:
+            label[provenance_key] = body.get(provenance_key)
     endpoint_reasons = candidate.get("endpoint_reasons")
     if isinstance(endpoint_reasons, dict):
         if endpoint_reasons.get("start"):

@@ -131,6 +131,9 @@
         "source": {"type": "string"},
         "relations": {"type": "array", "items": {"$ref": "#/$defs/Relation"}},
         "notes": {"type": "string"},
+        "run_id": {"type": ["string", "null"]},
+        "agent_id": {"type": ["string", "null"]},
+        "subagent_id": {"type": ["string", "null"]},
         "created_at": {"type": "string", "format": "date-time"},
         "updated_at": {"type": "string", "format": "date-time"}
       }

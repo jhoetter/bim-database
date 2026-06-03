@@ -503,6 +503,9 @@ def _compact_label_for_audit(label: dict) -> dict:
         "type": label.get("type"),
         "status": label.get("status") or "readable",
     }
+    for key_name in ("run_id", "agent_id", "subagent_id"):
+        if label.get(key_name) is not None:
+            out[key_name] = label.get(key_name)
     for key_name in (
         "mass_id",
         "transaction_id",

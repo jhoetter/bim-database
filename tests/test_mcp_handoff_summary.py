@@ -67,6 +67,9 @@ def test_inspect_agent_run_joins_scene_plan_labels_and_handoff(tmp_path: Path, m
                         "id": "W1",
                         "type": "wall",
                         "status": "uncertain",
+                        "run_id": "run-1",
+                        "agent_id": "orchestrator",
+                        "subagent_id": "eg-wall-worker",
                         "attributes": {
                             "quality_status": "centerline_plausible",
                             "confidence_reason": "faint_double_rail_centerline",
@@ -128,6 +131,7 @@ def test_inspect_agent_run_joins_scene_plan_labels_and_handoff(tmp_path: Path, m
     scene = data["scenes"][0]
     assert scene["quality_tier"] == "silver"
     assert scene["matching_labels"][0]["quality_status"] == "centerline_plausible"
+    assert scene["matching_labels"][0]["subagent_id"] == "eg-wall-worker"
     assert scene["matching_defects"][0]["id"] == "DEF-1"
     assert scene["recent_evidence"][0]["id"] == "EV-1"
     assert scene["recent_evidence"][0]["subagent_id"] == "eg-wall-worker"

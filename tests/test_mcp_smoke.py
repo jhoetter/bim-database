@@ -615,18 +615,30 @@ def test_upsert_label_round_trip():
         "geometry": {"start": [50, 50], "end": [150, 50]},
         "attributes": {"thickness_mm": 200},
         "notes": "smoke-test wall — safe to delete",
-    }))
+    }, run_id="label-run-1", agent_id="orchestrator", subagent_id="wall-worker"))
     assert r["ok"], r.get("error")
     lab_id = r["data"]["label_id"]
     # Read back
     g = _run(mcp_server.get_label(key=key, file=file, label_id=lab_id))
     assert g["ok"], g.get("error")
     assert g["data"]["type"] == "wall"
+    assert g["data"]["run_id"] == "label-run-1"
+    assert g["data"]["agent_id"] == "orchestrator"
+    assert g["data"]["subagent_id"] == "wall-worker"
     # Update
     u = _run(mcp_server.update_label_attrs(key=key, file=file,
                                             label_id=lab_id,
-                                            attrs_patch={"thickness_mm": 250}))
+                                            attrs_patch={"thickness_mm": 250},
+                                            run_id="label-run-2",
+                                            agent_id="reviewer",
+                                            subagent_id="qa-worker"))
     assert u["ok"], u.get("error")
+    g2 = _run(mcp_server.get_label(key=key, file=file, label_id=lab_id))
+    assert g2["ok"], g2.get("error")
+    assert g2["data"]["attributes"]["thickness_mm"] == 250
+    assert g2["data"]["run_id"] == "label-run-2"
+    assert g2["data"]["agent_id"] == "reviewer"
+    assert g2["data"]["subagent_id"] == "qa-worker"
     # Delete
     d = _run(mcp_server.delete_label(key=key, file=file, label_id=lab_id))
     assert d["ok"], d.get("error")

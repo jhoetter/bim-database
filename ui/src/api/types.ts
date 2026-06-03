@@ -25,6 +25,9 @@ interface LabelBase {
   source?: string;
   relations?: LabelRelation[];
   notes?: string;
+  run_id?: string | null;
+  agent_id?: string | null;
+  subagent_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }

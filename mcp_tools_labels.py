@@ -271,6 +271,9 @@ async def upsert_label(
     idempotency_key: str | None = None,
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
 ) -> dict:
     """Create or replace a label by id.
 
@@ -309,6 +312,8 @@ async def upsert_label(
                dimensioned_distance: {start: [x,y], end: [x,y]}
                dimension_number:     {anchor: [x,y]} XOR {bbox: [[x,y]*4]}
       idempotency_key: optional driver-supplied key.
+      run_id/agent_id/subagent_id: optional provenance stamped onto the
+             label transaction for later `inspect_agent_run` review.
 
     Returns: `data.label_id` = the (new or existing) label id.
     """
@@ -336,6 +341,12 @@ async def upsert_label(
     # Default required schema fields the agent often forgets.
     label.setdefault("status", "readable")
     label.setdefault("attributes", {})
+    if run_id is not None:
+        label["run_id"] = run_id
+    if agent_id is not None:
+        label["agent_id"] = agent_id
+    if subagent_id is not None:
+        label["subagent_id"] = subagent_id
     existing_idx = next((i for i, l in enumerate(labels) if l.get("id") == label_id), None)
     if existing_idx is not None:
         labels[existing_idx] = label
@@ -390,6 +401,9 @@ async def upsert_wall_anchored(
     idempotency_key: str | None = None,
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
 ) -> dict:
     """Create or replace a floorplan wall after snapping/refining it to ink.
 
@@ -407,6 +421,8 @@ async def upsert_wall_anchored(
       detail_mode: optional explicit detail-pencil mode:
               detail_refinement, mass_exception, or repair_candidate.
               When set, evidence_id and endpoint reasons are required.
+      run_id/agent_id/subagent_id: optional provenance stamped onto the
+              label transaction for later `inspect_agent_run` review.
     """
     started = time.time()
     if not isinstance(candidate, dict):
@@ -431,6 +447,9 @@ async def upsert_wall_anchored(
         "detail_mode": detail_mode,
         "allow_plan_order_override": allow_plan_order_override,
         "override_reason": override_reason,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
     }
     try:
         status, resp = await mcp_server._api_post(f"/datasets/{key}/{file}/wall-labels/anchored", body)
@@ -499,6 +518,9 @@ async def update_label_attrs(
     idempotency_key: str | None = None,
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
 ) -> dict:
     """Partial update on a label's `attributes` dict.
 
@@ -513,6 +535,8 @@ async def update_label_attrs(
     Args:
       attrs_patch: dict of attributes to merge in. Existing attributes
                    not mentioned are preserved.
+      run_id/agent_id/subagent_id: optional provenance stamped onto the
+                   label transaction for later `inspect_agent_run` review.
     """
     started = time.time()
     if not isinstance(attrs_patch, dict) or not attrs_patch:
@@ -537,6 +561,12 @@ async def update_label_attrs(
     if preflight_err is not None:
         return preflight_err
     target.setdefault("attributes", {}).update(attrs_patch)
+    if run_id is not None:
+        target["run_id"] = run_id
+    if agent_id is not None:
+        target["agent_id"] = agent_id
+    if subagent_id is not None:
+        target["subagent_id"] = subagent_id
     result = await _write_labels(key, file, payload, started)
     if result.get("ok"):
         result["data"]["plan_preflight"] = preflight

@@ -91,6 +91,9 @@ def test_upsert_wall_anchored_refines_and_persists_readable_wall():
             json={
                 "candidate": {"start": [50, 140], "end": [310, 140], "thickness_mm": 300},
                 "anchor": {"search_px": 70, "min_confidence": 0.6, "min_overlap": 0.6},
+                "run_id": "anchor-run-1",
+                "agent_id": "orchestrator",
+                "subagent_id": "anchored-wall-worker",
             },
         )
         assert r.status_code == 200, r.text
@@ -101,6 +104,9 @@ def test_upsert_wall_anchored_refines_and_persists_readable_wall():
         doc = client.get(f"/labels/dataset/{key}/{file}").json()
         wall = doc["labels"][0]
         assert wall["status"] == "readable"
+        assert wall["run_id"] == "anchor-run-1"
+        assert wall["agent_id"] == "orchestrator"
+        assert wall["subagent_id"] == "anchored-wall-worker"
         assert wall["attributes"]["quality_status"] == "ink_anchored"
         assert wall["attributes"]["anchoring"]["ink_overlap"] >= 0.6
     finally:
