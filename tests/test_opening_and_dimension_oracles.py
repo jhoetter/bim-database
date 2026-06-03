@@ -320,3 +320,31 @@ def test_labeled_render_accepts_opening_visibility_modes():
             assert r.headers["content-type"].startswith("image/png")
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_labeled_render_accepts_named_view_mode():
+    key = "house-zzviewmode"
+    file = f"{key}-scene.jpg"
+    root = _scene_root(key)
+    Image.new("RGB", (240, 180), "white").save(root / file)
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "grundriss"
+    labels["scene_level"] = "eg"
+    labels["image_size_px"] = [240, 180]
+    (root / "labels" / f"{Path(file).stem}.json").write_text(json.dumps(labels))
+    try:
+        client = TestClient(api_main.app)
+        r = client.get(
+            f"/datasets/{key}/{file}/grid-with-labels",
+            params={"view_mode": "topology_qa_view"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("image/png")
+
+        bad = client.get(
+            f"/datasets/{key}/{file}/grid-with-labels",
+            params={"view_mode": "not_a_mode"},
+        )
+        assert bad.status_code == 400
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

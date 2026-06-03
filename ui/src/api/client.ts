@@ -8,6 +8,7 @@ import type {
   LabelScope,
   SceneLabels,
   ScenePlan,
+  SceneWorkbenchState,
   DatasetHouse,
   IncomingPdf,
   IncomingSubmission,
@@ -316,6 +317,13 @@ export async function fetchScenePlan(key: string, file: string): Promise<ScenePl
     status: res.data.state?.status ?? res.data.status ?? null,
     template_version: res.data.state?.schema_version ?? res.data.template_version ?? 'scene-plan-state-v1',
   };
+}
+
+export async function fetchSceneWorkbenchState(key: string, file: string): Promise<SceneWorkbenchState> {
+  const res = await get<{ ok: boolean; data: SceneWorkbenchState }>(
+    `/datasets/${encodeURIComponent(key)}/${encodeURIComponent(file)}/plan-state/workbench`,
+  );
+  return res.data;
 }
 
 export async function createScenePlanFromTemplate(

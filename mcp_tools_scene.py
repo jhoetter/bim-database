@@ -46,6 +46,7 @@ async def get_scene_view(
     target: str | None = None,
     target_line: str = "none",
     background_opacity: float | None = None,
+    view_mode: str | None = None,
     image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """Scene image with the three-tier coordinate grid overlay.
@@ -107,6 +108,8 @@ async def get_scene_view(
         "tiers": tiers, "max_dim": max_dim, "format": format,
         "style": style, "target_line": target_line,
     }
+    if view_mode:
+        params["view_mode"] = view_mode
     if region:
         params["region"] = region
     if enhance:
@@ -162,6 +165,13 @@ async def get_scene_view(
             "target": target,
             "target_line": target_line,
             "background_opacity": background_opacity,
+            "view_mode": view_mode,
+            "active_layers": {
+                "source": True,
+                "grid": True,
+                "labels": False,
+                "relations": False,
+            },
         },
         started_at=started,
         status_code=status,
@@ -188,6 +198,7 @@ async def get_scene_view_with_labels(
     show_height_guides: str = "auto",
     show_openings: str = "full",
     include_hidden: bool = False,
+    view_mode: str | None = None,
     image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
@@ -283,6 +294,8 @@ async def get_scene_view_with_labels(
         "show_openings": show_openings,
         "include_hidden": include_hidden,
     }
+    if view_mode:
+        params["view_mode"] = view_mode
     if region:
         params["region"] = region
     if enhance:
@@ -341,6 +354,15 @@ async def get_scene_view_with_labels(
             "show_height_guides": show_height_guides,
             "show_openings": show_openings,
             "include_hidden": include_hidden,
+            "view_mode": view_mode,
+            "active_layers": {
+                "source": True,
+                "grid": not clean,
+                "labels": True,
+                "relations": show_relations != "none",
+                "height_guides": show_height_guides,
+                "openings": show_openings,
+            },
             "render_contract_version": "labeling-render-contract/2026-05-31",
             "hint": (
                 "Verify the rendered geometry lands on the intended feature. "
@@ -372,6 +394,7 @@ async def verify_label_placement(
     show_height_guides: str = "auto",
     show_openings: str = "full",
     include_hidden: bool = False,
+    view_mode: str | None = "edit_verify_view",
     image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
@@ -493,6 +516,7 @@ async def verify_label_placement(
         show_height_guides=show_height_guides,
         show_openings=show_openings,
         include_hidden=include_hidden,
+        view_mode=view_mode,
         image_delivery=image_delivery,
     )
 

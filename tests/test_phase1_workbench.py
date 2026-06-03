@@ -64,7 +64,11 @@ def test_workbench_state_is_compact_next_action_entrypoint() -> None:
             "opening_candidate_view",
             "edit_verify_view",
         }
-        assert data["labels_summary"] == {"total": 1, "by_type": {"wall": 1}}
+        assert data["labels_summary"]["total"] == 1
+        assert data["labels_summary"]["by_type"] == {"wall": 1}
+        assert data["labels_summary"]["mass_groups"] == []
+        assert data["semantic_exclusions_summary"]["available"] is True
+        assert "transaction_history" in data
         assert "allowed_tools" in data
         assert "required_evidence" in data
         assert "candidate_queue_summary" in data

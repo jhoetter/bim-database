@@ -75,6 +75,99 @@ NON_WALL_SEMANTIC_CLASSES = {
     "ignored_noise",
 }
 
+VIEW_MODE_PRESETS: dict[str, dict[str, Any]] = {
+    "analysis_view": {
+        "tiers": "broad",
+        "max_dim": 1600,
+        "style": "standard",
+        "background_opacity": 0.85,
+        "clean": True,
+        "contrast": "normal",
+        "show_relations": "none",
+        "show_openings": "outline",
+    },
+    "silhouette_view": {
+        "tiers": "broad,finer",
+        "max_dim": 1800,
+        "style": "standard",
+        "background_opacity": 0.9,
+        "clean": True,
+        "contrast": "high",
+        "show_relations": "none",
+        "show_openings": "hide",
+    },
+    "coordinate_pick_view": {
+        "tiers": "broad,finer,detail",
+        "max_dim": 1800,
+        "style": "coordinate_multicolor",
+        "background_opacity": 0.65,
+        "clean": False,
+        "contrast": "high",
+        "show_relations": "required",
+        "show_openings": "outline",
+    },
+    "edit_verify_view": {
+        "tiers": "finer,detail",
+        "max_dim": 1200,
+        "style": "qa",
+        "background_opacity": 0.25,
+        "clean": True,
+        "contrast": "high",
+        "show_relations": "required",
+        "show_openings": "outline",
+    },
+    "topology_qa_view": {
+        "tiers": "broad",
+        "max_dim": 1800,
+        "style": "semantic",
+        "background_opacity": 0.2,
+        "clean": True,
+        "contrast": "high",
+        "show_relations": "required",
+        "show_openings": "outline",
+    },
+    "measurement_read_view": {
+        "tiers": "finer,detail",
+        "max_dim": 1800,
+        "style": "coordinate_multicolor",
+        "background_opacity": 0.9,
+        "clean": False,
+        "contrast": "high",
+        "show_relations": "none",
+        "show_openings": "hide",
+        "enhance": "auto",
+    },
+    "opening_candidate_view": {
+        "tiers": "finer",
+        "max_dim": 1400,
+        "style": "ink_compare",
+        "background_opacity": 0.2,
+        "clean": True,
+        "contrast": "high",
+        "show_relations": "required",
+        "show_openings": "full",
+    },
+    "final_overlay_view": {
+        "tiers": "broad",
+        "max_dim": 1800,
+        "style": "semantic",
+        "background_opacity": 0.25,
+        "clean": True,
+        "contrast": "high",
+        "show_relations": "required",
+        "show_openings": "full",
+    },
+}
+
+
+def _view_mode_preset(view_mode: str | None) -> dict[str, Any]:
+    mode = (view_mode or "").strip()
+    if not mode:
+        return {}
+    if mode not in VIEW_MODE_PRESETS:
+        raise HTTPException(status_code=400, detail=f"view_mode must be one of {sorted(VIEW_MODE_PRESETS)}")
+    return dict(VIEW_MODE_PRESETS[mode])
+
 
 @router.get("/datasets/{key}/{file}/grid", tags=["pdfs"])
 def render_scene_grid(
@@ -89,6 +182,7 @@ def render_scene_grid(
     target: str | None = None,
     target_line: str | None = None,
     background_opacity: float | None = None,
+    view_mode: str | None = None,
 ) -> Response:
     """Agent vision aid: scene image + coordinate-anchored grid overlay.
 
@@ -118,6 +212,14 @@ def render_scene_grid(
     img_path = _scene_image_path("dataset", key, file)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    preset = _view_mode_preset(view_mode)
+    tiers = str(preset.get("tiers", tiers))
+    max_dim = int(preset.get("max_dim", max_dim))
+    enhance = preset.get("enhance", enhance)
+    format = str(preset.get("format", format)) if preset.get("format", format) is not None else None
+    style = str(preset.get("style", style)) if preset.get("style", style) is not None else None
+    if background_opacity is None and "background_opacity" in preset:
+        background_opacity = float(preset["background_opacity"])
     if not 100 <= max_dim <= 8000:
         raise HTTPException(status_code=400, detail="max_dim must be in [100, 8000]")
     parsed_tiers = _parse_tiers(tiers)
@@ -139,6 +241,7 @@ def render_scene_grid(
         f"-m{max_dim}"
         f"-e{parsed_enhance}"
         f"-s{parsed_style}"
+        f"-vm{view_mode or 'raw'}"
         f"-g{target or 'none'}"
         f"-gl{parsed_target_line}"
         f"-o{parsed_opacity:g}x{int(opacity_explicit)}"
@@ -1182,6 +1285,7 @@ def opening_candidate_overlay_route(
     candidate_id: str,
     max_dim: int = 1600,
     clean: bool = True,
+    view_mode: str | None = None,
 ):
     """Render current labels plus one opening candidate quad/axis."""
     _safe_key(key)
@@ -1190,6 +1294,9 @@ def opening_candidate_overlay_route(
     img_path = _scene_image_path("dataset", key, file)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    preset = _view_mode_preset(view_mode)
+    max_dim = int(preset.get("max_dim", max_dim))
+    clean = bool(preset.get("clean", clean))
     labels_doc = get_labels("dataset", key, file)
     try:
         candidate = _find_opening_candidate(labels_doc, img_path, candidate_id)
@@ -2094,6 +2201,7 @@ def render_scene_grid_with_labels(
     show_height_guides: str | None = None,
     show_openings: str | None = None,
     include_hidden: bool = False,
+    view_mode: str | None = None,
 ) -> Response:
     """H5-1 (followups-2): same as /grid but with the scene's CURRENTLY
     SAVED labels rendered on top. Used by `get_scene_view_with_labels`
@@ -2111,6 +2219,18 @@ def render_scene_grid_with_labels(
     img_path = _scene_image_path("dataset", key, file)
     if not img_path.exists():
         raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    preset = _view_mode_preset(view_mode)
+    tiers = str(preset.get("tiers", tiers))
+    max_dim = int(preset.get("max_dim", max_dim))
+    enhance = preset.get("enhance", enhance)
+    format = str(preset.get("format", format)) if preset.get("format", format) is not None else None
+    clean = bool(preset.get("clean", clean))
+    style = str(preset.get("style", style)) if preset.get("style", style) is not None else None
+    if background_opacity is None and "background_opacity" in preset:
+        background_opacity = float(preset["background_opacity"])
+    contrast = str(preset.get("contrast", contrast)) if preset.get("contrast", contrast) is not None else None
+    show_relations = str(preset.get("show_relations", show_relations)) if preset.get("show_relations", show_relations) is not None else None
+    show_openings = str(preset.get("show_openings", show_openings)) if preset.get("show_openings", show_openings) is not None else None
     if not 100 <= max_dim <= 8000:
         raise HTTPException(status_code=400, detail="max_dim must be in [100, 8000]")
     parsed_tiers = _parse_tiers(tiers)
@@ -2142,6 +2262,7 @@ def render_scene_grid_with_labels(
         f"-e{parsed_enhance}"
         f"-c{int(bool(clean))}"
         f"-s{parsed_style}"
+        f"-vm{view_mode or 'raw'}"
         f"-g{target or 'none'}"
         f"-gl{parsed_target_line}"
         f"-o{parsed_opacity:g}x{int(opacity_explicit)}"

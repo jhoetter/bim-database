@@ -597,6 +597,7 @@ async def get_scene_view_with_opening_candidate(
     candidate_id: str,
     max_dim: int = 1600,
     clean: bool = True,
+    view_mode: str | None = "opening_candidate_view",
     image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """Render current labels plus one proposed opening candidate.
@@ -615,7 +616,7 @@ async def get_scene_view_with_opening_candidate(
     started = time.time()
     status, content, ctype = await mcp_server._api_get_bytes(
         f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/overlay",
-        params={"max_dim": int(max_dim), "clean": bool(clean)},
+        params={"max_dim": int(max_dim), "clean": bool(clean), "view_mode": view_mode},
     )
     if status >= 400:
         try:
@@ -633,6 +634,7 @@ async def get_scene_view_with_opening_candidate(
             "image_format": "PNG",
             "max_dim": max_dim,
             "clean": clean,
+            "view_mode": view_mode,
             "render_contract_version": "opening-candidate-overlay/v1",
         },
         started_at=started,

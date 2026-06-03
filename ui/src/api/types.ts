@@ -32,7 +32,15 @@ interface LabelBase {
 export interface WallLabel extends LabelBase {
   type: 'wall';
   geometry: { start: Point; end: Point };
-  attributes: { thickness_mm?: number | null };
+  attributes: {
+    thickness_mm?: number | null;
+    mass_id?: string;
+    mass_kind?: 'main_house' | 'detached_garage' | 'projection' | 'wing' | 'other';
+    mass_tool?: string;
+    mass_edge_index?: number;
+    mass_edge_count?: number;
+    edge_confidence?: number;
+  };
 }
 
 export interface FloorplanOpeningLabel extends LabelBase {
@@ -43,6 +51,9 @@ export interface FloorplanOpeningLabel extends LabelBase {
     width_mm?: number | null;
     swing?: 'in' | 'out' | 'sliding' | 'none';
     swing_side?: 'left' | 'right' | 'none';
+    transaction_id?: string;
+    parent_wall_id?: string;
+    qa_status?: 'passed' | 'failed' | 'needs_review';
   };
 }
 export type ViewOpeningGeometry =
@@ -89,6 +100,12 @@ export interface DimensionedDistanceLabel extends LabelBase {
     value_mm?: number | null;
     target_orientation: 'horizontal' | 'vertical' | 'unknown' | `angle_deg:${string}`;
     is_reference: boolean;
+    dimension_semantic?: 'building' | 'site_setback' | 'elevation_datum' | 'unknown';
+    calibration_role?: 'none' | 'building_metric' | 'site_metric' | 'transferred' | 'assumed_isotropic';
+    calibration_confidence?: 'low' | 'medium' | 'high';
+    transaction_id?: string;
+    span_id?: string;
+    chain_id?: string;
   };
 }
 export interface DimensionNumberLabel extends LabelBase {
@@ -352,6 +369,76 @@ export interface CandidateQueue {
   candidates: CandidateQueueItem[];
   note?: string;
   params?: Record<string, unknown>;
+}
+
+export interface SceneWorkbenchState {
+  workbench_contract: string;
+  key: string;
+  file: string;
+  plan: {
+    exists?: boolean;
+    version?: string | null;
+    status?: string | null;
+    summary?: string;
+    terminal?: boolean;
+    required_complete?: boolean;
+    percent_complete?: number;
+    open_blockers?: number;
+    open_warnings?: number;
+    terminality_reasons?: string[];
+  };
+  current_task?: string | null;
+  phase?: string;
+  recommended_view_mode?: string;
+  recommended_region?: unknown;
+  next_action?: ScenePlanAction | null;
+  allowed_tools?: string[];
+  forbidden_writes?: string[];
+  required_evidence?: string[];
+  labels_summary?: {
+    total?: number;
+    by_type?: Record<string, number>;
+    mass_groups?: Array<{
+      mass_id: string;
+      mass_kind?: string;
+      mass_tool?: string;
+      wall_count?: number;
+      label_ids?: string[];
+      edge_confidence_min?: number | null;
+    }>;
+  };
+  blocker_summary?: {
+    open_blockers?: number;
+    open_warnings?: number;
+    reasons?: string[];
+  };
+  semantic_exclusions_summary?: {
+    available?: boolean;
+    count?: number;
+    regions?: Array<Record<string, unknown>>;
+    note?: string;
+  };
+  candidate_queue_summary?: {
+    included?: boolean;
+    reason?: string;
+    count?: number;
+    by_kind?: Record<string, number>;
+    by_confidence?: Record<string, number>;
+    candidates?: CandidateQueueItem[];
+    truncated?: boolean;
+  };
+  transaction_history?: Array<{
+    transaction_id: string;
+    label_types?: Record<string, number>;
+    label_ids?: string[];
+    label_count?: number;
+    tools?: string[];
+    qa_statuses?: string[];
+    evidence_id?: string;
+    summary?: string;
+  }>;
+  recent_evidence?: ScenePlanEvidence[];
+  quality?: Record<string, unknown>;
 }
 
 // Dataset (supervised-learning corpus) — drawings come from two sources:

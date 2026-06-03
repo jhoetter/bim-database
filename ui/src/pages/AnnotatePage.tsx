@@ -16,6 +16,7 @@ import {
   fetchDataset,
   fetchOpeningCandidates,
   fetchScenePlan,
+  fetchSceneWorkbenchState,
   fetchViewGeometryCandidates,
   saveLabels,
   useResource,
@@ -37,6 +38,7 @@ import type {
   ScenePlanAction,
   ScenePlanEvidence,
   ScenePlanState,
+  SceneWorkbenchState,
   SceneLevel,
   SceneOrientation,
   SceneTag,
@@ -110,6 +112,25 @@ const SNAP_SCREEN_RADIUS = 14;  // pixels of screen feel
 const UNDO_LIMIT = 200;
 const STANDARD_THICKNESS_MM = [115, 175, 240, 300, 365] as const;
 const TAGS: SceneTag[] = ['grundriss', 'ansicht', 'schnitt', 'sonstiges', 'nicht_klassifiziert'];
+type AgentViewMode =
+  | 'analysis_view'
+  | 'silhouette_view'
+  | 'coordinate_pick_view'
+  | 'edit_verify_view'
+  | 'topology_qa_view'
+  | 'measurement_read_view'
+  | 'opening_candidate_view'
+  | 'final_overlay_view';
+const AGENT_VIEW_MODES: AgentViewMode[] = [
+  'analysis_view',
+  'silhouette_view',
+  'coordinate_pick_view',
+  'edit_verify_view',
+  'topology_qa_view',
+  'measurement_read_view',
+  'opening_candidate_view',
+  'final_overlay_view',
+];
 
 type Tool =
   | 'select'
@@ -830,6 +851,13 @@ export function AnnotatePage() {
     try { return window.localStorage.getItem('bim-db:annotate:mcp-render') === 'true'; }
     catch { return false; }
   });
+  const [agentViewMode, setAgentViewMode] = useState<AgentViewMode>(() => {
+    try {
+      const raw = window.localStorage.getItem('bim-db:annotate:agent-view-mode') as AgentViewMode | null;
+      if (raw && AGENT_VIEW_MODES.includes(raw)) return raw;
+    } catch { /* no-op */ }
+    return 'final_overlay_view';
+  });
   // Grid overlay — same image the agent sees via the bim-database MCP
   // server's get_scene_view (image @ 0.5 opacity + 3-tier coordinate grid:
   // broad/finer/detail). Useful for sanity-checking what the agent
@@ -898,6 +926,10 @@ export function AnnotatePage() {
     try { window.localStorage.setItem('bim-db:annotate:mcp-render', String(showMcpRender)); }
     catch { /* no-op */ }
   }, [showMcpRender]);
+  useEffect(() => {
+    try { window.localStorage.setItem('bim-db:annotate:agent-view-mode', agentViewMode); }
+    catch { /* no-op */ }
+  }, [agentViewMode]);
   useEffect(() => {
     try { window.localStorage.setItem('bim-db:annotate:show-grid', String(showGrid)); }
     catch { /* no-op */ }
@@ -2807,7 +2839,12 @@ export function AnnotatePage() {
     + `&show_relations=required`
     + `&show_height_guides=auto`
     + `&include_hidden=false`
+    + `&view_mode=${encodeURIComponent(agentViewMode)}`
     + `&v=${encodeURIComponent(String(lastSavedAt ?? labels.length))}`;
+  const semanticExclusionRegions = useMemo(
+    () => collectSemanticExclusionRegions(scenePlan?.state ?? null),
+    [scenePlan?.state],
+  );
   const labelsWithoutPlan = labels.length > 0 && scenePlan?.exists === false;
   const createPlan = async () => {
     try {
@@ -2885,6 +2922,19 @@ export function AnnotatePage() {
           >
             Agent View
           </button>
+          {showMcpRender && (
+            <select
+              value={agentViewMode}
+              onChange={(e) => setAgentViewMode(e.target.value as AgentViewMode)}
+              className="h-7 rounded-md border border-zinc-300 bg-white px-2 text-[0.7rem] font-semibold text-zinc-700"
+              title="Agent View mode"
+              aria-label="Agent View mode"
+            >
+              {AGENT_VIEW_MODES.map((mode) => (
+                <option key={mode} value={mode}>{viewModeLabel(mode)}</option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             onClick={() => setPlanOpen((v) => !v)}
@@ -3327,6 +3377,9 @@ export function AnnotatePage() {
                 />
               )}
             </>
+          )}
+          {semanticExclusionRegions.length > 0 && (
+            <SemanticExclusionOverlay regions={semanticExclusionRegions} />
           )}
           {/* Implied height-bezugslinien — for every Höhenkote, draw a
               thin dashed horizontal line across the canvas at its
@@ -4980,6 +5033,10 @@ function ScenePlanPanel({
   const warnings = scenePlanWarnings(plan, labels);
   const state = plan?.state ?? null;
   const sceneTag = state?.scene_tag ?? plan?.state?.scene_tag;
+  const { data: workbench } = useResource<SceneWorkbenchState | null>(
+    () => exists ? fetchSceneWorkbenchState(sceneKey, file) : Promise.resolve(null),
+    [exists, sceneKey, file, plan?.version ?? null, labels.length],
+  );
   const { data: candidateQueue } = useResource<CandidateQueue | null>(
     () => {
       if (!exists) return Promise.resolve(null);
@@ -5116,6 +5173,80 @@ function ScenePlanPanel({
                   </div>
                 )}
               </section>
+
+              {workbench && (
+                <section className="rounded-md border border-zinc-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[0.72rem] uppercase tracking-wide font-semibold text-zinc-500">Workbench</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-950">
+                        {viewModeLabel(workbench.recommended_view_mode)} · {workbench.phase ?? 'analysis'}
+                      </div>
+                    </div>
+                    <span className="rounded-md border border-zinc-300 bg-zinc-50 px-2 py-0.5 font-mono text-[0.68rem] text-zinc-700">
+                      {workbench.current_task ?? 'no task'}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[0.72rem] text-zinc-700">
+                    <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
+                      <div className="text-zinc-500">Allowed tools</div>
+                      <div className="font-semibold text-zinc-900">{workbench.allowed_tools?.length ?? 0}</div>
+                    </div>
+                    <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
+                      <div className="text-zinc-500">Forbidden writes</div>
+                      <div className={(workbench.forbidden_writes?.length ?? 0) > 0 ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>
+                        {(workbench.forbidden_writes?.length ?? 0) || 'none'}
+                      </div>
+                    </div>
+                    <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
+                      <div className="text-zinc-500">Semantic exclusions</div>
+                      <div className="font-semibold text-zinc-900">{workbench.semantic_exclusions_summary?.count ?? 0}</div>
+                    </div>
+                    <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
+                      <div className="text-zinc-500">Candidate groups</div>
+                      <div className="font-mono text-zinc-900">
+                        {formatCounts(workbench.candidate_queue_summary?.by_kind)}
+                      </div>
+                    </div>
+                  </div>
+                  {(workbench.labels_summary?.mass_groups ?? []).length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-[0.7rem] uppercase tracking-wide font-semibold text-zinc-500 mb-1.5">Mass Groups</div>
+                      <div className="space-y-1">
+                        {(workbench.labels_summary?.mass_groups ?? []).slice(0, 5).map((g) => (
+                          <div key={g.mass_id} className="flex items-center justify-between gap-2 rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-[0.72rem]">
+                            <span className="truncate"><span className="font-semibold">{massKindLabel(g.mass_kind)}</span> <span className="font-mono text-zinc-600">{g.mass_id}</span></span>
+                            <span className="font-mono text-zinc-600">{g.wall_count ?? 0} walls</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(workbench.transaction_history ?? []).length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-[0.7rem] uppercase tracking-wide font-semibold text-zinc-500 mb-1.5">Transactions</div>
+                      <div className="space-y-1">
+                        {(workbench.transaction_history ?? []).slice(0, 6).map((tx) => (
+                          <div key={tx.transaction_id} className="rounded border border-zinc-200 bg-zinc-50 px-2 py-1 text-[0.72rem]">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono truncate text-zinc-800">{tx.transaction_id}</span>
+                              <span className={tx.qa_statuses?.includes('failed') ? 'font-semibold text-red-700' : 'font-semibold text-emerald-700'}>
+                                {tx.qa_statuses?.join(', ') || `${tx.label_count ?? 0} labels`}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 text-zinc-600">{formatCounts(tx.label_types)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(workbench.blocker_summary?.reasons ?? []).length > 0 && (
+                    <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-2 text-[0.72rem] text-amber-950">
+                      {(workbench.blocker_summary?.reasons ?? []).slice(0, 3).join('; ')}
+                    </div>
+                  )}
+                </section>
+              )}
 
               {candidateQueue && (
                 <section>
@@ -5412,6 +5543,95 @@ function formatCounts(counts: Record<string, number> | undefined): string {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`)
     .join(', ');
+}
+
+function viewModeLabel(mode: string | undefined): string {
+  switch (mode) {
+    case 'analysis_view': return 'Analysis view';
+    case 'silhouette_view': return 'Silhouette view';
+    case 'coordinate_pick_view': return 'Coordinate pick';
+    case 'edit_verify_view': return 'Edit verify';
+    case 'topology_qa_view': return 'Topology QA';
+    case 'measurement_read_view': return 'Measurement read';
+    case 'opening_candidate_view': return 'Opening review';
+    case 'final_overlay_view': return 'Final overlay';
+    default: return mode || 'Analysis view';
+  }
+}
+
+function massKindLabel(kind: string | undefined): string {
+  switch (kind) {
+    case 'main_house': return 'Main house';
+    case 'detached_garage': return 'Garage';
+    case 'projection': return 'Projection';
+    case 'wing': return 'Wing';
+    case 'other': return 'Other';
+    default: return kind || 'Mass';
+  }
+}
+
+type SemanticExclusionRegion = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  semanticClass: string;
+  evidenceId?: string;
+};
+
+function collectSemanticExclusionRegions(state: ScenePlanState | null): SemanticExclusionRegion[] {
+  const out: SemanticExclusionRegion[] = [];
+  for (const ev of state?.evidence ?? []) {
+    if (ev.kind !== 'semantic_ink_region') continue;
+    const result = ev.result ?? {};
+    const semanticClass = typeof result.semantic_class === 'string' ? result.semantic_class : 'unknown';
+    const region = Array.isArray(result.region) ? result.region : null;
+    if (!region || region.length < 4) continue;
+    const nums = region.slice(0, 4).map((v) => Number(v));
+    if (!nums.every(Number.isFinite)) continue;
+    const bboxFormat = typeof result.bbox_format === 'string' ? result.bbox_format : 'xywh';
+    const [a, b, c, d] = nums;
+    const rect = bboxFormat === 'xyxy'
+      ? { x: a, y: b, w: c - a, h: d - b }
+      : { x: a, y: b, w: c, h: d };
+    if (rect.w <= 0 || rect.h <= 0) continue;
+    out.push({ ...rect, semanticClass, evidenceId: ev.id });
+  }
+  return out;
+}
+
+function SemanticExclusionOverlay({ regions }: { regions: SemanticExclusionRegion[] }) {
+  return (
+    <g pointerEvents="none">
+      {regions.map((r, idx) => (
+        <g key={`${r.evidenceId ?? idx}-${r.x}-${r.y}`}>
+          <rect
+            x={r.x}
+            y={r.y}
+            width={r.w}
+            height={r.h}
+            fill="#f59e0b"
+            opacity={0.12}
+            stroke="#d97706"
+            strokeWidth={1}
+            strokeDasharray="8,4"
+          />
+          <text
+            x={r.x + 4}
+            y={Math.max(10, r.y + 14)}
+            fill="#92400e"
+            fontSize={11}
+            fontFamily="monospace"
+            paintOrder="stroke"
+            stroke="white"
+            strokeWidth={3}
+          >
+            {r.semanticClass}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
 }
 
 function formatScoreHistory(evidence: ScenePlanEvidence[] | undefined): string {
@@ -6797,6 +7017,17 @@ function labelSummary(l: Label): string {
   }
 }
 
+function labelWorkflowChips(l: Label): string[] {
+  const attrs = l.attributes as Record<string, unknown>;
+  const chips: string[] = [];
+  if (typeof attrs.mass_id === 'string') chips.push(`mass:${attrs.mass_id}`);
+  if (typeof attrs.transaction_id === 'string') chips.push(`txn:${attrs.transaction_id}`);
+  if (typeof attrs.qa_status === 'string') chips.push(`qa:${attrs.qa_status}`);
+  if (typeof attrs.dimension_semantic === 'string') chips.push(attrs.dimension_semantic);
+  if (typeof attrs.calibration_role === 'string' && attrs.calibration_role !== 'none') chips.push(attrs.calibration_role);
+  return chips;
+}
+
 // Sidebar Labels list — grouped by type, each section collapsible, with
 // per-label summary text instead of just "type". Replaces a flat list
 // that was useless when several labels of the same type existed.
@@ -6882,6 +7113,11 @@ function LabelsByType({
                       />
                       <span className="font-mono">{labelGlyph(l)}</span>{' '}
                       <span className="truncate">{labelSummary(l)}</span>
+                      {labelWorkflowChips(l).slice(0, 2).map((chip) => (
+                        <span key={chip} className="ml-1 rounded border border-zinc-200 bg-white px-1 py-px font-mono text-[0.58rem] text-zinc-500">
+                          {chip}
+                        </span>
+                      ))}
                     </button>
                     {/* W7 — eye-icon toggle. Hidden = label exists in JSON
                         but doesn't render on canvas. */}

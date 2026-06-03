@@ -429,6 +429,85 @@ def _label_type_counts(labels_doc: dict[str, Any]) -> dict[str, int]:
     return counts
 
 
+def _mass_group_summary(labels_doc: dict[str, Any]) -> list[dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    for lab in labels_doc.get("labels") or []:
+        if not isinstance(lab, dict) or lab.get("type") != "wall":
+            continue
+        attrs = lab.get("attributes") or {}
+        mass_id = attrs.get("mass_id")
+        if not mass_id:
+            continue
+        group = groups.setdefault(str(mass_id), {
+            "mass_id": str(mass_id),
+            "mass_kind": attrs.get("mass_kind") or "other",
+            "mass_tool": attrs.get("mass_tool"),
+            "wall_count": 0,
+            "label_ids": [],
+            "edge_confidence_min": None,
+        })
+        group["wall_count"] += 1
+        group["label_ids"].append(lab.get("id"))
+        conf = attrs.get("edge_confidence")
+        if isinstance(conf, (int, float)):
+            current = group.get("edge_confidence_min")
+            group["edge_confidence_min"] = conf if current is None else min(float(current), float(conf))
+    return sorted(groups.values(), key=lambda g: (str(g.get("mass_kind")), str(g.get("mass_id"))))
+
+
+def _transaction_summary(labels_doc: dict[str, Any], state: dict[str, Any]) -> list[dict[str, Any]]:
+    tx: dict[str, dict[str, Any]] = {}
+    for lab in labels_doc.get("labels") or []:
+        if not isinstance(lab, dict):
+            continue
+        attrs = lab.get("attributes") or {}
+        transaction_id = attrs.get("transaction_id") or attrs.get("mass_id")
+        if not transaction_id:
+            continue
+        row = tx.setdefault(str(transaction_id), {
+            "transaction_id": str(transaction_id),
+            "label_types": {},
+            "label_ids": [],
+            "tools": set(),
+            "qa_statuses": set(),
+        })
+        label_type = str(lab.get("type") or "unknown")
+        row["label_types"][label_type] = row["label_types"].get(label_type, 0) + 1
+        row["label_ids"].append(lab.get("id"))
+        for key in ("mass_tool",):
+            if attrs.get(key):
+                row["tools"].add(str(attrs[key]))
+        if attrs.get("qa_status"):
+            row["qa_statuses"].add(str(attrs["qa_status"]))
+    for ev in state.get("evidence") or []:
+        if not isinstance(ev, dict):
+            continue
+        result = ev.get("result") or {}
+        transaction_id = result.get("transaction_id") or (ev.get("params") or {}).get("transaction_id")
+        if not transaction_id:
+            continue
+        row = tx.setdefault(str(transaction_id), {
+            "transaction_id": str(transaction_id),
+            "label_types": {},
+            "label_ids": [],
+            "tools": set(),
+            "qa_statuses": set(),
+        })
+        if ev.get("tool"):
+            row["tools"].add(str(ev["tool"]))
+        row["evidence_id"] = ev.get("id")
+        row["summary"] = ev.get("summary")
+    out = []
+    for row in tx.values():
+        out.append({
+            **row,
+            "tools": sorted(row.get("tools") or []),
+            "qa_statuses": sorted(row.get("qa_statuses") or []),
+            "label_count": len(row.get("label_ids") or []),
+        })
+    return sorted(out, key=lambda r: str(r.get("transaction_id")))[:20]
+
+
 def _opening_candidate_summary(key: str, file: str, action: dict[str, Any] | None) -> dict[str, Any]:
     category = (action or {}).get("category")
     allowed = set((action or {}).get("allowed_tools") or [])
@@ -520,6 +599,7 @@ def get_scene_workbench_state_route(key: str, file: str) -> dict:
         "labels_summary": {
             "total": len(labels_doc.get("labels") or []),
             "by_type": _label_type_counts(labels_doc),
+            "mass_groups": _mass_group_summary(labels_doc),
         },
         "blocker_summary": {
             "open_blockers": status.get("open_blockers"),
@@ -527,10 +607,12 @@ def get_scene_workbench_state_route(key: str, file: str) -> dict:
             "reasons": status.get("terminality_reasons") or [],
         },
         "semantic_exclusions_summary": {
-            "available": False,
-            "note": "Phase 4 will add persistent semantic ink exclusions.",
+            "available": True,
+            "count": len(_semantic_exclusion_regions_for_plan(key, file)),
+            "regions": _semantic_exclusion_regions_for_plan(key, file)[:8],
         },
         "candidate_queue_summary": _opening_candidate_summary(key, file, action),
+        "transaction_history": _transaction_summary(labels_doc, state),
         "recent_evidence": recent_evidence,
         "quality": {
             "label_counts": current.get("label_counts") or {},
