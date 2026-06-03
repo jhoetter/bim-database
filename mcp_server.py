@@ -915,6 +915,7 @@ def _compact_plan_mutation_response(data: Any, *, action: str | None = None, max
         "label_counts": current.get("label_counts") or {},
         "open_blocker_count": len(blockers),
         "open_warning_count": len(warnings),
+        "terminal_warning_decisions": term.get("terminal_warning_decisions"),
         "open_blockers": [
             {
                 "id": d.get("id"),
@@ -1174,6 +1175,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "start_scene_plan_action",
         "record_scene_plan_attempt", "finish_scene_plan_action",
         "classify_plan_defect",
+        "batch_close_scene_plan_warnings",
         "add_scene_plan_evidence", "set_scene_plan_task_state",
         "evaluate_scene_plan_gates",
         "get_scene_view", "get_scene_view_with_labels", "verify_label_placement",
@@ -1203,6 +1205,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "start_scene_plan_action",
         "record_scene_plan_attempt", "finish_scene_plan_action",
         "set_scene_plan_task_state",
+        "batch_close_scene_plan_warnings",
         "get_scene_view", "get_scene_view_with_labels", "verify_label_placement",
         "view_geometry_candidates",
         "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
@@ -1218,6 +1221,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "get_scene_workbench_state",
         "set_scene_plan_task_state",
         "classify_plan_defect",
+        "batch_close_scene_plan_warnings",
         "get_scene_view_with_labels", "verify_label_placement",
         "score_walls", "score_measurements", "wall_topology_qa",
         "get_scene_repair_candidates", "get_scene_view_with_repair_candidate",

@@ -5196,6 +5196,7 @@ function ScenePlanPanel({
                       <span><span className="text-zinc-500">Quality</span> <span className="font-semibold">{terminality.quality_tier ?? state.current_state?.quality_tier ?? 'unknown'}</span></span>
                       <span><span className="text-zinc-500">State</span> <span className="font-semibold">{terminality.completion_state ?? state.current_state?.completion_state ?? 'unknown'}</span></span>
                       <span><span className="text-zinc-500">Debt</span> <span className="font-semibold">{terminality.review_debt ?? state.current_state?.review_debt ?? 0}</span></span>
+                      <span><span className="text-zinc-500">Reviewed warnings</span> <span className="font-semibold">{terminality.terminal_warning_decisions ?? 0}</span></span>
                       <span><span className="text-zinc-500">Complete</span> <span className="font-semibold">{terminality.percent_complete ?? 0}%</span></span>
                       <span><span className="text-zinc-500">Final QA</span> <span className={terminality.final_qa_allowed ? 'font-semibold text-emerald-700' : 'font-semibold text-red-700'}>{terminality.final_qa_allowed ? 'allowed' : 'blocked'}</span></span>
                     </div>

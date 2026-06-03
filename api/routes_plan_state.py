@@ -606,6 +606,7 @@ def get_scene_workbench_state_route(key: str, file: str) -> dict:
             "percent_complete": status.get("percent_complete"),
             "open_blockers": status.get("open_blockers"),
             "open_warnings": status.get("open_warnings"),
+            "terminal_warning_decisions": status.get("terminal_warning_decisions"),
             "terminality_reasons": status.get("terminality_reasons") or [],
         },
         "current_task": (action or {}).get("task_id"),
@@ -625,6 +626,7 @@ def get_scene_workbench_state_route(key: str, file: str) -> dict:
         "blocker_summary": {
             "open_blockers": status.get("open_blockers"),
             "open_warnings": status.get("open_warnings"),
+            "terminal_warning_decisions": status.get("terminal_warning_decisions"),
             "reasons": status.get("terminality_reasons") or [],
         },
         "semantic_exclusions_summary": {
@@ -713,6 +715,28 @@ def finish_scene_plan_action_route(key: str, file: str, action_id: str, body: di
             outcome=str(body.get("outcome") or ""),
             attempt_id=body.get("attempt_id"),
             evidence_ids=body.get("evidence_ids"),
+            reason=body.get("reason"),
+            expected_version=body.get("expected_version"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@router.post("/datasets/{key}/{file}/plan-state/defects/batch-close-warnings", tags=["dataset"])
+def batch_close_scene_plan_warnings_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import batch_close_warning_defects
+    try:
+        data = batch_close_warning_defects(
+            DATASET_DIR,
+            key,
+            file,
+            status=str(body.get("status") or ""),
+            evidence_ids=body.get("evidence_ids") or [],
+            category=body.get("category"),
+            defect_ids=body.get("defect_ids"),
+            classification=body.get("classification"),
             reason=body.get("reason"),
             expected_version=body.get("expected_version"),
         )

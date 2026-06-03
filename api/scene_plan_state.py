@@ -40,7 +40,17 @@ PLAN_STATUSES = {
     "verified",
     "accepted_incomplete",
 }
-DEFECT_STATUSES = {"open", "in_progress", "fixed", "rejected", "accepted_uncertain", "superseded"}
+DEFECT_TERMINAL_STATUSES = {
+    "fixed",
+    "rejected",
+    "rejected_false_positive",
+    "accepted_uncertain",
+    "accepted_risk",
+    "accepted_source_limited",
+    "superseded",
+}
+DEFECT_ACCEPTED_DEBT_STATUSES = {"accepted_uncertain", "accepted_risk", "accepted_source_limited"}
+DEFECT_STATUSES = {"open", "in_progress", *DEFECT_TERMINAL_STATUSES}
 DEFECT_SEVERITIES = {"blocker", "warning", "info"}
 EVIDENCE_KINDS = {
     "scene_view",
@@ -373,6 +383,34 @@ def _find_defect(state: dict[str, Any], defect_id: str) -> dict[str, Any]:
     raise KeyError(f"defect {defect_id!r} not found")
 
 
+def _validate_defect(target: dict[str, Any]) -> None:
+    if target.get("status") not in DEFECT_STATUSES:
+        raise ValueError(f"unknown defect status {target.get('status')!r}")
+    if target.get("severity") not in DEFECT_SEVERITIES:
+        raise ValueError(f"unknown defect severity {target.get('severity')!r}")
+    if target.get("status") in DEFECT_TERMINAL_STATUSES - {"superseded"} and not target.get("evidence_ids"):
+        raise ValueError(f"defect cannot be {target.get('status')} without evidence")
+    if (
+        target.get("status") in DEFECT_TERMINAL_STATUSES - {"superseded"}
+        and target.get("category") in {"wall_missing_region", "wall_off_ink"}
+        and not target.get("classification")
+    ):
+        raise ValueError("wall score defects must be classified before closure")
+
+
+def _defect_status_for_action_outcome(outcome: str) -> str | None:
+    return {
+        "fixed": "fixed",
+        "rejected": "rejected",
+        "rejected_false_positive": "rejected_false_positive",
+        "accepted_uncertain": "accepted_uncertain",
+        "accepted_risk": "accepted_risk",
+        "accepted_source_limited": "accepted_source_limited",
+        "still_open": "open",
+        "regressed": "open",
+    }.get(outcome)
+
+
 def add_evidence(
     dataset_root: Path,
     key: str,
@@ -477,18 +515,7 @@ def upsert_defect(
             "updated_at": now,
         }
         state.setdefault("defects", []).append(target)
-    if target["status"] not in DEFECT_STATUSES:
-        raise ValueError(f"unknown defect status {target['status']!r}")
-    if target["severity"] not in DEFECT_SEVERITIES:
-        raise ValueError(f"unknown defect severity {target['severity']!r}")
-    if target.get("status") in {"fixed", "rejected", "accepted_uncertain"} and not target.get("evidence_ids"):
-        raise ValueError(f"defect cannot be {target.get('status')} without evidence")
-    if (
-        target.get("status") in {"fixed", "rejected", "accepted_uncertain"}
-        and target.get("category") in {"wall_missing_region", "wall_off_ink"}
-        and not target.get("classification")
-    ):
-        raise ValueError("wall score defects must be classified before closure")
+    _validate_defect(target)
     return write_plan_state(dataset_root, state, expected_version=expected_version)
 
 
@@ -509,19 +536,66 @@ def update_defect(
     target = _find_defect(state, defect_id)
     target.update(patch)
     target["updated_at"] = _now_iso()
-    if target.get("status") not in DEFECT_STATUSES:
-        raise ValueError(f"unknown defect status {target.get('status')!r}")
-    if target.get("severity") not in DEFECT_SEVERITIES:
-        raise ValueError(f"unknown defect severity {target.get('severity')!r}")
-    if target.get("status") in {"fixed", "rejected", "accepted_uncertain"} and not target.get("evidence_ids"):
-        raise ValueError(f"defect cannot be {target.get('status')} without evidence")
-    if (
-        target.get("status") in {"fixed", "rejected", "accepted_uncertain"}
-        and target.get("category") in {"wall_missing_region", "wall_off_ink"}
-        and not target.get("classification")
-    ):
-        raise ValueError("wall score defects must be classified before closure")
+    _validate_defect(target)
     return write_plan_state(dataset_root, state, expected_version=expected_version)
+
+
+def batch_close_warning_defects(
+    dataset_root: Path,
+    key: str,
+    file: str,
+    *,
+    status: str,
+    evidence_ids: list[str],
+    category: str | None = None,
+    defect_ids: list[str] | None = None,
+    classification: str | None = None,
+    reason: str | None = None,
+    expected_version: str | None = None,
+) -> dict[str, Any]:
+    if status not in DEFECT_TERMINAL_STATUSES - {"superseded"}:
+        raise ValueError(f"status must be one of {sorted(DEFECT_TERMINAL_STATUSES - {'superseded'})}")
+    if not evidence_ids:
+        raise ValueError("batch warning closure requires shared evidence_ids")
+    state = _load_or_create(dataset_root, key, file)
+    if expected_version is not None:
+        current = read_plan_state(dataset_root, key, file)
+        if current["exists"] and current["version"] != expected_version:
+            raise PlanStateConflictError("plan state version conflict")
+    selected_ids = set(defect_ids or [])
+    now = _now_iso()
+    closed: list[str] = []
+    for defect in state.get("defects") or []:
+        if defect.get("status") not in {"open", "in_progress"}:
+            continue
+        if defect.get("severity") != "warning":
+            continue
+        if selected_ids and defect.get("id") not in selected_ids:
+            continue
+        if category and defect.get("category") != category:
+            continue
+        if classification:
+            if classification not in DEFECT_CLASSIFICATIONS:
+                raise ValueError(f"unknown defect classification {classification!r}")
+            defect["classification"] = classification
+        existing = defect.setdefault("evidence_ids", [])
+        for ev_id in evidence_ids:
+            if ev_id not in existing:
+                existing.append(ev_id)
+        defect["status"] = status
+        defect["terminal_reason"] = reason or ""
+        defect["updated_at"] = now
+        _validate_defect(defect)
+        closed.append(str(defect.get("id")))
+    state.setdefault("decision_log", []).append({
+        "time": now,
+        "mode": "verification",
+        "evidence_ids": evidence_ids,
+        "decision": f"Batch closed {len(closed)} warning defect(s) as {status}",
+        "result": reason or "",
+        "defect_ids": closed,
+    })
+    return {**write_plan_state(dataset_root, state, expected_version=expected_version), "closed_defect_ids": closed}
 
 
 DEFECT_CLASSIFICATIONS = {
@@ -847,7 +921,17 @@ def finish_action(
     reason: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
-    allowed = {"fixed", "still_open", "rejected", "accepted_uncertain", "regressed", "blocked_external"}
+    allowed = {
+        "fixed",
+        "still_open",
+        "rejected",
+        "rejected_false_positive",
+        "accepted_uncertain",
+        "accepted_risk",
+        "accepted_source_limited",
+        "regressed",
+        "blocked_external",
+    }
     if outcome not in allowed:
         raise ValueError(f"unknown action outcome {outcome!r}")
     state = _load_or_create(dataset_root, key, file)
@@ -863,6 +947,8 @@ def finish_action(
             "task actions cannot be accepted_uncertain; keep the task open, "
             "finish as blocked_external with a concrete blocker, or verify it with passing gates"
         )
+    if outcome in {"rejected_false_positive", "accepted_risk", "accepted_source_limited"} and action.get("kind") != "defect":
+        raise ValueError(f"{outcome} is only valid for defect actions")
     attempts = action.get("attempts") or []
     if outcome in {"still_open", "regressed"} and len(attempts) >= MAX_ACTION_ATTEMPTS:
         raise ValueError(
@@ -885,23 +971,13 @@ def finish_action(
             for ev_id in evidence_ids:
                 if ev_id not in existing:
                     existing.append(ev_id)
-        if outcome == "fixed":
-            defect["status"] = "fixed"
-        elif outcome == "rejected":
-            defect["status"] = "rejected"
-        elif outcome == "accepted_uncertain":
-            defect["status"] = "accepted_uncertain"
-        elif outcome in {"still_open", "regressed"}:
-            defect["status"] = "open"
+        status = _defect_status_for_action_outcome(outcome)
+        if status:
+            defect["status"] = status
         defect["updated_at"] = now
-        if defect.get("status") in {"fixed", "rejected", "accepted_uncertain"} and not defect.get("evidence_ids"):
-            raise ValueError(f"defect cannot be {defect.get('status')} without evidence")
-        if (
-            defect.get("status") in {"fixed", "rejected", "accepted_uncertain"}
-            and defect.get("category") in {"wall_missing_region", "wall_off_ink"}
-            and not defect.get("classification")
-        ):
-            raise ValueError("wall score defects must be classified before closure")
+        if outcome in {"rejected_false_positive", "accepted_risk", "accepted_source_limited"} and reason:
+            defect["terminal_reason"] = reason
+        _validate_defect(defect)
     if action.get("kind") == "task" and action.get("task_id"):
         task = _find_task(state, str(action["task_id"]))
         if evidence_ids:
@@ -1248,7 +1324,16 @@ def _quality_for_state(
     uncertain_by_type = label_quality.get("uncertain_by_type") if isinstance(label_quality.get("uncertain_by_type"), dict) else {}
     uncertain_reasons = label_quality.get("uncertain_reasons") if isinstance(label_quality.get("uncertain_reasons"), dict) else {}
     accepted_tasks = [t for t in tasks if isinstance(t, dict) and t.get("status") == "accepted_incomplete"]
-    accepted_uncertain_defects = [d for d in defects if isinstance(d, dict) and d.get("status") == "accepted_uncertain"]
+    accepted_uncertain_defects = [
+        d for d in defects
+        if isinstance(d, dict) and d.get("status") in DEFECT_ACCEPTED_DEBT_STATUSES
+    ]
+    terminal_warning_decisions = [
+        d for d in defects
+        if isinstance(d, dict)
+        and d.get("severity") == "warning"
+        and d.get("status") in DEFECT_TERMINAL_STATUSES
+    ]
     transferred_facts = current.get("transferred_facts") if isinstance(current.get("transferred_facts"), list) else []
     human_review_required = bool(
         blockers
@@ -1290,6 +1375,7 @@ def _quality_for_state(
         + not_readable_total * 3
         + len(accepted_tasks) * 8
         + len(accepted_uncertain_defects) * 5
+        + len([d for d in terminal_warning_decisions if d.get("status") in {"rejected_false_positive", "rejected"}])
         + len(transferred_facts) * 4
         + len(stale) * 5
     )
@@ -1300,7 +1386,7 @@ def _quality_for_state(
     if warnings:
         uncertainties.append(f"{len(warnings)} open warning defect(s)")
     if accepted_uncertain_defects:
-        uncertainties.append(f"{len(accepted_uncertain_defects)} accepted uncertain defect(s)")
+        uncertainties.append(f"{len(accepted_uncertain_defects)} accepted risk/source-limited defect(s)")
     if transferred_facts:
         uncertainties.append(f"{len(transferred_facts)} transferred calibration/fact item(s)")
 
@@ -1339,6 +1425,7 @@ def _quality_for_state(
             "transferred_facts": transferred_facts,
             "human_review_required": human_review_required,
             "review_debt": review_debt,
+            "terminal_warning_decisions": len(terminal_warning_decisions),
         },
     }
 
@@ -1356,6 +1443,12 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
     open_defects = _open_defects(state)
     blockers = [d for d in open_defects if d.get("severity") == "blocker"]
     warnings = [d for d in open_defects if d.get("severity") == "warning"]
+    terminal_warning_decisions = [
+        d for d in defects
+        if isinstance(d, dict)
+        and d.get("severity") == "warning"
+        and d.get("status") in DEFECT_TERMINAL_STATUSES
+    ]
     required = [t for t in tasks if t.get("required")]
     incomplete_required = [
         t for t in required
@@ -1423,6 +1516,7 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
         "percent_complete": int(round((closed / total) * 100)),
         "open_blockers": len(blockers),
         "open_warnings": len(warnings),
+        "terminal_warning_decisions": len(terminal_warning_decisions),
         "current_finding_count": int(current_findings.get("count") or 0) if isinstance(current_findings, dict) else 0,
         "current_warning_finding_count": int(current_findings.get("warnings") or 0) if isinstance(current_findings, dict) else 0,
         "current_blocker_finding_count": int(current_findings.get("blockers") or 0) if isinstance(current_findings, dict) else 0,
@@ -2756,6 +2850,12 @@ def render_markdown(state: dict[str, Any]) -> str:
     finding_clusters = current.get("finding_clusters") or {}
     final_qa = current.get("final_qa_summary") or ((current.get("terminality") or {}).get("final_qa_summary") or {})
     open_defects = _open_defects(state)
+    terminal_warning_defects = [
+        d for d in state.get("defects") or []
+        if isinstance(d, dict)
+        and d.get("severity") == "warning"
+        and d.get("status") in DEFECT_TERMINAL_STATUSES
+    ]
     actions = next_actions_from_state(state, limit=5)
 
     lines = [
@@ -2805,7 +2905,7 @@ def render_markdown(state: dict[str, Any]) -> str:
         lines.append("- No current finding clusters.")
     lines += [
         "",
-        "## 3. Open Defects / Action History",
+        "## 3. Current Unresolved Defects",
         "",
     ]
     if open_defects:
@@ -2818,13 +2918,23 @@ def render_markdown(state: dict[str, Any]) -> str:
             )
     else:
         lines.append("- No open defects.")
-    lines += ["", "## 4. Next Actions", ""]
+    lines += ["", "## 4. Historical Warning Decisions", ""]
+    if terminal_warning_defects:
+        lines += ["| ID | Status | Category | Classification | Reason | Title |", "|---|---|---|---|---|---|"]
+        for defect in sorted(terminal_warning_defects, key=lambda d: (d.get("updated_at") or "", d.get("id", "")), reverse=True)[:50]:
+            lines.append(
+                f"| {defect.get('id')} | {defect.get('status')} | {defect.get('category')} | "
+                f"{defect.get('classification') or ''} | {defect.get('terminal_reason') or ''} | {defect.get('title')} |"
+            )
+    else:
+        lines.append("- No reviewed warning history.")
+    lines += ["", "## 5. Next Actions", ""]
     if actions:
         for action in actions:
             lines.append(f"- **{action.get('id')}** ({action.get('kind')}): {action.get('instruction')}")
     else:
         lines.append("- No actionable tasks.")
-    lines += ["", "## 5. Task Board", ""]
+    lines += ["", "## 6. Task Board", ""]
     for task in state.get("tasks") or []:
         mark = {
             "todo": " ",
@@ -2839,7 +2949,7 @@ def render_markdown(state: dict[str, Any]) -> str:
         lines.append(f"- [{mark}] **{task.get('id')}** {task.get('title')} — `{task.get('status')}`; gates: {gate_summary}")
         if task.get("blocked_by"):
             lines.append(f"  - note: blocked by {', '.join(task.get('blocked_by') or [])}")
-    lines += ["", "## 6. Evidence", ""]
+    lines += ["", "## 7. Evidence", ""]
     evidence = state.get("evidence") or []
     if evidence:
         lines += ["| ID | Mode | Kind | Tool | Summary |", "|---|---|---|---|---|"]
@@ -2847,7 +2957,7 @@ def render_markdown(state: dict[str, Any]) -> str:
             lines.append(f"| {ev.get('id')} | {ev.get('mode')} | {ev.get('kind')} | `{ev.get('tool') or ''}` | {ev.get('summary') or ''} |")
     else:
         lines.append("- No evidence recorded.")
-    lines += ["", "## 7. Decision Log", ""]
+    lines += ["", "## 8. Decision Log", ""]
     log = state.get("decision_log") or []
     if log:
         lines += ["| Time | Mode | Evidence | Decision | Result |", "|---|---|---|---|---|"]
@@ -2856,7 +2966,7 @@ def render_markdown(state: dict[str, Any]) -> str:
             lines.append(f"| {row.get('time')} | {row.get('mode')} | {evidence} | {row.get('decision')} | {row.get('result')} |")
     else:
         lines.append("- No decisions logged.")
-    lines += ["", "## 8. Final Verification", ""]
+    lines += ["", "## 9. Final Verification", ""]
     if state.get("status") == "verified":
         lines.append("- Final QA verified by gates.")
     elif state.get("status") == "accepted_incomplete":

@@ -279,6 +279,7 @@ export interface ScenePlanTerminality {
   percent_complete?: number;
   open_blockers?: number;
   open_warnings?: number;
+  terminal_warning_decisions?: number;
   current_action_id?: string | null;
   final_qa_allowed?: boolean;
   stale_evidence?: string[];
@@ -408,6 +409,7 @@ export interface SceneWorkbenchState {
     percent_complete?: number;
     open_blockers?: number;
     open_warnings?: number;
+    terminal_warning_decisions?: number;
     terminality_reasons?: string[];
   };
   current_task?: string | null;
@@ -434,6 +436,7 @@ export interface SceneWorkbenchState {
   blocker_summary?: {
     open_blockers?: number;
     open_warnings?: number;
+    terminal_warning_decisions?: number;
     reasons?: string[];
   };
   semantic_exclusions_summary?: {

@@ -298,7 +298,9 @@ async def finish_scene_plan_action(
     DON'T USE when:
       - The edit has not been visually/algorithmically checked yet.
       Valid outcomes are `fixed`, `still_open`, `rejected`,
-      `accepted_uncertain`, `regressed`, and `blocked_external`.
+      `rejected_false_positive`, `accepted_uncertain`,
+      `accepted_risk`, `accepted_source_limited`, `regressed`, and
+      `blocked_external`.
       For task actions, `accepted_uncertain` is rejected by the API:
       keep working, finish as `blocked_external`, or verify with passing
       gates. Required tasks are complete only when `verified`.
@@ -320,6 +322,56 @@ async def finish_scene_plan_action(
     except ValueError as e:
         return _err("bad_response_mode", str(e), started_at=started, status_code=400)
     return _ok(payload, started_at=started, status_code=status)
+
+
+@mcp.tool()
+async def batch_close_scene_plan_warnings(
+    key: str,
+    file: str,
+    status: str,
+    evidence_ids: list[str],
+    category: str | None = None,
+    defect_ids: list[str] | None = None,
+    classification: str | None = None,
+    reason: str | None = None,
+    expected_version: str | None = None,
+    response_mode: str = "compact",
+) -> dict:
+    """Close a reviewed batch of warning defects with shared evidence.
+
+    USE when:
+      - Several warnings of the same class have been inspected together.
+      - The correct terminal outcome is shared, e.g.
+        `rejected_false_positive`, `accepted_risk`, or
+        `accepted_source_limited`.
+
+    DON'T USE when:
+      - Any selected item is a blocker or still unresolved. Work those as
+        focused defect actions.
+      - You do not have evidence for the shared decision.
+    """
+    started = time.time()
+    body = {
+        "status": status,
+        "evidence_ids": evidence_ids or [],
+        "category": category,
+        "defect_ids": defect_ids or [],
+        "classification": classification,
+        "reason": reason,
+        "expected_version": expected_version,
+    }
+    status_code, res = await mcp_server._api_post(
+        f"/datasets/{key}/{file}/plan-state/defects/batch-close-warnings",
+        body,
+    )
+    if status_code >= 400:
+        return _http_status_to_error(status_code, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="batch_close_warnings")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status_code)
 
 
 @mcp.tool()

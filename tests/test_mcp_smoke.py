@@ -1554,6 +1554,7 @@ def test_tool_descriptions_are_present():
         mcp_server.record_scene_plan_attempt,
         mcp_server.finish_scene_plan_action,
         mcp_server.classify_plan_defect,
+        mcp_server.batch_close_scene_plan_warnings,
         mcp_server.add_scene_plan_evidence,
         mcp_server.set_scene_plan_task_state,
         mcp_server.evaluate_scene_plan_gates,

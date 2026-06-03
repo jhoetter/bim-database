@@ -672,6 +672,84 @@ def test_scene_plan_attempt_retry_policy_requires_terminal_outcome(scene):
     assert defect["status"] == "accepted_uncertain"
 
 
+def test_scene_plan_warning_can_close_as_source_limited_without_remaining_open_warning(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "ansicht"}).status_code == 200
+    assert client.post(
+        f"/datasets/{key}/{file}/plan-state/defects",
+        json={
+            "title": "Plan order override reviewed",
+            "severity": "warning",
+            "category": "plan_order_override",
+            "description": "Legitimate historical override.",
+            "expected_resolution": "Close with evidence once reviewed.",
+        },
+    ).status_code == 200
+    action_id = client.get(f"/datasets/{key}/{file}/plan-state/next-action").json()["data"]["action"]["action_id"]
+    assert client.post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/start", json={}).status_code == 200
+    evidence = client.post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        json={"kind": "human_note", "mode": "verification", "summary": "Reviewed; source-limited but acceptable."},
+    )
+    assert evidence.status_code == 200
+    ev_id = evidence.json()["data"]["state"]["evidence"][-1]["id"]
+    finished = client.post(
+        f"/datasets/{key}/{file}/plan-state/actions/{action_id}/finish",
+        json={
+            "outcome": "accepted_source_limited",
+            "evidence_ids": [ev_id],
+            "reason": "Faint source, reviewed and accepted as source-limited.",
+        },
+    )
+    assert finished.status_code == 200, finished.text
+    defect = finished.json()["data"]["state"]["defects"][0]
+    assert defect["status"] == "accepted_source_limited"
+    assert defect["terminal_reason"].startswith("Faint source")
+
+    status = client.get(f"/datasets/{key}/{file}/plan-state/status").json()["data"]
+    assert status["open_warnings"] == 0
+    assert status["terminal_warning_decisions"] == 1
+    assert status["review_debt"] > 0
+
+
+def test_scene_plan_batch_closes_warning_class_with_shared_evidence(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "ansicht"}).status_code == 200
+    for idx in range(3):
+        assert client.post(
+            f"/datasets/{key}/{file}/plan-state/defects",
+            json={
+                "title": f"Override warning {idx}",
+                "severity": "warning",
+                "category": "plan_order_override",
+                "description": "Repeated reviewed warning.",
+                "expected_resolution": "Batch close after review.",
+            },
+        ).status_code == 200
+    evidence = client.post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        json={"kind": "human_note", "mode": "verification", "summary": "All overrides reviewed as false positives."},
+    )
+    assert evidence.status_code == 200
+    ev_id = evidence.json()["data"]["state"]["evidence"][-1]["id"]
+    closed = client.post(
+        f"/datasets/{key}/{file}/plan-state/defects/batch-close-warnings",
+        json={
+            "status": "rejected_false_positive",
+            "category": "plan_order_override",
+            "evidence_ids": [ev_id],
+            "reason": "Scene-specific template now permits this write class.",
+        },
+    )
+    assert closed.status_code == 200, closed.text
+    assert len(closed.json()["data"]["closed_defect_ids"]) == 3
+    status = client.get(f"/datasets/{key}/{file}/plan-state/status").json()["data"]
+    assert status["open_warnings"] == 0
+    assert status["terminal_warning_decisions"] == 3
+
+
 def test_scene_plan_reopen_task_invalidates_dependents(scene):
     key, file = scene
     client = TestClient(api_main.app)
