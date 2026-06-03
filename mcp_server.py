@@ -1035,6 +1035,36 @@ async def _current_action_write_warning(key: str, file: str, label_type: str) ->
     }
 
 
+async def _preflight_label_write(
+    key: str,
+    file: str,
+    label_types: list[str],
+    *,
+    tool: str,
+    allow_override: bool = False,
+    override_reason: str | None = None,
+    started_at: float | None = None,
+) -> tuple[dict | None, dict | None]:
+    """Return (preflight_data, error_envelope) for scene-plan write ordering."""
+    started = started_at or time.time()
+    body = {
+        "label_types": label_types,
+        "tool": tool,
+        "allow_override": allow_override,
+        "override_reason": override_reason,
+    }
+    try:
+        status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/preflight-label-write", body)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return None, _api_unreachable_error(started)
+        status, res = await _api_post(f"/datasets/{key}/{file}/plan-state/preflight-label-write", body)
+    if status >= 400:
+        return None, _http_status_to_error(status, res, started)
+    data = res.get("data") if isinstance(res, dict) else res
+    return data if isinstance(data, dict) else {"allowed": True}, None
+
+
 _VALID_LABEL_STATUS = {"readable", "not_readable", "missing", "uncertain"}
 
 

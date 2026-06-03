@@ -15,11 +15,11 @@ from mcp_server import (
     _VALID_ORIENTATIONS,
     _VALID_TAGS,
     _api_unreachable_error,
-    _current_action_write_warning,
     _err,
     _http_status_to_error,
     _new_label_id,
     _ok,
+    _preflight_label_write,
     _read_labels,
     _wait_for_api,
     _write_labels,
@@ -269,6 +269,8 @@ async def upsert_label(
     file: str,
     label: dict,
     idempotency_key: str | None = None,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Create or replace a label by id.
 
@@ -317,6 +319,17 @@ async def upsert_label(
     payload, err = await _read_labels(key, file, started)
     if err is not None:
         return err
+    preflight, preflight_err = await _preflight_label_write(
+        key,
+        file,
+        [str(label.get("type") or "")],
+        tool="upsert_label",
+        allow_override=allow_plan_order_override,
+        override_reason=override_reason,
+        started_at=started,
+    )
+    if preflight_err is not None:
+        return preflight_err
     labels = payload.setdefault("labels", [])
     label_id = label.get("id") or _new_label_id()
     label["id"] = label_id
@@ -335,9 +348,7 @@ async def upsert_label(
         return result
     result["data"]["label_id"] = label_id
     result["data"]["action"] = action
-    warning = await _current_action_write_warning(key, file, str(label.get("type") or ""))
-    if warning:
-        result["data"]["action_scope_warning"] = warning
+    result["data"]["plan_preflight"] = preflight
     if label.get("type") == "wall":
         try:
             status, body = await mcp_server._api_post(
@@ -376,6 +387,8 @@ async def upsert_wall_anchored(
     status_if_unanchored: str = "reject",
     evidence_id: str | None = None,
     idempotency_key: str | None = None,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Create or replace a floorplan wall after snapping/refining it to ink.
 
@@ -395,11 +408,24 @@ async def upsert_wall_anchored(
     if not isinstance(candidate, dict):
         return _err("schema_invalid", "candidate must be an object",
                     started_at=started)
+    preflight, preflight_err = await _preflight_label_write(
+        key,
+        file,
+        ["wall"],
+        tool="upsert_wall_anchored",
+        allow_override=allow_plan_order_override,
+        override_reason=override_reason,
+        started_at=started,
+    )
+    if preflight_err is not None:
+        return preflight_err
     body = {
         "candidate": candidate,
         "anchor": anchor or {},
         "status_if_unanchored": status_if_unanchored,
         "evidence_id": evidence_id,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
     }
     try:
         status, resp = await mcp_server._api_post(f"/datasets/{key}/{file}/wall-labels/anchored", body)
@@ -410,9 +436,8 @@ async def upsert_wall_anchored(
     if status >= 400:
         return _http_status_to_error(status, resp, started)
     data = (resp or {}).get("data") or resp
-    warning = await _current_action_write_warning(key, file, "wall")
-    if warning and isinstance(data, dict):
-        data["action_scope_warning"] = warning
+    if isinstance(data, dict):
+        data["plan_preflight"] = preflight
     return _ok(data, started_at=started, status_code=status)
 
 
@@ -422,6 +447,8 @@ async def delete_label(
     file: str,
     label_id: str,
     idempotency_key: str | None = None,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Delete a label by id.
 
@@ -440,7 +467,22 @@ async def delete_label(
     if len(payload["labels"]) == before:
         return _err("label_not_found", f"no label {label_id!r} on {file!r}",
                     started_at=started)
-    return await _write_labels(key, file, payload, started)
+    deleted = next((l for l in labels if l.get("id") == label_id), {})
+    preflight, preflight_err = await _preflight_label_write(
+        key,
+        file,
+        [str(deleted.get("type") or "")],
+        tool="delete_label",
+        allow_override=allow_plan_order_override,
+        override_reason=override_reason,
+        started_at=started,
+    )
+    if preflight_err is not None:
+        return preflight_err
+    result = await _write_labels(key, file, payload, started)
+    if result.get("ok"):
+        result["data"]["plan_preflight"] = preflight
+    return result
 
 
 @mcp.tool()
@@ -450,6 +492,8 @@ async def update_label_attrs(
     label_id: str,
     attrs_patch: dict,
     idempotency_key: str | None = None,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Partial update on a label's `attributes` dict.
 
@@ -476,8 +520,22 @@ async def update_label_attrs(
     if target is None:
         return _err("label_not_found", f"no label {label_id!r} on {file!r}",
                     started_at=started)
+    preflight, preflight_err = await _preflight_label_write(
+        key,
+        file,
+        [str(target.get("type") or "")],
+        tool="update_label_attrs",
+        allow_override=allow_plan_order_override,
+        override_reason=override_reason,
+        started_at=started,
+    )
+    if preflight_err is not None:
+        return preflight_err
     target.setdefault("attributes", {}).update(attrs_patch)
-    return await _write_labels(key, file, payload, started)
+    result = await _write_labels(key, file, payload, started)
+    if result.get("ok"):
+        result["data"]["plan_preflight"] = preflight
+    return result
 
 
 @mcp.tool()
@@ -487,6 +545,8 @@ async def set_label_status(
     label_id: str,
     status: str,
     idempotency_key: str | None = None,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Set the honesty axis on a label.
 
@@ -509,7 +569,20 @@ async def set_label_status(
     target = next((l for l in (payload.get("labels") or []) if l.get("id") == label_id), None)
     if target is None:
         return _err("label_not_found", f"no label {label_id!r}", started_at=started)
+    preflight, preflight_err = await _preflight_label_write(
+        key,
+        file,
+        [str(target.get("type") or "")],
+        tool="set_label_status",
+        allow_override=allow_plan_order_override,
+        override_reason=override_reason,
+        started_at=started,
+    )
+    if preflight_err is not None:
+        return preflight_err
     target["status"] = status
-    return await _write_labels(key, file, payload, started)
-
+    result = await _write_labels(key, file, payload, started)
+    if result.get("ok"):
+        result["data"]["plan_preflight"] = preflight
+    return result
 

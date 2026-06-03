@@ -505,6 +505,26 @@ def get_scene_workbench_state_route(key: str, file: str) -> dict:
     return {"ok": True, "data": data}
 
 
+@router.post("/datasets/{key}/{file}/plan-state/preflight-label-write", tags=["dataset"])
+def preflight_scene_plan_label_write_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    """Validate a pending label write against the active scene-plan action."""
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import preflight_label_write
+    try:
+        data = preflight_label_write(
+            DATASET_DIR,
+            key,
+            file,
+            body.get("label_types") or [],
+            tool=str(body.get("tool") or ""),
+            allow_override=bool(body.get("allow_override", False)),
+            override_reason=body.get("override_reason"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
 @router.post("/datasets/{key}/{file}/plan-state/actions/{action_id}/start", tags=["dataset"])
 def start_scene_plan_action_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(default={})) -> dict:
     _ensure_dataset_scene(key, file)

@@ -2054,6 +2054,10 @@ def next_actions_from_state(state: dict[str, Any], limit: int = 3) -> list[dict[
             "allowed_tools": _allowed_tools_for_defect(category),
             "required_evidence": _required_evidence_for_defect(category),
             "success_gates": _success_gates_for_defect(category),
+            "recommended_view_mode": _recommended_view_mode_for_action({
+                "phase": "analysis",
+                "category": defect.get("category"),
+            }),
             "instruction": defect.get("expected_resolution") or "Analyze, repair, verify, and update this defect.",
             "rejected_attempts": _rejected_attempts_for_action(state, action_id),
         })
@@ -2079,6 +2083,7 @@ def next_actions_from_state(state: dict[str, Any], limit: int = 3) -> list[dict[
                 "allowed_tools": _allowed_tools_for_task(task),
                 "required_evidence": _required_evidence_for_task(task),
                 "success_gates": [g.get("id") for g in task.get("gates") or []],
+                "recommended_view_mode": _recommended_view_mode_for_action(task),
                 "instruction": f"Work only on {task.get('id')}: {task.get('title')}. Produce analysis evidence, at most one edit, then verification evidence.",
                 "rejected_attempts": _rejected_attempts_for_action(state, action_id),
             })
@@ -2108,8 +2113,31 @@ def _defect_category_rank(category: str, title: str = "") -> int:
 def next_action(dataset_root: Path, key: str, file: str) -> dict[str, Any]:
     data = read_plan_state(dataset_root, key, file)
     state = data.get("state")
-    action = next_actions_from_state(state, limit=1)[0] if state and next_actions_from_state(state, limit=1) else None
+    actions = next_actions_from_state(state, limit=1) if state else []
+    action = actions[0] if actions else None
     return {"exists": data["exists"], "action": action, "version": data.get("version")}
+
+
+def _recommended_view_mode_for_action(action: dict[str, Any] | None) -> str:
+    if not action:
+        return "analysis_view"
+    phase = action.get("phase")
+    category = action.get("category")
+    if category == "openings":
+        return "opening_candidate_view" if phase == "editing" else "analysis_view"
+    if category == "dimensions":
+        return "measurement_read_view" if phase in {"analysis", "editing"} else "edit_verify_view"
+    if category == "walls":
+        if phase == "analysis":
+            return "silhouette_view"
+        if phase == "verification":
+            return "topology_qa_view"
+        return "coordinate_pick_view"
+    if phase == "verification":
+        return "topology_qa_view"
+    if phase == "editing":
+        return "coordinate_pick_view"
+    return "analysis_view"
 
 
 def _action_by_id(state: dict[str, Any], action_id: str) -> dict[str, Any] | None:
@@ -2181,6 +2209,154 @@ def _assert_attempt_allowed(action: dict[str, Any], edits: list[Any]) -> None:
         bad = sorted(concrete - allowed)
         if bad:
             raise ValueError(f"action_scope_violation: label type(s) {bad} not allowed for this action; allowed={sorted(allowed)}")
+
+
+_GEOMETRY_LABEL_TYPES = {
+    "wall",
+    "floorplan_opening",
+    "view_opening",
+    "dimensioned_distance",
+    "dimension_number",
+    "component_line",
+    "height_mark",
+}
+
+
+def _record_plan_order_override(
+    dataset_root: Path,
+    state: dict[str, Any],
+    *,
+    label_types: set[str],
+    tool: str,
+    reason: str,
+) -> None:
+    defects = state.setdefault("defects", [])
+    defect = {
+        "id": _next_id(defects, "D"),
+        "status": "open",
+        "severity": "warning",
+        "category": "plan_order_override",
+        "title": "Out-of-order label write override",
+        "description": reason,
+        "expected_resolution": "Review the override evidence, then either repair the ordering issue or accept the dependency risk explicitly.",
+        "region": None,
+        "evidence_ids": [],
+        "label_types": sorted(label_types),
+        "tool": tool,
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }
+    defects.append(defect)
+    write_plan_state(dataset_root, state)
+
+
+def _plan_order_error(
+    *,
+    reason: str,
+    state: dict[str, Any],
+    action: dict[str, Any] | None,
+    label_types: set[str],
+    tool: str,
+) -> ValueError:
+    action_id = (action or {}).get("action_id")
+    allowed = sorted((action or {}).get("allowed_label_types") or [])
+    forbidden = sorted((action or {}).get("forbidden_label_types") or [])
+    allowed_tools = sorted((action or {}).get("allowed_tools") or [])
+    current_action_id = ((state.get("current_state") or {}).get("current_action_id"))
+    return ValueError(
+        "code=plan_order_blocked; "
+        f"reason={reason}; "
+        f"tool={tool}; "
+        f"label_types={sorted(label_types)}; "
+        f"current_action_id={current_action_id}; "
+        f"recommended_action_id={action_id}; "
+        f"recommended_view_mode={(action or {}).get('recommended_view_mode')}; "
+        f"allowed_label_types={allowed}; "
+        f"forbidden_label_types={forbidden}; "
+        f"allowed_tools={allowed_tools}; "
+        "start the recommended action or pass allow_plan_order_override=true with evidence"
+    )
+
+
+def preflight_label_write(
+    dataset_root: Path,
+    key: str,
+    file: str,
+    label_types: list[str] | set[str],
+    *,
+    tool: str,
+    allow_override: bool = False,
+    override_reason: str | None = None,
+) -> dict[str, Any]:
+    """Enforce active scene-plan ordering for agent-facing label writes."""
+    requested = {str(t) for t in label_types if str(t) in _GEOMETRY_LABEL_TYPES}
+    if not requested:
+        return {"allowed": True, "reason": "no_geometry_label_types", "label_types": []}
+    plan = read_plan_state(dataset_root, key, file)
+    if not plan.get("exists"):
+        return {
+            "allowed": True,
+            "reason": "no_scene_plan",
+            "label_types": sorted(requested),
+            "tool": tool,
+        }
+    state = plan.get("state") or {}
+    current_action_id = ((state.get("current_state") or {}).get("current_action_id"))
+    source = "current_action" if current_action_id else "next_action"
+    action = _action_by_id(state, str(current_action_id)) if current_action_id else None
+    if action is None:
+        actions = next_actions_from_state(state, limit=1)
+        action = actions[0] if actions else None
+    if action is None:
+        reason = "scene plan has no active or recommended action for geometry writes"
+        if allow_override:
+            _record_plan_order_override(dataset_root, state, label_types=requested, tool=tool, reason=override_reason or reason)
+            return {"allowed": True, "override": True, "reason": reason, "label_types": sorted(requested), "tool": tool}
+        raise _plan_order_error(reason=reason, state=state, action=action, label_types=requested, tool=tool)
+
+    allowed = set(action.get("allowed_label_types") or [])
+    forbidden = set(action.get("forbidden_label_types") or [])
+    allowed_tools = set(action.get("allowed_tools") or [])
+    reasons: list[str] = []
+    if tool and allowed_tools and tool not in allowed_tools:
+        reasons.append(f"tool {tool!r} is not allowed for action {action.get('action_id')}")
+    if requested & forbidden:
+        reasons.append(f"label types {sorted(requested & forbidden)} are forbidden for action {action.get('action_id')}")
+    if not allowed:
+        reasons.append(f"action {action.get('action_id')} is evidence/verification only and allows no label writes")
+    elif requested - allowed:
+        reasons.append(f"label types {sorted(requested - allowed)} are outside allowed_label_types={sorted(allowed)}")
+
+    wall_anchoring = (state.get("current_state") or {}).get("wall_anchoring") or {}
+    if requested & {"floorplan_opening", "view_opening", "dimensioned_distance", "dimension_number"} and wall_anchoring.get("status") == "failed":
+        reasons.append("wall ink anchoring is failed; repair wall blockers before downstream opening/dimension writes")
+
+    if reasons:
+        reason = "; ".join(reasons)
+        if allow_override:
+            _record_plan_order_override(dataset_root, state, label_types=requested, tool=tool, reason=override_reason or reason)
+            return {
+                "allowed": True,
+                "override": True,
+                "reason": reason,
+                "source": source,
+                "action": action,
+                "label_types": sorted(requested),
+                "tool": tool,
+            }
+        raise _plan_order_error(reason=reason, state=state, action=action, label_types=requested, tool=tool)
+
+    return {
+        "allowed": True,
+        "source": source,
+        "action_id": action.get("action_id"),
+        "task_id": action.get("task_id"),
+        "recommended_view_mode": action.get("recommended_view_mode"),
+        "allowed_label_types": sorted(allowed),
+        "allowed_tools": sorted(allowed_tools),
+        "label_types": sorted(requested),
+        "tool": tool,
+    }
 
 
 def _rejected_attempts_for_action(state: dict[str, Any], action_id: str) -> list[dict[str, Any]]:
@@ -2264,6 +2440,8 @@ def _success_gates_for_defect(category: str) -> list[str]:
 
 
 def _allowed_label_types_for_task(task: dict[str, Any]) -> list[str]:
+    if task.get("phase") != "editing":
+        return []
     category = task.get("category")
     if category == "walls":
         return ["wall"]
@@ -2275,6 +2453,16 @@ def _allowed_label_types_for_task(task: dict[str, Any]) -> list[str]:
 
 
 def _forbidden_label_types_for_task(task: dict[str, Any]) -> list[str]:
+    if task.get("phase") in {"analysis", "verification"}:
+        return [
+            "wall",
+            "floorplan_opening",
+            "view_opening",
+            "dimensioned_distance",
+            "dimension_number",
+            "component_line",
+            "height_mark",
+        ]
     if task.get("category") == "walls":
         return ["floorplan_opening", "view_opening"]
     return []
@@ -2285,7 +2473,15 @@ def _allowed_tools_for_task(task: dict[str, Any]) -> list[str]:
     if phase == "analysis":
         return ["get_scene_view", "dimension_chain_context", "dimension_station_graph", "opening_candidates", "view_geometry_candidates", "add_scene_plan_evidence", "set_scene_plan_task_state"]
     if phase == "editing":
-        return ["get_scene_view", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "view_geometry_candidates", "resolve_scene_point", "upsert_label", "add_reference_dim", "add_scene_plan_evidence"]
+        category = task.get("category")
+        common = ["get_scene_view", "get_scene_view_with_labels", "resolve_scene_point", "add_scene_plan_evidence"]
+        if category == "walls":
+            return common + ["upsert_wall_anchored", "upsert_label", "delete_label", "score_walls"]
+        if category == "openings":
+            return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "upsert_label", "update_label_attrs", "verify_label_placement"]
+        if category == "dimensions":
+            return common + ["dimension_chain_context", "dimension_station_graph", "add_reference_dim", "upsert_label", "score_measurements"]
+        return common + ["upsert_label"]
     return ["get_scene_view_with_labels", "verify_label_placement", "score_walls", "score_measurements", "wall_topology_qa", "evaluate_scene_plan_gates"]
 
 

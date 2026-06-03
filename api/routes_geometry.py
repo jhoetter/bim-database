@@ -378,6 +378,19 @@ def upsert_wall_anchored_route(
     snap_corners = bool(anchor.get("snap_corners", False))
     status_if_unanchored = str(body.get("status_if_unanchored") or "reject")
     evidence_id = body.get("evidence_id")
+    try:
+        from .scene_plan_state import preflight_label_write
+        plan_preflight = preflight_label_write(
+            DATASET_DIR,
+            key,
+            file,
+            ["wall"],
+            tool="upsert_wall_anchored",
+            allow_override=bool(body.get("allow_plan_order_override", False)),
+            override_reason=body.get("override_reason"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
 
     from PIL import Image as PILImage
     from .wall_refine import refine_segment
@@ -474,6 +487,7 @@ def upsert_wall_anchored_route(
     put_labels("dataset", key, file, doc)
     data["label_id"] = label_id
     data["action"] = action
+    data["plan_preflight"] = plan_preflight
     return {"ok": True, "data": data}
 
 
@@ -891,6 +905,16 @@ def apply_opening_candidate_route(key: str, file: str, candidate_id: str, body: 
         raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
     labels_doc = get_labels("dataset", key, file)
     try:
+        from .scene_plan_state import preflight_label_write
+        plan_preflight = preflight_label_write(
+            DATASET_DIR,
+            key,
+            file,
+            ["floorplan_opening"],
+            tool="apply_opening_candidate",
+            allow_override=bool(body.get("allow_plan_order_override", False)),
+            override_reason=body.get("override_reason"),
+        )
         candidate = _find_opening_candidate(labels_doc, img_path, candidate_id)
         if body.get("expected_candidate_kind") and body.get("expected_candidate_kind") != candidate.get("kind"):
             raise ValueError("candidate kind changed; refresh opening candidates")
@@ -922,6 +946,7 @@ def apply_opening_candidate_route(key: str, file: str, candidate_id: str, body: 
             "label_id": label_id,
             "candidate": candidate,
             "decision": ((decision.get("state") or {}).get("current_state") or {}).get("opening_candidate_decisions", {}),
+            "plan_preflight": plan_preflight,
         }
     except Exception as e:  # noqa: BLE001
         _plan_http_error(e)
@@ -1177,6 +1202,19 @@ def propose_wall_edit_route(
         raise HTTPException(status_code=400, detail=f"bad candidate: {ex}")
     res["persisted"] = False
     if apply and res.get("applied"):
+        try:
+            from .scene_plan_state import preflight_label_write
+            res["plan_preflight"] = preflight_label_write(
+                DATASET_DIR,
+                key,
+                file,
+                ["wall"],
+                tool="propose_wall_edit",
+                allow_override=bool(body.get("allow_plan_order_override", False)),
+                override_reason=body.get("override_reason"),
+            )
+        except Exception as e:  # noqa: BLE001
+            _plan_http_error(e)
         non_walls = [l for l in (doc.get("labels") or []) if l.get("type") != "wall"]
         new_walls = [{
             "type": "wall",

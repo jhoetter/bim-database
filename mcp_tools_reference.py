@@ -15,6 +15,7 @@ from mcp_server import (
     _http_status_to_error,
     _new_label_id,
     _ok,
+    _preflight_label_write,
     _read_labels,
     _wait_for_api,
     _write_labels,
@@ -33,6 +34,8 @@ async def add_reference_dim(
     dimension_text: str | None = None,
     assume_isotropic: bool = False,
     idempotency_key: str | None = None,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Sugar tool: create a `dimensioned_distance` with `is_reference=true`
     AND a paired `dimension_number` at the midpoint.
@@ -128,6 +131,17 @@ async def add_reference_dim(
     payload, err = await _read_labels(key, file, started)
     if err is not None:
         return err
+    preflight, preflight_err = await _preflight_label_write(
+        key,
+        file,
+        ["dimensioned_distance", "dimension_number"],
+        tool="add_reference_dim",
+        allow_override=allow_plan_order_override,
+        override_reason=override_reason,
+        started_at=started,
+    )
+    if preflight_err is not None:
+        return preflight_err
     # G4-2 (followups-tracker): refuse endpoints outside image_size_px.
     # Catches the failure mode where the agent reads a building-scale
     # dim off the broad tier on a detail crop — endpoints land outside
@@ -218,6 +232,7 @@ async def add_reference_dim(
     result["data"]["dim_number_id"] = dim_number_id
     result["data"]["homography"] = homo.get("data") if homo.get("ok") else None
     result["data"]["homography_error"] = homo.get("error") if not homo.get("ok") else None
+    result["data"]["plan_preflight"] = preflight
     return result
 
 
@@ -296,5 +311,4 @@ async def recompute_homography(
                 retry=True,
                 details={"computed_from": body.get("computed_from")},
                 started_at=started)
-
 

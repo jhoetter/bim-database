@@ -438,7 +438,7 @@ def test_readiness_and_export_block_minimal_labels_with_draft_plan():
         "type": "wall",
         "geometry": {"start": [50, 50], "end": [350, 50]},
         "attributes": {"thickness_mm": 300},
-    }))
+    }, allow_plan_order_override=True, override_reason="readiness smoke intentionally creates draft-plan labels"))
     assert wall["ok"], wall.get("error")
     wall_id = wall["data"]["label_id"]
     opening = _run(mcp_server.upsert_label(key=key, file=file, label={
@@ -446,7 +446,7 @@ def test_readiness_and_export_block_minimal_labels_with_draft_plan():
         "geometry": {"quad": [[150, 40], [210, 40], [210, 60], [150, 60]]},
         "attributes": {"opening_kind": "window", "swing": "none", "swing_side": "none"},
         "relations": [{"kind": "belongs_to", "other_id": wall_id}],
-    }))
+    }, allow_plan_order_override=True, override_reason="readiness smoke intentionally creates draft-plan labels"))
     assert opening["ok"], opening.get("error")
     facts = _run(mcp_server.set_house_facts(key=key, patch={
         "heights": {"bezug_mm": 0, "first_mm": 8000},

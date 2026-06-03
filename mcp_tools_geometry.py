@@ -19,6 +19,7 @@ from mcp_server import (
     _http_status_to_error,
     _image_delivery_payload,
     _ok,
+    _preflight_label_write,
     _response_mode_payload,
     _truncate_lists,
     _wait_for_api,
@@ -585,6 +586,8 @@ async def apply_opening_candidate(
     expected_version: str | None = None,
     note: str | None = None,
     response_mode: str = "compact",
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Apply one reviewed deterministic floorplan opening candidate.
 
@@ -600,6 +603,17 @@ async def apply_opening_candidate(
         `decide_opening_candidate` with the appropriate outcome instead.
     """
     started = time.time()
+    preflight, preflight_err = await _preflight_label_write(
+        key,
+        file,
+        ["floorplan_opening"],
+        tool="apply_opening_candidate",
+        allow_override=allow_plan_order_override,
+        override_reason=override_reason,
+        started_at=started,
+    )
+    if preflight_err is not None:
+        return preflight_err
     body = {
         "expected_candidate_kind": expected_candidate_kind,
         "expected_candidate_fingerprint": expected_candidate_fingerprint,
@@ -610,6 +624,8 @@ async def apply_opening_candidate(
         "evidence_ids": evidence_ids or [],
         "expected_version": expected_version,
         "note": note,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
     }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/apply", body)
     if status >= 400:
@@ -619,6 +635,8 @@ async def apply_opening_candidate(
     if mode not in {"compact", "full"}:
         return _err("bad_response_mode", "response_mode must be compact or full", started_at=started, status_code=400)
     payload = data if mode == "full" else _compact_opening_candidate_apply(data)
+    if isinstance(payload, dict):
+        payload["plan_preflight"] = preflight
     return _ok(payload, started_at=started, status_code=status)
 
 

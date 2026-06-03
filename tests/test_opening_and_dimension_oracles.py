@@ -96,6 +96,8 @@ def test_opening_candidates_detect_wall_gap_and_overlay_renders():
                 "opening_kind": "door",
                 "note": "accepted in test",
                 "expected_candidate_fingerprint": gaps[0]["candidate_fingerprint"],
+                "allow_plan_order_override": True,
+                "override_reason": "oracle route test applies candidate outside the scene-plan workflow",
             },
         )
         assert apply.status_code == 200, apply.text
