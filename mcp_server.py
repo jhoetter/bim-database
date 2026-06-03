@@ -1166,6 +1166,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "create_scene_plan_state_from_template", "get_scene_plan_status",
         "get_scene_workbench_state",
         "get_workflow_state", "get_recommended_next_action", "write_handoff_summary",
+        "inspect_agent_run",
     },
     "floorplan": {
         "get_house_context_summary", "get_scene_context_summary",
@@ -1196,7 +1197,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "apply_repair_candidate", "decide_repair_candidate",
         "get_scene_plan_quality_report", "get_scene_topology_snapshot",
         "detect_wall_corners", "check_corner", "refine_wall", "connect_corners",
-        "get_workflow_state", "write_handoff_summary",
+        "get_workflow_state", "write_handoff_summary", "inspect_agent_run",
     },
     "elevation": {
         "get_house_context_summary", "get_scene_context_summary",
@@ -1215,7 +1216,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "delete_label", "update_label_attrs", "set_label_status",
         "add_reference_dim", "recompute_homography", "record_transferred_calibration",
         "add_scene_plan_evidence", "evaluate_scene_plan_gates",
-        "get_workflow_state", "write_handoff_summary",
+        "get_workflow_state", "write_handoff_summary", "inspect_agent_run",
     },
     "review": {
         "get_house_context_summary", "get_scene_context_summary",
@@ -1233,7 +1234,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "apply_repair_candidate", "decide_repair_candidate",
         "get_scene_plan_quality_report", "get_scene_topology_snapshot",
         "record_transferred_calibration",
-        "export_house", "dump_run_summary", "write_handoff_summary",
+        "export_house", "dump_run_summary", "write_handoff_summary", "inspect_agent_run",
     },
 }
 

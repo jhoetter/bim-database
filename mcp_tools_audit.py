@@ -402,3 +402,220 @@ async def write_handoff_summary(
         "bytes": json_path.stat().st_size,
         "summary": payload,
     }, started_at=started)
+
+
+@mcp.tool()
+async def inspect_agent_run(
+    key: str,
+    run_id: str | None = None,
+    file: str | None = None,
+    label_id: str | None = None,
+    defect_id: str | None = None,
+    max_items: int = 8,
+) -> dict:
+    """Compact joined audit report for one agent run / scene / label.
+
+    USE when:
+      - You need to answer "what did the agent/subagent do and why?"
+        without manually grepping Claude transcripts, MCP logs, labels,
+        plan JSON, and handoff files.
+      - You are reviewing a suspicious label/defect and need nearby
+        plan evidence plus durable handoff context.
+
+    Args:
+      key: house key.
+      run_id: optional tmp/agent-runs/<run_id> directory to include.
+      file: optional scene filename to narrow the report.
+      label_id: optional label id for a focused why-report.
+      defect_id: optional plan defect id for a focused why-report.
+      max_items: per-list cap; keeps the response bounded.
+
+    Returns: bounded report with scenes, recent evidence, matching labels /
+    defects, handoff summaries, and file paths for deeper inspection.
+    """
+    started = time.time()
+    max_items = max(1, min(int(max_items or 8), 25))
+    ds_status, ds_body = await mcp_server._api_get(f"/datasets/{key}")
+    if ds_status >= 400:
+        return _err("dataset_unavailable", f"dataset {key!r} could not be read", started_at=started)
+    drawings = [
+        d for d in (ds_body or {}).get("drawings") or []
+        if isinstance(d, dict) and d.get("file") and (file is None or d.get("file") == file)
+    ]
+    base = Path(mcp_server.__file__).parent
+    scenes: list[dict] = []
+    for drawing in drawings[:max_items]:
+        scene_file = str(drawing.get("file"))
+        label_status, labels_body = await mcp_server._api_get(f"/labels/dataset/{key}/{scene_file}")
+        plan_status, plan_body = await mcp_server._api_get(f"/datasets/{key}/{scene_file}/plan-state")
+        labels = (labels_body or {}).get("labels") if label_status == 200 and isinstance(labels_body, dict) else []
+        plan_state = ((plan_body or {}).get("data") or {}).get("state") if plan_status == 200 and isinstance(plan_body, dict) else {}
+        if not isinstance(plan_state, dict):
+            plan_state = {}
+        defects = [d for d in plan_state.get("defects") or [] if isinstance(d, dict)]
+        evidence = [ev for ev in plan_state.get("evidence") or [] if isinstance(ev, dict)]
+        matching_labels = [
+            _compact_label_for_audit(lab)
+            for lab in labels or []
+            if isinstance(lab, dict) and (label_id is None or lab.get("id") == label_id)
+        ][:max_items]
+        matching_defects = [
+            _compact_defect_for_audit(defect)
+            for defect in defects
+            if defect_id is None or defect.get("id") == defect_id
+        ][:max_items]
+        focus_terms = {term for term in (label_id, defect_id) if term}
+        related_evidence = _related_evidence_for_audit(evidence, matching_defects, focus_terms, max_items=max_items)
+        current_state = plan_state.get("current_state") if isinstance(plan_state.get("current_state"), dict) else {}
+        final_qa = current_state.get("final_qa_summary") if isinstance(current_state.get("final_qa_summary"), dict) else {}
+        scenes.append({
+            "file": scene_file,
+            "kind": drawing.get("kind"),
+            "title": drawing.get("title"),
+            "plan_status": plan_state.get("status") or ("missing" if plan_status == 404 else "unknown"),
+            "quality_tier": current_state.get("quality_tier") or final_qa.get("tier"),
+            "label_count": len(labels or []),
+            "uncertain_labels": sum(1 for lab in labels or [] if isinstance(lab, dict) and lab.get("status") == "uncertain"),
+            "open_defects": sum(1 for defect in defects if defect.get("status") in {"open", "in_progress"}),
+            "matching_labels": matching_labels,
+            "matching_defects": matching_defects,
+            "recent_evidence": related_evidence,
+            "handoffs": _load_handoff_summaries(base, key, run_id, scene_file, max_items=max_items),
+        })
+    return _ok({
+        "summary_contract": "agent-run-inspector/v1",
+        "key": key,
+        "run_id": run_id,
+        "file": file,
+        "label_id": label_id,
+        "defect_id": defect_id,
+        "scene_count": len(scenes),
+        "scenes": scenes,
+        "run_files": _run_files_for_audit(base, run_id, key, max_items=max_items),
+        "truncated": len(drawings) > max_items,
+    }, started_at=started)
+
+
+def _compact_label_for_audit(label: dict) -> dict:
+    attrs = label.get("attributes") if isinstance(label.get("attributes"), dict) else {}
+    out = {
+        "id": label.get("id"),
+        "type": label.get("type"),
+        "status": label.get("status") or "readable",
+    }
+    for key_name in (
+        "mass_id",
+        "transaction_id",
+        "confidence_reason",
+        "quality_status",
+        "quality_reason",
+        "review_required",
+    ):
+        if attrs.get(key_name) is not None:
+            out[key_name] = attrs.get(key_name)
+    return out
+
+
+def _compact_defect_for_audit(defect: dict) -> dict:
+    return {
+        "id": defect.get("id"),
+        "title": defect.get("title"),
+        "category": defect.get("category"),
+        "severity": defect.get("severity"),
+        "status": defect.get("status"),
+        "evidence_ids": defect.get("evidence_ids") or [],
+    }
+
+
+def _related_evidence_for_audit(
+    evidence: list[dict],
+    matching_defects: list[dict],
+    focus_terms: set[str],
+    *,
+    max_items: int,
+) -> list[dict]:
+    evidence_ids = {
+        str(ev_id)
+        for defect in matching_defects
+        for ev_id in defect.get("evidence_ids") or []
+    }
+    related: list[dict] = []
+    for ev in evidence:
+        haystack = json.dumps(ev, ensure_ascii=False, default=str)
+        if evidence_ids and ev.get("id") in evidence_ids:
+            include = True
+        elif focus_terms:
+            include = any(term in haystack for term in focus_terms)
+        else:
+            include = True
+        if not include:
+            continue
+        related.append({
+            "id": ev.get("id"),
+            "kind": ev.get("kind"),
+            "mode": ev.get("mode"),
+            "tool": ev.get("tool"),
+            "summary": str(ev.get("summary") or "")[:240],
+            "created_at": ev.get("created_at"),
+        })
+    return related[-max_items:]
+
+
+def _load_handoff_summaries(base: Path, key: str, run_id: str | None, scene_file: str, *, max_items: int) -> list[dict]:
+    runs_root = base / "tmp" / "agent-runs"
+    if run_id:
+        run_slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", run_id).strip("-") or "run"
+        handoff_roots = [runs_root / run_slug / "handoffs"]
+    elif runs_root.exists():
+        handoff_roots = sorted((p / "handoffs") for p in runs_root.iterdir() if p.is_dir())
+    else:
+        handoff_roots = []
+    out: list[dict] = []
+    for root in handoff_roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                payload = json.loads(path.read_text(errors="ignore"))
+            except json.JSONDecodeError:
+                continue
+            if payload.get("key") != key:
+                continue
+            if payload.get("file") not in {scene_file, None, ""} and scene_file not in path.name:
+                continue
+            out.append({
+                "path": str(path.relative_to(base)),
+                "status": payload.get("status"),
+                "phase": payload.get("phase"),
+                "quality": payload.get("quality") or {},
+                "next_action": payload.get("next_action"),
+                "evidence_refs": (payload.get("evidence_refs") or [])[:max_items],
+                "written_at": payload.get("written_at"),
+            })
+            if len(out) >= max_items:
+                return out
+    return out
+
+
+def _run_files_for_audit(base: Path, run_id: str | None, key: str, *, max_items: int) -> list[str]:
+    runs_root = base / "tmp" / "agent-runs"
+    if run_id:
+        run_slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", run_id).strip("-") or "run"
+        roots = [runs_root / run_slug]
+    elif runs_root.exists():
+        roots = sorted((p for p in runs_root.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime, reverse=True)
+    else:
+        roots = []
+    files: list[str] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if not path.is_file():
+                continue
+            if key not in path.name and path.suffix not in {".json", ".md"}:
+                continue
+            files.append(str(path.relative_to(base)))
+            if len(files) >= max_items:
+                return files
+    return files
