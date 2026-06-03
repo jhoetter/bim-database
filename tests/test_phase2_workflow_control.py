@@ -30,10 +30,32 @@ def _seed_floorplan(key: str) -> tuple[Path, str]:
     return root, file
 
 
+def _seed_elevation(key: str) -> tuple[Path, str]:
+    file = f"{key}-east.png"
+    root = api_main.DATASET_DIR / key
+    shutil.rmtree(root, ignore_errors=True)
+    (root / "labels").mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (320, 220), "white").save(root / file)
+    labels = api_main._label_skeleton("dataset", key, file)
+    labels["scene_tag"] = "ansicht"
+    labels["scene_orientation"] = "east"
+    labels["image_size_px"] = [320, 220]
+    (root / "labels" / f"{Path(file).stem}.json").write_text(json.dumps(labels))
+    return root, file
+
+
 def _create_plan(client: TestClient, key: str, file: str) -> None:
     created = client.post(
         f"/datasets/{key}/{file}/plan-state/template",
         json={"scene_tag": "grundriss", "level_or_orientation": "eg"},
+    )
+    assert created.status_code == 200, created.text
+
+
+def _create_elevation_plan(client: TestClient, key: str, file: str) -> None:
+    created = client.post(
+        f"/datasets/{key}/{file}/plan-state/template",
+        json={"scene_tag": "ansicht", "level_or_orientation": "east"},
     )
     assert created.status_code == 200, created.text
 
@@ -66,6 +88,59 @@ def test_next_action_exposes_view_mode_and_readonly_analysis_policy() -> None:
         assert action["allowed_tools"]
         assert action["allowed_label_types"] == []
         assert "wall" in action["forbidden_label_types"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_elevation_plan_allows_scene_specific_label_writes_without_override() -> None:
+    key = "house-zzphase2-elevation-policy"
+    root, file = _seed_elevation(key)
+    try:
+        client = TestClient(api_main.app)
+        _create_elevation_plan(client, key, file)
+        _force_task_status(key, file, "CLASSIFY_SCENE")
+
+        next_action = client.get(f"/datasets/{key}/{file}/plan-state/next-action").json()["data"]["action"]
+        assert next_action["task_id"] == "READ_HEIGHTS"
+        assert "height_mark" in next_action["allowed_label_types"]
+        assert next_action["recommended_view_mode"] == "measurement_read_view"
+
+        height_ok = client.post(
+            f"/datasets/{key}/{file}/plan-state/preflight-label-write",
+            json={"label_types": ["height_mark"], "tool": "upsert_label"},
+        )
+        assert height_ok.status_code == 200, height_ok.text
+        assert height_ok.json()["data"].get("override") is not True
+
+        _force_task_status(key, file, "READ_HEIGHTS")
+        component_action = client.get(f"/datasets/{key}/{file}/plan-state/next-action").json()["data"]["action"]
+        assert component_action["task_id"] == "TRACE_COMPONENTS"
+        assert component_action["allowed_label_types"] == ["component_line"]
+
+        component_ok = client.post(
+            f"/datasets/{key}/{file}/plan-state/preflight-label-write",
+            json={"label_types": ["component_line"], "tool": "upsert_label"},
+        )
+        assert component_ok.status_code == 200, component_ok.text
+        assert component_ok.json()["data"].get("override") is not True
+
+        _force_task_status(key, file, "TRACE_COMPONENTS")
+        opening_action = client.get(f"/datasets/{key}/{file}/plan-state/next-action").json()["data"]["action"]
+        assert opening_action["task_id"] == "PLACE_VIEW_OPENINGS"
+        assert opening_action["allowed_label_types"] == ["view_opening"]
+
+        _force_task_status(key, file, "PLACE_VIEW_OPENINGS")
+        calibration_action = client.get(f"/datasets/{key}/{file}/plan-state/next-action").json()["data"]["action"]
+        assert calibration_action["task_id"] == "CALIBRATE_SCENE"
+        assert {"dimensioned_distance", "dimension_number"} <= set(calibration_action["allowed_label_types"])
+        assert "record_transferred_calibration" in calibration_action["allowed_tools"]
+
+        dim_ok = client.post(
+            f"/datasets/{key}/{file}/plan-state/preflight-label-write",
+            json={"label_types": ["dimensioned_distance"], "tool": "add_reference_dim"},
+        )
+        assert dim_ok.status_code == 200, dim_ok.text
+        assert dim_ok.json()["data"].get("override") is not True
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

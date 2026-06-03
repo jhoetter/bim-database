@@ -182,6 +182,88 @@ async def set_house_facts(
 
 
 @mcp.tool()
+async def record_transferred_calibration(
+    key: str,
+    file: str,
+    source_scene: str,
+    transfer_kind: str,
+    reason: str,
+    confidence: str = "medium",
+    source_fact_ids: list[str] | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Record an honest transferred calibration for an Ansicht/Schnitt.
+
+    USE when:
+      - The current scene has no readable local reference dimensions.
+      - A scale/datum can be transferred from a calibrated section/elevation
+        or building-global facts without fabricating a local dimension.
+
+    DON'T USE when:
+      - A local horizontal/vertical reference dimension is readable. Prefer
+        `add_reference_dim` + `recompute_homography` for measured calibration.
+
+    Args:
+      file: target scene receiving the transferred calibration.
+      source_scene: calibrated scene or best-source scene the transfer came from.
+      transfer_kind: short enum-like string, e.g. `section_scale`,
+        `building_global_datum`, or `matched_facade_extent`.
+      reason: concise human-readable reason local calibration is unavailable
+        and why the transfer is acceptable.
+      confidence: low | medium | high.
+      source_fact_ids: optional building-global fact names/ids used.
+
+    Returns: updated calibration_per_scene[file] entry.
+    """
+    started = time.time()
+    if not file:
+        return _err("schema_invalid", "file is required", started_at=started)
+    if not source_scene:
+        return _err("missing_provenance", "source_scene is required", started_at=started)
+    if not reason:
+        return _err("missing_reason", "reason is required", started_at=started)
+    if confidence not in {"low", "medium", "high"}:
+        return _err("bad_confidence", "confidence must be one of low, medium, high", started_at=started)
+    if transfer_kind not in {
+        "section_scale",
+        "building_global_datum",
+        "matched_facade_extent",
+        "matched_storey_height",
+        "manual_review_transfer",
+    }:
+        return _err(
+            "bad_transfer_kind",
+            "transfer_kind must be one of section_scale, building_global_datum, "
+            "matched_facade_extent, matched_storey_height, manual_review_transfer",
+            started_at=started,
+        )
+    entry = {
+        "status": "transferred",
+        "computed_from": "transferred",
+        "source_scene": source_scene,
+        "transfer_kind": transfer_kind,
+        "confidence": confidence,
+        "reason": reason,
+        "review_required": True,
+        "source_fact_ids": source_fact_ids or [],
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    res = await set_house_facts(
+        key=key,
+        patch={"calibration_per_scene": {file: entry}},
+        idempotency_key=idempotency_key,
+    )
+    if not res.get("ok"):
+        return res
+    calibration = ((res.get("data") or {}).get("calibration_per_scene") or {}).get(file)
+    return _ok(
+        {"file": file, "calibration": calibration or entry},
+        started_at=started,
+        status_code=200,
+    )
+
+
+@mcp.tool()
 async def set_building_global_fact(
     key: str,
     fact: str,
@@ -301,5 +383,4 @@ async def get_building_global_facts(key: str) -> dict:
         extent=(facts or {}).get("extent"),
     )
     return _ok(view, started_at=started, status_code=200)
-
 

@@ -660,6 +660,36 @@ def test_facts_round_trip():
     _run(mcp_server.set_house_facts(key=key, patch=g["data"]))
 
 
+def test_record_transferred_calibration_round_trip():
+    key = "house-zztransferred-calibration"
+    root = api_main.DATASET_DIR / key
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        r = _run(mcp_server.record_transferred_calibration(
+            key=key,
+            file="north.jpg",
+            source_scene="section.jpg",
+            transfer_kind="section_scale",
+            confidence="medium",
+            reason="north elevation has no readable local reference dimensions",
+            source_fact_ids=["EG_munn_mm", "TH_mm"],
+        ))
+        assert r["ok"], r.get("error")
+        calibration = r["data"]["calibration"]
+        assert calibration["status"] == "transferred"
+        assert calibration["computed_from"] == "transferred"
+        assert calibration["source_scene"] == "section.jpg"
+        assert calibration["transfer_kind"] == "section_scale"
+        assert calibration["review_required"] is True
+
+        facts = _run(mcp_server.get_house_facts(key=key))
+        assert facts["ok"], facts.get("error")
+        assert facts["data"]["calibration_per_scene"]["north.jpg"] == calibration
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 # ── §5.7b Building-global facts (issue #8) ───────────────────────────────
 
 
@@ -878,6 +908,8 @@ def test_add_reference_dim_unlocks_w4_via_server_derivation():
         orientation="horizontal",
         start=[iw * 0.1, ih * 0.5], end=[iw * 0.9, ih * 0.5],
         value_mm=10000,
+        allow_plan_order_override=True,
+        override_reason="smoke test writes synthetic reference dims to verify W4 derivation",
     ))
     assert r_h["ok"], r_h.get("error")
     r_v = _run(mcp_server.add_reference_dim(
@@ -885,6 +917,8 @@ def test_add_reference_dim_unlocks_w4_via_server_derivation():
         orientation="vertical",
         start=[iw * 0.5, ih * 0.1], end=[iw * 0.5, ih * 0.9],
         value_mm=10000,
+        allow_plan_order_override=True,
+        override_reason="smoke test writes synthetic reference dims to verify W4 derivation",
     ))
     assert r_v["ok"], r_v.get("error")
 
@@ -1496,6 +1530,7 @@ def test_tool_descriptions_are_present():
         mcp_server.set_label_status, mcp_server.add_reference_dim,
         mcp_server.recompute_homography, mcp_server.get_house_facts,
         mcp_server.set_house_facts, mcp_server.validate_export_readiness,
+        mcp_server.record_transferred_calibration,
         mcp_server.set_building_global_fact,  # issue #8
         mcp_server.get_building_global_facts,  # issue #8
         mcp_server.export_house, mcp_server.list_anomalies,

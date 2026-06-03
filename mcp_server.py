@@ -477,6 +477,7 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
     w4_blockers: list[str] = []
     w4_assumed_isotropic: list[str] = []
     w4_approximate_calibrations: list[dict[str, Any]] = []
+    w4_transferred_calibrations: list[dict[str, Any]] = []
     has_calibration_targets = False
     for d in drawings:
         f = d.get("file")
@@ -486,8 +487,18 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
             calib = cps.get(f)
             if not calib:
                 w4_blockers.append(f"{f}: not calibrated")
-            elif isinstance(calib, dict) and calib.get("single_ref_assumed_isotropic"):
-                w4_assumed_isotropic.append(f)
+            elif isinstance(calib, dict):
+                if calib.get("status") == "transferred":
+                    w4_transferred_calibrations.append({
+                        "file": f,
+                        "source_scene": calib.get("source_scene"),
+                        "transfer_kind": calib.get("transfer_kind"),
+                        "confidence": calib.get("confidence"),
+                        "review_required": calib.get("review_required", True),
+                        "reason": calib.get("reason"),
+                    })
+                if calib.get("single_ref_assumed_isotropic"):
+                    w4_assumed_isotropic.append(f)
             if isinstance(calib, dict) and calib.get("calibration_approximate"):
                 w4_approximate_calibrations.append({
                     "file": f,
@@ -548,7 +559,8 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
                else ([no_scenes_blocker] if not has_scenes else ["orientation not set"])},
         "W4": {"status": w4_status, "blockers": w4_blockers,
                "assumed_isotropic_scenes": w4_assumed_isotropic,
-               "approximate_calibrations": w4_approximate_calibrations},
+               "approximate_calibrations": w4_approximate_calibrations,
+               "transferred_calibrations": w4_transferred_calibrations},
         "Wgeo": {"status": wgeo_status, "blockers": [] if wgeo_status == "done"
                  else ([no_scenes_blocker] if not has_scenes else wgeo_blockers),
                  "groundfloor_blockers": wgeo_groundfloor_blockers},
@@ -954,6 +966,8 @@ def _compact_workflow_for_summary(workflow: dict[str, Any], max_blockers: int = 
         }
         if data.get("assumed_isotropic_scenes"):
             phases[phase]["assumed_isotropic_scene_count"] = len(data["assumed_isotropic_scenes"])
+        if data.get("transferred_calibrations"):
+            phases[phase]["transferred_calibration_count"] = len(data["transferred_calibrations"])
     return {
         "next_phase": workflow.get("next_phase"),
         "exportable": workflow.get("exportable"),
@@ -1189,7 +1203,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "view_geometry_candidates",
         "resolve_scene_point", "list_scene_labels", "get_label", "upsert_label",
         "delete_label", "update_label_attrs", "set_label_status",
-        "add_reference_dim", "recompute_homography",
+        "add_reference_dim", "recompute_homography", "record_transferred_calibration",
         "add_scene_plan_evidence", "evaluate_scene_plan_gates",
         "get_workflow_state", "write_handoff_summary",
     },
@@ -1205,6 +1219,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "get_scene_repair_candidates", "get_scene_view_with_repair_candidate",
         "apply_repair_candidate", "decide_repair_candidate",
         "get_scene_plan_quality_report", "get_scene_topology_snapshot",
+        "record_transferred_calibration",
         "export_house", "dump_run_summary", "write_handoff_summary",
     },
 }

@@ -40,6 +40,11 @@ Preferred transaction tools:
   `upsert_opening_on_wall`.
 - Dimensions: `dimension_station_graph`, `dimension_chain_transaction`,
   `reference_dim_review`.
+- Calibration: prefer measured local reference dimensions via
+  `add_reference_dim` + `recompute_homography`. If an Ansicht/Schnitt has no
+  readable local reference dimensions, do not invent one; use
+  `record_transferred_calibration` with source scene/fact provenance and a
+  review reason.
 
 Context hygiene:
 

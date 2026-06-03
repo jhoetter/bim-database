@@ -3,8 +3,10 @@
 $spec_notice
 
 Goal: every Ansicht/Schnitt has `facts.calibration_per_scene[file]`
-populated (one horizontal + one vertical reference dim, homography
-RMS ≤ 8 px).
+populated either by measured local reference dimensions (preferred:
+one horizontal + one vertical reference dim, homography RMS ≤ 8 px) or
+by an explicitly reviewed transferred calibration when local dimensions
+are unreadable.
 
 ## ZOOM-BEFORE-NAMING DISCIPLINE (per §G3-5)
 
@@ -79,6 +81,30 @@ For each scene where `scene_tag` ∈ {"ansicht", "schnitt"} AND
      the closest attempt, log via `dump_run_summary`, move on.
 7. Repeat for vertical (including a fresh verify pass).
 8. Confirm `get_house_facts.calibration_per_scene` now has the file.
+
+## Transferred calibration escape hatch
+
+If no local reference dimension is readable after the attempt budget, do
+not fabricate a dimension. Use `record_transferred_calibration` instead
+only when you can cite a calibrated source scene or building-global fact:
+
+```
+record_transferred_calibration(
+  key="$key",
+  file=<target scene>,
+  source_scene=<calibrated section/elevation>,
+  transfer_kind="section_scale" | "building_global_datum" |
+                "matched_facade_extent" | "matched_storey_height" |
+                "manual_review_transfer",
+  confidence="low" | "medium" | "high",
+  reason="<why local calibration is unavailable and why transfer is acceptable>",
+  source_fact_ids=["EG_munn_mm", "TH_mm", ...]
+)
+```
+
+This counts for W4 readiness but remains visible as transferred
+calibration and `review_required=true` in export readiness. It is not a
+gold-quality substitute for a measured local M1 calibration.
 
 ## Hard caps (per scene budget)
 

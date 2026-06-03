@@ -141,3 +141,39 @@ def test_v5_1_partial_geometry_still_pending():
 def test_v5_1_no_scenes_wgeo_pending():
     state = _derive_workflow_state({"drawings": []}, {}, {})
     assert state["phases"]["Wgeo"]["status"] == "pending"
+
+
+def test_w4_transferred_calibration_counts_as_done_with_review_debt():
+    ds = {"drawings": [{"file": "north.jpg"}, {"file": "section.jpg"}]}
+    facts = {
+        "calibration_per_scene": {
+            "north.jpg": {
+                "status": "transferred",
+                "computed_from": "transferred",
+                "source_scene": "section.jpg",
+                "transfer_kind": "section_scale",
+                "confidence": "medium",
+                "reason": "north elevation has no readable local dimension chain",
+                "review_required": True,
+            },
+            "section.jpg": {"px_per_mm": 0.08, "computed_from": "M1-both"},
+        }
+    }
+    sm = {
+        "north.jpg": {"scene_tag": "ansicht"},
+        "section.jpg": {"scene_tag": "schnitt"},
+    }
+    state = _derive_workflow_state(ds, facts, sm)
+    w4 = state["phases"]["W4"]
+    assert w4["status"] == "done"
+    assert w4["blockers"] == []
+    assert w4["transferred_calibrations"] == [
+        {
+            "file": "north.jpg",
+            "source_scene": "section.jpg",
+            "transfer_kind": "section_scale",
+            "confidence": "medium",
+            "review_required": True,
+            "reason": "north elevation has no readable local dimension chain",
+        }
+    ]

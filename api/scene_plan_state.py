@@ -178,19 +178,19 @@ def _tasks_for(scene_tag: str) -> list[dict[str, Any]]:
     if scene_tag == "schnitt":
         return [
             _task("CLASSIFY_SCENE", "Set scene tag and orientation if visible", "analysis", "classification", gates=["SCENE_CLASSIFIED"]),
-            _task("READ_HEIGHTS", "Read height marks, datum, and roof facts", "analysis", "calibration", gates=["HEIGHTS_REVIEWED"]),
-            _task("TRACE_COMPONENTS", "Trace section component lines", "editing", "walls", gates=["STRUCTURE_EXISTS"]),
-            _task("PLACE_VIEW_OPENINGS", "Place visible section openings/components", "editing", "openings", gates=["VIEW_OPENINGS_REVIEWED"]),
-            _task("CALIBRATE_SCENE", "Add reference dimensions and recompute homography", "verification", "calibration", gates=["CALIBRATION_REVIEWED"]),
+            _task("READ_HEIGHTS", "Read height marks, datum, and roof facts", "editing", "heights", gates=["HEIGHTS_REVIEWED"]),
+            _task("TRACE_COMPONENTS", "Trace section component lines", "editing", "components", gates=["STRUCTURE_EXISTS"]),
+            _task("PLACE_VIEW_OPENINGS", "Place visible section openings/components", "editing", "view_openings", gates=["VIEW_OPENINGS_REVIEWED"]),
+            _task("CALIBRATE_SCENE", "Add reference dimensions or record transferred calibration", "editing", "calibration", gates=["CALIBRATION_REVIEWED"]),
             _task("FINAL_QA", "Run final section QA", "verification", "qa", gates=["VISUAL_VERIFY_EXISTS", "NO_BLOCKER_DEFECTS"]),
         ]
     if scene_tag == "ansicht":
         return [
             _task("CLASSIFY_SCENE", "Set scene tag and facade orientation", "analysis", "classification", gates=["SCENE_CLASSIFIED"]),
-            _task("READ_HEIGHTS", "Read or propagate datum and height facts", "analysis", "calibration", gates=["HEIGHTS_REVIEWED"]),
-            _task("TRACE_COMPONENTS", "Trace facade and roof component lines", "editing", "walls", gates=["STRUCTURE_EXISTS"]),
-            _task("PLACE_VIEW_OPENINGS", "Place facade doors/windows", "editing", "openings", gates=["VIEW_OPENINGS_REVIEWED"]),
-            _task("CALIBRATE_SCENE", "Add reference dimensions and recompute homography", "verification", "calibration", gates=["CALIBRATION_REVIEWED"]),
+            _task("READ_HEIGHTS", "Read or propagate datum and height facts", "editing", "heights", gates=["HEIGHTS_REVIEWED"]),
+            _task("TRACE_COMPONENTS", "Trace facade and roof component lines", "editing", "components", gates=["STRUCTURE_EXISTS"]),
+            _task("PLACE_VIEW_OPENINGS", "Place facade doors/windows", "editing", "view_openings", gates=["VIEW_OPENINGS_REVIEWED"]),
+            _task("CALIBRATE_SCENE", "Add reference dimensions or record transferred calibration", "editing", "calibration", gates=["CALIBRATION_REVIEWED"]),
             _task("FINAL_QA", "Run final elevation QA", "verification", "qa", gates=["VISUAL_VERIFY_EXISTS", "NO_BLOCKER_DEFECTS"]),
         ]
     return [
@@ -1502,6 +1502,17 @@ def evaluate_gates(
     component_lines = [lab for lab in labels if lab.get("type") == "component_line"]
     view_openings = [lab for lab in labels if lab.get("type") == "view_opening"]
     reference_dims = [lab for lab in dim_labels if (lab.get("attributes") or {}).get("is_reference") is True]
+    facts_path = dataset_root / key / "house_facts.json"
+    scene_calibration: dict[str, Any] = {}
+    if facts_path.exists():
+        try:
+            facts_doc = json.loads(facts_path.read_text())
+            scene_calibration = ((facts_doc.get("calibration_per_scene") or {}).get(file) or {})
+            if not isinstance(scene_calibration, dict):
+                scene_calibration = {}
+        except Exception:  # noqa: BLE001
+            scene_calibration = {}
+    calibration_transferred = scene_calibration.get("status") == "transferred"
     has_analysis_evidence = any((ev.get("mode") == "analysis") for ev in state.get("evidence") or [])
     has_dimension_defect = any(
         d.get("category") == "dimension" and d.get("status") in {"open", "in_progress", "accepted_uncertain", "rejected"}
@@ -1967,8 +1978,16 @@ def evaluate_gates(
             _set_gate(task, "VIEW_OPENINGS_REVIEWED", "passed" if view_openings or has_analysis_evidence else "pending")
         elif task_id == "CALIBRATE_SCENE":
             homography = labels_doc.get("homography") or {}
-            calibrated = bool(reference_dims) or homography.get("status") == "ok"
-            _set_gate(task, "CALIBRATION_REVIEWED", "passed" if calibrated else "pending")
+            calibrated = bool(reference_dims) or homography.get("status") == "ok" or calibration_transferred
+            _set_gate(
+                task,
+                "CALIBRATION_REVIEWED",
+                "passed" if calibrated else "pending",
+                waiver_reason=(
+                    "Calibration transferred from another scene; no fabricated local reference dimension."
+                    if calibration_transferred else None
+                ),
+            )
         elif task_id == "INSPECT_SCENE":
             _set_gate(task, "HAS_ANALYSIS_EVIDENCE", "passed" if has_analysis_evidence else "pending")
         elif task_id == "FINAL_QA":
@@ -2126,8 +2145,14 @@ def _recommended_view_mode_for_action(action: dict[str, Any] | None) -> str:
     category = action.get("category")
     if category == "openings":
         return "opening_candidate_view" if phase == "editing" else "analysis_view"
+    if category == "view_openings":
+        return "coordinate_pick_view" if phase == "editing" else "analysis_view"
     if category == "dimensions":
         return "measurement_read_view" if phase in {"analysis", "editing"} else "edit_verify_view"
+    if category in {"heights", "calibration"}:
+        return "measurement_read_view" if phase == "editing" else "edit_verify_view"
+    if category == "components":
+        return "coordinate_pick_view" if phase == "editing" else "analysis_view"
     if category == "walls":
         if phase == "analysis":
             return "silhouette_view"
@@ -2447,9 +2472,17 @@ def _allowed_label_types_for_task(task: dict[str, Any]) -> list[str]:
     if category == "walls":
         return ["wall"]
     if category == "openings":
-        return ["floorplan_opening", "view_opening"]
+        return ["floorplan_opening"]
+    if category == "view_openings":
+        return ["view_opening"]
     if category == "dimensions":
         return ["dimensioned_distance", "dimension_number"]
+    if category == "components":
+        return ["component_line"]
+    if category == "heights":
+        return ["height_mark", "dimensioned_distance", "dimension_number"]
+    if category == "calibration":
+        return ["dimensioned_distance", "dimension_number", "height_mark"]
     return []
 
 
@@ -2466,6 +2499,14 @@ def _forbidden_label_types_for_task(task: dict[str, Any]) -> list[str]:
         ]
     if task.get("category") == "walls":
         return ["floorplan_opening", "view_opening"]
+    if task.get("category") == "components":
+        return ["wall", "floorplan_opening", "view_opening"]
+    if task.get("category") == "openings":
+        return ["wall", "component_line", "view_opening"]
+    if task.get("category") == "view_openings":
+        return ["wall", "component_line", "floorplan_opening"]
+    if task.get("category") in {"heights", "calibration"}:
+        return ["wall", "floorplan_opening", "view_opening", "component_line"]
     return []
 
 
@@ -2480,8 +2521,16 @@ def _allowed_tools_for_task(task: dict[str, Any]) -> list[str]:
             return common + ["building_silhouette", "upsert_rect_mass", "upsert_stepped_mass", "upsert_wall_anchored", "upsert_label", "delete_label", "score_walls"]
         if category == "openings":
             return common + ["opening_candidates", "get_scene_view_with_opening_candidate", "apply_opening_candidate", "decide_opening_candidate", "review_opening_candidate", "review_opening_candidates_batch", "upsert_opening_on_wall", "upsert_label", "update_label_attrs", "verify_label_placement"]
+        if category == "view_openings":
+            return common + ["view_geometry_candidates", "upsert_label", "update_label_attrs", "verify_label_placement"]
         if category == "dimensions":
             return common + ["dimension_chain_context", "dimension_station_graph", "dimension_chain_transaction", "reference_dim_review", "add_reference_dim", "upsert_label", "score_measurements"]
+        if category == "components":
+            return common + ["view_geometry_candidates", "upsert_label", "delete_label", "verify_label_placement"]
+        if category == "heights":
+            return common + ["get_building_global_facts", "set_building_global_fact", "view_geometry_candidates", "upsert_label", "update_label_attrs", "verify_label_placement"]
+        if category == "calibration":
+            return common + ["get_building_global_facts", "add_reference_dim", "recompute_homography", "record_transferred_calibration", "upsert_label", "update_label_attrs", "verify_label_placement"]
         return common + ["upsert_label"]
     return ["get_scene_view_with_labels", "verify_label_placement", "score_walls", "score_measurements", "wall_topology_qa", "evaluate_scene_plan_gates"]
 
