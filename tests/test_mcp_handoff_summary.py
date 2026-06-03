@@ -100,6 +100,9 @@ def test_inspect_agent_run_joins_scene_plan_labels_and_handoff(tmp_path: Path, m
                                 "tool": "review_wall_centerline_between_rails",
                                 "summary": "W1 is centered between faint rails.",
                                 "result": {"wall_id": "W1"},
+                                "run_id": "run-1",
+                                "agent_id": "orchestrator",
+                                "subagent_id": "eg-wall-worker",
                                 "created_at": "2026-06-03T00:00:00Z",
                             }
                         ],
@@ -127,4 +130,5 @@ def test_inspect_agent_run_joins_scene_plan_labels_and_handoff(tmp_path: Path, m
     assert scene["matching_labels"][0]["quality_status"] == "centerline_plausible"
     assert scene["matching_defects"][0]["id"] == "DEF-1"
     assert scene["recent_evidence"][0]["id"] == "EV-1"
+    assert scene["recent_evidence"][0]["subagent_id"] == "eg-wall-worker"
     assert scene["handoffs"][0]["next_action"] == "review wall W1"

@@ -653,6 +653,9 @@ async def add_scene_plan_evidence(
     image_url: str | None = None,
     task_ids: list[str] | None = None,
     observation_id: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -661,6 +664,8 @@ async def add_scene_plan_evidence(
     USE when:
       - Recording the observation, crop, score, or verification result
         that justifies a task/defect state change.
+      - Preserving run/session provenance for post-run inspection. Pass
+        run_id plus agent_id/subagent_id when the caller knows them.
 
     DON'T USE when:
       - You are trying to store large image payloads or full transcripts.
@@ -677,6 +682,9 @@ async def add_scene_plan_evidence(
         "image_url": image_url,
         "task_ids": task_ids or [],
         "observation_id": observation_id,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "expected_version": expected_version,
     }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/plan-state/evidence", body)

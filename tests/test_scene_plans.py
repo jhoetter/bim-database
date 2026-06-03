@@ -301,6 +301,29 @@ def test_scene_plan_state_defect_closure_requires_evidence(scene):
     assert rejected.status_code == 200, rejected.text
 
 
+def test_scene_plan_evidence_preserves_run_agent_provenance(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+
+    evidence = client.post(
+        f"/datasets/{key}/{file}/plan-state/evidence",
+        json={
+            "kind": "scene_view",
+            "mode": "analysis",
+            "summary": "Subagent read the wall pass.",
+            "run_id": "run-123",
+            "agent_id": "orchestrator",
+            "subagent_id": "eg-wall-worker",
+        },
+    )
+    assert evidence.status_code == 200, evidence.text
+    ev = evidence.json()["data"]["state"]["evidence"][-1]
+    assert ev["run_id"] == "run-123"
+    assert ev["agent_id"] == "orchestrator"
+    assert ev["subagent_id"] == "eg-wall-worker"
+
+
 def test_scene_plan_state_task_verified_requires_passed_gates_and_evidence(scene):
     key, file = scene
     client = TestClient(api_main.app)

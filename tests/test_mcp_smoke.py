@@ -329,6 +329,9 @@ def test_scene_plan_mcp_template_and_status_smoke():
         kind="scene_view",
         summary="Scene classified as EG plan in test.",
         task_ids=["CLASSIFY_SCENE"],
+        run_id="smoke-run",
+        agent_id="pytest",
+        subagent_id="classification-worker",
     ))
     assert ev["ok"], ev.get("error")
     evidence_id = ev["data"]["latest_evidence_id"]
@@ -343,6 +346,10 @@ def test_scene_plan_mcp_template_and_status_smoke():
     assert task["ok"], task.get("error")
     state_after_task = _run(mcp_server.get_scene_plan_state(key=key, file=file))
     assert state_after_task["ok"], state_after_task.get("error")
+    latest_evidence = state_after_task["data"]["state"]["evidence"][-1]
+    assert latest_evidence["run_id"] == "smoke-run"
+    assert latest_evidence["agent_id"] == "pytest"
+    assert latest_evidence["subagent_id"] == "classification-worker"
     classified = next(
         t for t in state_after_task["data"]["state"]["tasks"]
         if t["id"] == "CLASSIFY_SCENE"

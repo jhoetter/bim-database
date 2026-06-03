@@ -500,6 +500,9 @@ def add_evidence(
         "result": evidence.get("result") or {},
         "observation_id": evidence.get("observation_id"),
         "image_url": evidence.get("image_url"),
+        "run_id": evidence.get("run_id"),
+        "agent_id": evidence.get("agent_id"),
+        "subagent_id": evidence.get("subagent_id"),
         "created_at": evidence.get("created_at") or _now_iso(),
     }
     state.setdefault("evidence", []).append(item)

@@ -232,6 +232,9 @@ export interface ScenePlanEvidence {
   result?: Record<string, unknown>;
   observation_id?: string | null;
   image_url?: string | null;
+  run_id?: string | null;
+  agent_id?: string | null;
+  subagent_id?: string | null;
   created_at?: string;
 }
 

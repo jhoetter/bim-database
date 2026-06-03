@@ -556,6 +556,9 @@ def _related_evidence_for_audit(
             "mode": ev.get("mode"),
             "tool": ev.get("tool"),
             "summary": str(ev.get("summary") or "")[:240],
+            "run_id": ev.get("run_id"),
+            "agent_id": ev.get("agent_id"),
+            "subagent_id": ev.get("subagent_id"),
             "created_at": ev.get("created_at"),
         })
     return related[-max_items:]
