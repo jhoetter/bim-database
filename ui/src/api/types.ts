@@ -503,6 +503,18 @@ export interface DatasetDrawing {
   /** M11 coverage badge: true when a labels JSON file exists for this scene. */
   labeled?: boolean;
   label_count?: number;
+  scene_replacement?: {
+    kind?: string;
+    replaced_at?: string;
+    old_file?: string;
+    new_file?: string;
+    old_format?: string;
+    new_format?: string;
+    reason?: string;
+    label_plan_impact?: string;
+    review_required?: boolean;
+  };
+  replacement_history?: Array<Record<string, unknown>>;
 }
 
 // R1 — PDF intake bundle. One per house under data/pdfs/incoming/<key>/.

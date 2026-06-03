@@ -683,21 +683,27 @@ export function AnnotatePage() {
   // a server-side aggregate endpoint. Refreshed when houseScenes change OR
   // when the current scene saves (sceneSummaryRev).
   const [sceneSummaryRev, setSceneSummaryRev] = useState(0);
-  const { data: sceneSummaries } = useResource<Map<string, { count: number; hasH: boolean; hasV: boolean }>>(
+  const { data: sceneSummaries } = useResource<Map<string, SceneStripSummary>>(
     async () => {
-      const out = new Map<string, { count: number; hasH: boolean; hasV: boolean }>();
+      const out = new Map<string, SceneStripSummary>();
       const list = houseScenes ?? [];
       const results = await Promise.all(
         list.map(async (s) => {
+          let plan: ScenePlan | null = null;
+          try {
+            plan = await fetchScenePlan(key, s.file);
+          } catch {
+            plan = null;
+          }
           try {
             const lbl = await fetchLabels(scope, key, s.file);
-            return [s.file, lbl.labels ?? []] as const;
+            return [s.file, lbl.labels ?? [], plan] as const;
           } catch {
-            return [s.file, []] as const;
+            return [s.file, [], plan] as const;
           }
         }),
       );
-      for (const [file, lbls] of results) {
+      for (const [file, lbls, plan] of results) {
         let hasH = false;
         let hasV = false;
         for (const l of lbls) {
@@ -710,7 +716,17 @@ export function AnnotatePage() {
           if (a < 15 || a > 165) hasH = true;
           else if (a > 75 && a < 105) hasV = true;
         }
-        out.set(file, { count: lbls.length, hasH, hasV });
+        const term = plan?.state?.current_state?.terminality;
+        const finalQa = term?.final_qa_summary ?? plan?.state?.current_state?.final_qa_summary;
+        out.set(file, {
+          count: lbls.length,
+          hasH,
+          hasV,
+          qualityTier: term?.quality_tier ?? plan?.state?.current_state?.quality_tier ?? finalQa?.tier,
+          reviewDebt: term?.review_debt ?? plan?.state?.current_state?.review_debt ?? finalQa?.review_debt,
+          humanReviewRequired: !!finalQa?.human_review_required,
+          planStatus: term?.status ?? plan?.state?.status ?? plan?.status ?? undefined,
+        });
       }
       return out;
     },
@@ -3239,6 +3255,7 @@ export function AnnotatePage() {
           currentFile={decodedFile}
           labels={labels}
           sceneSummaries={sceneSummaries}
+          currentScenePlan={scenePlan}
           onSelect={goToScene}
         />
       <div className="flex-1 min-h-0 bg-white relative overflow-hidden">
@@ -5890,13 +5907,37 @@ function renderPlanInline(text: string): JSX.Element[] {
   });
 }
 
+type SceneStripSummary = {
+  count: number;
+  hasH: boolean;
+  hasV: boolean;
+  qualityTier?: string;
+  reviewDebt?: number;
+  humanReviewRequired?: boolean;
+  planStatus?: string;
+};
+
+function qualityTierChip(tier?: string, reviewRequired?: boolean): { label: string; cls: string } | null {
+  if (!tier) return null;
+  const normalized = tier.toLowerCase();
+  if (normalized === 'gold') return { label: 'Gold', cls: 'border-amber-300 bg-amber-50 text-amber-900' };
+  if (normalized === 'silver') return { label: 'Silber', cls: 'border-slate-300 bg-slate-50 text-slate-700' };
+  if (normalized === 'bronze') return { label: 'Bronze', cls: 'border-orange-300 bg-orange-50 text-orange-900' };
+  if (normalized === 'blocked') return { label: 'Blockiert', cls: 'border-red-300 bg-red-50 text-red-800' };
+  return {
+    label: reviewRequired ? `${tier} · Review` : tier,
+    cls: reviewRequired ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-zinc-300 bg-zinc-50 text-zinc-700',
+  };
+}
+
 function AnnotateSceneStrip({
-  scenes, currentFile, labels, sceneSummaries, onSelect,
+  scenes, currentFile, labels, sceneSummaries, currentScenePlan, onSelect,
 }: {
   scenes: Array<{ file: string; title: string; url: string; labeled: boolean }>;
   currentFile: string;
   labels: Label[];
-  sceneSummaries: Map<string, { count: number; hasH: boolean; hasV: boolean }> | null | undefined;
+  sceneSummaries: Map<string, SceneStripSummary> | null | undefined;
+  currentScenePlan: ScenePlan | null | undefined;
   onSelect: (file: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -5929,7 +5970,17 @@ function AnnotateSceneStrip({
                   if (a < 15 || a > 165) hasH = true;
                   else if (a > 75 && a < 105) hasV = true;
                 }
-                return { count: labels.length, hasH, hasV };
+                const term = currentScenePlan?.state?.current_state?.terminality;
+                const finalQa = term?.final_qa_summary ?? currentScenePlan?.state?.current_state?.final_qa_summary;
+                return {
+                  count: labels.length,
+                  hasH,
+                  hasV,
+                  qualityTier: term?.quality_tier ?? currentScenePlan?.state?.current_state?.quality_tier ?? finalQa?.tier,
+                  reviewDebt: term?.review_debt ?? currentScenePlan?.state?.current_state?.review_debt ?? finalQa?.review_debt,
+                  humanReviewRequired: !!finalQa?.human_review_required,
+                  planStatus: term?.status ?? currentScenePlan?.state?.status ?? currentScenePlan?.status ?? undefined,
+                };
               })()
             : sceneSummaries?.get(s.file);
           const readinessColor = summary
@@ -5946,12 +5997,16 @@ function AnnotateSceneStrip({
                 : summary.hasV
                   ? ' · nur vertikaler Bezug — horizontalen fehlt noch'
                   : ' · keine Bezugsmaße — Skalierung+Entzerrung noch nicht möglich';
+          const tierChip = qualityTierChip(summary?.qualityTier, summary?.humanReviewRequired);
+          const qualityTitle = summary?.qualityTier
+            ? ` · Qualität ${summary.qualityTier}${summary.reviewDebt ? ` · Review debt ${summary.reviewDebt}` : ''}${summary.humanReviewRequired ? ' · Human review' : ''}`
+            : '';
           return (
             <span ref={isCurrent ? currentRef : undefined} key={s.file} className="inline-flex shrink-0">
               <button
                 type="button"
                 onClick={() => onSelect(s.file)}
-                title={`${s.title}${summary ? ` · ${summary.count} Labels` : ''}${readinessTitle}`}
+                title={`${s.title}${summary ? ` · ${summary.count} Labels` : ''}${readinessTitle}${qualityTitle}`}
                 className={`inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-md border transition ${
                   isCurrent
                     ? 'bg-accent/10 border-accent ring-1 ring-accent/30'
@@ -5971,6 +6026,11 @@ function AnnotateSceneStrip({
                 <span className="text-[0.72rem] font-medium whitespace-nowrap">
                   {sceneShortLabel(s.file, s.title)}
                 </span>
+                {tierChip && (
+                  <span className={`min-w-[3.1rem] text-center rounded border px-1 py-0.5 text-[0.56rem] leading-none font-semibold ${tierChip.cls}`}>
+                    {tierChip.label}
+                  </span>
+                )}
                 <span className="inline-flex items-center gap-0.5 ml-0.5">
                   {readinessColor && (
                     <span
@@ -5981,6 +6041,11 @@ function AnnotateSceneStrip({
                   {summary && summary.count > 0 && (
                     <span className={`text-[0.6rem] tabular-nums ${isCurrent ? 'text-accent font-semibold' : 'text-zinc-400'}`}>
                       {summary.count}
+                    </span>
+                  )}
+                  {summary?.reviewDebt != null && summary.reviewDebt > 0 && (
+                    <span className="text-[0.56rem] tabular-nums text-amber-700" title="Review debt">
+                      D{summary.reviewDebt}
                     </span>
                   )}
                 </span>

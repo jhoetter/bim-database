@@ -110,6 +110,9 @@ export function SceneDetailsCard({
   });
   const labelCount = drawing.label_count ?? 0;
   const readinessColor = chipReadinessColor({ readiness });
+  const replacement = drawing.scene_replacement;
+  const replacementNeedsReview = replacement?.label_plan_impact === 'labels_or_plan_preserved_but_pixel_source_replaced'
+    || replacement?.review_required === true;
 
   const headerCls = variant === 'compact'
     ? 'px-2 py-1 text-[0.7rem]'
@@ -152,6 +155,20 @@ export function SceneDetailsCard({
                     : readiness.hasV ? 'nur V — H fehlt'
                     : 'keine Bezugsmaße'}
                 </span>
+              </dd>
+            </>
+          )}
+          {replacement && (
+            <>
+              <dt className="text-muted">Crop</dt>
+              <dd
+                className={replacementNeedsReview ? 'font-medium text-amber-800' : 'font-medium text-zinc-600'}
+                title={[
+                  replacement.old_file && replacement.new_file ? `${replacement.old_file} → ${replacement.new_file}` : null,
+                  replacement.reason,
+                ].filter(Boolean).join(' · ')}
+              >
+                ersetzt{replacementNeedsReview ? ' · Review' : ''}
               </dd>
             </>
           )}
