@@ -328,6 +328,7 @@ export interface ScenePlanTerminality {
     uncertainty_reasons?: Record<string, number>;
     missing_or_unreadable?: string[];
     transferred_facts?: Array<Record<string, unknown>>;
+    source_unreadable?: DimensionChainReview[];
     human_review_required?: boolean;
     review_debt?: number;
   };
@@ -342,6 +343,17 @@ export interface ScenePlanTerminality {
   next_action_available?: boolean;
   next_action?: ScenePlanAction | null;
   terminality_reasons?: string[];
+}
+
+export interface DimensionChainReview {
+  evidence_id?: string;
+  decision?: 'readable' | 'partially_readable' | 'source_unreadable' | string;
+  chain_region?: unknown;
+  orientation?: 'horizontal' | 'vertical' | string;
+  readable_values?: unknown[];
+  unreadable_fragments?: string[];
+  reason?: string;
+  enhance?: string;
 }
 
 export interface ScenePlanState {
@@ -412,6 +424,7 @@ export interface ScenePlanState {
     }>;
     blockers?: string[];
     stale_evidence?: string[];
+    source_unreadable?: DimensionChainReview[];
     quality_tier?: string;
     completion_state?: string;
     review_debt?: number;

@@ -5266,6 +5266,10 @@ function ScenePlanPanel({
   const terminality = state?.current_state?.terminality;
   const terminalWarningDecisionCount = terminality?.terminal_warning_decisions ?? reviewedWarningDefects.length;
   const historicalDefectCount = historicalDefects.length;
+  const sourceUnreadableReviews = state?.current_state?.source_unreadable
+    ?? state?.current_state?.final_qa_summary?.source_unreadable
+    ?? terminality?.final_qa_summary?.source_unreadable
+    ?? [];
   const [defectView, setDefectView] = useState<'current' | 'history'>('current');
   const statusLabel = scenePlanStatusText(plan, labels);
   const nextActions = useMemo<ScenePlanAction[]>(() => {
@@ -5388,6 +5392,36 @@ function ScenePlanPanel({
                     {(terminality.terminality_reasons ?? []).length > 0 && (
                       <div className="mt-1 text-zinc-600">{(terminality.terminality_reasons ?? []).join('; ')}</div>
                     )}
+                  </div>
+                )}
+                {sourceUnreadableReviews.length > 0 && (
+                  <div className="mt-2 rounded border border-amber-200 bg-white p-2 text-[0.74rem] text-amber-950">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold">Quellenprüfung Bemaßung</div>
+                      <span className="font-mono text-[0.68rem]">{sourceUnreadableReviews.length} region(s)</span>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      {sourceUnreadableReviews.slice(0, 4).map((review, idx) => (
+                        <div key={`${review.evidence_id ?? 'dim-review'}-${idx}`} className="rounded border border-amber-100 bg-amber-50 px-2 py-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono">{review.orientation ?? 'dimension'}</span>
+                            <span className="font-mono text-[0.68rem]">{review.evidence_id ?? 'no evidence id'}</span>
+                          </div>
+                          <div className="mt-0.5 font-mono text-[0.68rem] text-amber-800">
+                            region {formatReviewRegion(review.chain_region)}
+                          </div>
+                          {(review.unreadable_fragments ?? []).length > 0 && (
+                            <div className="mt-0.5 text-amber-900">
+                              {(review.unreadable_fragments ?? []).slice(0, 2).join('; ')}
+                            </div>
+                          )}
+                          <div className="mt-0.5 text-amber-800">
+                            {review.enhance ? `enhance=${review.enhance}` : null}
+                            {review.reason ? `${review.enhance ? ' · ' : ''}${review.reason}` : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </section>
@@ -5796,6 +5830,12 @@ function formatFactValue(value: unknown, unit: string | undefined): string {
   }
   if (value == null) return 'unknown';
   return String(value);
+}
+
+function formatReviewRegion(region: unknown): string {
+  if (Array.isArray(region)) return `[${region.map((v) => typeof v === 'number' ? Math.round(v) : String(v)).join(', ')}]`;
+  if (region == null) return 'unknown';
+  return String(region);
 }
 
 function viewModeLabel(mode: string | undefined): string {
