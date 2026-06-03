@@ -46,7 +46,7 @@ async def get_scene_view(
     target: str | None = None,
     target_line: str = "none",
     background_opacity: float | None = None,
-    image_delivery: str = "inline",
+    image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """Scene image with the three-tier coordinate grid overlay.
 
@@ -188,7 +188,7 @@ async def get_scene_view_with_labels(
     show_height_guides: str = "auto",
     show_openings: str = "full",
     include_hidden: bool = False,
-    image_delivery: str = "inline",
+    image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """Scene image + grid overlay + EVERY LABEL CURRENTLY SAVED rendered
     on top. This is the agent's verify view — call it after every
@@ -372,7 +372,7 @@ async def verify_label_placement(
     show_height_guides: str = "auto",
     show_openings: str = "full",
     include_hidden: bool = False,
-    image_delivery: str = "inline",
+    image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """H5-7 — sugar over `get_scene_view_with_labels`: auto-crop around
     a single label so the agent doesn't have to compute the region.
@@ -632,7 +632,7 @@ async def get_pdf_page_view(
     region: str | None = None,
     tiers: str = "broad,finer,detail",
     max_dim: int = 1600,
-    image_delivery: str = "inline",
+    image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """PDF page render with grid overlay — used for scene identification.
 
@@ -923,5 +923,3 @@ async def get_house_context_summary(
         "workflow": _compact_workflow_for_summary(workflow, max_blockers=max_blockers_per_scene),
         "scenes": scenes,
     }, started_at=started, status_code=status)
-
-

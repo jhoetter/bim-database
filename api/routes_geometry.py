@@ -894,6 +894,8 @@ def apply_opening_candidate_route(key: str, file: str, candidate_id: str, body: 
         candidate = _find_opening_candidate(labels_doc, img_path, candidate_id)
         if body.get("expected_candidate_kind") and body.get("expected_candidate_kind") != candidate.get("kind"):
             raise ValueError("candidate kind changed; refresh opening candidates")
+        if body.get("expected_candidate_fingerprint") and body.get("expected_candidate_fingerprint") != candidate.get("candidate_fingerprint"):
+            raise ValueError("candidate fingerprint changed; refresh opening candidates")
         if body.get("expected_version"):
             from .scene_plan_state import PlanStateConflictError, read_plan_state
             current_plan = read_plan_state(DATASET_DIR, key, file)
@@ -939,6 +941,8 @@ def decide_opening_candidate_route(key: str, file: str, candidate_id: str, body:
         candidate = _find_opening_candidate(labels_doc, img_path, candidate_id)
         if body.get("expected_candidate_kind") and body.get("expected_candidate_kind") != candidate.get("kind"):
             raise ValueError("candidate kind changed; refresh opening candidates")
+        if body.get("expected_candidate_fingerprint") and body.get("expected_candidate_fingerprint") != candidate.get("candidate_fingerprint"):
+            raise ValueError("candidate fingerprint changed; refresh opening candidates")
         from .scene_plan_state import record_opening_candidate_decision
         data = record_opening_candidate_decision(
             DATASET_DIR,

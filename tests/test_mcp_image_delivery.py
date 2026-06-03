@@ -7,6 +7,7 @@ import os
 import time
 
 import mcp_server
+import mcp_tools_geometry
 
 
 def test_image_delivery_inline_returns_image_and_metadata(tmp_path: Path, monkeypatch) -> None:
@@ -69,6 +70,79 @@ def test_image_delivery_auto_uses_handle_above_threshold(tmp_path: Path, monkeyp
 
     env = json.loads(result[-1].text)
     assert env["data"]["image_delivery"] == "handle"
+
+
+def test_image_delivery_empty_mode_defaults_to_auto_handle(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(mcp_server, "IMAGE_HANDLE_DIR", tmp_path)
+    monkeypatch.setattr(mcp_server, "IMAGE_HANDLE_INLINE_THRESHOLD", 3)
+
+    result = mcp_server._image_delivery_payload(
+        content=b"large",
+        ctype="image/png",
+        metadata={},
+        started_at=0,
+        status_code=200,
+        image_delivery="",
+    )
+
+    env = json.loads(result[-1].text)
+    assert env["data"]["image_delivery"] == "handle"
+
+
+def test_response_mode_payload_compact_and_full() -> None:
+    full = {
+        "state": {
+            "key": "house-x",
+            "file": "scene.png",
+            "version": "v1",
+            "current_state": {
+                "terminality": {
+                    "terminal": False,
+                    "percent_complete": 25,
+                    "required_complete": False,
+                    "summary": "work remains",
+                },
+                "label_counts": {"wall": 2},
+            },
+            "tasks": [{"id": "A1", "required": True, "status": "todo", "title": "Analyze"}],
+            "defects": [{"id": "D1", "status": "open", "severity": "blocker", "title": "Fix wall"}],
+            "evidence": [{"id": "E1"}],
+        },
+        "actionable_tasks": [{"id": "A1"}],
+    }
+
+    compact = mcp_server._response_mode_payload(full, response_mode="compact", action="test")
+    assert compact["summary_contract"] == "plan-mutation-summary/v1"
+    assert compact["action"] == "test"
+    assert compact["key"] == "house-x"
+    assert compact["label_counts"] == {"wall": 2}
+    assert compact["open_blocker_count"] == 1
+    assert compact["latest_evidence_id"] == "E1"
+
+    assert mcp_server._response_mode_payload(full, response_mode="full") == full
+
+
+def test_opening_candidate_apply_summary_omits_full_candidate_geometry() -> None:
+    summary = mcp_tools_geometry._compact_opening_candidate_apply({
+        "candidate_id": "OPEN-1",
+        "candidate_fingerprint": "fp",
+        "persisted": True,
+        "label_id": "opening-1",
+        "candidate": {
+            "kind": "wall_gap",
+            "confidence": "high",
+            "parent_wall_id": "wall-1",
+            "opening_kind": "door",
+            "region": [1, 2, 3, 4],
+            "geometry": {"quad": [[1, 2], [3, 4], [5, 6], [7, 8]]},
+        },
+        "decision": {"OPEN-1": {"outcome": "accepted_applied"}},
+    })
+
+    assert summary["summary_contract"] == "opening-candidate-apply-summary/v1"
+    assert summary["label_id"] == "opening-1"
+    assert summary["candidate"]["parent_wall_id"] == "wall-1"
+    assert "geometry" not in summary["candidate"]
 
 
 def test_cleanup_image_handles_removes_old_files(tmp_path: Path, monkeypatch) -> None:

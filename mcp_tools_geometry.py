@@ -15,15 +15,40 @@ import time
 import mcp_server
 from mcp_server import (
     _api_unreachable_error,
-    _compact_plan_mutation_response,
+    _err,
     _http_status_to_error,
     _image_delivery_payload,
     _ok,
+    _response_mode_payload,
     _truncate_lists,
     _wait_for_api,
     _wrap_text,
     mcp,
 )
+
+
+def _compact_opening_candidate_apply(data: Any) -> dict[str, Any]:
+    """Keep successful opening candidate application responses small by default."""
+    if not isinstance(data, dict):
+        return {"summary_contract": "opening-candidate-apply-summary/v1", "data": data}
+    candidate = data.get("candidate") if isinstance(data.get("candidate"), dict) else {}
+    decisions = data.get("decision") if isinstance(data.get("decision"), dict) else {}
+    return {
+        "summary_contract": "opening-candidate-apply-summary/v1",
+        "action": "apply_opening_candidate",
+        "candidate_id": data.get("candidate_id"),
+        "candidate_fingerprint": data.get("candidate_fingerprint"),
+        "persisted": data.get("persisted"),
+        "label_id": data.get("label_id"),
+        "candidate": {
+            "kind": candidate.get("kind"),
+            "confidence": candidate.get("confidence"),
+            "parent_wall_id": candidate.get("parent_wall_id"),
+            "opening_kind": candidate.get("opening_kind"),
+            "region": candidate.get("region"),
+        },
+        "decision_count": len(decisions),
+    }
 
 
 @mcp.tool()
@@ -501,7 +526,7 @@ async def get_scene_view_with_opening_candidate(
     candidate_id: str,
     max_dim: int = 1600,
     clean: bool = True,
-    image_delivery: str = "inline",
+    image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """Render current labels plus one proposed opening candidate.
 
@@ -551,6 +576,7 @@ async def apply_opening_candidate(
     file: str,
     candidate_id: str,
     expected_candidate_kind: str | None = None,
+    expected_candidate_fingerprint: str | None = None,
     opening_kind: str | None = None,
     width_mm: float | None = None,
     swing: str | None = None,
@@ -558,6 +584,7 @@ async def apply_opening_candidate(
     evidence_ids: list[str] | None = None,
     expected_version: str | None = None,
     note: str | None = None,
+    response_mode: str = "compact",
 ) -> dict:
     """Apply one reviewed deterministic floorplan opening candidate.
 
@@ -575,6 +602,7 @@ async def apply_opening_candidate(
     started = time.time()
     body = {
         "expected_candidate_kind": expected_candidate_kind,
+        "expected_candidate_fingerprint": expected_candidate_fingerprint,
         "opening_kind": opening_kind,
         "width_mm": width_mm,
         "swing": swing,
@@ -586,7 +614,12 @@ async def apply_opening_candidate(
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/apply", body)
     if status >= 400:
         return _http_status_to_error(status, res, started)
-    return _ok(res.get("data") if isinstance(res, dict) else res, started_at=started, status_code=status)
+    data = res.get("data") if isinstance(res, dict) else res
+    mode = (response_mode or "compact").lower()
+    if mode not in {"compact", "full"}:
+        return _err("bad_response_mode", "response_mode must be compact or full", started_at=started, status_code=400)
+    payload = data if mode == "full" else _compact_opening_candidate_apply(data)
+    return _ok(payload, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -596,9 +629,11 @@ async def decide_opening_candidate(
     candidate_id: str,
     outcome: str,
     expected_candidate_kind: str | None = None,
+    expected_candidate_fingerprint: str | None = None,
     evidence_ids: list[str] | None = None,
     expected_version: str | None = None,
     note: str | None = None,
+    response_mode: str = "compact",
 ) -> dict:
     """Record an accept/reject/manual decision for an opening candidate.
 
@@ -615,6 +650,7 @@ async def decide_opening_candidate(
     body = {
         "outcome": outcome,
         "expected_candidate_kind": expected_candidate_kind,
+        "expected_candidate_fingerprint": expected_candidate_fingerprint,
         "evidence_ids": evidence_ids or [],
         "expected_version": expected_version,
         "note": note,
@@ -623,7 +659,11 @@ async def decide_opening_candidate(
     if status >= 400:
         return _http_status_to_error(status, res, started)
     data = res.get("data") if isinstance(res, dict) else res
-    return _ok(_compact_plan_mutation_response(data, action="decide_opening_candidate"), started_at=started, status_code=status)
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="decide_opening_candidate")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -641,7 +681,7 @@ async def dimension_chain_context(
     max_dim: int = 1600,
     enhance: str | None = "auto",
     format: str = "png8",
-    image_delivery: str = "inline",
+    image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """Find a dimension chain and return the tight crop image + tick metadata.
 
@@ -740,5 +780,3 @@ async def connect_corners(edges: list, closed: bool = True) -> dict:
     started = time.time()
     return await mcp_server._cv_post("/geometry/connect-corners",
                           {"edges": edges, "closed": closed}, started)
-
-

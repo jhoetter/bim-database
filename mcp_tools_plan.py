@@ -14,12 +14,12 @@ import time
 import mcp_server
 from mcp_server import (
     _api_unreachable_error,
-    _compact_plan_mutation_response,
     _err,
     _http_status_to_error,
     _image_delivery_payload,
     _is_file_groundfloor,
     _ok,
+    _response_mode_payload,
     _scene_order_guard,
     _wait_for_api,
     _wrap_text,
@@ -172,12 +172,36 @@ async def get_scene_plan_next_actions(key: str, file: str, limit: int = 3) -> di
 
 
 @mcp.tool()
+async def get_scene_workbench_state(key: str, file: str) -> dict:
+    """Return the compact scene workbench state for one agent loop.
+
+    USE when:
+      - Starting or resuming a scene worker iteration.
+      - You need the current task, recommended view mode, allowed tools,
+        blockers, label counts, recent evidence, and candidate queue summary
+        without loading the full plan state or Markdown.
+
+    DON'T USE when:
+      - You need the full audit body; call `get_scene_plan_state`.
+    """
+    started = time.time()
+    guard = await _scene_order_guard(key, file)
+    if guard:
+        return _ok({"workbench_contract": "scene-workbench-state/v1", **guard}, started_at=started)
+    status, body = await mcp_server._api_get(f"/datasets/{key}/{file}/plan-state/workbench")
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    return _ok(body.get("data") if isinstance(body, dict) else body, started_at=started, status_code=status)
+
+
+@mcp.tool()
 async def start_scene_plan_action(
     key: str,
     file: str,
     action_id: str,
     agent_id: str | None = "bim-agent",
     expected_version: str | None = None,
+    response_mode: str = "compact",
 ) -> dict:
     """Claim a scene-plan action and mark its task/defect in progress.
 
@@ -205,7 +229,11 @@ async def start_scene_plan_action(
     if status >= 400:
         return _http_status_to_error(status, res, started)
     data = res.get("data") if isinstance(res, dict) else res
-    return _ok(_compact_plan_mutation_response(data, action="start_action"), started_at=started, status_code=status)
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="start_action")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -218,6 +246,7 @@ async def record_scene_plan_attempt(
     evidence_ids: list[str] | None = None,
     attempt_id: str | None = None,
     expected_version: str | None = None,
+    response_mode: str = "compact",
 ) -> dict:
     """Record one coherent edit/review attempt for the current action.
 
@@ -241,7 +270,11 @@ async def record_scene_plan_attempt(
     if status >= 400:
         return _http_status_to_error(status, res, started)
     data = res.get("data") if isinstance(res, dict) else res
-    return _ok(_compact_plan_mutation_response(data, action="record_attempt"), started_at=started, status_code=status)
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="record_attempt")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -254,6 +287,7 @@ async def finish_scene_plan_action(
     evidence_ids: list[str] | None = None,
     attempt_id: str | None = None,
     expected_version: str | None = None,
+    response_mode: str = "compact",
 ) -> dict:
     """Finish one plan action after verification.
 
@@ -281,7 +315,11 @@ async def finish_scene_plan_action(
     if status >= 400:
         return _http_status_to_error(status, res, started)
     data = res.get("data") if isinstance(res, dict) else res
-    return _ok(_compact_plan_mutation_response(data, action="finish_action"), started_at=started, status_code=status)
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="finish_action")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -314,7 +352,7 @@ async def get_scene_view_with_repair_candidate(
     max_dim: int = 1600,
     clean: bool = True,
     style: str = "ink_compare",
-    image_delivery: str = "inline",
+    image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """Render current labels plus one proposed repair candidate.
 
@@ -463,6 +501,7 @@ async def add_scene_plan_evidence(
     task_ids: list[str] | None = None,
     observation_id: str | None = None,
     expected_version: str | None = None,
+    response_mode: str = "compact",
 ) -> dict:
     """Add evidence to the structured scene plan.
 
@@ -491,7 +530,11 @@ async def add_scene_plan_evidence(
     if status >= 400:
         return _http_status_to_error(status, res, started)
     data = res.get("data") if isinstance(res, dict) else res
-    return _ok(_compact_plan_mutation_response(data, action="add_evidence"), started_at=started, status_code=status)
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="add_evidence")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)
 
 
 @mcp.tool()
@@ -505,6 +548,7 @@ async def set_scene_plan_task_state(
     gate_updates: list[dict] | None = None,
     note: str | None = None,
     expected_version: str | None = None,
+    response_mode: str = "compact",
 ) -> dict:
     """Set one structured scene-plan task state.
 
@@ -540,7 +584,11 @@ async def set_scene_plan_task_state(
     if status_code >= 400:
         return _http_status_to_error(status_code, res, started)
     data = res.get("data") if isinstance(res, dict) else res
-    return _ok(_compact_plan_mutation_response(data, action="set_task_state"), started_at=started, status_code=status_code)
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="set_task_state")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status_code)
 
 
 @mcp.tool()
@@ -553,6 +601,7 @@ async def evaluate_scene_plan_gates(
     visual_evidence: bool = False,
     run_continuity_check: bool = False,
     expected_version: str | None = None,
+    response_mode: str = "compact",
 ) -> dict:
     """Evaluate deterministic plan gates and update defects/tasks/status.
 
@@ -577,6 +626,8 @@ async def evaluate_scene_plan_gates(
     if status >= 400:
         return _http_status_to_error(status, res, started)
     data = res.get("data") if isinstance(res, dict) else res
-    return _ok(_compact_plan_mutation_response(data, action="evaluate_gates"), started_at=started, status_code=status)
-
-
+    try:
+        payload = _response_mode_payload(data, response_mode=response_mode, action="evaluate_gates")
+    except ValueError as e:
+        return _err("bad_response_mode", str(e), started_at=started, status_code=400)
+    return _ok(payload, started_at=started, status_code=status)

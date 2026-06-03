@@ -584,7 +584,7 @@ def _image_delivery_payload(
     status_code: int,
     image_delivery: str,
 ) -> list[ImageContent | TextContent]:
-    delivery = (image_delivery or "inline").lower()
+    delivery = (image_delivery or "auto").lower()
     if delivery not in {"inline", "handle", "auto"}:
         return _wrap_text(_err(
             "bad_image_delivery",
@@ -905,6 +905,16 @@ def _compact_plan_mutation_response(data: Any, *, action: str | None = None, max
     return summary
 
 
+def _response_mode_payload(data: Any, *, response_mode: str, action: str | None = None) -> Any:
+    """Return full or compact plan payloads for MCP context control."""
+    mode = (response_mode or "compact").lower()
+    if mode not in {"compact", "full"}:
+        raise ValueError("response_mode must be compact or full")
+    if mode == "full":
+        return data
+    return _compact_plan_mutation_response(data, action=action)
+
+
 def _compact_workflow_for_summary(workflow: dict[str, Any], max_blockers: int = 2) -> dict[str, Any]:
     phases = {}
     for phase, data in (workflow.get("phases") or {}).items():
@@ -1080,13 +1090,15 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "split_scene", "get_scene_view", "get_scene_meta",
         "set_scene_tag", "set_scene_orientation", "set_scene_level",
         "create_scene_plan_state_from_template", "get_scene_plan_status",
+        "get_scene_workbench_state",
         "get_workflow_state", "get_recommended_next_action", "write_handoff_summary",
     },
     "floorplan": {
         "get_house_context_summary", "get_scene_context_summary",
         "create_scene_plan_state_from_template", "get_scene_plan_state",
         "get_scene_plan_status", "get_scene_plan_next_action",
-        "get_scene_plan_next_actions", "start_scene_plan_action",
+        "get_scene_plan_next_actions", "get_scene_workbench_state",
+        "start_scene_plan_action",
         "record_scene_plan_attempt", "finish_scene_plan_action",
         "add_scene_plan_evidence", "set_scene_plan_task_state",
         "evaluate_scene_plan_gates",
@@ -1110,7 +1122,8 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "get_building_global_facts", "set_building_global_fact",
         "create_scene_plan_state_from_template", "get_scene_plan_state",
         "get_scene_plan_status", "get_scene_plan_next_action",
-        "get_scene_plan_next_actions", "start_scene_plan_action",
+        "get_scene_plan_next_actions", "get_scene_workbench_state",
+        "start_scene_plan_action",
         "record_scene_plan_attempt", "finish_scene_plan_action",
         "set_scene_plan_task_state",
         "get_scene_view", "get_scene_view_with_labels", "verify_label_placement",
@@ -1125,6 +1138,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "get_house_context_summary", "get_scene_context_summary",
         "get_workflow_state", "validate_export_readiness", "list_anomalies",
         "get_scene_plan_status", "get_scene_plan_next_action",
+        "get_scene_workbench_state",
         "set_scene_plan_task_state",
         "get_scene_view_with_labels", "verify_label_placement",
         "score_walls", "score_measurements", "wall_topology_qa",

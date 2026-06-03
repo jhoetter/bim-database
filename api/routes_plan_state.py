@@ -366,6 +366,145 @@ def get_scene_plan_next_action_route(key: str, file: str) -> dict:
     return {"ok": True, "data": next_action(DATASET_DIR, key, file)}
 
 
+def _workbench_view_mode(action: dict[str, Any] | None) -> str:
+    if not action:
+        return "analysis_view"
+    phase = action.get("phase")
+    category = action.get("category")
+    if category == "openings":
+        return "opening_candidate_view" if phase == "editing" else "analysis_view"
+    if category == "dimensions":
+        return "measurement_read_view" if phase in {"analysis", "editing"} else "edit_verify_view"
+    if category == "walls":
+        return "silhouette_view" if phase == "analysis" else ("topology_qa_view" if phase == "verification" else "coordinate_pick_view")
+    if phase == "verification":
+        return "topology_qa_view"
+    if phase == "editing":
+        return "coordinate_pick_view"
+    return "analysis_view"
+
+
+def _label_type_counts(labels_doc: dict[str, Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for label in labels_doc.get("labels") or []:
+        if isinstance(label, dict):
+            label_type = str(label.get("type") or "unknown")
+            counts[label_type] = counts.get(label_type, 0) + 1
+    return counts
+
+
+def _opening_candidate_summary(key: str, file: str, action: dict[str, Any] | None) -> dict[str, Any]:
+    category = (action or {}).get("category")
+    allowed = set((action or {}).get("allowed_tools") or [])
+    if category != "openings" and "opening_candidates" not in allowed:
+        return {"included": False, "reason": "next action is not opening-related"}
+    try:
+        img_path = _scene_image_path("dataset", key, file)
+        labels_doc = get_labels("dataset", key, file)
+        from PIL import Image as PILImage
+        from .opening_candidates import opening_candidate_report
+        with PILImage.open(img_path) as src:
+            report = opening_candidate_report(src.convert("RGB"), labels_doc, limit=8)
+    except Exception as e:  # noqa: BLE001
+        return {"included": False, "error": str(e)}
+    candidates = report.get("candidates") or []
+    by_kind: dict[str, int] = {}
+    by_confidence: dict[str, int] = {}
+    compact = []
+    for candidate in candidates[:5]:
+        kind = str(candidate.get("kind") or "unknown")
+        confidence = str(candidate.get("confidence") or "unknown")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        by_confidence[confidence] = by_confidence.get(confidence, 0) + 1
+        compact.append({
+            "candidate_id": candidate.get("candidate_id"),
+            "candidate_fingerprint": candidate.get("candidate_fingerprint"),
+            "kind": candidate.get("kind"),
+            "confidence": candidate.get("confidence"),
+            "parent_wall_id": candidate.get("parent_wall_id"),
+            "opening_kind": candidate.get("opening_kind"),
+            "region": candidate.get("region"),
+        })
+    return {
+        "included": True,
+        "count": int(report.get("count") or len(candidates)),
+        "by_kind": by_kind,
+        "by_confidence": by_confidence,
+        "candidates": compact,
+        "truncated": len(candidates) > len(compact),
+    }
+
+
+@router.get("/datasets/{key}/{file}/plan-state/workbench", tags=["dataset"])
+def get_scene_workbench_state_route(key: str, file: str) -> dict:
+    """Return the compact scene workbench state for one agent loop iteration."""
+    _ensure_dataset_scene(key, file)
+    from .scene_plan_state import next_action, plan_status, read_plan_state
+    labels_doc = get_labels("dataset", key, file)
+    status = plan_status(DATASET_DIR, key, file)
+    action_env = next_action(DATASET_DIR, key, file)
+    action = action_env.get("action") if isinstance(action_env, dict) else None
+    plan = read_plan_state(DATASET_DIR, key, file)
+    state = plan.get("state") or {}
+    current = state.get("current_state") or {}
+    recent_evidence = []
+    for item in (state.get("evidence") or [])[-5:]:
+        if isinstance(item, dict):
+            recent_evidence.append({
+                "id": item.get("id"),
+                "kind": item.get("kind"),
+                "mode": item.get("mode"),
+                "summary": item.get("summary"),
+                "task_ids": item.get("task_ids") or [],
+            })
+    data = {
+        "workbench_contract": "scene-workbench-state/v1",
+        "key": key,
+        "file": file,
+        "plan": {
+            "exists": status.get("exists"),
+            "version": status.get("version"),
+            "status": status.get("status"),
+            "summary": status.get("summary"),
+            "terminal": status.get("terminal"),
+            "required_complete": status.get("required_complete"),
+            "percent_complete": status.get("percent_complete"),
+            "open_blockers": status.get("open_blockers"),
+            "open_warnings": status.get("open_warnings"),
+            "terminality_reasons": status.get("terminality_reasons") or [],
+        },
+        "current_task": (action or {}).get("task_id"),
+        "phase": (action or {}).get("phase") or "analysis",
+        "recommended_view_mode": _workbench_view_mode(action),
+        "recommended_region": (action or {}).get("region"),
+        "next_action": action,
+        "allowed_tools": (action or {}).get("allowed_tools") or [],
+        "forbidden_writes": (action or {}).get("forbidden_label_types") or [],
+        "required_evidence": (action or {}).get("required_evidence") or [],
+        "labels_summary": {
+            "total": len(labels_doc.get("labels") or []),
+            "by_type": _label_type_counts(labels_doc),
+        },
+        "blocker_summary": {
+            "open_blockers": status.get("open_blockers"),
+            "open_warnings": status.get("open_warnings"),
+            "reasons": status.get("terminality_reasons") or [],
+        },
+        "semantic_exclusions_summary": {
+            "available": False,
+            "note": "Phase 4 will add persistent semantic ink exclusions.",
+        },
+        "candidate_queue_summary": _opening_candidate_summary(key, file, action),
+        "recent_evidence": recent_evidence,
+        "quality": {
+            "label_counts": current.get("label_counts") or {},
+            "current_findings": current.get("findings") or {},
+            "finding_clusters": current.get("finding_clusters") or {},
+        },
+    }
+    return {"ok": True, "data": data}
+
+
 @router.post("/datasets/{key}/{file}/plan-state/actions/{action_id}/start", tags=["dataset"])
 def start_scene_plan_action_route(key: str, file: str, action_id: str, body: dict[str, Any] = Body(default={})) -> dict:
     _ensure_dataset_scene(key, file)

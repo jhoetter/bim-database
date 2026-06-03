@@ -1055,6 +1055,7 @@ def test_get_scene_view_format_png8_is_smaller():
     def fetch(fmt):
         res = _run(mcp_server.get_scene_view(
             key=key, file=file, tiers="broad,finer", max_dim=1200, format=fmt,
+            image_delivery="inline",
         ))
         img, text = res
         env = _json.loads(text.text)
@@ -1111,6 +1112,7 @@ def test_h5_get_scene_view_with_labels_renders_labels():
     # Baseline: render the verify view with no relevant labels.
     baseline = _run(mcp_server.get_scene_view_with_labels(
         key=key, file=file, tiers="broad", max_dim=400,
+        image_delivery="inline",
     ))
     assert isinstance(baseline, list) and len(baseline) == 2
     baseline_img, _ = baseline
@@ -1134,6 +1136,7 @@ def test_h5_get_scene_view_with_labels_renders_labels():
         # Re-render — must differ because the wall stroke is now drawn.
         with_labels = _run(mcp_server.get_scene_view_with_labels(
             key=key, file=file, tiers="broad", max_dim=400,
+            image_delivery="inline",
         ))
         with_labels_img, with_labels_text = with_labels
         assert with_labels_img.type == "image"
@@ -1161,6 +1164,7 @@ def test_get_scene_view_enhance_passthrough():
         pytest.skip("no scene")
     res = _run(mcp_server.get_scene_view(
         key=key, file=file, tiers="broad", max_dim=400, enhance="clahe",
+        image_delivery="inline",
     ))
     img, text = res
     assert img.type == "image" and img.mimeType == "image/png"

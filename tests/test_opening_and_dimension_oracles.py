@@ -52,16 +52,51 @@ def test_opening_candidates_detect_wall_gap_and_overlay_renders():
         assert gaps
         assert gaps[0]["parent_wall_id"] == "wall-1"
         assert 40 <= gaps[0]["span_px"] <= 90
+        candidate_id = gaps[0]["candidate_id"]
 
         overlay = client.get(
-            f"/datasets/{key}/{file}/opening-candidates/{gaps[0]['candidate_id']}/overlay"
+            f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/overlay"
         )
         assert overlay.status_code == 200, overlay.text
         assert overlay.headers["content-type"].startswith("image/png")
 
+        stale_apply = client.post(
+            f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/apply",
+            json={
+                "opening_kind": "door",
+                "expected_candidate_fingerprint": "stale-fingerprint",
+            },
+        )
+        assert stale_apply.status_code == 400
+        assert "fingerprint changed" in stale_apply.text
+
+        stale_decision = client.post(
+            f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/decision",
+            json={
+                "outcome": "rejected_false_positive",
+                "expected_candidate_fingerprint": "stale-fingerprint",
+            },
+        )
+        assert stale_decision.status_code == 400
+        assert "fingerprint changed" in stale_decision.text
+
+        decision = client.post(
+            f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/decision",
+            json={
+                "outcome": "accepted_uncertain",
+                "note": "current candidate fingerprint accepted in test",
+                "expected_candidate_fingerprint": gaps[0]["candidate_fingerprint"],
+            },
+        )
+        assert decision.status_code == 200, decision.text
+
         apply = client.post(
-            f"/datasets/{key}/{file}/opening-candidates/{gaps[0]['candidate_id']}/apply",
-            json={"opening_kind": "door", "note": "accepted in test"},
+            f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/apply",
+            json={
+                "opening_kind": "door",
+                "note": "accepted in test",
+                "expected_candidate_fingerprint": gaps[0]["candidate_fingerprint"],
+            },
         )
         assert apply.status_code == 200, apply.text
         label_id = apply.json()["data"]["label_id"]
@@ -69,12 +104,6 @@ def test_opening_candidates_detect_wall_gap_and_overlay_renders():
         label = next(l for l in saved["labels"] if l["id"] == label_id)
         assert label["type"] == "floorplan_opening"
         assert label["attributes"]["opening_kind"] == "door"
-
-        decision = client.post(
-            f"/datasets/{key}/{file}/opening-candidates/{gaps[0]['candidate_id']}/decision",
-            json={"outcome": "rejected_false_positive", "note": "already handled"},
-        )
-        assert decision.status_code == 200, decision.text
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
