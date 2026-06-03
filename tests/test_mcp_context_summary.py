@@ -29,6 +29,32 @@ def test_aggregate_house_quality_distinguishes_honest_from_high_confidence() -> 
     assert quality["high_confidence_complete"] is False
 
 
+def test_compact_scene_row_includes_replacement_provenance() -> None:
+    from mcp_context_summary import compact_scene_row
+
+    row = compact_scene_row(
+        {
+            "file": "house-a-floorplan-eg.png",
+            "kind": "floorplan",
+            "scene_replacement": {
+                "old_file": "house-a-floorplan-eg.jpg",
+                "new_file": "house-a-floorplan-eg.png",
+                "old_format": "jpg",
+                "new_format": "png",
+                "reason": "lossless reextract",
+                "label_plan_impact": "labels_or_plan_preserved_but_pixel_source_replaced",
+                "replaced_at": "2026-06-03T00:00:00Z",
+            },
+            "replacement_history": [{"old_file": "house-a-floorplan-eg.jpg"}],
+        },
+        {"scene_tag": "grundriss", "label_count": 3},
+    )
+
+    assert row["scene_replacement"]["old_file"] == "house-a-floorplan-eg.jpg"
+    assert row["scene_replacement"]["label_plan_impact"] == "labels_or_plan_preserved_but_pixel_source_replaced"
+    assert row["replacement_count"] == 1
+
+
 def test_get_scene_context_summary_truncates_labels(monkeypatch) -> None:
     labels = [
         {"id": f"W{i}", "type": "wall", "status": "readable", "geometry": {"start": [0, i], "end": [1, i]}}

@@ -85,6 +85,9 @@ def test_reextract_overwrites_same_scene(client, install_pdf):
     # The recorded bbox reflects the SECOND extract (the re-crop took effect).
     rec = r2.json()["extracted"][0]["crop_from"]["bbox_pdf_units"]
     assert rec == pytest.approx([60, 60, 400, 400], abs=0.5), rec
+    assert r2.json()["extracted"][0]["scene_replacement"]["old_file"] == "house-slug-floorplan-eg.jpg"
+    assert r2.json()["extracted"][0]["scene_replacement"]["new_file"] == "house-slug-floorplan-eg.jpg"
+    assert r2.json()["extracted"][0]["replacement_history"]
     # Only one scene exists in the dataset (no phantom).
     ds = client.get(f"/datasets/{KEY}").json()
     eg_scenes = [d["file"] for d in ds["drawings"] if "floorplan-eg" in d["file"]]
@@ -128,6 +131,59 @@ def test_reextract_with_existing_labels_requires_confirmation(client, install_pd
     entry = confirmed.json()["extracted"][0]
     assert entry["crop_intent"] == "scene_full_context"
     assert entry["crop_warnings"]
+    assert entry["scene_replacement"]["label_count"] == 1
+    assert entry["scene_replacement"]["plan_exists"] is False
+    assert entry["scene_replacement"]["label_plan_impact"] == "labels_or_plan_preserved_but_pixel_source_replaced"
+
+
+def test_reextract_same_slug_different_format_records_replacement(client, install_pdf, tmp_path):
+    install_pdf()
+    r1 = _extract(client, slug_override="house-slug-floorplan-eg",
+                  bbox=[20, 20, 430, 430])
+    assert r1.status_code == 201, r1.text
+    old_file = r1.json()["extracted"][0]["file"]
+    labels_dir = tmp_path / "dataset" / KEY / "labels"
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    (labels_dir / f"{Path(old_file).stem}.json").write_text(json.dumps({
+        "scene_file": old_file,
+        "scene_tag": "grundriss",
+        "scene_level": "eg",
+        "labels": [{
+            "id": "wall-1",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [10, 10], "end": [100, 10]},
+            "attributes": {},
+        }],
+    }))
+
+    blocked = client.post(f"/pdfs/{KEY}/extract", json={"items": [{
+        "page": 1, "bbox_pdf_units": [20, 20, 430, 430], "kind": "floorplan",
+        "floor": "eg", "slug_override": "house-slug-floorplan-eg", "dpi": 150,
+        "bbox_is_authoritative": True, "format": "png",
+    }]})
+    assert blocked.status_code == 409
+
+    confirmed = client.post(f"/pdfs/{KEY}/extract", json={"items": [{
+        "page": 1, "bbox_pdf_units": [20, 20, 430, 430], "kind": "floorplan",
+        "floor": "eg", "slug_override": "house-slug-floorplan-eg", "dpi": 150,
+        "bbox_is_authoritative": True, "format": "png",
+        "confirm_reextract_existing_scene": True,
+        "replacement_reason": "switch to lossless PNG for faint scan review",
+    }]})
+    assert confirmed.status_code == 201, confirmed.text
+    entry = confirmed.json()["extracted"][0]
+    assert entry["file"] == "house-slug-floorplan-eg.png"
+    repl = entry["scene_replacement"]
+    assert repl["old_file"] == "house-slug-floorplan-eg.jpg"
+    assert repl["new_file"] == "house-slug-floorplan-eg.png"
+    assert repl["old_format"] == "jpg"
+    assert repl["new_format"] == "png"
+    assert repl["reason"] == "switch to lossless PNG for faint scan review"
+    assert repl["label_plan_impact"] == "labels_or_plan_preserved_but_pixel_source_replaced"
+    ds = client.get(f"/datasets/{KEY}").json()
+    eg_scenes = [d["file"] for d in ds["drawings"] if "floorplan-eg" in d["file"]]
+    assert eg_scenes == ["house-slug-floorplan-eg.png"], eg_scenes
 
 
 def test_override_without_key_prefix_still_works(client, install_pdf):

@@ -133,6 +133,21 @@ async def validate_export_readiness(key: str) -> dict:
     assumed_isotropic_scenes = phases["W4"].get("assumed_isotropic_scenes") or []
     approximate_calibrations = phases["W4"].get("approximate_calibrations") or []
     transferred_calibrations = phases["W4"].get("transferred_calibrations") or []
+    crop_replacement_warnings = []
+    for drawing in drawings:
+        replacement = drawing.get("scene_replacement") if isinstance(drawing.get("scene_replacement"), dict) else None
+        if not replacement:
+            continue
+        crop_replacement_warnings.append({
+            "file": drawing.get("file"),
+            "old_file": replacement.get("old_file"),
+            "old_format": replacement.get("old_format"),
+            "new_format": replacement.get("new_format"),
+            "reason": replacement.get("reason"),
+            "label_plan_impact": replacement.get("label_plan_impact"),
+            "replaced_at": replacement.get("replaced_at"),
+            "review_required": replacement.get("label_plan_impact") == "labels_or_plan_preserved_but_pixel_source_replaced",
+        })
     scene_quality_rows: list[dict] = []
     for drawing in drawings:
         file_name = drawing.get("file")
@@ -160,6 +175,7 @@ async def validate_export_readiness(key: str) -> dict:
         "scenes_total": len(drawings),
         "labeled_scenes": sum(1 for d in drawings if d.get("labeled")),
         "quality_summary": quality_summary,
+        "crop_replacement_warnings": crop_replacement_warnings,
         "calibration_assumptions": {
             "single_ref_assumed_isotropic": assumed_isotropic_scenes,
             "approximate_calibrations": approximate_calibrations,

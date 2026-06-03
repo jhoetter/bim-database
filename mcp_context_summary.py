@@ -9,7 +9,7 @@ QUALITY_TIERS = ("gold", "silver", "bronze", "blocked")
 
 
 def compact_scene_row(drawing: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
-    return {
+    row = {
         "file": drawing.get("file"),
         "title": drawing.get("title"),
         "extraction_kind": drawing.get("kind"),
@@ -22,6 +22,20 @@ def compact_scene_row(drawing: dict[str, Any], meta: dict[str, Any]) -> dict[str
         "label_count": meta.get("label_count", drawing.get("label_count", 0)),
         "label_types": meta.get("label_types") or [],
     }
+    if drawing.get("scene_replacement"):
+        replacement = drawing.get("scene_replacement") or {}
+        row["scene_replacement"] = {
+            "old_file": replacement.get("old_file"),
+            "new_file": replacement.get("new_file"),
+            "old_format": replacement.get("old_format"),
+            "new_format": replacement.get("new_format"),
+            "reason": replacement.get("reason"),
+            "label_plan_impact": replacement.get("label_plan_impact"),
+            "replaced_at": replacement.get("replaced_at"),
+        }
+    if drawing.get("replacement_history"):
+        row["replacement_count"] = len(drawing.get("replacement_history") or [])
+    return row
 
 
 def compact_plan_status(plan_status: dict[str, Any] | None, max_blockers: int = 3) -> dict[str, Any]:

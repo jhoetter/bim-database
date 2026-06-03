@@ -1081,12 +1081,21 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
             file_name = f"{slug}.{_ext}"
             out_path = ds_dir / file_name
             existing_idx = next((i for i, d in enumerate(drawings) if d.get("file") == file_name), None)
+            if existing_idx is None:
+                existing_idx = next(
+                    (
+                        i for i, d in enumerate(drawings)
+                        if Path(str(d.get("file") or "")).stem == slug
+                    ),
+                    None,
+                )
             existing_entry = drawings[existing_idx] if existing_idx is not None else None
             crop_warnings = _crop_regression_warnings(
                 existing_entry,
                 [x0, y0, x1, y1],
                 crop_intent=crop_intent,
             )
+            overwrite_state = {"label_count": 0, "plan_exists": False}
             if existing_idx is not None:
                 overwrite_state = _scene_has_labels_or_plan(ds_dir, file_name)
                 if (
@@ -1201,6 +1210,34 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
                     **({"clip_expand": clip_diag} if clip_diag else {}),
                 },
             }
+            if existing_entry is not None:
+                replacement = {
+                    "kind": "scene_reextract",
+                    "replaced_at": _now_iso(),
+                    "old_file": existing_entry.get("file"),
+                    "new_file": file_name,
+                    "old_format": Path(str(existing_entry.get("file") or "")).suffix.lstrip(".").lower() or None,
+                    "new_format": _ext,
+                    "old_crop_from": existing_entry.get("crop_from") or {},
+                    "new_crop_from": entry["crop_from"],
+                    "reason": raw.get("replacement_reason") or raw.get("reason") or "confirmed re-extract",
+                    "confirmed": bool(raw.get("confirm_reextract_existing_scene")),
+                    "destructive": bool(raw.get("allow_destructive_reextract")),
+                    "label_count": overwrite_state.get("label_count", 0),
+                    "plan_exists": bool(overwrite_state.get("plan_exists")),
+                    "label_plan_impact": (
+                        "labels_or_plan_preserved_but_pixel_source_replaced"
+                        if (overwrite_state.get("label_count", 0) > 0 or overwrite_state.get("plan_exists"))
+                        else "no_existing_labels_or_plan"
+                    ),
+                    "crop_warnings": crop_warnings,
+                }
+                entry["scene_replacement"] = replacement
+                history = list(existing_entry.get("replacement_history") or [])
+                if existing_entry.get("scene_replacement"):
+                    history.append(existing_entry["scene_replacement"])
+                history.append(replacement)
+                entry["replacement_history"] = history[-10:]
             # Replace existing entry with same file name (re-extract) else append.
             if existing_idx is not None:
                 drawings[existing_idx] = entry
