@@ -994,6 +994,8 @@ async def dimension_chain_transaction(
     is_reference: bool = False,
     overall_value_mm: float | None = None,
     sum_tolerance_mm: float = 10.0,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Persist a reviewed dimension chain as distance+number label pairs.
 
@@ -1013,6 +1015,8 @@ async def dimension_chain_transaction(
         "is_reference": is_reference,
         "overall_value_mm": overall_value_mm,
         "sum_tolerance_mm": sum_tolerance_mm,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
     }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/dimension-chain-transaction", body)
     if status >= 400:
@@ -1032,6 +1036,8 @@ async def reference_dim_review(
     review: str = "",
     evidence_ids: list[str] | None = None,
     is_reference: bool = True,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
 ) -> dict:
     """Record why a reference dimension is valid for calibration.
 
@@ -1048,6 +1054,8 @@ async def reference_dim_review(
         "review": review,
         "evidence_ids": evidence_ids or [],
         "is_reference": is_reference,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
     }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/reference-dim-review", body)
     if status >= 400:

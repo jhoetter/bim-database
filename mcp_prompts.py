@@ -66,6 +66,14 @@ def register(mcp, *, server_version: str, api_base: str) -> None:
     def resource_grid_coordinates() -> str:
         return (_PROMPT_DIR / "grid-coordinates.md").read_text()
 
+    @mcp.resource("bim-db://docs/methodology-digest")
+    def resource_methodology_digest() -> str:
+        return (_PROMPT_DIR / "methodology-digest.md").read_text()
+
+    @mcp.resource("bim-db://docs/tool-contract-digest")
+    def resource_tool_contract_digest() -> str:
+        return (_PROMPT_DIR / "tool-contract-digest.md").read_text()
+
     # ── §5.11 MCP prompts (adapter playbooks) ────────────────────────────
     # Transport/discovery adapters for MCP clients — NOT the source of truth
     # for labeling methodology (that lives in bim-agent/spec/). Bodies are in

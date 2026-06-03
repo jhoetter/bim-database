@@ -1769,6 +1769,19 @@ def dimension_chain_transaction_route(key: str, file: str, body: dict[str, Any] 
     spans = body.get("spans")
     if not isinstance(spans, list) or not spans:
         raise HTTPException(status_code=400, detail="spans must be a non-empty list")
+    try:
+        from .scene_plan_state import preflight_label_write
+        plan_preflight = preflight_label_write(
+            DATASET_DIR,
+            key,
+            file,
+            ["dimensioned_distance", "dimension_number"],
+            tool="dimension_chain_transaction",
+            allow_override=bool(body.get("allow_plan_order_override", False)),
+            override_reason=body.get("override_reason"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
     orientation = str(body.get("orientation") or "unknown")
     if orientation not in {"horizontal", "vertical", "unknown"}:
         raise HTTPException(status_code=400, detail="orientation must be horizontal, vertical, or unknown")
@@ -1867,6 +1880,7 @@ def dimension_chain_transaction_route(key: str, file: str, body: dict[str, Any] 
             "written": written,
             "sum_check": sum_check,
             "calibration_after": calibration,
+            "plan_preflight": plan_preflight,
         },
     }
 
@@ -1884,6 +1898,19 @@ def reference_dim_review_route(key: str, file: str, body: dict[str, Any] = Body(
     target = _label_by_id(new_doc, label_id)
     if target is None or target.get("type") != "dimensioned_distance":
         raise HTTPException(status_code=404, detail="dimensioned_distance label not found")
+    try:
+        from .scene_plan_state import preflight_label_write
+        plan_preflight = preflight_label_write(
+            DATASET_DIR,
+            key,
+            file,
+            ["dimensioned_distance"],
+            tool="reference_dim_review",
+            allow_override=bool(body.get("allow_plan_order_override", False)),
+            override_reason=body.get("override_reason"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
     is_reference = bool(body.get("is_reference", True))
     semantic = _dimension_semantic(body.get("dimension_semantic"))
     role = _calibration_role(body.get("calibration_role"), is_reference=is_reference)
@@ -1910,6 +1937,7 @@ def reference_dim_review_route(key: str, file: str, body: dict[str, Any] = Body(
             "calibration_role": role,
             "calibration_confidence": confidence,
             "calibration_after": calibration,
+            "plan_preflight": plan_preflight,
         },
     }
 

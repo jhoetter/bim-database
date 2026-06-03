@@ -3019,6 +3019,7 @@ export function AnnotatePage() {
           workflowFacts={workflowSnapshot.facts}
           workflowScenes={workflowSnapshot.scenes}
           currentSceneFile={decodedFile}
+          scenePlan={scenePlan ?? null}
           onGoToScene={goToScene}
           hiddenLabelIds={hiddenLabelIds}
           onToggleHiddenLabel={(id) => {
@@ -5946,6 +5947,7 @@ function ToolPalette({
   workflowFacts,
   workflowScenes,
   currentSceneFile,
+  scenePlan,
   onGoToScene,
   onMarkDetailDone,
   hiddenLabelIds,
@@ -5985,6 +5987,7 @@ function ToolPalette({
   workflowFacts: HouseFacts;
   workflowScenes: WorkflowSceneSummary[];
   currentSceneFile: string;
+  scenePlan: ScenePlan | null;
   onGoToScene: (file: string) => void;
   onMarkDetailDone: () => void;
   hiddenLabelIds: Set<string>;
@@ -6028,6 +6031,7 @@ function ToolPalette({
     }
     return { hasH, hasV };
   })();
+  const labelListWarnings = scenePlanWarnings(scenePlan, labels);
   // L3 D2 — Szenen-Tag picker vanishes once classified. Editing kind/
   // floor/view goes through the SceneDetailsCard popover (✏ Typ ändern).
   // The Orientation / Level pickers only render when the field is null
@@ -6227,6 +6231,11 @@ function ToolPalette({
             </button>
           </div>
         </div>
+        {labelListWarnings.length > 0 && (
+          <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[0.68rem] text-amber-950">
+            {labelListWarnings.slice(0, 2).join(' ')}
+          </div>
+        )}
         {labels.length === 0 ? (
           <p className="text-[0.72rem] text-muted italic">Noch keine Labels.</p>
         ) : (

@@ -8,13 +8,17 @@ import time
 
 import mcp_server
 import mcp_tools_geometry
+from PIL import Image
 
 
 def test_image_delivery_inline_returns_image_and_metadata(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(mcp_server, "IMAGE_HANDLE_DIR", tmp_path)
+    png_path = tmp_path / "tiny.png"
+    Image.new("RGB", (2, 3), "white").save(png_path)
+    content = png_path.read_bytes()
 
     result = mcp_server._image_delivery_payload(
-        content=b"png-bytes",
+        content=content,
         ctype="image/png",
         metadata={"region": "1,2,3,4"},
         started_at=0,
@@ -27,7 +31,10 @@ def test_image_delivery_inline_returns_image_and_metadata(tmp_path: Path, monkey
     env = json.loads(result[1].text)
     assert env["ok"]
     assert env["data"]["image_delivery"] == "inline"
-    assert env["data"]["image_bytes"] == len(b"png-bytes")
+    assert env["data"]["image_bytes"] == len(content)
+    assert env["data"]["output_image_size_px"] == [2, 3]
+    assert env["data"]["context_telemetry"]["payload_strategy"] == "inline_base64"
+    assert env["data"]["context_telemetry"]["estimated_inline_tokens"] > 0
 
 
 def test_image_delivery_handle_omits_inline_base64(tmp_path: Path, monkeypatch) -> None:
@@ -49,6 +56,7 @@ def test_image_delivery_handle_omits_inline_base64(tmp_path: Path, monkeypatch) 
     data = env["data"]
     assert data["image_delivery"] == "handle"
     assert "image_handle" in data
+    assert data["context_telemetry"]["payload_strategy"] == "file_handle"
     handle_path = Path(data["image_handle"]["path"])
     assert handle_path.exists()
     assert handle_path.read_bytes() == b"png-bytes"
@@ -70,6 +78,7 @@ def test_image_delivery_auto_uses_handle_above_threshold(tmp_path: Path, monkeyp
 
     env = json.loads(result[-1].text)
     assert env["data"]["image_delivery"] == "handle"
+    assert "data" not in env["data"]
 
 
 def test_image_delivery_empty_mode_defaults_to_auto_handle(tmp_path: Path, monkeypatch) -> None:

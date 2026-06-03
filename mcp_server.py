@@ -604,11 +604,27 @@ def _image_delivery_payload(
     should_inline = delivery == "inline" or (
         delivery == "auto" and len(content) <= IMAGE_HANDLE_INLINE_THRESHOLD
     )
+    output_size_px = None
+    try:
+        from PIL import Image as PILImage
+        import io
+        with PILImage.open(io.BytesIO(content)) as im:
+            output_size_px = [int(im.size[0]), int(im.size[1])]
+    except Exception:  # noqa: BLE001
+        output_size_px = None
     payload = {
         **metadata,
         "image_bytes": len(content),
         "image_delivery": "inline" if should_inline else "handle",
         "inline_threshold_bytes": IMAGE_HANDLE_INLINE_THRESHOLD,
+        "output_image_size_px": output_size_px,
+        "scale_note": "Rendered PNG size after max_dim/region processing; source coordinates remain native scene pixels.",
+        "context_telemetry": {
+            "image_bytes": len(content),
+            "estimated_inline_base64_bytes": int(len(content) * 4 / 3),
+            "estimated_inline_tokens": int((len(content) * 4 / 3) / 4),
+            "payload_strategy": "inline_base64" if should_inline else "file_handle",
+        },
     }
     if should_inline:
         image = ImageContent(
