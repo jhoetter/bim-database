@@ -185,7 +185,16 @@ export type ScenePlanTaskStatus =
   | 'rejected'
   | 'verified'
   | 'accepted_incomplete';
-export type ScenePlanDefectStatus = 'open' | 'in_progress' | 'fixed' | 'rejected' | 'accepted_uncertain' | 'superseded';
+export type ScenePlanDefectStatus =
+  | 'open'
+  | 'in_progress'
+  | 'fixed'
+  | 'rejected'
+  | 'rejected_false_positive'
+  | 'accepted_uncertain'
+  | 'accepted_risk'
+  | 'accepted_source_limited'
+  | 'superseded';
 export type ScenePlanDefectSeverity = 'blocker' | 'warning' | 'info';
 
 export interface ScenePlanGate {

@@ -5095,6 +5095,11 @@ function ScenePlanPanel({
   const openDefects = (state?.defects ?? []).filter((d) => d.status === 'open' || d.status === 'in_progress');
   const blockers = openDefects.filter((d) => d.severity === 'blocker');
   const historicalDefects = (state?.defects ?? []).filter((d) => d.status !== 'open' && d.status !== 'in_progress');
+  const reviewedWarningDefects = historicalDefects.filter((d) =>
+    d.severity === 'warning'
+    && ['rejected', 'rejected_false_positive', 'accepted_risk', 'accepted_source_limited', 'superseded'].includes(String(d.status))
+  );
+  const historicalNonWarningDefects = historicalDefects.filter((d) => !reviewedWarningDefects.includes(d));
   const findingClusters = state?.current_state?.finding_clusters?.items ?? [];
   const currentFindings = state?.current_state?.findings;
   const repairDecisions = state?.current_state?.repair_candidate_decisions ?? {};
@@ -5103,6 +5108,8 @@ function ScenePlanPanel({
   const warningCompletionTotal = Math.max(findingClusters.length, reviewedClusterCount + highConfidenceUnresolved);
   const warningCompletionPct = warningCompletionTotal ? Math.round((reviewedClusterCount / warningCompletionTotal) * 100) : 100;
   const terminality = state?.current_state?.terminality;
+  const terminalWarningDecisionCount = terminality?.terminal_warning_decisions ?? reviewedWarningDefects.length;
+  const historicalDefectCount = historicalDefects.length;
   const [defectView, setDefectView] = useState<'current' | 'history'>('current');
   const statusLabel = scenePlanStatusText(plan, labels);
   const nextActions = useMemo<ScenePlanAction[]>(() => {
@@ -5213,7 +5220,7 @@ function ScenePlanPanel({
                       <span><span className="text-zinc-500">Quality</span> <span className="font-semibold">{terminality.quality_tier ?? state.current_state?.quality_tier ?? 'unknown'}</span></span>
                       <span><span className="text-zinc-500">State</span> <span className="font-semibold">{terminality.completion_state ?? state.current_state?.completion_state ?? 'unknown'}</span></span>
                       <span><span className="text-zinc-500">Debt</span> <span className="font-semibold">{terminality.review_debt ?? state.current_state?.review_debt ?? 0}</span></span>
-                      <span><span className="text-zinc-500">Reviewed warnings</span> <span className="font-semibold">{terminality.terminal_warning_decisions ?? 0}</span></span>
+                      <span><span className="text-zinc-500">Reviewed warnings</span> <span className="font-semibold">{terminalWarningDecisionCount}</span></span>
                       <span><span className="text-zinc-500">Complete</span> <span className="font-semibold">{terminality.percent_complete ?? 0}%</span></span>
                       <span><span className="text-zinc-500">Final QA</span> <span className={terminality.final_qa_allowed ? 'font-semibold text-emerald-700' : 'font-semibold text-red-700'}>{terminality.final_qa_allowed ? 'allowed' : 'blocked'}</span></span>
                     </div>
@@ -5366,7 +5373,7 @@ function ScenePlanPanel({
                         onClick={() => setDefectView(view)}
                         className={`px-2 py-1 rounded ${defectView === view ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'}`}
                       >
-                        {view === 'current' ? 'Current' : 'History'}
+                        {view === 'current' ? `Current (${openDefects.length + findingClusters.length})` : `History (${historicalDefectCount})`}
                       </button>
                     ))}
                   </div>
@@ -5382,6 +5389,7 @@ function ScenePlanPanel({
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[0.7rem] text-zinc-600">
                     <span>clusters <span className="font-semibold text-zinc-900">{findingClusters.length}</span></span>
                     <span>classified <span className="font-semibold text-zinc-900">{reviewedClusterCount}</span></span>
+                    <span>reviewed warning history <span className="font-semibold text-zinc-900">{terminalWarningDecisionCount}</span></span>
                     <span>high confidence open <span className={highConfidenceUnresolved > 0 ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'}>{highConfidenceUnresolved}</span></span>
                     <span>blockers <span className={blockers.length > 0 ? 'font-semibold text-red-700' : 'font-semibold text-emerald-700'}>{blockers.length}</span></span>
                   </div>
@@ -5444,11 +5452,22 @@ function ScenePlanPanel({
                     <div className="rounded-md border border-zinc-200 bg-white p-3 text-[0.78rem] text-zinc-600">No historical defect rows.</div>
                   ) : (
                     <div className="space-y-2">
-                    {historicalDefects.map((d) => (
+                      {reviewedWarningDefects.length > 0 && (
+                        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-[0.78rem] text-zinc-700">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-semibold text-zinc-900">Reviewed warning history</div>
+                            <span className="font-mono text-[0.68rem]">{reviewedWarningDefects.length} rows</span>
+                          </div>
+                          <div className="mt-1">
+                            Excluded from current work. These warnings were accepted, rejected, or superseded.
+                          </div>
+                        </div>
+                      )}
+                    {[...historicalNonWarningDefects, ...reviewedWarningDefects].map((d) => (
                       <div key={d.id} className={`rounded-md border p-3 text-[0.78rem] ${
                         d.severity === 'blocker'
                           ? 'border-red-300 bg-red-50 text-red-950'
-                          : d.status === 'superseded'
+                          : d.status === 'superseded' || reviewedWarningDefects.includes(d)
                             ? 'border-zinc-200 bg-zinc-50 text-zinc-700'
                             : 'border-amber-300 bg-amber-50 text-amber-950'
                       }`}>
