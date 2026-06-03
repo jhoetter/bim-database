@@ -476,7 +476,21 @@ def upsert_wall_anchored_route(
         "geometry": {"start": [refined_start[0], refined_start[1]], "end": [refined_end[0], refined_end[1]]},
         "attributes": attrs,
     }
+    endpoint_reasons = candidate.get("endpoint_reasons")
+    if isinstance(endpoint_reasons, dict):
+        if endpoint_reasons.get("start"):
+            label["attributes"]["endpoint_reason_start"] = endpoint_reasons.get("start")
+        if endpoint_reasons.get("end"):
+            label["attributes"]["endpoint_reason_end"] = endpoint_reasons.get("end")
+    elif not (candidate.get("attributes") or {}).get("mass_id"):
+        label["attributes"]["endpoint_reason_start"] = "missing"
+        label["attributes"]["endpoint_reason_end"] = "missing"
+        data.setdefault("warnings", []).append(
+            "manual wall detail write has no endpoint_reasons; classify endpoints before downstream QA"
+        )
     labels = doc.setdefault("labels", [])
+    before_doc = dict(doc)
+    before_doc["labels"] = list(labels)
     idx = next((i for i, lab in enumerate(labels) if lab.get("id") == label_id), None)
     if idx is None:
         labels.append(label)
@@ -488,6 +502,234 @@ def upsert_wall_anchored_route(
     data["label_id"] = label_id
     data["action"] = action
     data["plan_preflight"] = plan_preflight
+    if not (label["attributes"].get("mass_id") or (endpoint_reasons or {}).get("separate_mass")):
+        try:
+            from .wall_topology import wall_topology_qa
+            before_topo = wall_topology_qa(before_doc.get("labels") or []) or {}
+            after_topo = wall_topology_qa(doc.get("labels") or []) or {}
+            before_components = len(before_topo.get("components") or [])
+            after_components = len(after_topo.get("components") or [])
+            if after_components > before_components and before_components > 0:
+                data.setdefault("warnings", []).append(
+                    "manual wall write created a new disconnected component; mark endpoint_reasons.separate_mass=true or use a mass transaction"
+                )
+                data["disconnected_component_warning"] = {
+                    "before_components": before_components,
+                    "after_components": after_components,
+                }
+        except Exception:  # noqa: BLE001
+            pass
+    return {"ok": True, "data": data}
+
+
+def _mass_edges_from_rect(body: dict[str, Any]) -> list[list[list[float]]]:
+    corners = body.get("rough_corners")
+    if corners is not None:
+        if not isinstance(corners, list) or len(corners) != 4:
+            raise ValueError("rough_corners must be four [x,y] points")
+        pts = [[float(p[0]), float(p[1])] for p in corners]
+    else:
+        bbox = body.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            raise ValueError("provide bbox [x0,y0,x1,y1] or rough_corners")
+        x0, y0, x1, y1 = [float(v) for v in bbox]
+        pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+    return [[pts[i], pts[(i + 1) % 4]] for i in range(4)]
+
+
+def _mass_edges_from_vertices(body: dict[str, Any]) -> list[list[list[float]]]:
+    vertices = body.get("ordered_vertices")
+    if not isinstance(vertices, list) or len(vertices) < 4:
+        raise ValueError("ordered_vertices must contain at least four [x,y] points")
+    pts = [[float(p[0]), float(p[1])] for p in vertices]
+    if pts[0] == pts[-1]:
+        pts = pts[:-1]
+    if len(pts) < 4:
+        raise ValueError("ordered_vertices must contain at least four distinct points")
+    return [[pts[i], pts[(i + 1) % len(pts)]] for i in range(len(pts))]
+
+
+def _upsert_mass_walls(
+    *,
+    key: str,
+    file: str,
+    source_edges: list[list[list[float]]],
+    body: dict[str, Any],
+    tool: str,
+) -> dict[str, Any]:
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    img_path = _scene_image_path("dataset", key, file)
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"scene image not found: {file}")
+    import hashlib
+    edge_digest = hashlib.sha1(json.dumps(source_edges, sort_keys=True).encode("utf-8")).hexdigest()[:10]
+    mass_id = str(body.get("mass_id") or body.get("label_group") or f"mass-{edge_digest}")
+    mass_kind = str(body.get("kind") or "other")
+    edge_policy = str(body.get("edge_policy") or "refine_to_ink")
+    if edge_policy not in {"refine_to_ink", "use_given", "mixed"}:
+        raise HTTPException(status_code=400, detail="edge_policy must be refine_to_ink, use_given, or mixed")
+    min_confidence = float(body.get("min_confidence", 0.55))
+    search_px = int(body.get("search_px", 32))
+    n_samples = int(body.get("n_samples", 31))
+    thickness_mm = body.get("thickness_mm")
+    excluded_edges = set(int(i) for i in (body.get("excluded_edges") or []))
+    try:
+        from .scene_plan_state import preflight_label_write
+        plan_preflight = preflight_label_write(
+            DATASET_DIR,
+            key,
+            file,
+            ["wall"],
+            tool=tool,
+            allow_override=bool(body.get("allow_plan_order_override", False)),
+            override_reason=body.get("override_reason"),
+        )
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+
+    from PIL import Image as PILImage
+    from .wall_refine import refine_segment
+    from .wall_geometry import connect_corners
+
+    fitted_edges = []
+    edge_reports = []
+    with PILImage.open(img_path) as src_img:
+        src = src_img.convert("RGB")
+        for idx, edge in enumerate(source_edges):
+            start = _as_point(edge[0])
+            end = _as_point(edge[1])
+            if start is None or end is None:
+                raise HTTPException(status_code=400, detail=f"edge {idx} must be [[x,y],[x,y]]")
+            excluded = idx in excluded_edges
+            if edge_policy == "use_given" or excluded:
+                refined_start, refined_end = start, end
+                confidence = 1.0 if not excluded else 0.0
+                thickness_px = None
+            else:
+                refined = refine_segment(src, start, end, search_px=search_px, n_samples=n_samples)
+                refined_start = _as_point(refined.get("start")) or start
+                refined_end = _as_point(refined.get("end")) or end
+                confidence = float(refined.get("confidence") or 0.0)
+                thickness_px = refined.get("thickness_px")
+            fitted_edges.append((refined_start, refined_end))
+            edge_reports.append({
+                "edge_index": idx,
+                "source": [[start[0], start[1]], [end[0], end[1]]],
+                "fitted": [[refined_start[0], refined_start[1]], [refined_end[0], refined_end[1]]],
+                "confidence": round(confidence, 3),
+                "thickness_px": thickness_px,
+                "accepted": (not excluded) and (edge_policy == "use_given" or confidence >= min_confidence),
+                "excluded": excluded,
+            })
+    connected = connect_corners(fitted_edges, closed=True)
+    doc = get_labels("dataset", key, file)
+    labels = doc.setdefault("labels", [])
+    existing_by_edge = {
+        int((lab.get("attributes") or {}).get("mass_edge_index")): lab
+        for lab in labels
+        if lab.get("type") == "wall"
+        and (lab.get("attributes") or {}).get("mass_id") == mass_id
+        and isinstance((lab.get("attributes") or {}).get("mass_edge_index"), int)
+    }
+    changed_ids: list[str] = []
+    wall_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for idx, wall in enumerate(connected):
+        if idx in excluded_edges:
+            continue
+        existing = existing_by_edge.get(idx)
+        label_id = str((existing or {}).get("id") or _wall_label_id())
+        accepted = bool(edge_reports[idx]["accepted"])
+        attrs = {
+            **((existing or {}).get("attributes") or {}),
+            "mass_id": mass_id,
+            "mass_kind": mass_kind,
+            "mass_tool": tool,
+            "mass_edge_index": idx,
+            "mass_edge_count": len(source_edges),
+            "mass_role": "exterior",
+            "edge_confidence": edge_reports[idx]["confidence"],
+            "endpoint_reason_start": "mass_corner",
+            "endpoint_reason_end": "mass_corner",
+        }
+        if thickness_mm is not None:
+            attrs["thickness_mm"] = thickness_mm
+        label = {
+            "id": label_id,
+            "type": "wall",
+            "status": "readable" if accepted else "uncertain",
+            "geometry": {"start": [wall[0][0], wall[0][1]], "end": [wall[1][0], wall[1][1]]},
+            "attributes": attrs,
+        }
+        pos = next((i for i, lab in enumerate(labels) if lab.get("id") == label_id), None)
+        if pos is None:
+            labels.append(label)
+        else:
+            labels[pos] = label
+        changed_ids.append(label_id)
+        wall_segments.append(wall)
+    put_labels("dataset", key, file, doc)
+
+    score_summary: dict[str, Any] = {}
+    topology_summary: dict[str, Any] = {}
+    try:
+        from .wall_score import score_walls
+        with PILImage.open(img_path) as src_img:
+            score = score_walls(src_img.convert("RGB"), wall_segments, min_wall_px=8, tol_px=12, close_px=40)
+        score_summary = {k: score.get(k) for k in ("precision", "recall", "f1", "missing_region_count", "off_ink_count")}
+    except Exception as e:  # noqa: BLE001
+        score_summary = {"error": str(e)}
+    try:
+        from .wall_topology import wall_topology_qa
+        topo = wall_topology_qa(doc.get("labels") or [])
+        topology_summary = {
+            "connected_components": len(topo.get("components") or []),
+            "dangling_endpoints": len(topo.get("dangling_endpoints") or []),
+            "near_miss_corners": len(topo.get("near_miss_corners") or []),
+        }
+    except Exception as e:  # noqa: BLE001
+        topology_summary = {"error": str(e)}
+    rejected = [e for e in edge_reports if not e["accepted"] and not e["excluded"]]
+    warnings = []
+    if rejected:
+        warnings.append(f"{len(rejected)} edge(s) persisted uncertain due to low refine confidence")
+    return {
+        "mass_contract": "wall-mass-transaction/v1",
+        "tool": tool,
+        "mass_id": mass_id,
+        "mass_kind": mass_kind,
+        "edge_policy": edge_policy,
+        "wall_label_ids": changed_ids,
+        "changed_label_ids": changed_ids,
+        "edge_reports": edge_reports,
+        "rejected_edges": rejected,
+        "warnings": warnings,
+        "score_summary": score_summary,
+        "topology_summary": topology_summary,
+        "plan_preflight": plan_preflight,
+    }
+
+
+@router.post("/datasets/{key}/{file}/wall-masses/rect", tags=["pdfs"])
+def upsert_rect_mass_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    """Upsert one rectangular exterior mass as four grouped wall labels."""
+    try:
+        edges = _mass_edges_from_rect(body)
+        data = _upsert_mass_walls(key=key, file=file, source_edges=edges, body=body, tool="upsert_rect_mass")
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    return {"ok": True, "data": data}
+
+
+@router.post("/datasets/{key}/{file}/wall-masses/stepped", tags=["pdfs"])
+def upsert_stepped_mass_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    """Upsert one ordered rectilinear/stepped exterior mass as grouped walls."""
+    try:
+        edges = _mass_edges_from_vertices(body)
+        data = _upsert_mass_walls(key=key, file=file, source_edges=edges, body=body, tool="upsert_stepped_mass")
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
     return {"ok": True, "data": data}
 
 

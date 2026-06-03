@@ -126,3 +126,25 @@ def test_opening_write_before_topology_verification_is_blocked() -> None:
         assert "floorplan_opening" in blocked.text
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+
+def test_mass_tool_allowed_under_wall_editing_action() -> None:
+    key = "house-zzphase3-mass-policy"
+    root, file = _seed_floorplan(key)
+    try:
+        client = TestClient(api_main.app)
+        _create_plan(client, key, file)
+        _force_task_status(key, file, "CLASSIFY_SCENE")
+        _force_task_status(key, file, "ANALYZE_SILHOUETTE")
+
+        started = client.post(f"/datasets/{key}/{file}/plan-state/actions/ACT-TRACE_OUTER_WALLS/start")
+        assert started.status_code == 200, started.text
+
+        ok = client.post(
+            f"/datasets/{key}/{file}/plan-state/preflight-label-write",
+            json={"label_types": ["wall"], "tool": "upsert_rect_mass"},
+        )
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["data"]["action_id"] == "ACT-TRACE_OUTER_WALLS"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

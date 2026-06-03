@@ -798,3 +798,94 @@ async def connect_corners(edges: list, closed: bool = True) -> dict:
     started = time.time()
     return await mcp_server._cv_post("/geometry/connect-corners",
                           {"edges": edges, "closed": closed}, started)
+
+
+@mcp.tool()
+async def upsert_rect_mass(
+    key: str,
+    file: str,
+    bbox: list[float] | None = None,
+    rough_corners: list[list[float]] | None = None,
+    mass_id: str | None = None,
+    kind: str = "main_house",
+    edge_policy: str = "refine_to_ink",
+    thickness_mm: float | None = None,
+    evidence_summary: str | None = None,
+    search_px: int = 32,
+    min_confidence: float = 0.55,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
+) -> dict:
+    """Upsert one rectangular exterior mass as a single wall transaction.
+
+    USE when:
+      - Labeling a detached garage, simple main-house rectangle, projection, or
+        wing after silhouette analysis.
+      - You want four connected wall labels sharing mass metadata instead of
+        placing detail walls one by one.
+
+    DON'T USE when:
+      - The outline is L/T/U-shaped; use `upsert_stepped_mass`.
+      - You are repairing one ambiguous local endpoint; use detail wall tools
+        with endpoint reasons.
+    """
+    started = time.time()
+    payload = {
+        "bbox": bbox,
+        "rough_corners": rough_corners,
+        "mass_id": mass_id,
+        "kind": kind,
+        "edge_policy": edge_policy,
+        "thickness_mm": thickness_mm,
+        "evidence_summary": evidence_summary,
+        "search_px": search_px,
+        "min_confidence": min_confidence,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
+    }
+    return await mcp_server._cv_post(f"/datasets/{key}/{file}/wall-masses/rect", payload, started)
+
+
+@mcp.tool()
+async def upsert_stepped_mass(
+    key: str,
+    file: str,
+    ordered_vertices: list[list[float]],
+    mass_id: str | None = None,
+    kind: str = "main_house",
+    edge_policy: str = "refine_to_ink",
+    thickness_mm: float | None = None,
+    excluded_edges: list[int] | None = None,
+    evidence_summary: str | None = None,
+    search_px: int = 32,
+    min_confidence: float = 0.55,
+    allow_plan_order_override: bool = False,
+    override_reason: str | None = None,
+) -> dict:
+    """Upsert one ordered rectilinear/stepped exterior mass transaction.
+
+    USE when:
+      - Labeling L/T/U-shaped house silhouettes or stepped outer walls.
+      - You already have the ordered exterior corner sequence from silhouette
+        analysis and want connected walls with shared corners.
+
+    DON'T USE when:
+      - The mass is a simple rectangle; `upsert_rect_mass` is clearer.
+      - The vertices are unordered or still exploratory; analyze silhouette
+        first and pass a clockwise/counterclockwise sequence.
+    """
+    started = time.time()
+    payload = {
+        "ordered_vertices": ordered_vertices,
+        "mass_id": mass_id,
+        "kind": kind,
+        "edge_policy": edge_policy,
+        "thickness_mm": thickness_mm,
+        "excluded_edges": excluded_edges or [],
+        "evidence_summary": evidence_summary,
+        "search_px": search_px,
+        "min_confidence": min_confidence,
+        "allow_plan_order_override": allow_plan_order_override,
+        "override_reason": override_reason,
+    }
+    return await mcp_server._cv_post(f"/datasets/{key}/{file}/wall-masses/stepped", payload, started)

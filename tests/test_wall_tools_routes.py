@@ -136,6 +136,117 @@ def test_upsert_wall_anchored_does_not_persist_failed_readable_wall():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_upsert_rect_mass_persists_grouped_walls_idempotently():
+    key = "house-rect-mass"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        Image.new("RGB", (320, 240), (255, 255, 255)).save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        body = {
+            "mass_id": "garage-1",
+            "kind": "detached_garage",
+            "bbox": [40, 50, 260, 190],
+            "edge_policy": "use_given",
+            "thickness_mm": 300,
+        }
+        first = client.post(f"/datasets/{key}/{file}/wall-masses/rect", json=body)
+        assert first.status_code == 200, first.text
+        data = first.json()["data"]
+        assert data["mass_contract"] == "wall-mass-transaction/v1"
+        assert data["mass_id"] == "garage-1"
+        assert len(data["wall_label_ids"]) == 4
+        assert not data["rejected_edges"]
+
+        second = client.post(f"/datasets/{key}/{file}/wall-masses/rect", json=body)
+        assert second.status_code == 200, second.text
+        assert second.json()["data"]["wall_label_ids"] == data["wall_label_ids"]
+        doc = client.get(f"/labels/dataset/{key}/{file}").json()
+        walls = [lab for lab in doc["labels"] if lab["type"] == "wall"]
+        assert len(walls) == 4
+        assert {w["attributes"]["mass_id"] for w in walls} == {"garage-1"}
+        assert {w["attributes"]["endpoint_reason_start"] for w in walls} == {"mass_corner"}
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_upsert_stepped_mass_persists_l_shape():
+    key = "house-stepped-mass"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        Image.new("RGB", (360, 300), (255, 255, 255)).save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        body = {
+            "mass_id": "main-l",
+            "kind": "main_house",
+            "ordered_vertices": [[40, 40], [260, 40], [260, 120], [160, 120], [160, 220], [40, 220]],
+            "edge_policy": "use_given",
+            "thickness_mm": 300,
+        }
+        r = client.post(f"/datasets/{key}/{file}/wall-masses/stepped", json=body)
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert len(data["wall_label_ids"]) == 6
+        assert data["topology_summary"]["connected_components"] >= 1
+        doc = client.get(f"/labels/dataset/{key}/{file}").json()
+        walls = [lab for lab in doc["labels"] if lab["type"] == "wall"]
+        assert len(walls) == 6
+        assert sorted(w["attributes"]["mass_edge_index"] for w in walls) == list(range(6))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_manual_wall_write_warns_on_missing_endpoint_reasons_and_disconnected_component():
+    key = "house-detail-wall-warning"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        img = Image.new("RGB", (420, 260), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.line([40, 80, 180, 80], fill=(0, 0, 0), width=18)
+        draw.line([260, 180, 390, 180], fill=(0, 0, 0), width=18)
+        img.save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        labels["labels"] = [{
+            "id": "wall-existing",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [40, 80], "end": [180, 80]},
+            "attributes": {"thickness_mm": 300},
+        }]
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        r = client.post(
+            f"/datasets/{key}/{file}/wall-labels/anchored",
+            json={
+                "candidate": {"start": [260, 178], "end": [390, 178], "thickness_mm": 300},
+                "anchor": {"search_px": 24, "min_confidence": 0.5, "min_overlap": 0.5},
+            },
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()["data"]
+        assert data["persisted"] is True
+        assert "warnings" in data
+        assert any("endpoint_reasons" in warning for warning in data["warnings"])
+        assert data["disconnected_component_warning"]["after_components"] > data["disconnected_component_warning"]["before_components"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_raw_wall_write_strict_anchoring_rejects_off_ink_wall():
     key = "house-anchor-strict"
     file = f"{key}-scene.png"

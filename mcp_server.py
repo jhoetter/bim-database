@@ -1141,6 +1141,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
         "apply_opening_candidate", "decide_opening_candidate",
         "score_walls", "score_measurements", "wall_topology_qa",
         "wall_continuity_check", "ambiguous_line_context", "propose_wall_edit",
+        "upsert_rect_mass", "upsert_stepped_mass",
         "get_scene_repair_candidates", "get_scene_view_with_repair_candidate",
         "apply_repair_candidate", "decide_repair_candidate",
         "get_scene_plan_quality_report", "get_scene_topology_snapshot",
