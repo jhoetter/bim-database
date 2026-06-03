@@ -629,6 +629,21 @@ def test_scene_plan_quality_tier_bronze_for_accepted_incomplete():
     assert status["final_qa_summary"]["human_review_required"] is True
 
 
+def test_scene_plan_quality_tier_silver_for_accepted_defect_debt():
+    status = _status_for_state(_quality_state(defect={
+        "id": "DEF-1",
+        "title": "Faint scan wall score debt",
+        "severity": "warning",
+        "category": "wall_off_ink",
+        "status": "accepted_uncertain",
+    }))
+    assert status["status"] == "verified"
+    assert status["quality_tier"] == "silver"
+    assert status["completion_state"] == "verified_with_uncertainty"
+    assert status["final_qa_summary"]["human_review_required"] is True
+    assert "accepted risk/source-limited defect" in status["final_qa_summary"]["uncertainties"][0]
+
+
 def test_scene_plan_quality_tier_bronze_for_source_unreadable_dimensions():
     status = _status_for_state(_quality_state(source_unreadable=True))
     assert status["quality_tier"] == "bronze"

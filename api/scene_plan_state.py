@@ -1639,9 +1639,9 @@ def _quality_for_state(
     )
     if blockers or incomplete_required or stale or status in {"needs_repair", "blocked_external", "active", "blocked"}:
         tier = "blocked"
-    elif accepted_tasks or accepted_uncertain_defects or source_unreadable_reviews or missing_total or not_readable_total or status == "accepted_incomplete":
+    elif accepted_tasks or source_unreadable_reviews or missing_total or not_readable_total or status == "accepted_incomplete":
         tier = "bronze"
-    elif warnings or uncertain_total or transferred_facts:
+    elif warnings or uncertain_total or accepted_uncertain_defects or transferred_facts:
         tier = "silver"
     else:
         tier = "gold"
@@ -1778,10 +1778,10 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
         status = "active"
         terminal = False
         summary = "Required scene-plan work needs fresh verification evidence."
-    elif any(d.get("status") == "accepted_uncertain" for d in defects) or any(t.get("status") == "accepted_incomplete" for t in tasks):
+    elif any(t.get("status") == "accepted_incomplete" for t in tasks):
         status = "accepted_incomplete"
         terminal = True
-        summary = "Required work is closed with accepted uncertainty/incompleteness."
+        summary = "Required work is closed with accepted incompleteness."
     else:
         status = "verified"
         terminal = True
