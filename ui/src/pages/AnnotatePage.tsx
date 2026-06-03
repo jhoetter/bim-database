@@ -851,6 +851,10 @@ export function AnnotatePage() {
     try { return window.localStorage.getItem('bim-db:annotate:mcp-render') === 'true'; }
     catch { return false; }
   });
+  const [showSemanticExclusions, setShowSemanticExclusions] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bim-db:annotate:semantic-exclusions') !== 'false'; }
+    catch { return true; }
+  });
   const [agentViewMode, setAgentViewMode] = useState<AgentViewMode>(() => {
     try {
       const raw = window.localStorage.getItem('bim-db:annotate:agent-view-mode') as AgentViewMode | null;
@@ -926,6 +930,10 @@ export function AnnotatePage() {
     try { window.localStorage.setItem('bim-db:annotate:mcp-render', String(showMcpRender)); }
     catch { /* no-op */ }
   }, [showMcpRender]);
+  useEffect(() => {
+    try { window.localStorage.setItem('bim-db:annotate:semantic-exclusions', String(showSemanticExclusions)); }
+    catch { /* no-op */ }
+  }, [showSemanticExclusions]);
   useEffect(() => {
     try { window.localStorage.setItem('bim-db:annotate:agent-view-mode', agentViewMode); }
     catch { /* no-op */ }
@@ -2937,6 +2945,20 @@ export function AnnotatePage() {
           )}
           <button
             type="button"
+            onClick={() => setShowSemanticExclusions((v) => !v)}
+            className={`text-[0.7rem] px-2 py-1 rounded-md border font-semibold ${
+              showSemanticExclusions
+                ? 'bg-amber-600 text-white border-amber-600'
+                : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+            }`}
+            title="Semantische Ausschlussregionen anzeigen"
+            aria-label="Semantische Ausschlussregionen umschalten"
+            aria-pressed={showSemanticExclusions}
+          >
+            Ausschluss
+          </button>
+          <button
+            type="button"
             onClick={() => setPlanOpen((v) => !v)}
             className={`text-[0.7rem] px-2 py-1 rounded-md border font-semibold ${
               planOpen
@@ -3380,7 +3402,7 @@ export function AnnotatePage() {
               )}
             </>
           )}
-          {semanticExclusionRegions.length > 0 && (
+          {showSemanticExclusions && semanticExclusionRegions.length > 0 && (
             <SemanticExclusionOverlay regions={semanticExclusionRegions} />
           )}
           {/* Implied height-bezugslinien — for every Höhenkote, draw a

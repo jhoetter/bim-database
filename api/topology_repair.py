@@ -796,6 +796,13 @@ def repair_candidate_report(
     score_walls_result = None
     if isinstance(plan_state, dict):
         score_walls_result = (((plan_state.get("current_state") or {}).get("scores") or {}).get("score_walls"))
+    raw_size = labels_doc.get("image_size_px")
+    image_size = (
+        (int(raw_size[0]), int(raw_size[1]))
+        if isinstance(raw_size, list) and len(raw_size) >= 2 and all(isinstance(v, (int, float)) for v in raw_size[:2])
+        else None
+    )
+    region_warnings: list[dict[str, Any]] = []
     findings = current_findings_from_results(
         file=str(labels_doc.get("scene_file") or ""),
         labels_doc=labels_doc,
@@ -808,6 +815,16 @@ def repair_candidate_report(
     candidates_by_cluster: dict[str, list[dict[str, Any]]] = {}
     for cand in candidates:
         cand = dict(cand)
+        if image_size is not None:
+            normalized = normalize_review_region(cand.get("region"), region_kind="xyxy", image_size=image_size)
+            if normalized:
+                cand["region"] = normalized["bbox_xyxy"]
+                if normalized.get("clipped"):
+                    cand["region_clipped"] = True
+                    region_warnings.append({"kind": "candidate_region_clipped", "candidate_id": cand.get("candidate_id")})
+            else:
+                cand["region_invalid"] = True
+                region_warnings.append({"kind": "candidate_region_invalid", "candidate_id": cand.get("candidate_id")})
         try:
             cand["simulation"] = simulate_candidate(labels_doc, cand)
         except Exception as exc:  # noqa: BLE001
@@ -817,6 +834,16 @@ def repair_candidate_report(
     decisions = (((plan_state or {}).get("current_state") or {}).get("repair_candidate_decisions") or {})
     for cluster in clusters[:limit]:
         public = {k: v for k, v in cluster.items() if k != "findings"}
+        if image_size is not None:
+            normalized = normalize_review_region(public.get("region"), region_kind="xyxy", image_size=image_size)
+            if normalized:
+                public["region"] = normalized["bbox_xyxy"]
+                if normalized.get("clipped"):
+                    public["region_clipped"] = True
+                    region_warnings.append({"kind": "cluster_region_clipped", "cluster_id": public.get("cluster_id")})
+            else:
+                public["region_invalid"] = True
+                region_warnings.append({"kind": "cluster_region_invalid", "cluster_id": public.get("cluster_id")})
         semantic_context = _semantic_context_for_region(public.get("region"), semantic_regions)
         if semantic_context:
             public["semantic_context"] = semantic_context
@@ -849,6 +876,8 @@ def repair_candidate_report(
         "high_confidence_unclassified_count": high_conf_unclassified,
         "candidate_count": len(candidates),
         "semantic_context_count": len(semantic_regions),
+        "region_warning_count": len(region_warnings),
+        "region_warnings": region_warnings[:20],
         "clusters": compact_clusters,
     }
 

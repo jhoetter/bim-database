@@ -187,3 +187,29 @@ def test_off_ink_segment_review_region_is_line_bbox_not_xywh():
     # Reversed endpoint line plus 16px review padding. The old xywh path made
     # this thousands of pixels wide/high.
     assert findings[0]["region"] == [2042.0, 1410.0, 2563.0, 1476.0]
+
+
+def test_repair_report_clips_regions_to_image_bounds_when_available():
+    labels_doc = {
+        "scene_file": "scene.png",
+        "image_size_px": [120, 100],
+        "labels": [],
+    }
+    plan_state = {
+        "current_state": {
+            "scores": {
+                "score_walls": {
+                    "missing_regions": [[90, 80, 80, 60, 4800]],
+                    "off_ink_segments": [],
+                },
+            },
+        },
+    }
+
+    report = repair_candidate_report(labels_doc, topology_result={}, plan_state=plan_state)
+
+    assert report["region_warning_count"] >= 1
+    cluster = report["clusters"][0]
+    assert cluster["region"] == [90.0, 80.0, 120.0, 100.0]
+    assert cluster["region_clipped"] is True
+    assert cluster["candidates"][0]["region"] == [90.0, 80.0, 120.0, 100.0]

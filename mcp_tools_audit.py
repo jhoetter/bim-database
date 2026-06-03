@@ -259,6 +259,21 @@ async def dump_run_summary(key: str, run_id: str, notes: str = "") -> dict:
     if not wf_env.get("ok"):
         return wf_env
     state = wf_env["data"]
+    anomalies_env = await list_anomalies(key=key)
+    guardrail_anomalies = []
+    if anomalies_env.get("ok"):
+        guardrail_anomalies = [
+            a for a in ((anomalies_env.get("data") or {}).get("anomalies") or [])
+            if a.get("kind") in {
+                "crop_warning",
+                "crop_regression",
+                "possible_context_loss",
+                "semantic_region_missing_normalized_bbox",
+                "semantic_region_out_of_bounds",
+                "label_out_of_bounds",
+                "uncertain_mass_edge",
+            }
+        ]
     out_dir = Path(mcp_server.__file__).parent / "tmp" / "agent-runs" / safe_run
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{key}.md"
@@ -276,6 +291,15 @@ async def dump_run_summary(key: str, run_id: str, notes: str = "") -> dict:
         body.append(f"- **{p}** — {ph['status']}")
         for b in ph.get("blockers", []):
             body.append(f"    - blocker: {b}")
+    body.extend(["", "## Guardrails"])
+    if guardrail_anomalies:
+        for item in guardrail_anomalies[:20]:
+            body.append(f"- {item.get('severity', 'warning')}: {item.get('kind')} — {item.get('message')}")
+        omitted = max(0, len(guardrail_anomalies) - 20)
+        if omitted:
+            body.append(f"- omitted: {omitted} additional guardrail anomalies")
+    else:
+        body.append("- none")
     if notes:
         body.extend(["", "## Notes", notes])
     out_path.write_text("\n".join(body) + "\n")
