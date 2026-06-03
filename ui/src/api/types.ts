@@ -250,6 +250,41 @@ export interface ScenePlanEvidence {
   created_at?: string;
 }
 
+export interface BuildingGlobalFactEntry {
+  name?: string;
+  value?: unknown;
+  unit?: string;
+  confidence?: 'low' | 'medium' | 'high' | string;
+  provenance_quality?: 'direct_read' | 'derived' | 'transferred' | 'conflicting' | 'review_required' | string;
+  review_required?: boolean;
+  source?: {
+    scene?: string | null;
+    label_id?: string | null;
+  };
+  conflicts?: string[];
+  previous_values?: Array<Record<string, unknown>>;
+  notes?: string;
+}
+
+export interface BuildingGlobalDerivedFactEntry extends BuildingGlobalFactEntry {
+  derived?: boolean;
+  needs_cross_check?: boolean;
+  formula?: string;
+  inputs?: string[];
+}
+
+export interface BuildingGlobalFactsView {
+  schema?: number | string;
+  facts?: Record<string, BuildingGlobalFactEntry>;
+  derived?: Record<string, BuildingGlobalDerivedFactEntry>;
+  fact_ledger?: {
+    conflicts?: Array<Record<string, unknown>>;
+    review_required?: boolean;
+    provenance_counts?: Record<string, number>;
+    consumer_note?: string;
+  };
+}
+
 export interface ScenePlanAction {
   kind: 'defect' | 'task' | string;
   action_id?: string;

@@ -5,10 +5,13 @@ Covers the building-global fact entry shape, deterministic derivation
 """
 from __future__ import annotations
 
+import json
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -19,6 +22,7 @@ from api.building_facts import (  # noqa: E402
     derive_building_geometry,
     make_fact,
 )
+import api.main as api_main  # noqa: E402
 
 
 def _facts(**vals):
@@ -43,6 +47,47 @@ def test_make_fact_records_provenance_and_confidence():
 def test_make_fact_rejects_bad_confidence():
     with pytest.raises(ValueError):
         make_fact(1, confidence="maybe")
+
+
+def test_building_global_facts_route_returns_computed_ledger():
+    key = "house-bg-ledger-route"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        (root / "manifest.json").write_text('{"drawings":[{"file":"section.png"}]}')
+        facts = {
+            "schema_version": "1.1",
+            "extent": {"sources": {}},
+            "heights": {"sources": {}},
+            "wall_thickness": {},
+            "openings_catalog": [],
+            "calibration_per_scene": {},
+            "scene_metadata": {},
+            "building_global": {
+                "schema": 1,
+                "facts": {
+                    "EG_munn_mm": {
+                        **make_fact(843800, source_scene="section.png", source_label_id="hm-eg", confidence="high"),
+                        "previous_values": [
+                            make_fact(840000, source_scene="old-section.png", source_label_id="hm-old", confidence="medium")
+                        ],
+                    },
+                },
+            },
+        }
+        (root / "house_facts.json").write_text(json.dumps(facts))
+
+        client = TestClient(api_main.app)
+        r = client.get(f"/datasets/{key}/building_global_facts")
+
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["facts"]["EG_munn_mm"]["source"]["scene"] == "section.png"
+        assert data["facts"]["EG_munn_mm"]["source"]["label_id"] == "hm-eg"
+        assert data["fact_ledger"]["review_required"] is True
+        assert data["fact_ledger"]["conflicts"][0]["kind"] == "same_fact_conflicting_readings"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 # ── müNN ↔ relative derivation (issue example) ────────────────────────────

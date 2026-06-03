@@ -229,6 +229,13 @@ export async function fetchHouseFactsRaw(key: string): Promise<unknown | null> {
   return r.json();
 }
 
+export async function fetchBuildingGlobalFacts(key: string): Promise<unknown | null> {
+  const r = await fetch(`/datasets/${encodeURIComponent(key)}/building_global_facts`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
 export async function putHouseFactsRaw(key: string, facts: unknown): Promise<void> {
   const r = await fetch(`/datasets/${encodeURIComponent(key)}/house_facts`, {
     method: 'PUT',

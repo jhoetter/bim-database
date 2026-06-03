@@ -29,6 +29,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .fact_derivation import _recompute_facts_impl, recompute_facts_after_label_write
+from .building_facts import build_global_view
 from .geometry_checks import floorplan_opening_quality
 from .geometry_util import as_point as _as_point, wall_segment as _wall_segment
 from .grid_render import ENHANCE_MODES
@@ -263,8 +264,37 @@ def get_house_facts(key: str):
         raise HTTPException(status_code=404, detail=f"No house_facts for {key!r}")
     try:
         return json.loads(p.read_text())
-    except json.JSONDecodeError as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"house_facts.json corrupt: {e}") from e
+
+
+@app.get("/datasets/{key}/building_global_facts", tags=["dataset"])
+def get_building_global_facts(key: str) -> dict:
+    """Return the computed building-global fact ledger for UI review."""
+    p = DATASET_DIR / key / "house_facts.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"No house_facts for {key!r}")
+    try:
+        facts = json.loads(p.read_text())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"house_facts.json corrupt: {e}") from e
+    manifest_path = DATASET_DIR / key / "manifest.json"
+    scene_files: list[str] = []
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+            scene_files = [
+                str(d.get("file"))
+                for d in (manifest.get("drawings") or manifest.get("scenes") or [])
+                if isinstance(d, dict) and d.get("file")
+            ]
+        except Exception:
+            scene_files = []
+    return build_global_view(
+        facts.get("building_global") if isinstance(facts.get("building_global"), dict) else {},
+        scene_files,
+        extent=facts.get("extent") if isinstance(facts.get("extent"), dict) else None,
+    )
 
 
 @app.put("/datasets/{key}/house_facts", tags=["dataset"])

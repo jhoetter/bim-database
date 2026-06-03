@@ -12,6 +12,7 @@ import {
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import {
   createScenePlanFromTemplate,
+  fetchBuildingGlobalFacts,
   fetchLabels,
   fetchDataset,
   fetchOpeningCandidates,
@@ -23,6 +24,7 @@ import {
 } from '../api/client';
 import type {
   CandidateQueue,
+  BuildingGlobalFactsView,
   ComponentLineLabel,
   DatasetDrawing,
   DimensionNumberLabel,
@@ -4580,6 +4582,160 @@ function WorkflowGuide({
   );
 }
 
+function FactLedgerPanel({
+  facts,
+  ledger,
+  currentSceneFile,
+  onGoToScene,
+}: {
+  facts: HouseFacts;
+  ledger: BuildingGlobalFactsView | null | undefined;
+  currentSceneFile: string;
+  onGoToScene: (file: string) => void;
+}) {
+  const factEntries = Object.entries(ledger?.facts ?? {});
+  const derivedEntries = Object.entries(ledger?.derived ?? {});
+  const conflicts = ledger?.fact_ledger?.conflicts ?? [];
+  const provenanceCounts = ledger?.fact_ledger?.provenance_counts ?? {};
+  const calibrationConsumers = Object.entries(facts.calibration_per_scene ?? {})
+    .flatMap(([sceneFile, calibration]) =>
+      (calibration.source_fact_ids ?? []).map((factId) => ({
+        factId,
+        sceneFile,
+        label: calibration.transfer_kind ?? calibration.status ?? 'calibration',
+      })),
+    );
+  const derivedConsumers = derivedEntries.flatMap(([derivedName, entry]) =>
+    (entry.inputs ?? []).map((factId) => ({
+      factId,
+      sceneFile: null as string | null,
+      label: derivedName,
+    })),
+  );
+  const consumersByFact = new Map<string, Array<{ sceneFile: string | null; label: string }>>();
+  for (const consumer of [...calibrationConsumers, ...derivedConsumers]) {
+    const arr = consumersByFact.get(consumer.factId) ?? [];
+    arr.push({ sceneFile: consumer.sceneFile, label: consumer.label });
+    consumersByFact.set(consumer.factId, arr);
+  }
+
+  if (factEntries.length === 0 && derivedEntries.length === 0) return null;
+
+  const sortedFacts = [...factEntries].sort(([aName, a], [bName, b]) => {
+    const aReview = a.review_required || (a.conflicts ?? []).length > 0 ? 0 : 1;
+    const bReview = b.review_required || (b.conflicts ?? []).length > 0 ? 0 : 1;
+    return aReview - bReview || aName.localeCompare(bName);
+  });
+
+  return (
+    <section className={`border rounded p-2 ${
+      conflicts.length > 0 || ledger?.fact_ledger?.review_required
+        ? 'border-amber-300 bg-amber-50'
+        : 'border-zinc-200 bg-zinc-50'
+    }`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-[0.7rem] uppercase tracking-wider text-zinc-700 font-semibold">
+            Fakten-Ledger
+          </h3>
+          <div className="mt-0.5 text-[0.68rem] text-zinc-600">
+            {factEntries.length} Fakten · {derivedEntries.length} abgeleitet
+          </div>
+        </div>
+        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[0.6rem] font-semibold ${
+          conflicts.length > 0 ? 'bg-amber-200 text-amber-950' : 'bg-emerald-100 text-emerald-800'
+        }`}>
+          {conflicts.length > 0 ? `${conflicts.length} Konflikt${conflicts.length === 1 ? '' : 'e'}` : 'klar'}
+        </span>
+      </div>
+
+      {Object.keys(provenanceCounts).length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1 text-[0.62rem] text-zinc-600">
+          {Object.entries(provenanceCounts)
+            .filter(([, count]) => count > 0)
+            .map(([kind, count]) => (
+              <span key={kind} className="rounded border border-zinc-200 bg-white/80 px-1.5 py-0.5 font-mono">
+                {kind}={count}
+              </span>
+            ))}
+        </div>
+      )}
+
+      <div className="mt-2 space-y-1.5">
+        {sortedFacts.slice(0, 8).map(([name, fact]) => {
+          const sourceScene = fact.source?.scene ?? null;
+          const sourceLabel = fact.source?.label_id ?? null;
+          const consumers = consumersByFact.get(name) ?? [];
+          const factConflicts = fact.conflicts ?? [];
+          return (
+            <div key={name} className={`rounded border px-2 py-1.5 text-[0.68rem] ${
+              fact.review_required || factConflicts.length > 0
+                ? 'border-amber-200 bg-white text-amber-950'
+                : 'border-zinc-200 bg-white text-zinc-800'
+            }`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono font-semibold truncate">{name}</span>
+                <span className="font-mono">{formatFactValue(fact.value, fact.unit)}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-zinc-600">
+                <span>{fact.confidence ?? 'medium'}</span>
+                <span>{fact.provenance_quality ?? 'direct_read'}</span>
+                {sourceScene && (
+                  <button
+                    type="button"
+                    onClick={() => sourceScene !== currentSceneFile && onGoToScene(sourceScene)}
+                    disabled={sourceScene === currentSceneFile}
+                    className={sourceScene === currentSceneFile ? 'font-mono text-zinc-500' : 'font-mono text-blue-700 hover:underline'}
+                    title={sourceScene}
+                  >
+                    {sourceScene}
+                  </button>
+                )}
+                {sourceLabel && <span className="font-mono">{sourceLabel}</span>}
+                {factConflicts.length > 0 && <span className="font-semibold text-amber-800">{factConflicts.length} Konflikt</span>}
+              </div>
+              {consumers.length > 0 && (
+                <div className="mt-1 text-zinc-600">
+                  <span className="font-semibold">Verwendet:</span>{' '}
+                  {consumers.slice(0, 3).map((consumer, idx) => (
+                    <Fragment key={`${name}-${consumer.sceneFile ?? 'derived'}-${consumer.label}`}>
+                      {idx > 0 ? ', ' : null}
+                      {consumer.sceneFile ? (
+                        <button
+                          type="button"
+                          onClick={() => consumer.sceneFile !== currentSceneFile && onGoToScene(consumer.sceneFile!)}
+                          disabled={consumer.sceneFile === currentSceneFile}
+                          className={consumer.sceneFile === currentSceneFile ? 'font-mono text-zinc-500' : 'font-mono text-blue-700 hover:underline'}
+                        >
+                          {consumer.sceneFile}
+                        </button>
+                      ) : (
+                        <span className="font-mono">{consumer.label}</span>
+                      )}
+                    </Fragment>
+                  ))}
+                  {consumers.length > 3 ? ` +${consumers.length - 3}` : null}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {conflicts.length > 0 && (
+        <div className="mt-2 rounded border border-amber-200 bg-white/80 p-2 text-[0.68rem] text-amber-950">
+          {conflicts.slice(0, 2).map((conflict, idx) => (
+            <div key={String(conflict.id ?? conflict.kind ?? idx)}>
+              <span className="font-mono">{String(conflict.kind ?? 'conflict')}</span>
+              {conflict.fact ? <span> · {String(conflict.fact)}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function WorkflowGuideSceneClass({
   facts, scenes, currentSceneFile, onGoToScene, phase, tag,
 }: {
@@ -5632,6 +5788,16 @@ function formatCounts(counts: Record<string, number> | undefined): string {
     .join(', ');
 }
 
+function formatFactValue(value: unknown, unit: string | undefined): string {
+  if (typeof value === 'number') {
+    if (unit === 'mm') return `${Math.round(value)} mm`;
+    if (unit === 'deg') return `${value.toFixed(1)}°`;
+    return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2)}${unit ? ` ${unit}` : ''}`;
+  }
+  if (value == null) return 'unknown';
+  return String(value);
+}
+
 function viewModeLabel(mode: string | undefined): string {
   switch (mode) {
     case 'analysis_view': return 'Analysis view';
@@ -6162,6 +6328,10 @@ function ToolPalette({
   // Avoid unused-prop warnings; scope and houseKey are read by the inline
   // Picker that writes facts.orientation when a compass/north edge is visible.
   void scope; void houseKey;
+  const { data: buildingGlobalFacts } = useResource<BuildingGlobalFactsView | null>(
+    () => scope === 'dataset' ? fetchBuildingGlobalFacts(houseKey) as Promise<BuildingGlobalFactsView | null> : Promise.resolve(null),
+    [scope, houseKey, workflowFacts],
+  );
   // L2 D1 — readiness derived from labels for SceneDetailsCard.
   const readiness = (() => {
     let hasH = false, hasV = false;
@@ -6316,6 +6486,13 @@ function ToolPalette({
         currentSceneFile={currentSceneFile}
         onGoToScene={onGoToScene}
         onMarkDetailDone={onMarkDetailDone}
+      />
+
+      <FactLedgerPanel
+        facts={workflowFacts}
+        ledger={buildingGlobalFacts}
+        currentSceneFile={currentSceneFile}
+        onGoToScene={onGoToScene}
       />
 
       <SceneChecklist sceneTag={sceneTag} labels={labels} />
