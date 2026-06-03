@@ -298,6 +298,57 @@ async def record_transferred_calibration(
 
 
 @mcp.tool()
+async def record_source_unreadable_calibration(
+    key: str,
+    file: str,
+    reason: str,
+    evidence_ids: list[str] | None = None,
+    review_required: bool = True,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Record that an Ansicht/Schnitt cannot be locally calibrated from source.
+
+    USE when:
+      - You inspected the local dimension/datum sources for a calibration scene.
+      - The source is genuinely unreadable or absent, and no honest transferred
+        calibration is available yet.
+
+    DON'T USE when:
+      - A local reference dimension is readable. Use `add_reference_dim`.
+      - A defensible transfer exists. Use `record_transferred_calibration`.
+
+    Returns: updated calibration_per_scene[file] entry with an explicit W4
+    source-unreadable blocker.
+    """
+    started = time.time()
+    if not file:
+        return _err("schema_invalid", "file is required", started_at=started)
+    if not reason:
+        return _err("missing_reason", "reason is required", started_at=started)
+    entry = {
+        "status": "unavailable_source_unreadable",
+        "computed_from": "source_unreadable",
+        "reason": reason,
+        "evidence_ids": evidence_ids or [],
+        "review_required": bool(review_required),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    res = await set_house_facts(
+        key=key,
+        patch={"calibration_per_scene": {file: entry}},
+        idempotency_key=idempotency_key,
+    )
+    if not res.get("ok"):
+        return res
+    calibration = ((res.get("data") or {}).get("calibration_per_scene") or {}).get(file)
+    return _ok(
+        {"file": file, "calibration": calibration or entry},
+        started_at=started,
+        status_code=200,
+    )
+
+
+@mcp.tool()
 async def set_building_global_fact(
     key: str,
     fact: str,

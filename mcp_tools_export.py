@@ -106,6 +106,11 @@ async def validate_export_readiness(key: str) -> dict:
         }
         for p in ("W0", "W1", "W2", "W3", "W4", "Wgeo", "W5")
     }
+    if "W4" in phase_completeness:
+        phase_completeness["W4"]["assumed_isotropic_scenes"] = phases["W4"].get("assumed_isotropic_scenes") or []
+        phase_completeness["W4"]["approximate_calibrations"] = phases["W4"].get("approximate_calibrations") or []
+        phase_completeness["W4"]["transferred_calibrations"] = phases["W4"].get("transferred_calibrations") or []
+        phase_completeness["W4"]["source_unreadable_calibrations"] = phases["W4"].get("source_unreadable_calibrations") or []
 
     # Honest blockers: every required phase that isn't done, with its own
     # predicate reasons spelled out so callers see the missing geometry.
@@ -133,6 +138,7 @@ async def validate_export_readiness(key: str) -> dict:
     assumed_isotropic_scenes = phases["W4"].get("assumed_isotropic_scenes") or []
     approximate_calibrations = phases["W4"].get("approximate_calibrations") or []
     transferred_calibrations = phases["W4"].get("transferred_calibrations") or []
+    source_unreadable_calibrations = phases["W4"].get("source_unreadable_calibrations") or []
     crop_replacement_warnings = []
     for drawing in drawings:
         replacement = drawing.get("scene_replacement") if isinstance(drawing.get("scene_replacement"), dict) else None
@@ -191,6 +197,7 @@ async def validate_export_readiness(key: str) -> dict:
             "single_ref_assumed_isotropic": assumed_isotropic_scenes,
             "approximate_calibrations": approximate_calibrations,
             "transferred_calibrations": transferred_calibrations,
+            "source_unreadable_calibrations": source_unreadable_calibrations,
         },
     }, started_at=started, status_code=status)
 

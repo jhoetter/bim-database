@@ -177,3 +177,44 @@ def test_w4_transferred_calibration_counts_as_done_with_review_debt():
             "reason": "north elevation has no readable local dimension chain",
         }
     ]
+
+
+def test_w4_source_unreadable_calibration_is_explicit_blocker():
+    ds = {"drawings": [{"file": "north.jpg"}, {"file": "west.jpg"}, {"file": "section.jpg"}]}
+    facts = {
+        "calibration_per_scene": {
+            "north.jpg": {
+                "status": "unavailable_source_unreadable",
+                "reason": "no readable local dimension chain",
+                "evidence_ids": ["EV-7"],
+                "review_required": True,
+            },
+            "west.jpg": {
+                "status": "transferred",
+                "computed_from": "transferred",
+                "source_scene": "section.jpg",
+                "transfer_kind": "section_scale",
+                "confidence": "medium",
+                "reason": "west elevation uses section scale",
+            },
+            "section.jpg": {"px_per_mm": 0.08, "computed_from": "M1-both"},
+        }
+    }
+    sm = {
+        "north.jpg": {"scene_tag": "ansicht"},
+        "west.jpg": {"scene_tag": "ansicht"},
+        "section.jpg": {"scene_tag": "schnitt"},
+    }
+    state = _derive_workflow_state(ds, facts, sm)
+    w4 = state["phases"]["W4"]
+    assert w4["status"] == "pending"
+    assert w4["blockers"] == ["north.jpg: calibration source unreadable"]
+    assert w4["source_unreadable_calibrations"] == [
+        {
+            "file": "north.jpg",
+            "reason": "no readable local dimension chain",
+            "evidence_ids": ["EV-7"],
+            "review_required": True,
+        }
+    ]
+    assert w4["transferred_calibrations"][0]["file"] == "west.jpg"

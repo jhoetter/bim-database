@@ -256,6 +256,23 @@ def test_workflow_state_w4_surfaces_single_ref_isotropic():
     assert w4["assumed_isotropic_scenes"] == ["e.jpg"]
 
 
+def test_workflow_state_w4_surfaces_source_unreadable_calibration():
+    ds = {"drawings": [{"file": "north.jpg"}]}
+    facts = {"calibration_per_scene": {
+        "north.jpg": {
+            "status": "unavailable_source_unreadable",
+            "reason": "dimension chain source unreadable",
+            "evidence_ids": ["EV-9"],
+        },
+    }}
+    sm = {"north.jpg": {"scene_tag": "ansicht"}}
+    state = mcp_server._derive_workflow_state(ds, facts, sm)
+    w4 = state["phases"]["W4"]
+    assert w4["status"] == "pending"
+    assert w4["blockers"] == ["north.jpg: calibration source unreadable"]
+    assert w4["source_unreadable_calibrations"][0]["evidence_ids"] == ["EV-9"]
+
+
 def test_validate_export_readiness_surfaces_calibration_assumptions():
     """Issue #27: validate_export_readiness exposes the single-ref
     isotropic assumption so an honest export records it."""
@@ -270,6 +287,8 @@ def test_validate_export_readiness_surfaces_calibration_assumptions():
     assert isinstance(ca["single_ref_assumed_isotropic"], list)
     assert "approximate_calibrations" in ca
     assert isinstance(ca["approximate_calibrations"], list)
+    assert "source_unreadable_calibrations" in ca
+    assert isinstance(ca["source_unreadable_calibrations"], list)
 
 
 def test_workflow_state_full_geometry_with_scene_is_done():
@@ -758,6 +777,37 @@ def test_record_transferred_calibration_requires_provenance():
         ))
         assert not r["ok"]
         assert r["error"]["code"] == "missing_provenance"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_record_source_unreadable_calibration_round_trip():
+    key = "house-zzsource-unreadable-calibration"
+    root = api_main.DATASET_DIR / key
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        r = _run(mcp_server.record_source_unreadable_calibration(
+            key=key,
+            file="north.jpg",
+            reason="north elevation has no readable local dimension or datum chain",
+            evidence_ids=["EV-12"],
+        ))
+        assert r["ok"], r.get("error")
+        calibration = r["data"]["calibration"]
+        assert calibration["status"] == "unavailable_source_unreadable"
+        assert calibration["computed_from"] == "source_unreadable"
+        assert calibration["evidence_ids"] == ["EV-12"]
+
+        facts = _run(mcp_server.get_house_facts(key=key))
+        assert facts["ok"], facts.get("error")
+        state = mcp_server._derive_workflow_state(
+            {"drawings": [{"file": "north.jpg"}]},
+            facts["data"],
+            {"north.jpg": {"scene_tag": "ansicht"}},
+        )
+        assert state["phases"]["W4"]["blockers"] == ["north.jpg: calibration source unreadable"]
+        assert state["phases"]["W4"]["source_unreadable_calibrations"][0]["file"] == "north.jpg"
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -1684,6 +1734,7 @@ def test_tool_descriptions_are_present():
         mcp_server.recompute_homography, mcp_server.get_house_facts,
         mcp_server.set_house_facts, mcp_server.validate_export_readiness,
         mcp_server.record_transferred_calibration,
+        mcp_server.record_source_unreadable_calibration,
         mcp_server.set_building_global_fact,  # issue #8
         mcp_server.get_building_global_facts,  # issue #8
         mcp_server.export_house, mcp_server.list_anomalies,
