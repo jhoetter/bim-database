@@ -1090,6 +1090,29 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
                     None,
                 )
             existing_entry = drawings[existing_idx] if existing_idx is not None else None
+            if existing_entry is not None:
+                old_file_name = str(existing_entry.get("file") or "")
+                old_ext = Path(old_file_name).suffix.lstrip(".").lower()
+                if old_file_name and Path(old_file_name).stem == slug and old_file_name != file_name:
+                    if not bool(raw.get("allow_format_change")):
+                        _ext = "png" if old_ext == "png" else "jpg"
+                        file_name = old_file_name
+                        out_path = ds_dir / file_name
+                    elif (
+                        not bool(raw.get("confirm_reextract_existing_scene"))
+                        and not bool(raw.get("allow_destructive_reextract"))
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "message": "changing an existing scene's raster format requires explicit re-extract confirmation",
+                                "scene_file": old_file_name,
+                                "requested_file": file_name,
+                                "old_format": old_ext,
+                                "new_format": _ext,
+                                "required_confirmation": "confirm_reextract_existing_scene=true",
+                            },
+                        )
             crop_warnings = _crop_regression_warnings(
                 existing_entry,
                 [x0, y0, x1, y1],
@@ -1097,7 +1120,10 @@ def extract_scenes(key: str, payload: dict[str, Any] = Body(...)) -> dict:
             )
             overwrite_state = {"label_count": 0, "plan_exists": False}
             if existing_idx is not None:
-                overwrite_state = _scene_has_labels_or_plan(ds_dir, file_name)
+                overwrite_state = _scene_has_labels_or_plan(
+                    ds_dir,
+                    str((existing_entry or {}).get("file") or file_name),
+                )
                 if (
                     (overwrite_state["label_count"] > 0 or overwrite_state["plan_exists"])
                     and not bool(raw.get("confirm_reextract_existing_scene"))

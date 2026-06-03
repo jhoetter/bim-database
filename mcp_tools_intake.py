@@ -113,6 +113,9 @@ async def extract_scenes(
           "confirm_reextract_existing_scene": false // required when
                                       // overwriting a scene that already has
                                       // labels or a scene plan
+          "allow_format_change": false // required, together with
+                                      // confirm_reextract_existing_scene, to
+                                      // switch an existing scene JPG↔PNG
         }
       idempotency_key: optional driver-supplied key for crash-replay safety.
 
@@ -139,6 +142,9 @@ async def extract_scenes(
     close-ups, not for full scene extraction. Re-extracting an existing scene
     with labels or a plan requires `confirm_reextract_existing_scene=true` and
     may return crop-regression warnings if the new crop is much tighter.
+    Same-stem re-extracts preserve the existing raster extension by default;
+    set `allow_format_change=true` only when the format switch itself is
+    intentional and reviewable.
 
     Returns: `data` = {extracted: [...new manifest entries...], intake_state: ...}
 
@@ -197,6 +203,8 @@ async def extract_scenes(
             "crop_intent": raw.get("crop_intent"),
             "confirm_reextract_existing_scene": bool(raw.get("confirm_reextract_existing_scene", False)),
             "allow_destructive_reextract": bool(raw.get("allow_destructive_reextract", False)),
+            "allow_format_change": bool(raw.get("allow_format_change", False)),
+            "replacement_reason": raw.get("replacement_reason") or raw.get("reason"),
             # V1.1: when YOU (the vision-LLM) have chosen the crop extent
             # deliberately — building + all dim chains + Nordpfeil + datum —
             # set this so the #25 auto-expansion never overrides it.

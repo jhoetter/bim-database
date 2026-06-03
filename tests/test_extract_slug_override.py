@@ -136,7 +136,7 @@ def test_reextract_with_existing_labels_requires_confirmation(client, install_pd
     assert entry["scene_replacement"]["label_plan_impact"] == "labels_or_plan_preserved_but_pixel_source_replaced"
 
 
-def test_reextract_same_slug_different_format_records_replacement(client, install_pdf, tmp_path):
+def test_reextract_same_slug_preserves_format_unless_format_change_allowed(client, install_pdf, tmp_path):
     install_pdf()
     r1 = _extract(client, slug_override="house-slug-floorplan-eg",
                   bbox=[20, 20, 430, 430])
@@ -164,15 +164,32 @@ def test_reextract_same_slug_different_format_records_replacement(client, instal
     }]})
     assert blocked.status_code == 409
 
-    confirmed = client.post(f"/pdfs/{KEY}/extract", json={"items": [{
+    confirmed_same_format = client.post(f"/pdfs/{KEY}/extract", json={"items": [{
         "page": 1, "bbox_pdf_units": [20, 20, 430, 430], "kind": "floorplan",
         "floor": "eg", "slug_override": "house-slug-floorplan-eg", "dpi": 150,
         "bbox_is_authoritative": True, "format": "png",
         "confirm_reextract_existing_scene": True,
+        "replacement_reason": "re-crop while preserving existing scene format",
+    }]})
+    assert confirmed_same_format.status_code == 201, confirmed_same_format.text
+    same_entry = confirmed_same_format.json()["extracted"][0]
+    assert same_entry["file"] == "house-slug-floorplan-eg.jpg"
+    same_repl = same_entry["scene_replacement"]
+    assert same_repl["old_file"] == "house-slug-floorplan-eg.jpg"
+    assert same_repl["new_file"] == "house-slug-floorplan-eg.jpg"
+    assert same_repl["old_format"] == "jpg"
+    assert same_repl["new_format"] == "jpg"
+
+    confirmed_format_change = client.post(f"/pdfs/{KEY}/extract", json={"items": [{
+        "page": 1, "bbox_pdf_units": [20, 20, 430, 430], "kind": "floorplan",
+        "floor": "eg", "slug_override": "house-slug-floorplan-eg", "dpi": 150,
+        "bbox_is_authoritative": True, "format": "png",
+        "confirm_reextract_existing_scene": True,
+        "allow_format_change": True,
         "replacement_reason": "switch to lossless PNG for faint scan review",
     }]})
-    assert confirmed.status_code == 201, confirmed.text
-    entry = confirmed.json()["extracted"][0]
+    assert confirmed_format_change.status_code == 201, confirmed_format_change.text
+    entry = confirmed_format_change.json()["extracted"][0]
     assert entry["file"] == "house-slug-floorplan-eg.png"
     repl = entry["scene_replacement"]
     assert repl["old_file"] == "house-slug-floorplan-eg.jpg"
