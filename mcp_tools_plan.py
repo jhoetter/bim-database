@@ -199,7 +199,9 @@ async def start_scene_plan_action(
     key: str,
     file: str,
     action_id: str,
+    run_id: str | None = None,
     agent_id: str | None = "bim-agent",
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -224,7 +226,12 @@ async def start_scene_plan_action(
             details=guard,
             started_at=started,
         )
-    body = {"agent_id": agent_id, "expected_version": expected_version}
+    body = {
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
+        "expected_version": expected_version,
+    }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/start", body)
     if status >= 400:
         return _http_status_to_error(status, res, started)
@@ -245,6 +252,9 @@ async def record_scene_plan_attempt(
     edits: list[dict] | None = None,
     evidence_ids: list[str] | None = None,
     attempt_id: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -264,6 +274,9 @@ async def record_scene_plan_attempt(
         "edits": edits or [],
         "evidence_ids": evidence_ids or [],
         "attempt_id": attempt_id,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "expected_version": expected_version,
     }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/attempts", body)
@@ -286,6 +299,9 @@ async def finish_scene_plan_action(
     reason: str | None = None,
     evidence_ids: list[str] | None = None,
     attempt_id: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -311,6 +327,9 @@ async def finish_scene_plan_action(
         "reason": reason,
         "evidence_ids": evidence_ids or [],
         "attempt_id": attempt_id,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "expected_version": expected_version,
     }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/plan-state/actions/{action_id}/finish", body)
@@ -334,6 +353,9 @@ async def batch_close_scene_plan_warnings(
     defect_ids: list[str] | None = None,
     classification: str | None = None,
     reason: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -358,6 +380,9 @@ async def batch_close_scene_plan_warnings(
         "defect_ids": defect_ids or [],
         "classification": classification,
         "reason": reason,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "expected_version": expected_version,
     }
     status_code, res = await mcp_server._api_post(
@@ -386,6 +411,9 @@ async def record_dimension_chain_review(
     reason: str | None = None,
     enhance: str | None = None,
     task_ids: list[str] | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -407,6 +435,9 @@ async def record_dimension_chain_review(
         "summary": reason or f"Dimension chain review: {decision}",
         "tool": "record_dimension_chain_review",
         "task_ids": task_ids or [],
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "result": {
             "chain_region": chain_region,
             "orientation": orientation,
@@ -437,6 +468,9 @@ async def classify_plan_defect(
     classification: str,
     evidence_ids: list[str] | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -459,6 +493,9 @@ async def classify_plan_defect(
         "classification": classification,
         "evidence_ids": evidence_ids or [],
         "note": note,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "expected_version": expected_version,
     }
     status, res = await mcp_server._api_post(
@@ -551,6 +588,9 @@ async def apply_repair_candidate(
     evidence_ids: list[str] | None = None,
     expected_version: str | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
 ) -> dict:
     """Apply one precomputed deterministic repair candidate.
 
@@ -565,6 +605,9 @@ async def apply_repair_candidate(
         "evidence_ids": evidence_ids or [],
         "expected_version": expected_version,
         "note": note,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
     }
     status, res = await mcp_server._api_post(
         f"/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/apply",
@@ -585,6 +628,9 @@ async def decide_repair_candidate(
     evidence_ids: list[str] | None = None,
     expected_version: str | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
 ) -> dict:
     """Record an accept/reject/manual decision for a repair candidate.
 
@@ -600,6 +646,9 @@ async def decide_repair_candidate(
         "evidence_ids": evidence_ids or [],
         "expected_version": expected_version,
         "note": note,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
     }
     status, res = await mcp_server._api_post(
         f"/datasets/{key}/{file}/plan-state/repair-candidates/{candidate_id}/decision",
@@ -708,6 +757,9 @@ async def set_scene_plan_task_state(
     blocked_by: list[str] | None = None,
     gate_updates: list[dict] | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
@@ -736,6 +788,9 @@ async def set_scene_plan_task_state(
         "blocked_by": blocked_by or [],
         "gate_updates": gate_updates or [],
         "note": note,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "expected_version": expected_version,
     }
     patch_error = await mcp_server._api_patch(f"/datasets/{key}/{file}/plan-state/tasks/{task_id}", body, started)

@@ -397,12 +397,19 @@ def test_classify_plan_defect_mcp_smoke():
         classification="furniture_or_fixture",
         evidence_ids=[evidence_id],
         note="False positive score region from furniture.",
+        run_id="classify-run-1",
+        agent_id="orchestrator",
+        subagent_id="wall-score-reviewer",
     ))
     assert classified["ok"], classified.get("error")
     state = _run(mcp_server.get_scene_plan_state(key=key, file=file))
     defect = state["data"]["state"]["defects"][0]
     assert defect["classification"] == "furniture_or_fixture"
     assert evidence_id in defect["evidence_ids"]
+    assert defect["run_id"] == "classify-run-1"
+    assert defect["agent_id"] == "orchestrator"
+    assert defect["subagent_id"] == "wall-score-reviewer"
+    assert state["data"]["state"]["decision_log"][-1]["run_id"] == "classify-run-1"
 
 
 def test_recommended_next_action_prioritizes_eg_scene_plan():

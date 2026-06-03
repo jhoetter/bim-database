@@ -643,17 +643,32 @@ def test_scene_plan_singular_action_attempt_and_finish(scene):
 
     started = client.post(
         f"/datasets/{key}/{file}/plan-state/actions/{action_id}/start",
-        json={"agent_id": "subagent-test"},
+        json={"run_id": "run-456", "agent_id": "orchestrator", "subagent_id": "subagent-test"},
     )
     assert started.status_code == 200, started.text
     state = started.json()["data"]["state"]
     assert state["current_state"]["current_action_id"] == action_id
+    started_action = next(a for a in state["actions"] if a["action_id"] == action_id)
+    assert started_action["run_id"] == "run-456"
+    assert started_action["agent_id"] == "orchestrator"
+    assert started_action["subagent_id"] == "subagent-test"
 
     attempt = client.post(
         f"/datasets/{key}/{file}/plan-state/actions/{action_id}/attempts",
-        json={"hypothesis": "Endpoint is a false positive", "edits": [], "evidence_ids": []},
+        json={
+            "hypothesis": "Endpoint is a false positive",
+            "edits": [],
+            "evidence_ids": [],
+            "run_id": "run-456",
+            "agent_id": "orchestrator",
+            "subagent_id": "subagent-test",
+        },
     )
     assert attempt.status_code == 200, attempt.text
+    attempted_action = next(a for a in attempt.json()["data"]["state"]["actions"] if a["action_id"] == action_id)
+    assert attempted_action["attempts"][-1]["run_id"] == "run-456"
+    assert attempted_action["attempts"][-1]["agent_id"] == "orchestrator"
+    assert attempted_action["attempts"][-1]["subagent_id"] == "subagent-test"
 
     evidence = client.post(
         f"/datasets/{key}/{file}/plan-state/evidence",
@@ -664,12 +679,54 @@ def test_scene_plan_singular_action_attempt_and_finish(scene):
 
     finished = client.post(
         f"/datasets/{key}/{file}/plan-state/actions/{action_id}/finish",
-        json={"outcome": "rejected", "evidence_ids": [ev_id], "reason": "Not a structural wall endpoint."},
+        json={
+            "outcome": "rejected",
+            "evidence_ids": [ev_id],
+            "reason": "Not a structural wall endpoint.",
+            "run_id": "run-456",
+            "agent_id": "orchestrator",
+            "subagent_id": "subagent-test",
+        },
     )
     assert finished.status_code == 200, finished.text
-    defect = finished.json()["data"]["state"]["defects"][0]
+    finished_state = finished.json()["data"]["state"]
+    finished_action = next(a for a in finished_state["actions"] if a["action_id"] == action_id)
+    assert finished_action["run_id"] == "run-456"
+    assert finished_action["agent_id"] == "orchestrator"
+    assert finished_action["subagent_id"] == "subagent-test"
+    assert finished_state["decision_log"][-1]["run_id"] == "run-456"
+    assert finished_state["decision_log"][-1]["agent_id"] == "orchestrator"
+    assert finished_state["decision_log"][-1]["subagent_id"] == "subagent-test"
+    defect = finished_state["defects"][0]
     assert defect["status"] == "rejected"
-    assert finished.json()["data"]["state"]["current_state"]["current_action_id"] is None
+    assert finished_state["current_state"]["current_action_id"] is None
+
+
+def test_scene_plan_task_state_preserves_run_agent_provenance(scene):
+    key, file = scene
+    client = TestClient(api_main.app)
+    assert client.post(f"/datasets/{key}/{file}/plan-state/template", json={"scene_tag": "grundriss"}).status_code == 200
+
+    updated = client.patch(
+        f"/datasets/{key}/{file}/plan-state/tasks/TRACE_OUTER_WALLS",
+        json={
+            "status": "blocked",
+            "note": "Waiting on a cleaner silhouette pass.",
+            "run_id": "run-789",
+            "agent_id": "orchestrator",
+            "subagent_id": "wall-worker",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    state = updated.json()["data"]["state"]
+    task = next(t for t in state["tasks"] if t["id"] == "TRACE_OUTER_WALLS")
+    note = state["evidence"][-1]
+    assert task["run_id"] == "run-789"
+    assert task["agent_id"] == "orchestrator"
+    assert task["subagent_id"] == "wall-worker"
+    assert note["run_id"] == "run-789"
+    assert note["agent_id"] == "orchestrator"
+    assert note["subagent_id"] == "wall-worker"
 
 
 def test_scene_plan_attempt_retry_policy_requires_terminal_outcome(scene):

@@ -716,6 +716,9 @@ async def apply_opening_candidate(
     evidence_ids: list[str] | None = None,
     expected_version: str | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     response_mode: str = "compact",
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
@@ -755,6 +758,9 @@ async def apply_opening_candidate(
         "evidence_ids": evidence_ids or [],
         "expected_version": expected_version,
         "note": note,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "allow_plan_order_override": allow_plan_order_override,
         "override_reason": override_reason,
     }
@@ -782,6 +788,9 @@ async def decide_opening_candidate(
     evidence_ids: list[str] | None = None,
     expected_version: str | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     response_mode: str = "compact",
 ) -> dict:
     """Record an accept/reject/manual decision for an opening candidate.
@@ -803,6 +812,9 @@ async def decide_opening_candidate(
         "evidence_ids": evidence_ids or [],
         "expected_version": expected_version,
         "note": note,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
     }
     status, res = await mcp_server._api_post(f"/datasets/{key}/{file}/opening-candidates/{candidate_id}/decision", body)
     if status >= 400:
@@ -830,6 +842,9 @@ async def review_opening_candidate(
     evidence_ids: list[str] | None = None,
     expected_version: str | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     response_mode: str = "compact",
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
@@ -852,6 +867,9 @@ async def review_opening_candidate(
         "evidence_ids": evidence_ids or [],
         "expected_version": expected_version,
         "note": note,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "allow_plan_order_override": allow_plan_order_override,
         "override_reason": override_reason,
     }
@@ -875,6 +893,9 @@ async def review_opening_candidates_batch(
     file: str,
     reviews: list[dict],
     expected_version: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
 ) -> dict:
@@ -887,6 +908,9 @@ async def review_opening_candidates_batch(
     body = {
         "reviews": reviews,
         "expected_version": expected_version,
+        "run_id": run_id,
+        "agent_id": agent_id,
+        "subagent_id": subagent_id,
         "allow_plan_order_override": allow_plan_order_override,
         "override_reason": override_reason,
     }

@@ -1875,6 +1875,9 @@ def apply_opening_candidate_route(key: str, file: str, candidate_id: str, body: 
             label_id=label_id,
             evidence_ids=body.get("evidence_ids"),
             note=body.get("note"),
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
         data = {
@@ -1915,6 +1918,9 @@ def decide_opening_candidate_route(key: str, file: str, candidate_id: str, body:
             str(body.get("outcome") or ""),
             evidence_ids=body.get("evidence_ids"),
             note=body.get("note"),
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001

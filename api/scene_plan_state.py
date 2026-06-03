@@ -91,6 +91,23 @@ OPENING_CANDIDATE_OUTCOMES = {
 }
 
 
+def _provenance_fields(
+    *,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
+) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in {
+            "run_id": run_id,
+            "agent_id": agent_id,
+            "subagent_id": subagent_id,
+        }.items()
+        if value is not None
+    }
+
+
 class PlanStateConflictError(RuntimeError):
     pass
 
@@ -591,6 +608,9 @@ def batch_close_warning_defects(
     defect_ids: list[str] | None = None,
     classification: str | None = None,
     reason: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     if status not in DEFECT_TERMINAL_STATUSES - {"superseded"}:
@@ -625,6 +645,7 @@ def batch_close_warning_defects(
         defect["status"] = status
         defect["terminal_reason"] = reason or ""
         defect["updated_at"] = now
+        defect.update(_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id))
         _validate_defect(defect)
         closed.append(str(defect.get("id")))
     state.setdefault("decision_log", []).append({
@@ -634,6 +655,7 @@ def batch_close_warning_defects(
         "decision": f"Batch closed {len(closed)} warning defect(s) as {status}",
         "result": reason or "",
         "defect_ids": closed,
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
     })
     return {**write_plan_state(dataset_root, state, expected_version=expected_version), "closed_defect_ids": closed}
 
@@ -664,6 +686,9 @@ def classify_defect(
     *,
     evidence_ids: list[str] | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     if classification not in DEFECT_CLASSIFICATIONS:
@@ -681,12 +706,14 @@ def classify_defect(
             if ev_id not in existing:
                 existing.append(ev_id)
     defect["updated_at"] = _now_iso()
+    defect.update(_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id))
     state.setdefault("decision_log", []).append({
         "time": _now_iso(),
         "mode": "analysis",
         "evidence_ids": evidence_ids or [],
         "decision": f"Classified {defect_id} as {classification}",
         "result": note or "classification recorded",
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
     })
     return write_plan_state(dataset_root, state, expected_version=expected_version)
 
@@ -701,6 +728,9 @@ def record_repair_candidate_decision(
     evidence_ids: list[str] | None = None,
     note: str | None = None,
     simulation: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     if outcome not in REPAIR_CANDIDATE_OUTCOMES:
@@ -723,6 +753,7 @@ def record_repair_candidate_decision(
         "note": note,
         "simulation": simulation or {},
         "updated_at": _now_iso(),
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
     }
     current_state.setdefault("repair_candidate_decisions", {})[cluster_fp] = decision
     ev_id = _next_id(state.get("evidence") or [], "EV")
@@ -742,6 +773,7 @@ def record_repair_candidate_decision(
             "simulation": simulation or {},
             "note": note,
         },
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
         "observation_id": None,
         "image_url": None,
         "created_at": _now_iso(),
@@ -753,6 +785,7 @@ def record_repair_candidate_decision(
         "evidence_ids": decision.get("evidence_ids") or [],
         "decision": f"Repair candidate {candidate.get('candidate_id')} -> {outcome}",
         "result": note or str(candidate.get("expected_gain") or "candidate decision recorded"),
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
     })
     return write_plan_state(dataset_root, state, expected_version=expected_version)
 
@@ -768,6 +801,9 @@ def set_task_state(
     blocked_by: list[str] | None = None,
     gate_updates: list[dict[str, Any]] | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     if status not in TASK_STATES:
@@ -811,6 +847,7 @@ def set_task_state(
             "result": {},
             "observation_id": None,
             "image_url": None,
+            **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
             "created_at": _now_iso(),
         }
         state.setdefault("evidence", []).append(ev)
@@ -836,6 +873,7 @@ def set_task_state(
         raise ValueError(f"task cannot be {status} without evidence")
     task["status"] = status
     task["updated_at"] = _now_iso()
+    task.update(_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id))
     return write_plan_state(dataset_root, state, expected_version=expected_version)
 
 
@@ -849,6 +887,9 @@ def append_decision_log(
     evidence: str | None = None,
     decision: str,
     result: str,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     state = _load_or_create(dataset_root, key, file)
@@ -859,6 +900,7 @@ def append_decision_log(
         "evidence": evidence or "",
         "decision": decision,
         "result": result,
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
     })
     return write_plan_state(dataset_root, state, expected_version=expected_version)
 
@@ -869,7 +911,9 @@ def start_action(
     file: str,
     action_id: str,
     *,
+    run_id: str | None = None,
     agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     state = _load_or_create(dataset_root, key, file)
@@ -895,7 +939,13 @@ def start_action(
             f"finish wall anchoring before downstream {task_id}; blocker(s): {blocker_ids}"
         )
     now = _now_iso()
-    action = {**action, "status": "in_progress", "agent_id": agent_id, "started_at": now, "updated_at": now}
+    action = {
+        **action,
+        "status": "in_progress",
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
+        "started_at": now,
+        "updated_at": now,
+    }
     _store_action(state, action)
     state.setdefault("current_state", {})["current_action_id"] = action_id
     if action.get("kind") == "task" and action.get("task_id"):
@@ -925,6 +975,9 @@ def record_attempt(
     action_id: str,
     attempt: dict[str, Any],
     *,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     state = _load_or_create(dataset_root, key, file)
@@ -942,6 +995,11 @@ def record_attempt(
         "hypothesis": attempt.get("hypothesis") or "",
         "edits": attempt.get("edits") or [],
         "evidence_ids": attempt.get("evidence_ids") or [],
+        **_provenance_fields(
+            run_id=run_id or attempt.get("run_id"),
+            agent_id=agent_id or attempt.get("agent_id"),
+            subagent_id=subagent_id or attempt.get("subagent_id"),
+        ),
         "created_at": attempt.get("created_at") or _now_iso(),
     }
     attempts.append(item)
@@ -960,6 +1018,9 @@ def finish_action(
     attempt_id: str | None = None,
     evidence_ids: list[str] | None = None,
     reason: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     allowed = {
@@ -1002,6 +1063,7 @@ def finish_action(
         "attempt_id": attempt_id,
         "evidence_ids": evidence_ids or action.get("evidence_ids") or [],
         "reason": reason or "",
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
         "finished_at": now,
         "updated_at": now,
     })
@@ -1048,6 +1110,7 @@ def finish_action(
         "evidence_ids": evidence_ids or [],
         "decision": f"Finished {action_id} as {outcome}",
         "result": reason or "",
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
     })
     state.setdefault("current_state", {})["current_action_id"] = None
     _store_action(state, action)
@@ -1121,6 +1184,9 @@ def record_opening_candidate_decision(
     label_id: str | None = None,
     evidence_ids: list[str] | None = None,
     note: str | None = None,
+    run_id: str | None = None,
+    agent_id: str | None = None,
+    subagent_id: str | None = None,
     expected_version: str | None = None,
 ) -> dict[str, Any]:
     if outcome not in OPENING_CANDIDATE_OUTCOMES:
@@ -1142,6 +1208,7 @@ def record_opening_candidate_decision(
         "region": candidate.get("region"),
         "evidence_ids": evidence_ids or [],
         "note": note or "",
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
         "decided_at": now,
     }
     current = state.setdefault("current_state", {})
@@ -1153,6 +1220,7 @@ def record_opening_candidate_decision(
         "evidence_ids": evidence_ids or [],
         "decision": f"Opening candidate {candidate.get('candidate_id')} {outcome}",
         "result": note or "",
+        **_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id),
     })
     if outcome == "accepted_applied":
         for task in state.get("tasks") or []:

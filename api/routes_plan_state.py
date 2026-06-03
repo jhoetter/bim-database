@@ -291,6 +291,9 @@ def set_scene_plan_task_state_route(key: str, file: str, task_id: str, body: dic
             blocked_by=body.get("blocked_by"),
             gate_updates=body.get("gate_updates"),
             note=body.get("note"),
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001
@@ -676,7 +679,9 @@ def start_scene_plan_action_route(key: str, file: str, action_id: str, body: dic
             key,
             file,
             action_id,
+            run_id=body.get("run_id"),
             agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001
@@ -695,6 +700,9 @@ def record_scene_plan_attempt_route(key: str, file: str, action_id: str, body: d
             file,
             action_id,
             body,
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001
@@ -716,6 +724,9 @@ def finish_scene_plan_action_route(key: str, file: str, action_id: str, body: di
             attempt_id=body.get("attempt_id"),
             evidence_ids=body.get("evidence_ids"),
             reason=body.get("reason"),
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001
@@ -738,6 +749,9 @@ def batch_close_scene_plan_warnings_route(key: str, file: str, body: dict[str, A
             defect_ids=body.get("defect_ids"),
             classification=body.get("classification"),
             reason=body.get("reason"),
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001
@@ -778,6 +792,9 @@ def classify_scene_plan_defect_route(key: str, file: str, defect_id: str, body: 
             str(body.get("classification") or ""),
             evidence_ids=body.get("evidence_ids"),
             note=body.get("note"),
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001
@@ -849,6 +866,9 @@ def apply_repair_candidate_route(key: str, file: str, candidate_id: str, body: d
             evidence_ids=body.get("evidence_ids"),
             note=body.get("note"),
             simulation=simulation,
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
         data = {
@@ -885,6 +905,9 @@ def decide_repair_candidate_route(key: str, file: str, candidate_id: str, body: 
             evidence_ids=body.get("evidence_ids"),
             note=body.get("note"),
             simulation=simulation,
+            run_id=body.get("run_id"),
+            agent_id=body.get("agent_id"),
+            subagent_id=body.get("subagent_id"),
             expected_version=body.get("expected_version"),
         )
     except Exception as e:  # noqa: BLE001
