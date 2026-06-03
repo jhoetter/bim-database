@@ -9,6 +9,7 @@ import httpx
 import time
 
 import mcp_server
+from mcp_context_summary import aggregate_house_quality, compact_plan_status, compact_scene_row
 from mcp_server import (
     _REQUIRED_GEOMETRY,
     _api_unreachable_error,
@@ -53,8 +54,10 @@ async def validate_export_readiness(key: str) -> dict:
     Returns: `data` = {
       ready: bool,                # == honest_complete
       honest_complete: bool,      # all required phases done
+      high_confidence_complete: bool, # honest_complete + all scenes gold
       minimal_export_ok: bool,    # the permissive gate export_house enforces
       blockers: [str, …],         # missing required phases + their reasons
+      quality_summary: {tier_counts, total_review_debt, ...},
       phase_completeness: {Wn: {status, required, blockers}},
       required_phases: [str, …],
       scenes_total, labeled_scenes,
@@ -130,16 +133,33 @@ async def validate_export_readiness(key: str) -> dict:
     assumed_isotropic_scenes = phases["W4"].get("assumed_isotropic_scenes") or []
     approximate_calibrations = phases["W4"].get("approximate_calibrations") or []
     transferred_calibrations = phases["W4"].get("transferred_calibrations") or []
+    scene_quality_rows: list[dict] = []
+    for drawing in drawings:
+        file_name = drawing.get("file")
+        if not file_name:
+            continue
+        row = compact_scene_row(drawing, scene_meta.get(file_name) or {})
+        plan_status, plan_body = await mcp_server._api_get(f"/datasets/{key}/{file_name}/plan-state/status")
+        row["plan"] = (
+            compact_plan_status(plan_body)
+            if plan_status == 200
+            else compact_plan_status(None)
+        )
+        scene_quality_rows.append(row)
+    quality_summary = aggregate_house_quality(scene_quality_rows)
+    high_confidence_complete = honest_complete and bool(quality_summary.get("high_confidence_complete"))
 
     return _ok({
         "ready": honest_complete,
         "honest_complete": honest_complete,
+        "high_confidence_complete": high_confidence_complete,
         "minimal_export_ok": not minimal_blockers,
         "blockers": all_blockers,
         "phase_completeness": phase_completeness,
         "required_phases": required,
         "scenes_total": len(drawings),
         "labeled_scenes": sum(1 for d in drawings if d.get("labeled")),
+        "quality_summary": quality_summary,
         "calibration_assumptions": {
             "single_ref_assumed_isotropic": assumed_isotropic_scenes,
             "approximate_calibrations": approximate_calibrations,

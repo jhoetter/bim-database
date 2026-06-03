@@ -786,8 +786,12 @@ def test_validate_export_readiness_smoke():
     assert isinstance(d["blockers"], list)
     # Issue #6: enriched honest-completeness contract.
     assert isinstance(d["honest_complete"], bool)
+    assert isinstance(d["high_confidence_complete"], bool)
     assert isinstance(d["minimal_export_ok"], bool)
     assert d["ready"] == d["honest_complete"]
+    assert d["high_confidence_complete"] is False or d["honest_complete"] is True
+    assert "quality_summary" in d
+    assert "tier_counts" in d["quality_summary"]
     # ready must agree with blockers being empty.
     assert d["ready"] == (len(d["blockers"]) == 0)
     pc = d["phase_completeness"]

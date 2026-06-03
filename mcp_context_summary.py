@@ -5,6 +5,9 @@ from collections import Counter
 from typing import Any
 
 
+QUALITY_TIERS = ("gold", "silver", "bronze", "blocked")
+
+
 def compact_scene_row(drawing: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
     return {
         "file": drawing.get("file"),
@@ -26,6 +29,10 @@ def compact_plan_status(plan_status: dict[str, Any] | None, max_blockers: int = 
         return {
             "exists": False,
             "status": "missing",
+            "quality_tier": "blocked",
+            "completion_state": "blocked_tooling",
+            "review_debt": 20,
+            "human_review_required": True,
             "summary": "No structured scene plan exists.",
             "next_action": None,
             "blocker_count": 0,
@@ -40,11 +47,52 @@ def compact_plan_status(plan_status: dict[str, Any] | None, max_blockers: int = 
         "status": plan_status.get("status") or plan_status.get("terminality") or plan_status.get("state"),
         "required_complete": bool(plan_status.get("required_complete")),
         "percent_complete": plan_status.get("percent_complete"),
+        "quality_tier": plan_status.get("quality_tier"),
+        "completion_state": plan_status.get("completion_state"),
+        "review_debt": int(plan_status.get("review_debt") or 0),
+        "human_review_required": bool(((plan_status.get("final_qa_summary") or {}).get("human_review_required"))),
         "summary": plan_status.get("summary") or plan_status.get("current_summary"),
         "next_action": plan_status.get("next_action"),
         "blocker_count": len(blockers),
         "blockers": blockers[:max_blockers],
         "truncated": len(blockers) > max_blockers,
+    }
+
+
+def aggregate_house_quality(scene_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate compact scene plan quality into a house-level dashboard."""
+    tier_counts: Counter[str] = Counter()
+    total_review_debt = 0
+    review_required_scenes: list[str] = []
+    blocked_scenes: list[str] = []
+    missing_plan_scenes: list[str] = []
+    for row in scene_rows:
+        file_name = str(row.get("file") or "")
+        plan = row.get("plan") if isinstance(row.get("plan"), dict) else None
+        if not plan or not plan.get("exists"):
+            tier = "blocked"
+            missing_plan_scenes.append(file_name)
+        else:
+            tier = str(plan.get("quality_tier") or "blocked")
+            if tier not in QUALITY_TIERS:
+                tier = "blocked"
+            total_review_debt += int(plan.get("review_debt") or 0)
+            if plan.get("human_review_required"):
+                review_required_scenes.append(file_name)
+        tier_counts[tier] += 1
+        if tier == "blocked":
+            blocked_scenes.append(file_name)
+    scene_count = len(scene_rows)
+    high_confidence_complete = scene_count > 0 and tier_counts.get("gold", 0) == scene_count and total_review_debt == 0
+    return {
+        "scene_count": scene_count,
+        "tier_counts": {tier: int(tier_counts.get(tier, 0)) for tier in QUALITY_TIERS},
+        "total_review_debt": total_review_debt,
+        "human_review_required": bool(review_required_scenes or tier_counts.get("silver") or tier_counts.get("bronze")),
+        "review_required_scenes": review_required_scenes,
+        "blocked_scenes": blocked_scenes,
+        "missing_plan_scenes": missing_plan_scenes,
+        "high_confidence_complete": high_confidence_complete,
     }
 
 

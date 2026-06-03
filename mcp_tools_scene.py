@@ -9,7 +9,7 @@ from mcp.types import ImageContent
 from mcp.types import TextContent
 from mcp_context_summary import compact_label
 from mcp_context_summary import compact_plan_status
-from mcp_context_summary import compact_scene_row
+from mcp_context_summary import aggregate_house_quality, compact_scene_row
 from mcp_context_summary import label_counts
 from typing import Any
 import httpx
@@ -945,5 +945,6 @@ async def get_house_context_summary(
         "scene_count": len(scenes),
         "total_labels": total_labels,
         "workflow": _compact_workflow_for_summary(workflow, max_blockers=max_blockers_per_scene),
+        "quality": aggregate_house_quality(scenes) if include_plan_status else None,
         "scenes": scenes,
     }, started_at=started, status_code=status)

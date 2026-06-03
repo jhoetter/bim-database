@@ -3,6 +3,30 @@ from __future__ import annotations
 import asyncio
 
 import mcp_server
+from mcp_context_summary import aggregate_house_quality
+
+
+def test_aggregate_house_quality_distinguishes_honest_from_high_confidence() -> None:
+    quality = aggregate_house_quality([
+        {"file": "eg.jpg", "plan": {"exists": True, "quality_tier": "gold", "review_debt": 0}},
+        {
+            "file": "north.jpg",
+            "plan": {
+                "exists": True,
+                "quality_tier": "silver",
+                "review_debt": 4,
+                "human_review_required": True,
+            },
+        },
+        {"file": "west.jpg", "plan": {"exists": False}},
+    ])
+
+    assert quality["tier_counts"] == {"gold": 1, "silver": 1, "bronze": 0, "blocked": 1}
+    assert quality["total_review_debt"] == 4
+    assert quality["human_review_required"] is True
+    assert quality["review_required_scenes"] == ["north.jpg"]
+    assert quality["missing_plan_scenes"] == ["west.jpg"]
+    assert quality["high_confidence_complete"] is False
 
 
 def test_get_scene_context_summary_truncates_labels(monkeypatch) -> None:
@@ -57,8 +81,23 @@ def test_get_house_context_summary_is_bounded(monkeypatch) -> None:
                 "scene_orientation": "north",
                 "labels": [{"id": "O1", "type": "view_opening", "geometry": {"polygon": [[0, 0], [1, 0], [1, 1]]}}],
             }
-        if path.endswith("/plan-state/status"):
-            return 200, {"status": "needs_repair", "summary": "one blocker", "blockers": [{"id": "DEF-1"}]}
+        if path.endswith("/eg.jpg/plan-state/status"):
+            return 200, {
+                "status": "verified",
+                "quality_tier": "gold",
+                "review_debt": 0,
+                "summary": "clean",
+                "blockers": [],
+            }
+        if path.endswith("/north.jpg/plan-state/status"):
+            return 200, {
+                "status": "verified",
+                "quality_tier": "silver",
+                "review_debt": 4,
+                "final_qa_summary": {"human_review_required": True},
+                "summary": "review required",
+                "blockers": [{"id": "DEF-1"}],
+            }
         raise AssertionError(path)
 
     monkeypatch.setattr(mcp_server, "_api_get", fake_get)
@@ -71,7 +110,11 @@ def test_get_house_context_summary_is_bounded(monkeypatch) -> None:
     assert data["scene_count"] == 2
     assert data["total_labels"] == 2
     assert data["scenes"][0]["file"] == "eg.jpg"
-    assert data["scenes"][0]["plan"]["blocker_count"] == 1
+    assert data["scenes"][1]["plan"]["blocker_count"] == 1
+    assert data["quality"]["tier_counts"]["gold"] == 1
+    assert data["quality"]["tier_counts"]["silver"] == 1
+    assert data["quality"]["total_review_debt"] == 4
+    assert data["quality"]["high_confidence_complete"] is False
     assert "labels" not in data["scenes"][0]
 
 
