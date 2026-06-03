@@ -1785,6 +1785,7 @@ def _opening_label_from_wall_span(
     attrs = {
         "opening_kind": opening_kind,
         "parent_wall_id": parent_wall_id,
+        "parent_wall_quality_status": (parent.get("attributes") or {}).get("quality_status"),
         "opening_axis": [[round(a[0], 1), round(a[1], 1)], [round(b[0], 1), round(b[1], 1)]],
         "transaction_id": transaction_id or f"opening-txn-{_next_label_id(labels_doc, 'tmp')}",
     }
@@ -2009,6 +2010,11 @@ def upsert_opening_on_wall_route(key: str, file: str, body: dict[str, Any] = Bod
             transaction_id=transaction_id,
         )
         label.setdefault("attributes", {})["qa_status"] = "passed" if qa.get("ok") else "failed"
+        label.setdefault("attributes", {})["parent_wall_verification"] = {
+            "parent_wall_id": body.get("parent_wall_id"),
+            "quality_status": label.get("attributes", {}).get("parent_wall_quality_status"),
+            "local_qa_ok": bool(qa.get("ok")),
+        }
         if not qa.get("ok") and not bool(body.get("persist_failed", False)):
             return {
                 "ok": True,

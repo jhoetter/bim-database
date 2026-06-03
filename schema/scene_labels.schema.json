@@ -283,8 +283,24 @@
               "source_candidate_id": {"type": "string"},
               "source_candidate_fingerprint": {"type": "string"},
               "parent_wall_id": {"type": "string"},
+              "parent_wall_quality_status": {
+                "type": ["string", "null"],
+                "enum": ["ink_anchored", "centerline_plausible", "off_ink", "unanchored", "uncertain", null]
+              },
               "opening_axis": {"$ref": "#/$defs/Polyline"},
-              "qa_status": {"type": "string", "enum": ["passed", "failed", "needs_review"]}
+              "qa_status": {"type": "string", "enum": ["passed", "failed", "needs_review"]},
+              "parent_wall_verification": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "parent_wall_id": {"type": "string"},
+                  "quality_status": {
+                    "type": ["string", "null"],
+                    "enum": ["ink_anchored", "centerline_plausible", "off_ink", "unanchored", "uncertain", null]
+                  },
+                  "local_qa_ok": {"type": "boolean"}
+                }
+              }
             }
           }
         }

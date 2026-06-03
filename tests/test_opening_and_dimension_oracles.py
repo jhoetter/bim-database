@@ -162,9 +162,13 @@ def test_upsert_opening_on_wall_derives_quad_and_returns_local_qa():
     labels["labels"] = [{
         "id": "wall-1",
         "type": "wall",
-        "status": "readable",
+        "status": "uncertain",
         "geometry": {"start": [40, 120], "end": [480, 120]},
-        "attributes": {"thickness_mm": 300},
+        "attributes": {
+            "thickness_mm": 300,
+            "quality_status": "centerline_plausible",
+            "confidence_reason": "faint_double_rail_centerline",
+        },
     }]
     (root / "labels" / f"{Path(file).stem}.json").write_text(json.dumps(labels))
     try:
@@ -190,6 +194,12 @@ def test_upsert_opening_on_wall_derives_quad_and_returns_local_qa():
         assert op["relations"] == [{"kind": "belongs_to", "other_id": "wall-1"}]
         assert op["attributes"]["qa_status"] == "passed"
         assert op["attributes"]["parent_wall_id"] == "wall-1"
+        assert op["attributes"]["parent_wall_quality_status"] == "centerline_plausible"
+        assert op["attributes"]["parent_wall_verification"] == {
+            "parent_wall_id": "wall-1",
+            "quality_status": "centerline_plausible",
+            "local_qa_ok": True,
+        }
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

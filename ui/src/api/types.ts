@@ -56,7 +56,13 @@ export interface FloorplanOpeningLabel extends LabelBase {
     swing_side?: 'left' | 'right' | 'none';
     transaction_id?: string;
     parent_wall_id?: string;
+    parent_wall_quality_status?: 'ink_anchored' | 'centerline_plausible' | 'off_ink' | 'unanchored' | 'uncertain' | null;
     qa_status?: 'passed' | 'failed' | 'needs_review';
+    parent_wall_verification?: {
+      parent_wall_id?: string;
+      quality_status?: 'ink_anchored' | 'centerline_plausible' | 'off_ink' | 'unanchored' | 'uncertain' | null;
+      local_qa_ok?: boolean;
+    };
   };
 }
 export type ViewOpeningGeometry =
