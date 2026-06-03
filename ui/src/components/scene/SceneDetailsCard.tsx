@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { patchSceneAttrs } from '../../api/client';
 import type { DatasetDrawing, DatasetHouse } from '../../api/types';
+import type { SceneCalibration } from '../../lib/house_facts';
 import {
   KIND_LABEL, FLOOR_LABEL, VIEW_LABEL,
   SCENE_KINDS, SCENE_FLOORS, SCENE_VIEWS,
@@ -25,6 +26,7 @@ export interface SceneDetailsCardProps {
   drawing: DatasetDrawing;
   /** Optional readiness derived from a labels summary fetch. */
   readiness?: { hasH: boolean; hasV: boolean };
+  calibration?: SceneCalibration | null;
   /** Called after a successful PATCH so the parent can refresh. The
    *  second argument carries the before/after delta so the host can
    *  push an A3 'classify' undo entry. */
@@ -43,7 +45,7 @@ export interface SceneDetailsCardProps {
 }
 
 export function SceneDetailsCard({
-  houseKey, drawing, readiness, onUpdated,
+  houseKey, drawing, readiness, calibration, onUpdated,
   onAnnotateHref, onAdjust, onDelete, variant = 'full',
 }: SceneDetailsCardProps) {
   const [editing, setEditing] = useState(false);
@@ -113,6 +115,12 @@ export function SceneDetailsCard({
   const replacement = drawing.scene_replacement;
   const replacementNeedsReview = replacement?.label_plan_impact === 'labels_or_plan_preserved_but_pixel_source_replaced'
     || replacement?.review_required === true;
+  const calibrationStatus = calibration?.status ?? (calibration?.px_per_mm ? 'direct' : null);
+  const calibrationText = calibrationStatus === 'transferred'
+    ? `transfer${calibration?.confidence ? ` · ${calibration.confidence}` : ''}`
+    : calibrationStatus
+      ? `${calibrationStatus}${calibration?.px_per_mm ? ` · ${calibration.px_per_mm.toFixed(4)} px/mm` : ''}`
+      : null;
 
   const headerCls = variant === 'compact'
     ? 'px-2 py-1 text-[0.7rem]'
@@ -155,6 +163,21 @@ export function SceneDetailsCard({
                     : readiness.hasV ? 'nur V — H fehlt'
                     : 'keine Bezugsmaße'}
                 </span>
+              </dd>
+            </>
+          )}
+          {calibrationText && (
+            <>
+              <dt className="text-muted">Kalib.</dt>
+              <dd
+                className={calibrationStatus === 'transferred' || calibration?.review_required ? 'font-medium text-amber-800' : 'font-medium text-emerald-700'}
+                title={[
+                  calibration?.source_scene ? `Quelle ${calibration.source_scene}` : null,
+                  calibration?.transfer_kind,
+                  calibration?.reason,
+                ].filter(Boolean).join(' · ')}
+              >
+                {calibrationText}{calibration?.review_required ? ' · Review' : ''}
               </dd>
             </>
           )}

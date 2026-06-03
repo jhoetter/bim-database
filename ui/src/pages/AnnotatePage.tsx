@@ -1238,10 +1238,10 @@ export function AnnotatePage() {
             let row = 0;
             for (const [datum, mm] of missingEntries) {
               let y: number;
-              if (calib && bezugHM) {
+              if (calib?.px_per_mm && bezugHM) {
                 // Real-world placement: bezug_y - value_mm × px_per_mm.
                 y = bezugHM.geometry.anchor[1] - mm * calib.px_per_mm;
-              } else if (calib) {
+              } else if (calib?.px_per_mm) {
                 y = imgSize[1] / 2 - mm * calib.px_per_mm;
               } else {
                 y = imgSize[1] / 2 - row * 30;
@@ -3212,7 +3212,7 @@ export function AnnotatePage() {
             const calib = facts.calibration_per_scene[decodedFile];
             const bezugHM = existingHKs.find((h) => h.attributes.value_mm === 0);
             let y = view.y + view.h / 2;
-            if (calib && bezugHM) {
+            if (calib?.px_per_mm && bezugHM) {
               y = bezugHM.geometry.anchor[1] - value_mm * calib.px_per_mm;
             }
             const newLabel: HeightMarkLabel = {
@@ -6174,6 +6174,7 @@ function ToolPalette({
             houseKey={houseKey}
             drawing={currentDrawing}
             readiness={readiness}
+            calibration={workflowFacts.calibration_per_scene[currentSceneFile] ?? null}
             onUpdated={onDrawingUpdated}
             variant="compact"
           />
@@ -9840,7 +9841,7 @@ function HeightMarkFields({
                 const bezugLabel = allLabels.find(
                   (l) => l.type === 'height_mark' && l.attributes.value_mm === 0,
                 ) as HeightMarkLabel | undefined;
-                if (calib && bezugLabel && bezugLabel.id !== label.id) {
+                if (calib?.px_per_mm && bezugLabel && bezugLabel.id !== label.id) {
                   // Image Y grows down; building height grows up. So a
                   // datum that's +12500 mm above Bezug sits 12500 * px_per_mm
                   // pixels HIGHER (smaller Y) than Bezug.

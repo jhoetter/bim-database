@@ -19,8 +19,15 @@ import { dimOrientation } from './building_dims';
 
 export interface SceneCalibration {
   /** Pixels per mm — average of H and V if both M1 references are present. */
-  px_per_mm: number;
-  computed_from: 'M1-H-Bezug' | 'M1-V-Bezug' | 'M1-both';
+  px_per_mm?: number;
+  computed_from?: 'M1-H-Bezug' | 'M1-V-Bezug' | 'M1-both' | 'transferred' | string;
+  status?: 'ok' | 'transferred' | 'not_required' | 'unavailable_source_unreadable' | string;
+  source_scene?: string;
+  transfer_kind?: string;
+  confidence?: 'low' | 'medium' | 'high' | string;
+  reason?: string;
+  review_required?: boolean;
+  source_fact_ids?: string[];
 }
 
 export interface SceneMetadataEntry {

@@ -206,7 +206,7 @@ export function buildScene3D(bundle: SceneBundle): BuiltScene3D {
     const calib = f.calibration_per_scene[scene.scene_file];
     const meta = f.scene_metadata[scene.scene_file];
     const bezugYPx = meta?.bezug_y_px ?? null;
-    if (calib == null || bezugYPx == null) {
+    if (calib == null || typeof calib.px_per_mm !== 'number' || calib.px_per_mm <= 0 || bezugYPx == null) {
       openings.push({ face: o, items: [] });
       continue;
     }

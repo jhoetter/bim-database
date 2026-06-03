@@ -8,7 +8,7 @@ export function effectiveWallPxPerMm(
   sceneFile: string,
 ): number {
   const px = facts.calibration_per_scene[sceneFile]?.px_per_mm;
-  return Number.isFinite(px) && px > 0 ? px : FALLBACK_WALL_PX_PER_MM;
+  return typeof px === 'number' && Number.isFinite(px) && px > 0 ? px : FALLBACK_WALL_PX_PER_MM;
 }
 
 export function wallBandPoints(
