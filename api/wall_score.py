@@ -94,6 +94,7 @@ def score_walls(
     min_missing_area: int = 400,
     thin_aware: bool = False,
     close_px: int = 0,
+    exclusion_regions: list | None = None,
 ) -> dict:
     """Score a wall-label set against the thick-ink wall mask.
 
@@ -126,6 +127,29 @@ def score_walls(
         ink = cv2.morphologyEx(
             ink, cv2.MORPH_CLOSE,
             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(close_px), int(close_px))))
+    applied_exclusions = []
+    for region_item in exclusion_regions or []:
+        bbox = region_item.get("region") if isinstance(region_item, dict) else region_item
+        if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+            continue
+        x0, y0, a, b = [int(round(float(v))) for v in bbox[:4]]
+        fmt = (region_item or {}).get("bbox_format") if isinstance(region_item, dict) else None
+        if fmt == "xywh":
+            x1, y1 = x0 + a, y0 + b
+        elif fmt == "xyxy":
+            x1, y1 = a, b
+        elif a > x0 and b > y0:
+            x1, y1 = a, b
+        else:
+            x1, y1 = x0 + a, y0 + b
+        lx0 = max(0, x0 - ox)
+        ly0 = max(0, y0 - oy)
+        lx1 = min(ink.shape[1], x1 - ox)
+        ly1 = min(ink.shape[0], y1 - oy)
+        if lx1 <= lx0 or ly1 <= ly0:
+            continue
+        ink[ly0:ly1, lx0:lx1] = 0
+        applied_exclusions.append([x0, y0, x1, y1])
     h, w = ink.shape
 
     # shift label coords into the (possibly cropped) working frame
@@ -188,5 +212,7 @@ def score_walls(
         "missing_regions": missing_regions,
         "off_ink_segments": off_ink_segments,
         "params": {"tol_px": tol_px, "min_wall_px": min_wall_px,
-                   "min_missing_area": min_missing_area},
+                   "min_missing_area": min_missing_area,
+                   "exclusion_region_count": len(applied_exclusions)},
+        "semantic_exclusions_applied": applied_exclusions,
     }

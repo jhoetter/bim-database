@@ -52,6 +52,28 @@ from .main import (
 
 router = APIRouter()
 
+SEMANTIC_INK_CLASSES = {
+    "structural_wall",
+    "possible_wall",
+    "opening_symbol",
+    "dimension_annotation",
+    "site_boundary",
+    "furniture_fixture",
+    "hatching_projection",
+    "landscape_vehicle",
+    "ignored_noise",
+    "unknown",
+}
+NON_WALL_SEMANTIC_CLASSES = {
+    "opening_symbol",
+    "dimension_annotation",
+    "site_boundary",
+    "furniture_fixture",
+    "hatching_projection",
+    "landscape_vehicle",
+    "ignored_noise",
+}
+
 
 @router.get("/datasets/{key}/{file}/grid", tags=["pdfs"])
 def render_scene_grid(
@@ -781,6 +803,7 @@ def score_walls_route(
     thresh: int | None = None,
     thin_aware: bool = False,
     close_px: int = 0,
+    semantic_exclusions: bool = False,
 ) -> dict:
     """Objective QA of the CURRENTLY SAVED wall labels vs the ink.
 
@@ -807,13 +830,135 @@ def score_walls_route(
     from PIL import Image as PILImage
     from .wall_score import score_walls
     parsed = _parse_region(region)
+    exclusions = _semantic_exclusion_regions(key, file) if semantic_exclusions else []
     with PILImage.open(img_path) as src:
         src = src.convert("RGB")
         res = score_walls(src, walls, region=parsed,
                           min_wall_px=min_wall_px, tol_px=tol_px, thresh=thresh,
-                          thin_aware=thin_aware, close_px=close_px)
+                          thin_aware=thin_aware, close_px=close_px,
+                          exclusion_regions=exclusions)
     res["n_walls"] = len(walls)
+    res["semantic_exclusion_count"] = len(exclusions)
     return {"ok": True, "data": res}
+
+
+def _semantic_regions_from_plan(key: str, file: str) -> list[dict[str, Any]]:
+    try:
+        from .scene_plan_state import read_plan_state
+        plan = read_plan_state(DATASET_DIR, key, file)
+    except Exception:  # noqa: BLE001
+        return []
+    state = plan.get("state") or {}
+    regions = []
+    for evidence in state.get("evidence") or []:
+        if evidence.get("kind") != "semantic_ink_region":
+            continue
+        result = evidence.get("result") or {}
+        semantic_class = result.get("semantic_class")
+        region = result.get("region")
+        if semantic_class and isinstance(region, list) and len(region) >= 4:
+            regions.append({
+                "evidence_id": evidence.get("id"),
+                "semantic_class": semantic_class,
+                "region": region[:4],
+                "bbox_format": result.get("bbox_format") or "xywh",
+                "confidence": result.get("confidence"),
+            })
+    return regions
+
+
+def _semantic_exclusion_regions(key: str, file: str) -> list[dict[str, Any]]:
+    return [r for r in _semantic_regions_from_plan(key, file) if r.get("semantic_class") in NON_WALL_SEMANTIC_CLASSES]
+
+
+@router.post("/datasets/{key}/{file}/classify-ink-region", tags=["pdfs"])
+def classify_ink_region_route(key: str, file: str, body: dict[str, Any] = Body(...)) -> dict:
+    """Record one semantic ink/exclusion region in scene-plan evidence."""
+    _ensure_dataset_scene(key, file)
+    semantic_class = str(body.get("semantic_class") or "")
+    if semantic_class not in SEMANTIC_INK_CLASSES:
+        raise HTTPException(status_code=400, detail=f"semantic_class must be one of {sorted(SEMANTIC_INK_CLASSES)}")
+    region = body.get("region")
+    if not isinstance(region, list) or len(region) < 4:
+        raise HTTPException(status_code=400, detail="region must be [x,y,w,h]")
+    result = {
+        "semantic_class": semantic_class,
+        "region": [float(v) for v in region[:4]],
+        "bbox_format": body.get("bbox_format") or "xywh",
+        "confidence": body.get("confidence") or "medium",
+        "applies_to_wall_score": semantic_class in NON_WALL_SEMANTIC_CLASSES,
+        "note": body.get("note") or "",
+    }
+    evidence = {
+        "kind": "semantic_ink_region",
+        "mode": body.get("mode") or "analysis",
+        "summary": body.get("summary") or f"Classified ink region as {semantic_class}",
+        "tool": "classify_ink_region",
+        "params": {"region": result["region"], "semantic_class": semantic_class},
+        "result": result,
+        "task_ids": body.get("task_ids") or [],
+        "image_url": body.get("image_url"),
+        "expected_version": body.get("expected_version"),
+    }
+    from .scene_plan_state import add_evidence
+    try:
+        data = add_evidence(DATASET_DIR, key, file, evidence, expected_version=body.get("expected_version"))
+    except Exception as e:  # noqa: BLE001
+        _plan_http_error(e)
+    state = data.get("state") or {}
+    evidence_id = ((state.get("evidence") or [{}])[-1] or {}).get("id")
+    return {"ok": True, "data": {
+        "semantic_region_contract": "semantic-ink-region/v1",
+        "evidence_id": evidence_id,
+        "semantic_class": semantic_class,
+        "region": result["region"],
+        "bbox_format": result["bbox_format"],
+        "applies_to_wall_score": result["applies_to_wall_score"],
+    }}
+
+
+@router.get("/datasets/{key}/{file}/score-walls-structural", tags=["pdfs"])
+def score_walls_structural_route(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 8,
+    tol_px: int = 9,
+    thresh: int | None = None,
+    thin_aware: bool = False,
+    close_px: int = 0,
+) -> dict:
+    """Compact wall score against structural wall ink after semantic exclusions."""
+    base = score_walls_route(
+        key,
+        file,
+        region=region,
+        min_wall_px=min_wall_px,
+        tol_px=tol_px,
+        thresh=thresh,
+        thin_aware=thin_aware,
+        close_px=close_px,
+        semantic_exclusions=True,
+    )["data"]
+    semantic_regions = _semantic_regions_from_plan(key, file)
+    possible = [r for r in semantic_regions if r.get("semantic_class") in {"possible_wall", "unknown"}]
+    compact_missing = (base.get("missing_regions") or [])[:8]
+    compact_off_ink = (base.get("off_ink_segments") or [])[:8]
+    return {"ok": True, "data": {
+        "score_contract": "score-walls-structural/v1",
+        "precision": base.get("precision"),
+        "recall": base.get("recall"),
+        "f1": base.get("f1"),
+        "n_walls": base.get("n_walls"),
+        "semantic_exclusion_count": base.get("semantic_exclusion_count"),
+        "missing_region_count": len(base.get("missing_regions") or []),
+        "off_ink_count": len(base.get("off_ink_segments") or []),
+        "missing_regions": compact_missing,
+        "off_ink_segments": compact_off_ink,
+        "unresolved_possible_wall_regions": possible[:8],
+        "unresolved_possible_wall_count": len(possible),
+        "params": base.get("params"),
+    }}
 
 
 @router.get("/datasets/{key}/{file}/score-measurements", tags=["pdfs"])

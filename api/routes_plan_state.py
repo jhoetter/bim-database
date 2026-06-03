@@ -27,6 +27,41 @@ from .main import (
 
 router = APIRouter()
 
+_NON_WALL_SEMANTIC_CLASSES = {
+    "opening_symbol",
+    "dimension_annotation",
+    "site_boundary",
+    "furniture_fixture",
+    "hatching_projection",
+    "landscape_vehicle",
+    "ignored_noise",
+}
+
+
+def _semantic_exclusion_regions_for_plan(key: str, file: str) -> list[dict[str, Any]]:
+    from .scene_plan_state import read_plan_state
+    try:
+        plan = read_plan_state(DATASET_DIR, key, file)
+    except Exception:  # noqa: BLE001
+        return []
+    state = plan.get("state") or {}
+    out = []
+    for evidence in state.get("evidence") or []:
+        if evidence.get("kind") != "semantic_ink_region":
+            continue
+        result = evidence.get("result") or {}
+        if result.get("semantic_class") not in _NON_WALL_SEMANTIC_CLASSES:
+            continue
+        region = result.get("region")
+        if isinstance(region, list) and len(region) >= 4:
+            out.append({
+                "region": region[:4],
+                "bbox_format": result.get("bbox_format") or "xywh",
+                "semantic_class": result.get("semantic_class"),
+                "evidence_id": evidence.get("id"),
+            })
+    return out
+
 
 @router.get("/datasets/{key}/{file}/plan", tags=["dataset"])
 def get_scene_plan(key: str, file: str) -> dict:
@@ -276,6 +311,7 @@ def _compute_plan_state_gate_inputs(key: str, file: str, body: dict[str, Any]) -
                 tol_px=tol_px,
                 close_px=close_px,
                 thin_aware=thin_aware,
+                exclusion_regions=_semantic_exclusion_regions_for_plan(key, file),
             )
         score_walls_result["n_walls"] = len(walls)
         score_walls_result["profile"] = body.get("score_profile") or (

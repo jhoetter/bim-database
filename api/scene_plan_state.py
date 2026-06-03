@@ -51,6 +51,7 @@ EVIDENCE_KINDS = {
     "continuity_check",
     "repair_candidate_decision",
     "human_note",
+    "semantic_ink_region",
     "subagent_report",
     "reset",
     "gate_evaluation",

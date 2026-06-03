@@ -227,6 +227,7 @@ async def score_walls(
     thin_aware: bool = False,
     close_px: int = 82,
     max_regions: int = 20,
+    semantic_exclusions: bool = False,
 ) -> dict:
     """THE self-QA signal. Scores the CURRENTLY SAVED wall labels vs the ink:
     precision, recall, f1, plus missing_regions ('add a wall here') and
@@ -235,7 +236,8 @@ async def score_walls(
     (min_wall_px=16, tol_px=18, close_px=82); scale down for lower-DPI scenes."""
     started = time.time()
     params: dict = {"min_wall_px": min_wall_px, "tol_px": tol_px,
-                    "thin_aware": thin_aware, "close_px": close_px}
+                    "thin_aware": thin_aware, "close_px": close_px,
+                    "semantic_exclusions": semantic_exclusions}
     if region is not None:
         params["region"] = region
     if thresh is not None:
@@ -247,6 +249,74 @@ async def score_walls(
             "off_ink_segments": max_regions,
         })
     return result
+
+
+@mcp.tool()
+async def classify_ink_region(
+    key: str,
+    file: str,
+    region: list[float],
+    semantic_class: str,
+    confidence: str = "medium",
+    summary: str | None = None,
+    note: str | None = None,
+    task_ids: list[str] | None = None,
+    expected_version: str | None = None,
+) -> dict:
+    """Record one semantic ink/exclusion region in the scene plan.
+
+    USE when:
+      - A missing wall region is actually Baugrenze/site ink, furniture,
+        dimension annotation, opening symbol, hatching/projection, landscape,
+        or noise.
+      - You want future structural wall scoring to ignore that region.
+
+    DON'T USE when:
+      - The ink might be structural wall. Use semantic_class='possible_wall' or
+        leave it unresolved instead of excluding it.
+    """
+    started = time.time()
+    payload = {
+        "region": region,
+        "semantic_class": semantic_class,
+        "confidence": confidence,
+        "summary": summary,
+        "note": note,
+        "task_ids": task_ids or [],
+        "expected_version": expected_version,
+    }
+    return await mcp_server._cv_post(f"/datasets/{key}/{file}/classify-ink-region", payload, started)
+
+
+@mcp.tool()
+async def score_walls_structural(
+    key: str,
+    file: str,
+    region: str | None = None,
+    min_wall_px: int = 16,
+    tol_px: int = 18,
+    thresh: int | None = None,
+    thin_aware: bool = False,
+    close_px: int = 82,
+) -> dict:
+    """Score saved walls against structural wall ink after semantic exclusions.
+
+    USE when:
+      - You have classified non-wall ink regions and want the compact wall QA
+        signal that should drive repair decisions.
+
+    DON'T USE when:
+      - You need the raw, unfiltered score for debugging the ink detector; call
+        `score_walls(semantic_exclusions=false)` instead.
+    """
+    started = time.time()
+    params: dict = {"min_wall_px": min_wall_px, "tol_px": tol_px,
+                    "thin_aware": thin_aware, "close_px": close_px}
+    if region is not None:
+        params["region"] = region
+    if thresh is not None:
+        params["thresh"] = thresh
+    return await mcp_server._cv_get(f"/datasets/{key}/{file}/score-walls-structural", params, started)
 
 
 @mcp.tool()

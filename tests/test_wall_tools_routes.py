@@ -247,6 +247,61 @@ def test_manual_wall_write_warns_on_missing_endpoint_reasons_and_disconnected_co
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_classify_ink_region_excludes_site_boundary_from_structural_score():
+    key = "house-semantic-score"
+    file = f"{key}-scene.png"
+    root = api_main.DATASET_DIR / key
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        img = Image.new("RGB", (420, 220), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.line([40, 80, 240, 80], fill=(0, 0, 0), width=14)
+        draw.line([270, 160, 390, 160], fill=(0, 0, 0), width=14)
+        img.save(root / file)
+        labels = api_main._label_skeleton("dataset", key, file)
+        labels["scene_tag"] = "grundriss"
+        labels["scene_level"] = "eg"
+        labels["labels"] = [{
+            "id": "wall-1",
+            "type": "wall",
+            "status": "readable",
+            "geometry": {"start": [40, 80], "end": [240, 80]},
+            "attributes": {"thickness_mm": 300},
+        }]
+        assert client.put(f"/labels/dataset/{key}/{file}", json=labels).status_code == 200
+
+        raw = client.get(
+            f"/datasets/{key}/{file}/score-walls",
+            params={"min_wall_px": 8, "tol_px": 9},
+        )
+        assert raw.status_code == 200, raw.text
+        assert raw.json()["data"]["missing_regions"]
+
+        classified = client.post(
+            f"/datasets/{key}/{file}/classify-ink-region",
+            json={
+                "region": [250, 145, 160, 35],
+                "semantic_class": "site_boundary",
+                "confidence": "high",
+                "summary": "Baugrenze/site line, not structural wall",
+            },
+        )
+        assert classified.status_code == 200, classified.text
+        assert classified.json()["data"]["applies_to_wall_score"] is True
+
+        structural = client.get(
+            f"/datasets/{key}/{file}/score-walls-structural",
+            params={"min_wall_px": 8, "tol_px": 9},
+        )
+        assert structural.status_code == 200, structural.text
+        data = structural.json()["data"]
+        assert data["score_contract"] == "score-walls-structural/v1"
+        assert data["semantic_exclusion_count"] == 1
+        assert data["missing_region_count"] == 0
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_raw_wall_write_strict_anchoring_rejects_off_ink_wall():
     key = "house-anchor-strict"
     file = f"{key}-scene.png"

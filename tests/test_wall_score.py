@@ -77,3 +77,25 @@ def test_close_px_bridges_intermittent_wall_ink():
     # closing the gap raises recall (more of the label's ink span is covered)
     assert closed["recall"] >= base["recall"]
     assert closed["f1"] >= base["f1"]
+
+
+def test_exclusion_regions_remove_non_wall_missing_ink():
+    arr = np.full((220, 420), 255, dtype=np.uint8)
+    arr[74:86, 40:240] = 0       # structural wall, labeled
+    arr[154:166, 260:390] = 0    # site/dimension-like line, excluded
+    img = Image.fromarray(arr, mode="L").convert("RGB")
+    wall = [((40, 80), (240, 80))]
+
+    raw = score_walls(img, wall, min_wall_px=8, tol_px=9, close_px=0)
+    filtered = score_walls(
+        img,
+        wall,
+        min_wall_px=8,
+        tol_px=9,
+        close_px=0,
+        exclusion_regions=[{"region": [250, 145, 160, 35], "bbox_format": "xywh"}],
+    )
+
+    assert raw["missing_regions"], raw
+    assert filtered["missing_regions"] == [], filtered
+    assert filtered["semantic_exclusions_applied"]
