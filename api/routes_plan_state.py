@@ -301,6 +301,28 @@ def set_scene_plan_task_state_route(key: str, file: str, task_id: str, body: dic
     return {"ok": True, "data": data}
 
 
+# WS-F3: cap on score-region lists carried into the gate / defects / report.
+_MAX_SCORE_REGIONS = 40
+
+
+def _bound_score_lists(result: dict[str, Any], cap: int = _MAX_SCORE_REGIONS) -> dict[str, Any]:
+    """Bound the score lists before they propagate into the gate, the stored
+    defects, and the agent-facing report. A faint scan can produce hundreds of
+    missing/off-ink regions; the raw arrays were 150KB+ per pass (the "Output
+    too large" spills that drove the floorplan workers to 300-600K context).
+    The agent converges iteratively, so the top N is enough to act on; the
+    omitted count is reported so nothing is silently hidden."""
+    if not isinstance(result, dict):
+        return result
+    for list_key in ("missing_regions", "off_ink_segments"):
+        items = result.get(list_key)
+        if isinstance(items, list) and len(items) > cap:
+            result[f"{list_key}_total"] = len(items)
+            result[f"{list_key}_truncated"] = len(items) - cap
+            result[list_key] = items[:cap]
+    return result
+
+
 def _compute_plan_state_gate_inputs(key: str, file: str, body: dict[str, Any]) -> dict[str, Any]:
     labels_doc = get_labels("dataset", key, file)
     score_walls_result = body.get("score_walls")
@@ -342,6 +364,7 @@ def _compute_plan_state_gate_inputs(key: str, file: str, body: dict[str, Any]) -
             "close_px": close_px,
             "thin_aware": thin_aware,
         }
+        score_walls_result = _bound_score_lists(score_walls_result)
     score_measurements_result = body.get("score_measurements")
     if score_measurements_result is None and bool(body.get("run_score_measurements", True)):
         walls, dims = [], []
