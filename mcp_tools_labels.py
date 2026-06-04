@@ -201,6 +201,7 @@ async def reset_scene_labels(
 @mcp.tool()
 async def reset_house_labeling(
     key: str,
+    reset_plans: bool = True,
     idempotency_key: str | None = None,
 ) -> dict:
     """Reset ALL labels for a house while keeping extracted scenes.
@@ -213,6 +214,9 @@ async def reset_house_labeling(
       - Replaces every scene labels JSON with an empty skeleton.
       - Clears scene tags/orientations/levels back to unclassified metadata.
       - Rebuilds house_facts from scratch so required phases become pending.
+      - With `reset_plans=True` (default) DELETES the scene plan-state too, so
+        the next run starts from a truly clean plan — otherwise the old run's
+        tasks/defects linger (marked stale) and a "fresh" run resumes them.
       - Keeps data/dataset/<key> images and manifest intact.
 
     DON'T USE when:
@@ -220,12 +224,13 @@ async def reset_house_labeling(
         `reset_house_dataset` for that stronger reset.
     """
     started = time.time()
+    path = f"/datasets/{key}/labels?reset_plans={'true' if reset_plans else 'false'}"
     try:
-        status, body = await mcp_server._api_delete(f"/datasets/{key}/labels")
+        status, body = await mcp_server._api_delete(path)
     except (httpx.HTTPError, httpx.RequestError):
         if not await _wait_for_api():
             return _api_unreachable_error(started)
-        status, body = await mcp_server._api_delete(f"/datasets/{key}/labels")
+        status, body = await mcp_server._api_delete(path)
     if status >= 400:
         return _http_status_to_error(status, body, started)
     return _ok(body, started_at=started, status_code=status)
