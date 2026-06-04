@@ -54,6 +54,29 @@ from .main import (
 
 router = APIRouter()
 
+_ZERO_DELTA_EPS = 1.5
+
+
+def zero_delta_escape_hint(passes: bool, dx: float, dy: float) -> dict | None:
+    """WS-D2: when a wall reanchor failed to pass AND moved ~nowhere, there is
+    no better ink to snap to — looping won't help. Point at the visual-
+    confirmation escape so a confirmed faint/double-rail wall lands at
+    centerline_plausible (silver) instead of an infinite refine loop."""
+    if passes or abs(dx) >= _ZERO_DELTA_EPS or abs(dy) >= _ZERO_DELTA_EPS:
+        return None
+    return {
+        "reanchor_zero_delta": True,
+        "recommended_tool": "review_wall_centerline_between_rails",
+        "escape_hint": (
+            "Reanchor found no better ink (zero delta) — refining again will not "
+            "improve it. Confirm the centerline on a read_scene_region/zoom_read "
+            "crop; if the label sits on the intended (faint/double-rail/freehand) "
+            "wall, accept it with review_wall_centerline_between_rails "
+            "(centerline_plausible, silver) instead of looping."
+        ),
+    }
+
+
 SEMANTIC_INK_CLASSES = {
     "structural_wall",
     "possible_wall",
@@ -692,6 +715,12 @@ def upsert_wall_anchored_route(
         "score": overlap["score"],
         "detail_mode": detail_mode,
     }
+    # WS-D2: terminal escape. When the reanchor moved the wall ~nowhere AND it
+    # still doesn't pass, there is no better ink to snap to — re-cropping and
+    # refining again just burns turns (the loop the EG/DG workers got stuck in).
+    escape = zero_delta_escape_hint(passes, dx, dy)
+    if escape:
+        data.update(escape)
     if not persisted:
         data["reason"] = (
             f"confidence {confidence:.2f} / overlap {ink_overlap:.2f} below "
@@ -1315,12 +1344,21 @@ def score_walls_route(
     from .wall_score import score_walls
     parsed = _parse_region(region)
     exclusions = _semantic_exclusion_regions(key, file) if semantic_exclusions else []
+    # WS-D1: auto-scale the px thresholds to the scene's extraction DPI so the
+    # gate doesn't over-penalize a scan rendered off the 600-dpi reference.
+    _m = _load_dataset_manifest(key)
+    _scene_dpi = next(
+        (d.get("crop_from", {}).get("dpi")
+         for d in ((_m or {}).get("drawings") or [])
+         if d.get("file") == file),
+        None,
+    )
     with PILImage.open(img_path) as src:
         src = src.convert("RGB")
         res = score_walls(src, walls, region=parsed,
                           min_wall_px=min_wall_px, tol_px=tol_px, thresh=thresh,
                           thin_aware=thin_aware, close_px=close_px,
-                          exclusion_regions=exclusions)
+                          exclusion_regions=exclusions, source_dpi=_scene_dpi)
     res["n_walls"] = len(walls)
     res["semantic_exclusion_count"] = len(exclusions)
     return {"ok": True, "data": res}

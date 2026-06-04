@@ -531,6 +531,14 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
     # checked; sonstiges/detail/nicht_klassifiziert are exempt.
     wgeo_blockers: list[str] = []
     wgeo_groundfloor_blockers: list[str] = []
+    # WS-D3: the groundfloor-first gate pins `next_phase` to Wgeo so scenes that
+    # derive from the ground floor's datum/extent wait for it. But it must only
+    # pin while the ground floor can still PROGRESS — a terminally-blocked
+    # ground floor (e.g. blocked_external) otherwise poisons every downstream
+    # scene forever. Downstream scenes can transfer calibration, so once the
+    # ground floor is terminal we let them proceed (carrying review debt).
+    _TERMINAL_PLAN_STATUSES = {"blocked_external"}
+    wgeo_groundfloor_actionable = False
     has_geometry_targets = False
     for d in drawings:
         f = d.get("file")
@@ -551,6 +559,8 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
             wgeo_blockers.extend(scene_blockers)
             if _is_groundfloor_scene(f, meta):
                 wgeo_groundfloor_blockers.extend(scene_blockers)
+                if scene_blockers and meta.get("plan_status") not in _TERMINAL_PLAN_STATUSES:
+                    wgeo_groundfloor_actionable = True
     wgeo_status = "done" if has_geometry_targets and not wgeo_blockers else (
         "pending" if has_scenes else "pending"
     )
@@ -586,7 +596,7 @@ def _derive_workflow_state(dataset: dict, facts: dict, scene_meta: dict[str, dic
     next_phase = None
     if phases["W0"]["status"] != "done":
         next_phase = "W0"
-    elif wgeo_groundfloor_blockers:
+    elif wgeo_groundfloor_actionable:
         next_phase = "Wgeo"
     else:
         for p in ("W1", "W2", "W3", "W4", "Wgeo"):

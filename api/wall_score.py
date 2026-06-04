@@ -95,6 +95,8 @@ def score_walls(
     thin_aware: bool = False,
     close_px: int = 0,
     exclusion_regions: list | None = None,
+    source_dpi: int | None = None,
+    ref_dpi: int = 600,
 ) -> dict:
     """Score a wall-label set against the thick-ink wall mask.
 
@@ -105,11 +107,24 @@ def score_walls(
               (dilation radius when matching) — also the label stroke width.
       min_missing_area: ignore ink blobs smaller than this when reporting
               missing_regions (drops specks/short dimension ticks).
+      source_dpi: the DPI the scored raster was extracted at. The pixel
+              thresholds (min_wall_px/tol_px/close_px/min_missing_area) are
+              calibrated for `ref_dpi` (600). When a scene was extracted at a
+              different DPI, passing source_dpi auto-scales them by
+              source_dpi/ref_dpi so a correctly-placed wall scores the same at
+              any resolution (WS-D1). Without it the 600-dpi defaults are used
+              as-is, which silently over/under-penalizes off-ref scans.
 
     Returns dict: precision, recall, f1, ink_px, label_px, covered_label_px,
       covered_ink_px, missing_regions [[x,y,w,h,area],...],
       off_ink_segments [[x0,y0,x1,y1,on_frac],...].
     """
+    if source_dpi and ref_dpi and source_dpi > 0 and source_dpi != ref_dpi:
+        s = source_dpi / ref_dpi
+        min_wall_px = max(3, int(round(min_wall_px * s)))
+        tol_px = max(3, int(round(tol_px * s)))
+        close_px = int(round(close_px * s)) if close_px else 0
+        min_missing_area = max(1, int(round(min_missing_area * s * s)))
     gray, ox, oy = _to_gray_array(image, region)
     if gray.size == 0:
         return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "ink_px": 0,
