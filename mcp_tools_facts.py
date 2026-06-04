@@ -500,3 +500,71 @@ async def get_building_global_facts(key: str) -> dict:
         extent=(facts or {}).get("extent"),
     )
     return _ok(view, started_at=started, status_code=200)
+
+
+@mcp.tool()
+async def resolve_fact_conflict(
+    key: str,
+    conflict_id: str,
+    rationale: str,
+    resolution: str = "adjudicated",
+    chosen_fact: str | None = None,
+    chosen_value: float | None = None,
+) -> dict:
+    """Adjudicate a building-global fact conflict so it stops gating gold.
+
+    Conflicts (from `get_building_global_facts.fact_ledger.conflicts`) are
+    surfaced, not auto-resolved — multiple divergent readings of one fact need a
+    human/agent decision. This records that decision: the conflict moves out of
+    `review_required` into `fact_ledger.resolved_conflicts` (still visible +
+    auditable) and no longer down-tiers its fact.
+
+    USE when:
+      - A surfaced conflict is a FALSE positive or you have decided which
+        reading is correct, with a reason (cite the evidence/scene).
+
+    DON'T USE to silence a real disagreement you haven't actually checked — the
+    rationale is recorded and the prior values stay in the ledger.
+
+    Args:
+      conflict_id:  the `id` from the ledger (e.g. a same-fact conflict id).
+      rationale:    REQUIRED — why this is resolved / which reading wins and
+                    on what evidence.
+      resolution:   short tag: adjudicated | false_positive | chose_value.
+      chosen_fact/chosen_value: optionally correct the fact at the same time
+                    (records the winning value; cite it in the rationale).
+
+    Returns: `data` = the refreshed building-global view (the conflict now under
+    `fact_ledger.resolved_conflicts`).
+    """
+    import datetime as _dt
+    started = time.time()
+    if not conflict_id:
+        return _err("schema_invalid", "conflict_id is required", started_at=started)
+    if not rationale or not str(rationale).strip():
+        return _err("schema_invalid",
+                    "rationale is required — record why the conflict is resolved",
+                    started_at=started)
+    record = {
+        "resolution": resolution,
+        "rationale": str(rationale).strip(),
+        "resolved_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+    }
+    if chosen_fact is not None:
+        record["chosen_fact"] = chosen_fact
+    if chosen_value is not None:
+        record["chosen_value"] = float(chosen_value)
+    patch = {"building_global": {"resolved_conflicts": {conflict_id: record}}}
+    res = await set_house_facts(key=key, patch=patch)
+    if not res.get("ok"):
+        return res
+    # Optionally correct the winning fact value in the same step.
+    if chosen_fact is not None and chosen_value is not None:
+        upd = await set_building_global_fact(
+            key=key, fact=chosen_fact, value=float(chosen_value),
+            source_scene="conflict_resolution", confidence="high",
+            notes=f"resolved {conflict_id}: {rationale}"[:240],
+        )
+        if not upd.get("ok"):
+            return upd
+    return await get_building_global_facts(key=key)

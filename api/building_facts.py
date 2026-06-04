@@ -146,6 +146,12 @@ def _claim_value(entry: dict[str, Any]) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+# A relative ±0.00 datum (bezug) names terrain/floor offsets — metres, not the
+# hundreds of metres of an absolute müNN sea-level datum. Anything past this is
+# almost certainly an absolute value put in the wrong (relative) field.
+_RELATIVE_DATUM_MAX_MM = 100_000.0
+
+
 def detect_fact_conflicts(facts: dict[str, dict[str, Any]], *, tolerance_mm: float = 100.0) -> list[dict[str, Any]]:
     """Return machine-readable review warnings for contradictory fact claims.
 
@@ -182,34 +188,30 @@ def detect_fact_conflicts(facts: dict[str, dict[str, Any]], *, tolerance_mm: flo
                 "review_required": True,
             })
 
-    datum_claims = []
-    for name in ("EG_munn_mm", "bezug_mm"):
-        entry = facts.get(name)
-        if not isinstance(entry, dict):
-            continue
-        value = _claim_value(entry)
-        if value is None:
-            continue
-        datum_claims.append({
-            "fact": name,
-            "value": value,
-            "unit": entry.get("unit") or "mm",
-            "source": entry.get("source"),
-            "confidence": entry.get("confidence"),
-        })
-    if len(datum_claims) >= 2:
-        values = [claim["value"] for claim in datum_claims]
-        if max(values) - min(values) > tolerance_mm:
+    # WS-E1: do NOT compare EG_munn_mm (absolute müNN, e.g. 843800) against
+    # bezug_mm (relative ±0.00, typically 0) — they are DIFFERENT reference
+    # frames and always differ by the sea-level offset, so the old cross-frame
+    # check raised a permanent FALSE "1 Konflikt" on every honest house. The
+    # only frame error worth flagging here is an absolute value mistakenly
+    # recorded in the relative bezug field (a unit/frame slip): a true ±0.00
+    # datum is small (terrain/floor offsets are metres, not hundreds of metres).
+    bezug = facts.get("bezug_mm")
+    if isinstance(bezug, dict):
+        bval = _claim_value(bezug)
+        if bval is not None and abs(bval) > _RELATIVE_DATUM_MAX_MM:
             conflicts.append({
-                "id": "absolute-datum-claims-diverge",
-                "kind": "absolute_datum_claims_diverge",
-                "facts": datum_claims,
-                "delta_mm": max(values) - min(values),
+                "id": "bezug-frame-mistake",
+                "kind": "relative_datum_frame_mistake",
+                "fact": "bezug_mm",
+                "value": bval,
+                "unit": bezug.get("unit") or "mm",
+                "source": bezug.get("source"),
                 "review_required": True,
                 "note": (
-                    "Absolute datum-like claims differ. This can be legitimate "
-                    "when one value is terrain/reference and another is EG +/-0.00, "
-                    "but transferred calibration must cite the intended datum."
+                    "bezug_mm is the RELATIVE ±0.00 datum and should be small "
+                    f"(|value| <= {_RELATIVE_DATUM_MAX_MM:.0f}mm). This looks like an "
+                    "absolute müNN value recorded in the relative field — record "
+                    "the absolute datum in EG_munn_mm / ridge_munn_mm instead."
                 ),
             })
 
@@ -306,7 +308,17 @@ def build_global_view(
         for name, entry in raw_facts.items()
         if isinstance(entry, dict)
     }
-    conflicts = detect_fact_conflicts(facts)
+    all_conflicts = detect_fact_conflicts(facts)
+    # WS-E2: a reviewer (or the agent, with evidence) can adjudicate a conflict
+    # via resolve_fact_conflict, recorded under building_global.resolved_conflicts
+    # keyed by conflict id. Resolved conflicts move out of review_required and no
+    # longer down-tier their fact — but stay visible/auditable in the ledger.
+    resolved_map = bg.get("resolved_conflicts") if isinstance(bg.get("resolved_conflicts"), dict) else {}
+    conflicts = [c for c in all_conflicts if str(c.get("id")) not in resolved_map]
+    resolved_conflicts = [
+        {**c, "resolution": resolved_map[str(c.get("id"))]}
+        for c in all_conflicts if str(c.get("id")) in resolved_map
+    ]
     conflict_ids_by_fact: dict[str, list[str]] = {}
     for conflict in conflicts:
         if conflict.get("fact"):
@@ -333,6 +345,7 @@ def build_global_view(
         "derived": derive_building_geometry(deriv_facts),
         "fact_ledger": {
             "conflicts": conflicts,
+            "resolved_conflicts": resolved_conflicts,
             "review_required": bool(conflicts or any(f.get("review_required") for f in facts.values())),
             "provenance_counts": {
                 quality: sum(1 for f in facts.values() if f.get("provenance_quality") == quality)

@@ -929,7 +929,11 @@ def test_building_global_fact_conflicting_reread_is_preserved():
         _restore_house_facts(p, original)
 
 
-def test_building_global_fact_ledger_detects_absolute_datum_divergence():
+def test_building_global_fact_ledger_datum_frames():
+    """WS-E1: absolute müNN (EG_munn_mm) and the relative ±0.00 datum
+    (bezug_mm) are DIFFERENT frames — they must not raise a conflict. The only
+    datum error worth flagging is an absolute value mistakenly put in the
+    relative bezug field."""
     key, file = _first_scene_with_label_file()
     if key is None:
         pytest.skip("no scene")
@@ -940,22 +944,42 @@ def test_building_global_fact_ledger_detects_absolute_datum_divergence():
             source_label_id="hm:eg", confidence="high",
         ))
         assert eg["ok"], eg.get("error")
+        # the CORRECT relative datum: ±0.00.
         bezug = _run(mcp_server.set_building_global_fact(
-            key=key, fact="bezug_mm", value=840000, source_scene=file,
-            source_label_id="hm:terrain", confidence="medium",
-            notes="terrain reference, not EG datum",
+            key=key, fact="bezug_mm", value=0, source_scene=file,
+            source_label_id="hm:eg", confidence="high",
         ))
         assert bezug["ok"], bezug.get("error")
 
         g = _run(mcp_server.get_building_global_facts(key=key))
         assert g["ok"], g.get("error")
-        assert g["data"]["fact_ledger"]["review_required"] is True
+        # No false "1 Konflikt" between the two frames.
+        kinds = {c["kind"] for c in g["data"]["fact_ledger"]["conflicts"]}
+        assert "absolute_datum_claims_diverge" not in kinds
+        assert "relative_datum_frame_mistake" not in kinds
+
+        # Now record an ABSOLUTE value in the relative bezug field — a frame slip.
+        slip = _run(mcp_server.set_building_global_fact(
+            key=key, fact="bezug_mm", value=843800, source_scene=file,
+            source_label_id="hm:terrain", confidence="high",
+        ))
+        assert slip["ok"], slip.get("error")
+        g2 = _run(mcp_server.get_building_global_facts(key=key))
         assert any(
-            c["kind"] == "absolute_datum_claims_diverge"
-            for c in g["data"]["fact_ledger"]["conflicts"]
+            c["kind"] == "relative_datum_frame_mistake"
+            for c in g2["data"]["fact_ledger"]["conflicts"]
         )
-        assert g["data"]["facts"]["EG_munn_mm"]["provenance_quality"] == "conflicting"
-        assert g["data"]["facts"]["bezug_mm"]["review_required"] is True
+
+        # And it can be adjudicated away.
+        cid = next(c["id"] for c in g2["data"]["fact_ledger"]["conflicts"]
+                   if c["kind"] == "relative_datum_frame_mistake")
+        r = _run(mcp_server.resolve_fact_conflict(
+            key=key, conflict_id=cid, rationale="test: known frame slip",
+            resolution="false_positive",
+        ))
+        assert r["ok"], r.get("error")
+        assert not any(c["id"] == cid for c in r["data"]["fact_ledger"]["conflicts"])
+        assert any(c["id"] == cid for c in r["data"]["fact_ledger"]["resolved_conflicts"])
     finally:
         _restore_house_facts(p, original)
 

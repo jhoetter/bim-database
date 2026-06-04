@@ -1230,7 +1230,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
     },
     "elevation": {
         "get_house_context_summary", "get_scene_context_summary",
-        "get_building_global_facts", "set_building_global_fact",
+        "get_building_global_facts", "set_building_global_fact", "resolve_fact_conflict",
         "create_scene_plan_state_from_template", "get_scene_plan_state",
         "get_scene_plan_status", "get_scene_plan_next_action",
         "get_scene_plan_next_actions", "get_scene_workbench_state",
@@ -1251,6 +1251,7 @@ _TOOL_PROFILES: dict[str, set[str]] = {
     },
     "review": {
         "get_house_context_summary", "get_scene_context_summary",
+        "get_building_global_facts", "resolve_fact_conflict",
         "get_workflow_state", "validate_export_readiness", "list_anomalies",
         "get_scene_plan_status", "get_scene_plan_next_action",
         "get_scene_workbench_state",
