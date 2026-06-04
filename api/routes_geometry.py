@@ -311,6 +311,39 @@ def render_scene_grid(
     return FileResponse(str(out), media_type="image/png")
 
 
+@router.post("/datasets/{key}/{file}/walls/close-graph", tags=["pdfs"])
+def close_wall_graph_route(key: str, file: str, body: dict[str, Any] = Body(default={})) -> dict:
+    """WS-1 (wall-graph closure tracker): close the graph of already-placed wall
+    labels in one call.
+
+    Iteratively applies the SAFE closure repairs (snap near endpoints to a
+    shared corner, extend a dangling endpoint onto a nearby wall) until none
+    remain — never fabricating or deleting a wall. Endpoints that survive have
+    no closure candidate (gap too large): they are reported as
+    `missing_wall_endpoints` — a wall is missing there and must be TRACED, not
+    force-closed. Tolerances are DPI-scaled from the scene's extraction DPI.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    _ensure_dataset_scene(key, file)
+    from .topology_repair import close_wall_graph_labels
+    labels_doc = get_labels("dataset", key, file)
+    _m = _load_dataset_manifest(key)
+    source_dpi = next(
+        (d.get("crop_from", {}).get("dpi")
+         for d in ((_m or {}).get("drawings") or []) if d.get("file") == file),
+        None,
+    )
+    new_doc, report = close_wall_graph_labels(labels_doc, file=file, source_dpi=source_dpi)
+    apply = bool(body.get("apply", True))
+    if report.get("changed") and apply:
+        put_labels("dataset", key, file, new_doc)
+    report["persisted"] = bool(report.get("changed") and apply)
+    report["source_dpi"] = source_dpi
+    return {"ok": True, "data": report}
+
+
 @router.get("/datasets/{key}/{file}/zoom", tags=["pdfs"])
 def zoom_read_scene(
     key: str,

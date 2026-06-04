@@ -252,6 +252,41 @@ async def score_walls(
 
 
 @mcp.tool()
+async def close_wall_graph(key: str, file: str, apply: bool = True) -> dict:
+    """Close the graph of the walls you've already placed — in ONE call.
+
+    USE after tracing/refining a batch of walls and BEFORE
+    `evaluate_scene_plan_gates`. Individually-anchored walls leave their corners
+    a few px apart, which the topology gate flags as dangling endpoints. This
+    snaps near endpoints to shared corners and extends short gaps onto the
+    adjacent wall — never fabricating or deleting a wall — so the outline reads
+    as a connected shell. Tolerances are DPI-scaled to the scene.
+
+    DON'T expect it to invent missing walls: any endpoint whose gap is too large
+    to be 'the same corner' is returned in `missing_wall_endpoints` — that means
+    a wall is genuinely MISSING there; go trace it (read_scene_region/zoom_read
+    the faint wall, then upsert it), don't classify it away.
+
+    Returns `data` = {closed_count, dangling_before, dangling_after,
+    missing_wall_endpoints:[{wall_id, endpoint, point, gap_px}], applied:[...]}.
+    Idempotent: a closed graph closes nothing further.
+    """
+    started = time.time()
+    try:
+        status, body = await mcp_server._api_post(
+            f"/datasets/{key}/{file}/walls/close-graph", {"apply": apply})
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _api_unreachable_error(started)
+        status, body = await mcp_server._api_post(
+            f"/datasets/{key}/{file}/walls/close-graph", {"apply": apply})
+    if status >= 400:
+        return _http_status_to_error(status, body, started)
+    data = body.get("data", body) if isinstance(body, dict) else body
+    return _ok(data, started_at=started, status_code=status)
+
+
+@mcp.tool()
 async def classify_ink_region(
     key: str,
     file: str,

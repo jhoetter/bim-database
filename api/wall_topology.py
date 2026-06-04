@@ -128,6 +128,15 @@ def _opening_axes(labels: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _scale_px(val: float, source_dpi: int | None, ref_dpi: int = 600, floor: float = 3.0) -> float:
+    """WS-2.2: scale a pixel tolerance from the 600-dpi reference to the scene's
+    actual extraction DPI, so 'same corner' means the same physical distance at
+    any resolution. No-op when source_dpi is absent or already the reference."""
+    if not source_dpi or source_dpi <= 0 or source_dpi == ref_dpi:
+        return val
+    return max(floor, val * source_dpi / ref_dpi)
+
+
 def wall_topology_qa(
     labels: list[dict[str, Any]],
     *,
@@ -136,7 +145,12 @@ def wall_topology_qa(
     collinear_tol_deg: float = 8.0,
     collinear_gap_px: float = 140.0,
     short_stub_px: float = 80.0,
+    source_dpi: int | None = None,
 ) -> dict[str, Any]:
+    endpoint_tol_px = _scale_px(endpoint_tol_px, source_dpi)
+    near_miss_px = _scale_px(near_miss_px, source_dpi)
+    collinear_gap_px = _scale_px(collinear_gap_px, source_dpi)
+    short_stub_px = _scale_px(short_stub_px, source_dpi)
     walls = _walls(labels)
     endpoints = []
     for w in walls:
@@ -281,7 +295,11 @@ def wall_continuity_check(
     gap_px: float = 180.0,
     line_tol_px: float = 24.0,
     opening_near_px: float = 80.0,
+    source_dpi: int | None = None,
 ) -> dict[str, Any]:
+    gap_px = _scale_px(gap_px, source_dpi)
+    line_tol_px = _scale_px(line_tol_px, source_dpi)
+    opening_near_px = _scale_px(opening_near_px, source_dpi)
     walls = _walls(labels)
     openings = _opening_axes(labels)
     candidates = []

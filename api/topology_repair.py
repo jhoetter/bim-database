@@ -740,6 +740,89 @@ def apply_candidate_to_labels(labels_doc: dict[str, Any], candidate: dict[str, A
     return out
 
 
+# Ops that CLOSE the wall graph without fabricating or deleting geometry — they
+# snap near endpoints to a shared corner, extend a dangling endpoint onto a
+# nearby wall, or merge collinear fragments. delete_or_demote_short_stub (high
+# risk, removes a wall) and no_edit_classification are intentionally excluded.
+_GRAPH_CLOSURE_OPS = {
+    "snap_endpoint_to_endpoint",
+    "extend_to_intersection",
+    "merge_collinear_fragments",
+}
+
+
+def close_wall_graph_labels(
+    labels_doc: dict[str, Any],
+    *,
+    file: str,
+    source_dpi: int | None = None,
+    max_iters: int = 60,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Batch-close the graph of already-placed wall labels (WS-1).
+
+    Iteratively applies the SAFE closure candidates (snap/extend/merge) the
+    repair machinery already produces — each only fires for a gap within the
+    DPI-scaled snap tolerance — until none remain, re-evaluating topology after
+    every edit so cascades resolve. Returns (new_labels_doc, report). Dangling
+    endpoints that survive have NO closure candidate (gap too large) and are
+    reported as `missing_wall_endpoints` — a wall is missing there, to be traced,
+    NOT force-closed. Pure: persistence is the caller's job.
+    """
+    from .wall_topology import wall_topology_qa
+
+    def _topo(doc):
+        return wall_topology_qa(doc.get("labels") or [], source_dpi=source_dpi)
+
+    before_topo = _topo(labels_doc)
+    dangling_before = len(before_topo.get("dangling_endpoints") or [])
+
+    doc = copy.deepcopy(labels_doc)
+    applied: list[dict[str, Any]] = []
+    seen_edits: set[str] = set()
+    for _ in range(max_iters):
+        topo = _topo(doc)
+        report = repair_candidate_report(doc, topology_result=topo, limit=200)
+        chosen = chosen_sig = None
+        for cl in report.get("clusters") or []:
+            for c in cl.get("candidates") or []:
+                if c.get("op") not in _GRAPH_CLOSURE_OPS:
+                    continue
+                sig = json.dumps(c.get("edits"), sort_keys=True)
+                if sig in seen_edits:
+                    continue
+                chosen, chosen_sig = c, sig
+                break
+            if chosen:
+                break
+        if chosen is None:
+            break
+        doc = apply_candidate_to_labels(doc, chosen)
+        seen_edits.add(chosen_sig)
+        applied.append({"op": chosen.get("op"), "edits": chosen.get("edits"), "why": chosen.get("why")})
+
+    after_topo = _topo(doc)
+    remaining = after_topo.get("dangling_endpoints") or []
+    missing = []
+    for ep in remaining:
+        nearest = ep.get("nearest_endpoint") or {}
+        missing.append({
+            "wall_id": ep.get("wall_id"),
+            "endpoint": ep.get("endpoint"),
+            "point": ep.get("point"),
+            "gap_px": (nearest.get("distance_px") if isinstance(nearest, dict) else None),
+            "review_region": ep.get("review_region"),
+        })
+    report = {
+        "applied": applied,
+        "closed_count": len(applied),
+        "dangling_before": dangling_before,
+        "dangling_after": len(remaining),
+        "missing_wall_endpoints": missing,
+        "changed": bool(applied),
+    }
+    return doc, report
+
+
 def simulate_candidate(labels_doc: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     from .wall_topology import wall_topology_qa
 
