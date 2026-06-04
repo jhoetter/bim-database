@@ -141,6 +141,7 @@ def render_grid_overlay(
     style: str = "standard",
     target: tuple[int, int] | None = None,
     target_line: TargetLine = "none",
+    draw_grid: bool = True,
 ) -> Image.Image:
     """Composite the source image with a coordinate-anchored grid overlay.
 
@@ -169,7 +170,7 @@ def render_grid_overlay(
         downscaled to max_dim). NO outer margin — the entire output is
         the image content, with grid + labels drawn over it.
     """
-    if not tiers:
+    if draw_grid and not tiers:
         raise ValueError("at least one tier required")
     unknown = set(tiers) - set(ALL_TIERS)
     if unknown:
@@ -207,6 +208,20 @@ def render_grid_overlay(
         source_size = None
 
     cw, ch = cropped.size
+
+    # A1 (legibility-first tracker): enhance on the NATIVE crop BEFORE the
+    # downscale. CLAHE/threshold compute contrast from local neighborhoods;
+    # running them on full-resolution pixels yields a materially stronger,
+    # cleaner lift than enhancing an already-shrunk image (where the faint
+    # strokes have been blended toward the background by LANCZOS). Pixel
+    # POSITIONS are unaffected — coordinates stay in the source frame.
+    if enhance != "none":
+        cropped = _enhance_image(cropped, enhance)
+        # Don't let the half-fade swallow the contrast we just added unless
+        # the caller intentionally requested a QA/labeling fade.
+        if not background_opacity_explicit:
+            background_opacity = max(background_opacity, 0.85)
+
     # H4 (followups-2 tracker): crop-aware max_dim. Keep the crop at
     # native 1:1 resolution if it fits — small zooms shouldn't be capped
     # at 1600px and lose readability on small text. Full-image renders
@@ -218,16 +233,6 @@ def render_grid_overlay(
     if (out_w, out_h) != (cw, ch):
         cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
     cw, ch = cropped.size
-
-    # Issue #2: lift faint pencil/freehand BEFORE the grid composite so
-    # the vision-LLM reads enhanced contrast. Applied to the (already
-    # cropped + downscaled) image; positions are untouched.
-    if enhance != "none":
-        cropped = _enhance_image(cropped, enhance)
-        # Don't let the half-fade swallow the contrast we just added unless
-        # the caller intentionally requested a QA/labeling fade.
-        if not background_opacity_explicit:
-            background_opacity = max(background_opacity, 0.85)
 
     # Canvas == image dims; no margin. Grid + labels drawn ON the image.
     canvas = Image.new("RGBA", (cw, ch), (255, 255, 255, 255))
@@ -272,25 +277,32 @@ def render_grid_overlay(
     label_font = _load_font(11)
     legend_font = _load_font(10)
 
-    # Order: detail → finer → broad so darker tiers overdraw lighter ones.
-    # Labels go in a SECOND pass after all lines so they sit on top.
-    if "detail" in tiers:
-        _draw_tier_lines(draw, spec, "detail", style=style)
-    if "finer" in tiers:
-        _draw_tier_lines(draw, spec, "finer", style=style)
-    if "broad" in tiers:
-        _draw_tier_lines(draw, spec, "broad", style=style)
+    # A3 (legibility-first tracker): draw_grid=False yields a clean crop —
+    # no grid lines, no coordinate labels, no legend overlay. The read/zoom
+    # verbs use it so a dimension or wall is read off untouched pixels (the
+    # grid mesh otherwise occludes faint ink). With background_opacity=1.0
+    # and enhance="none" the output is pixel-identical to the source crop.
+    if draw_grid:
+        # Order: detail → finer → broad so darker tiers overdraw lighter ones.
+        # Labels go in a SECOND pass after all lines so they sit on top.
+        if "detail" in tiers:
+            _draw_tier_lines(draw, spec, "detail", style=style)
+        if "finer" in tiers:
+            _draw_tier_lines(draw, spec, "finer", style=style)
+        if "broad" in tiers:
+            _draw_tier_lines(draw, spec, "broad", style=style)
 
-    # Labels — broad first (one per intersection), finer second (every 5th).
-    if "broad" in tiers:
-        _draw_tier_labels(draw, label_font, spec, "broad", style=style)
-    if "finer" in tiers:
-        _draw_tier_labels(draw, label_font, spec, "finer", style=style)
+        # Labels — broad first (one per intersection), finer second (every 5th).
+        if "broad" in tiers:
+            _draw_tier_labels(draw, label_font, spec, "broad", style=style)
+        if "finer" in tiers:
+            _draw_tier_labels(draw, label_font, spec, "finer", style=style)
 
     if target is not None:
         _draw_target_guides(draw, label_font, spec, target, target_line)
 
-    _draw_top_right_legend(draw, canvas.size, spec, legend_font, source_dpi=source_dpi)
+    if draw_grid:
+        _draw_top_right_legend(draw, canvas.size, spec, legend_font, source_dpi=source_dpi)
     return canvas
 
 
@@ -381,11 +393,16 @@ def _multicolor_line(
     if orientation == "horizontal":
         idx += 3
     color = _MULTI_PALETTE[idx % len(_MULTI_PALETTE)]
+    # A4 (legibility-first tracker): cap mesh opacity so a gridline can never
+    # fully occlude the ink beneath it. The old broad/finer alphas (245/165)
+    # painted a near-opaque colored mesh over faint pencil — workers reported
+    # "the multicolor mesh defeats the faint ink". Keep all tiers translucent
+    # (<=140) so the drawing always reads through the grid.
     if tier == "broad":
-        return _with_alpha(color, 245)
+        return _with_alpha(color, 140)
     if tier == "finer":
-        return _with_alpha(color, 165)
-    return _with_alpha(color, 35)
+        return _with_alpha(color, 110)
+    return _with_alpha(color, 30)
 
 
 def _draw_tier_lines(
