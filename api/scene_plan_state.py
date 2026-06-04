@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from .evidence_fidelity import is_low_fidelity_value
 from .geometry_util import as_point as _as_point, wall_segment as _wall_segment
 from .persistence import atomic_write_json, atomic_write_text, locked_path
 
@@ -1534,11 +1535,17 @@ def _label_quality_summary(labels: list[dict[str, Any]]) -> dict[str, Any]:
     uncertain_reasons: Counter[str] = Counter()
     quality_statuses: Counter[str] = Counter()
     structural_uncertain = 0
+    low_fidelity_value = 0
     total = 0
     for lab in labels:
         if not isinstance(lab, dict):
             continue
         total += 1
+        # WS-C fidelity gate: a readable value (dim number/distance/height
+        # mark) read off a downscaled/grid SURVEY view — i.e. without a
+        # read/zoom_read evidence pointer — must not count toward gold.
+        if is_low_fidelity_value(lab):
+            low_fidelity_value += 1
         label_type = str(lab.get("type") or "unknown")
         status = str(lab.get("status") or "readable")
         by_status[status] += 1
@@ -1566,6 +1573,7 @@ def _label_quality_summary(labels: list[dict[str, Any]]) -> dict[str, Any]:
         "uncertain_reasons": dict(sorted(uncertain_reasons.items())),
         "quality_statuses": dict(sorted(quality_statuses.items())),
         "structural_uncertain": structural_uncertain,
+        "low_fidelity_value_total": low_fidelity_value,
         "missing_total": by_status.get("missing", 0),
         "not_readable_total": by_status.get("not_readable", 0),
         "uncertain_ratio": (uncertain_total / total) if total else 0,
@@ -1609,6 +1617,7 @@ def _quality_for_state(
     uncertain_total = int(label_quality.get("uncertain_total") or 0)
     missing_total = int(label_quality.get("missing_total") or 0)
     not_readable_total = int(label_quality.get("not_readable_total") or 0)
+    low_fidelity_value_total = int(label_quality.get("low_fidelity_value_total") or 0)
     uncertain_by_type = label_quality.get("uncertain_by_type") if isinstance(label_quality.get("uncertain_by_type"), dict) else {}
     uncertain_reasons = label_quality.get("uncertain_reasons") if isinstance(label_quality.get("uncertain_reasons"), dict) else {}
     quality_statuses = label_quality.get("quality_statuses") if isinstance(label_quality.get("quality_statuses"), dict) else {}
@@ -1641,7 +1650,7 @@ def _quality_for_state(
         tier = "blocked"
     elif accepted_tasks or source_unreadable_reviews or missing_total or not_readable_total or status == "accepted_incomplete":
         tier = "bronze"
-    elif warnings or uncertain_total or accepted_uncertain_defects or transferred_facts:
+    elif warnings or uncertain_total or accepted_uncertain_defects or transferred_facts or low_fidelity_value_total:
         tier = "silver"
     else:
         tier = "gold"
@@ -1671,6 +1680,7 @@ def _quality_for_state(
         + len(transferred_facts) * 4
         + len(source_unreadable_reviews) * 6
         + len(stale) * 5
+        + low_fidelity_value_total * 3
     )
     uncertainties: list[str] = []
     if uncertain_total:
@@ -1686,6 +1696,11 @@ def _quality_for_state(
         uncertainties.append(f"{len(transferred_facts)} transferred calibration/fact item(s)")
     if source_unreadable_reviews:
         uncertainties.append(f"{len(source_unreadable_reviews)} source-unreadable dimension chain(s)")
+    if low_fidelity_value_total:
+        uncertainties.append(
+            f"{low_fidelity_value_total} value(s) read off a low-fidelity survey view "
+            "(re-read with read_scene_region/zoom_read_scene_region to reach gold)"
+        )
 
     missing_or_unreadable: list[str] = []
     if missing_total:

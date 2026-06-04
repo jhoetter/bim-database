@@ -271,6 +271,7 @@ async def upsert_label(
     idempotency_key: str | None = None,
     allow_plan_order_override: bool = False,
     override_reason: str | None = None,
+    evidence: dict | None = None,
     run_id: str | None = None,
     agent_id: str | None = None,
     subagent_id: str | None = None,
@@ -312,6 +313,14 @@ async def upsert_label(
                dimensioned_distance: {start: [x,y], end: [x,y]}
                dimension_number:     {anchor: [x,y]} XOR {bbox: [[x,y]*4]}
       idempotency_key: optional driver-supplied key.
+      evidence: optional evidence pointer — pass the `evidence_pointer` object
+             returned by `read_scene_region` / `zoom_read_scene_region` so the
+             recorded VALUE is auditable + reproducible. Stored at
+             `attributes.evidence`. A readable value-bearing label (dimension
+             number/distance, height mark) WITHOUT a read/zoom-tier pointer is
+             flagged low-fidelity and cannot reach gold (WS-C fidelity gate).
+             Persisting the pointer (not the pixels) is what makes context
+             summarization safe — the crop can always be re-rendered.
       run_id/agent_id/subagent_id: optional provenance stamped onto the
              label transaction for later `inspect_agent_run` review.
 
@@ -341,6 +350,11 @@ async def upsert_label(
     # Default required schema fields the agent often forgets.
     label.setdefault("status", "readable")
     label.setdefault("attributes", {})
+    if isinstance(evidence, dict):
+        # WS-C: persist the read/zoom evidence pointer with the value.
+        if not isinstance(label["attributes"], dict):
+            label["attributes"] = {}
+        label["attributes"]["evidence"] = evidence
     if run_id is not None:
         label["run_id"] = run_id
     if agent_id is not None:
