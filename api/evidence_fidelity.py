@@ -62,6 +62,11 @@ def is_high_fidelity(ev: Any) -> bool:
 
 
 def label_evidence(label: dict) -> dict | None:
+    # Top-level is canonical (attributes is additionalProperties:false); the
+    # attributes fallback keeps any older records readable.
+    ev = label.get("evidence")
+    if ev is not None:
+        return ev
     attrs = label.get("attributes") if isinstance(label.get("attributes"), dict) else {}
     return attrs.get("evidence")
 

@@ -356,10 +356,11 @@ async def upsert_label(
     label.setdefault("status", "readable")
     label.setdefault("attributes", {})
     if isinstance(evidence, dict):
-        # WS-C: persist the read/zoom evidence pointer with the value.
-        if not isinstance(label["attributes"], dict):
-            label["attributes"] = {}
-        label["attributes"]["evidence"] = evidence
+        # WS-C: persist the read/zoom evidence pointer with the value. Stored at
+        # the label TOP LEVEL (like run_id/agent_id) — the per-type `attributes`
+        # schemas are additionalProperties:false, so evidence must not live
+        # there or the whole label fails validation.
+        label["evidence"] = evidence
     if run_id is not None:
         label["run_id"] = run_id
     if agent_id is not None:

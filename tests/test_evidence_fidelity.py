@@ -52,11 +52,14 @@ def test_needs_high_fidelity_only_for_readable_values():
 
 def test_is_low_fidelity_value():
     assert is_low_fidelity_value({"type": "dimension_number", "status": "readable"})
-    good = {"type": "dimension_number", "status": "readable",
-            "attributes": {"evidence": _read_ptr("read")}}
+    # canonical: evidence at the label TOP LEVEL (attributes is strict schema).
+    good = {"type": "dimension_number", "status": "readable", "evidence": _read_ptr("read")}
     assert not is_low_fidelity_value(good)
-    survey = {"type": "dimension_number", "status": "readable",
-              "attributes": {"evidence": _read_ptr("survey")}}
+    # back-compat: older records that stashed it under attributes still read.
+    good_attrs = {"type": "dimension_number", "status": "readable",
+                  "attributes": {"evidence": _read_ptr("zoom_read")}}
+    assert not is_low_fidelity_value(good_attrs)
+    survey = {"type": "dimension_number", "status": "readable", "evidence": _read_ptr("survey")}
     assert is_low_fidelity_value(survey)
 
 

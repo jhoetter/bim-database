@@ -134,8 +134,22 @@
         "run_id": {"type": ["string", "null"]},
         "agent_id": {"type": ["string", "null"]},
         "subagent_id": {"type": ["string", "null"]},
+        "evidence": {"$ref": "#/$defs/Evidence"},
         "created_at": {"type": "string", "format": "date-time"},
         "updated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "Evidence": {
+      "type": ["object", "null"],
+      "description": "Read-tier provenance for a recorded value (WS-C): the reproducible crop recipe returned by read_scene_region / zoom_read_scene_region. Lenient by design so the pointer round-trips as-is.",
+      "additionalProperties": true,
+      "properties": {
+        "scene": {"type": ["string", "null"]},
+        "region_bbox": {"type": ["string", "array", "null"]},
+        "dpi": {"type": ["string", "number", "null"], "description": "'native' (read tier) or an integer DPI (zoom_read tier)."},
+        "enhance": {"type": ["string", "null"]},
+        "grid": {"type": ["string", "null"]},
+        "fidelity": {"type": ["string", "null"], "description": "survey | read | zoom_read"}
       }
     },
     "Label": {
