@@ -145,12 +145,14 @@ def wall_topology_qa(
     collinear_tol_deg: float = 8.0,
     collinear_gap_px: float = 140.0,
     short_stub_px: float = 80.0,
+    closeable_gap_px: float = 72.0,
     source_dpi: int | None = None,
 ) -> dict[str, Any]:
     endpoint_tol_px = _scale_px(endpoint_tol_px, source_dpi)
     near_miss_px = _scale_px(near_miss_px, source_dpi)
     collinear_gap_px = _scale_px(collinear_gap_px, source_dpi)
     short_stub_px = _scale_px(short_stub_px, source_dpi)
+    closeable_gap_px = _scale_px(closeable_gap_px, source_dpi)
     walls = _walls(labels)
     endpoints = []
     for w in walls:
@@ -190,11 +192,21 @@ def wall_topology_qa(
             d = _dist(ep["pt"], other["pt"])
             if nearest is None or d < nearest["distance_px"]:
                 nearest = {"wall_id": other["wall_id"], "which": other["which"], "point": list(other["pt"]), "distance_px": round(d, 2)}
+        # WS-3: a dangling endpoint with a nearby corner is closeable (snap it /
+        # close_wall_graph); one with a too-large gap means a wall is MISSING
+        # there (trace it) — the gate/next-action should say which.
+        gap_px = nearest["distance_px"] if nearest else None
+        gap_class = (
+            "closeable_corner" if (gap_px is not None and gap_px <= closeable_gap_px)
+            else "missing_wall_endpoint"
+        )
         issue = {
             "wall_id": ep["wall_id"],
             "endpoint": ep["which"],
             "point": list(ep["pt"]),
             "nearest_endpoint": nearest,
+            "gap_px": gap_px,
+            "gap_class": gap_class,
             "review_region": _bbox([ep["pt"], tuple(nearest["point"]) if nearest else ep["pt"]]),
         }
         dangling.append(issue)

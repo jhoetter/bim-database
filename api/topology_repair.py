@@ -197,6 +197,39 @@ def finding_fingerprint(file: str, source: str, category: str, payload: dict[str
     return f"{source}:{category}:{_stable_hash(body)}"
 
 
+def _wall_footprint_bbox(labels_doc: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    """Bounding box of all wall endpoints, or None if <4 walls (no reliable
+    footprint yet — don't filter early)."""
+    xs: list[float] = []
+    ys: list[float] = []
+    nwalls = 0
+    for lab in labels_doc.get("labels") or []:
+        if not isinstance(lab, dict) or lab.get("type") != "wall":
+            continue
+        nwalls += 1
+        g = lab.get("geometry") or {}
+        for p in (g.get("start"), g.get("end")):
+            if isinstance(p, list) and len(p) >= 2:
+                xs.append(float(p[0]))
+                ys.append(float(p[1]))
+    if nwalls < 4 or not xs:
+        return None
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _region_far_outside(region: Any, footprint: tuple[float, float, float, float]) -> bool:
+    """True if the region center sits beyond the footprint expanded by a generous
+    margin (max(40% of footprint span, 250px)) — i.e. clearly not a missing wall."""
+    if not (isinstance(region, (list, tuple)) and len(region) >= 4):
+        return False
+    cx = (float(region[0]) + float(region[2])) / 2.0
+    cy = (float(region[1]) + float(region[3])) / 2.0
+    fx0, fy0, fx1, fy1 = footprint
+    mx = max((fx1 - fx0) * 0.40, 250.0)
+    my = max((fy1 - fy0) * 0.40, 250.0)
+    return not (fx0 - mx <= cx <= fx1 + mx and fy0 - my <= cy <= fy1 + my)
+
+
 def current_findings_from_results(
     *,
     file: str,
@@ -206,10 +239,17 @@ def current_findings_from_results(
     continuity_result: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
+    # WS-5.1: clearly off-footprint ink (compass rose, title block at sheet
+    # corners) becomes a wall_missing_region on every score. Once a footprint
+    # exists (>=4 walls), drop missing-regions whose CENTER is far outside the
+    # wall bounding box + a generous margin — those are not missing walls.
+    _fp = _wall_footprint_bbox(labels_doc)
     if score_walls_result:
         for idx, region in enumerate(score_walls_result.get("missing_regions") or [], start=1):
             normalized = normalize_review_region(region, region_kind="missing_region_xywh")
             review_region = (normalized or {}).get("bbox_xyxy") or _score_missing_region_bbox(region) or region
+            if _fp is not None and _region_far_outside(review_region, _fp):
+                continue
             payload = {"region": region, "review_region": review_region}
             if isinstance(region, (list, tuple)) and len(region) >= 5 and isinstance(region[4], (int, float)):
                 payload["area_px"] = region[4]
@@ -244,13 +284,24 @@ def current_findings_from_results(
         for item in topology_result.get("dangling_endpoints") or []:
             payload = dict(item)
             fp = finding_fingerprint(file, "wall_topology_qa", "dangling_endpoint", payload)
+            # WS-3.2: speak the right verb — a closeable corner is a one-call
+            # close_wall_graph fix; a missing-wall endpoint needs a TRACED wall.
+            missing = item.get("gap_class") == "missing_wall_endpoint"
             findings.append({
                 "fingerprint": fp,
                 "source": "wall_topology_qa",
                 "category": "dangling_endpoint",
                 "severity": "warning",
                 "region": item.get("review_region"),
-                "title": "Dangling wall endpoint",
+                "title": "Missing wall (trace it)" if missing else "Dangling wall endpoint (closeable)",
+                "description": (
+                    f"Endpoint gap {item.get('gap_px')}px is too large to be the same corner — "
+                    "a wall is missing here; read the faint wall and trace it."
+                    if missing else
+                    f"Endpoint is {item.get('gap_px')}px from a corner — run close_wall_graph "
+                    "(or apply the snap candidate) to close it."
+                ),
+                "gap_class": item.get("gap_class"),
                 "payload": payload,
             })
         for item in topology_result.get("near_miss_corners") or []:

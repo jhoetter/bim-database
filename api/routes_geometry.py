@@ -77,6 +77,31 @@ def zero_delta_escape_hint(passes: bool, dx: float, dy: float) -> dict | None:
     }
 
 
+def _nearest_existing_wall_endpoint(
+    key: str, file: str, pt: tuple[float, float], tol_px: float, exclude_id: str | None,
+) -> tuple[float, float] | None:
+    """WS-2.1: the nearest endpoint of an ALREADY-placed wall within tol, so a
+    landing wall closes onto a shared corner instead of leaving a few-px gap.
+    Returns None if nothing is close enough (then the CV ink-corner snap or the
+    refined point is used)."""
+    best = None
+    best_d = tol_px
+    for lab in (get_labels("dataset", key, file).get("labels") or []):
+        if not isinstance(lab, dict) or lab.get("type") != "wall":
+            continue
+        if exclude_id and str(lab.get("id")) == str(exclude_id):
+            continue
+        g = lab.get("geometry") or {}
+        for q in (g.get("start"), g.get("end")):
+            if not (isinstance(q, list) and len(q) >= 2):
+                continue
+            d = ((pt[0] - q[0]) ** 2 + (pt[1] - q[1]) ** 2) ** 0.5
+            if d <= best_d:
+                best_d = d
+                best = (float(q[0]), float(q[1]))
+    return best
+
+
 SEMANTIC_INK_CLASSES = {
     "structural_wall",
     "possible_wall",
@@ -662,7 +687,7 @@ def upsert_wall_anchored_route(
     tol_px = int(anchor.get("tol_px", WALL_SCORE_DEFAULTS["tol_px"]))
     min_wall_px = int(anchor.get("min_wall_px", WALL_SCORE_DEFAULTS["min_wall_px"]))
     close_px = int(anchor.get("close_px", WALL_SCORE_DEFAULTS["close_px"]))
-    snap_corners = bool(anchor.get("snap_corners", False))
+    snap_corners = bool(anchor.get("snap_corners", True))
     status_if_unanchored = str(body.get("status_if_unanchored") or "reject")
     evidence_id = body.get("evidence_id")
     detail_mode = body.get("detail_mode")
@@ -704,8 +729,25 @@ def upsert_wall_anchored_route(
         refined_start = _as_point(refined.get("start")) or start
         refined_end = _as_point(refined.get("end")) or end
         if snap_corners:
+            # WS-2.1: close onto the graph as the wall lands. Prefer snapping an
+            # endpoint to a nearby EXISTING wall endpoint (a shared corner);
+            # otherwise fall back to a CV-detected ink corner. Snap tol is
+            # DPI-scaled (~36px @600dpi — same-corner range, not far enough to
+            # mis-snap; close_wall_graph handles wider gaps post-hoc).
+            from .wall_topology import _scale_px
+            _sdpi = next(
+                (d.get("crop_from", {}).get("dpi")
+                 for d in ((_load_dataset_manifest(key) or {}).get("drawings") or [])
+                 if d.get("file") == file),
+                None,
+            )
+            snap_tol = _scale_px(36.0, _sdpi)
             snapped: list[tuple[float, float]] = []
             for pt in (refined_start, refined_end):
+                ep = _nearest_existing_wall_endpoint(key, file, pt, snap_tol, candidate.get("id"))
+                if ep is not None:
+                    snapped.append(ep)
+                    continue
                 corner = check_corner(src, int(round(pt[0])), int(round(pt[1])), search_px=max(18, search_px), min_wall_px=min_wall_px)
                 if corner.get("found") and isinstance(corner.get("nearest"), list):
                     snapped.append((float(corner["nearest"][0]), float(corner["nearest"][1])))

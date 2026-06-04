@@ -833,6 +833,10 @@ DEFECT_CLASSIFICATIONS = {
 # Wall-score defect categories whose region IS the off-ink the scorer flagged.
 _WALL_SCORE_DEFECT_CATEGORIES = {"wall_missing_region", "wall_off_ink"}
 
+# WS-5.2: audit/provenance defect categories that are NOT quality issues — they
+# must not push the tier to silver, count as blockers, or add review debt.
+_NON_QUALITY_DEFECT_CATEGORIES = {"plan_order_override"}
+
 # When such a defect is classified as genuinely-not-a-wall, persist that visual
 # verdict as a wall-score EXCLUSION (semantic_ink_region) so a later score does
 # not re-detect the same ink and regenerate the defect. Without this the agent
@@ -1818,6 +1822,10 @@ def _status_for_state(state: dict[str, Any]) -> dict[str, Any]:
     tasks = state.get("tasks") or []
     defects = state.get("defects") or []
     open_defects = _open_defects(state)
+    # WS-5.2: plan_order_override is an audit/provenance record (the agent used
+    # allow_plan_order_override), not a quality defect — it must not push the
+    # tier to silver or add review debt.
+    open_defects = [d for d in open_defects if d.get("category") not in _NON_QUALITY_DEFECT_CATEGORIES]
     blockers = [d for d in open_defects if d.get("severity") == "blocker"]
     warnings = [d for d in open_defects if d.get("severity") == "warning"]
     terminal_warning_decisions = [
