@@ -830,6 +830,60 @@ DEFECT_CLASSIFICATIONS = {
     "ambiguous",
 }
 
+# Wall-score defect categories whose region IS the off-ink the scorer flagged.
+_WALL_SCORE_DEFECT_CATEGORIES = {"wall_missing_region", "wall_off_ink"}
+
+# When such a defect is classified as genuinely-not-a-wall, persist that visual
+# verdict as a wall-score EXCLUSION (semantic_ink_region) so a later score does
+# not re-detect the same ink and regenerate the defect. Without this the agent
+# re-classifies the compass rose / title block / dimension text on every
+# evaluation (the ~14 "ceremonial" cycles the 2026-06-04 EG run reported).
+# Maps to a class in _NON_WALL_SEMANTIC_CLASSES. Real wall issues
+# (real_missing_wall, bad_existing_wall, duplicate_*, ambiguous,
+# centerline_plausible_double_rail) are NOT excluded — they stay actionable.
+_DEFECT_CLASS_TO_EXCLUSION = {
+    "false_positive": "ignored_noise",
+    "dimension_or_annotation": "dimension_annotation",
+    "site_or_boundary_line": "site_boundary",
+    "furniture_or_fixture": "furniture_fixture",
+    "dashed_projection": "hatching_projection",
+    "door_swing_or_hint": "hatching_projection",
+    "separate_structure": "ignored_noise",
+    "opening_symbol": "opening_symbol",
+}
+
+
+def _exclusion_evidence_from_defect(state: dict, defect: dict, classification: str) -> dict | None:
+    """Build a semantic_ink_region exclusion from a non-wall defect verdict, or
+    None if this classification/category shouldn't auto-exclude."""
+    excl_class = _DEFECT_CLASS_TO_EXCLUSION.get(classification)
+    region = defect.get("region")
+    if (
+        not excl_class
+        or defect.get("category") not in _WALL_SCORE_DEFECT_CATEGORIES
+        or not isinstance(region, list)
+        or len(region) < 4
+    ):
+        return None
+    bbox = [float(v) for v in region[:4]]
+    return {
+        "id": _next_id(state.get("evidence") or [], "EV"),
+        "kind": "semantic_ink_region",
+        "mode": "analysis",
+        "summary": f"auto wall-score exclusion: defect {defect.get('id')} is {classification}",
+        "tool": "classify_plan_defect",
+        "params": {"defect_id": defect.get("id")},
+        "result": {
+            "semantic_class": excl_class,
+            "region": bbox,
+            "bbox_xyxy": bbox,
+            "bbox_format": "xyxy",
+            "source": "auto_from_defect_classification",
+            "defect_id": defect.get("id"),
+        },
+        "created_at": _now_iso(),
+    }
+
 
 def classify_defect(
     dataset_root: Path,
@@ -859,6 +913,12 @@ def classify_defect(
         for ev_id in evidence_ids:
             if ev_id not in existing:
                 existing.append(ev_id)
+    # Bug2 (2026-06-04 EG run): persist a non-wall verdict as a wall-score
+    # exclusion so re-scoring doesn't regenerate the same off-footprint defect.
+    exclusion = _exclusion_evidence_from_defect(state, defect, classification)
+    if exclusion is not None:
+        state.setdefault("evidence", []).append(exclusion)
+        defect.setdefault("evidence_ids", []).append(exclusion["id"])
     defect["updated_at"] = _now_iso()
     defect.update(_provenance_fields(run_id=run_id, agent_id=agent_id, subagent_id=subagent_id))
     state.setdefault("decision_log", []).append({
