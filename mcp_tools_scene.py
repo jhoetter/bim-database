@@ -32,6 +32,40 @@ from mcp_server import (
     mcp,
 )
 
+# WS-B (legibility-first tracker) B4: detect flailing — the same crop fetched
+# over and over instead of escalating strategy (the West-elevation pattern:
+# one identical bbox pulled 12x while the grid mesh kept defeating the ink).
+# In-process per-(verb,file,region,params) counter; returns a nudge at >=3.
+_READ_REPEAT_COUNTS: dict[str, int] = {}
+_READ_REPEAT_LIMIT = 3
+
+
+def _parse_region_edges(region: str | None) -> int | None:
+    """Return the long edge (px) of a 'x0,y0,x1,y1' region, or None if the
+    string is malformed / non-positive area."""
+    if not region:
+        return None
+    try:
+        x0, y0, x1, y1 = (float(v) for v in str(region).split(","))
+    except (ValueError, TypeError):
+        return None
+    if not (x1 > x0 and y1 > y0):
+        return None
+    return int(round(max(x1 - x0, y1 - y0)))
+
+
+def _note_repeat(signature: str) -> str | None:
+    n = _READ_REPEAT_COUNTS.get(signature, 0) + 1
+    _READ_REPEAT_COUNTS[signature] = n
+    if n >= _READ_REPEAT_LIMIT:
+        return (
+            f"You have fetched this identical crop {n}x. Re-cropping the same "
+            "pixels won't change what you see — CHANGE STRATEGY: escalate to "
+            "zoom_read at higher dpi, change enhance (auto->threshold), or crop "
+            "tighter onto the single feature you're reading."
+        )
+    return None
+
 
 @mcp.tool()
 async def get_scene_view(
@@ -49,16 +83,22 @@ async def get_scene_view(
     view_mode: str | None = None,
     image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
-    """Scene image with the three-tier coordinate grid overlay.
+    """SURVEY-TIER scene view: image + three-tier coordinate grid overlay.
+    Cheap by default (downscaled to max_dim, png8, grid on) — for ORIENTATION:
+    locating features, understanding layout, picking the region to read next.
+
+    For READING A VALUE or ANCHORING geometry (a dimension number, height mark,
+    wall edge) DON'T read it off this survey view — use `read_scene_region`
+    (tight, native, lossless, grid-free) or `zoom_read_scene_region` (higher
+    DPI from the PDF vector). A value read off a downscaled/grid view is
+    low-fidelity and will not count toward gold (the fidelity gate flags it).
 
     USE when:
-      - Labeling a scene — every coordinate-setting decision should
-        consult a fresh grid view first.
+      - Orienting on a scene / picking the next region to read.
       - Identifying scene_tag at W0 (without region; full image).
-      - Reading a faint freehand/pencil scan — pass enhance="auto" (or
-        "threshold" for the faintest) to lift contrast before you read.
 
     DON'T USE when:
+      - You are reading a value or anchoring a wall — use read_scene_region.
       - You only need scene metadata — call `get_scene_meta`.
 
     Args:
@@ -176,6 +216,157 @@ async def get_scene_view(
         started_at=started,
         status_code=status,
         image_delivery=image_delivery,
+    )
+
+
+@mcp.tool()
+async def read_scene_region(
+    key: str,
+    file: str,
+    region: str,
+    enhance: str | None = "threshold",
+    image_delivery: str = "auto",
+) -> list[ImageContent | TextContent]:
+    """READ-TIER view: a tight crop at full native resolution, lossless, with
+    NO grid mesh — the legibility-optimal recipe in one verb.
+
+    USE when you are about to RECORD A VALUE or ANCHOR GEOMETRY: reading a
+    dimension number, a height mark, confirming a wall edge sits on the ink.
+    `get_scene_view` is the cheap SURVEY tier (downscaled, png8, grid on) — fine
+    for locating features, but NOT for reading values: a value read off a
+    downscaled/grid-occluded overview is low-fidelity and will not count toward
+    gold (the fidelity gate flags it).
+
+    Bounded by design (fidelity x area ~ constant): the region's long edge must
+    be <= 2000 source px so the read stays at 1:1 and cheap. Crop tighter, or
+    use `zoom_read_scene_region` for higher-than-native detail.
+
+    Args:
+      region:  REQUIRED 'x0,y0,x1,y1' source-pixel rect — the one feature you
+               are reading. Coordinates returned stay in the source frame.
+      enhance: contrast lift for faint pencil — none|auto|clahe|threshold.
+               Default 'threshold' (strongest) since reads target the faintest
+               marks; drop to 'auto'/'none' if threshold over-binarizes.
+
+    Returns lossless PNG at native resolution + metadata. Read your value off
+    THIS image, then record it with an evidence pointer (region/dpi) and let the
+    crop fall out of context — pixels are transient, the recorded fact is truth.
+    """
+    started = time.time()
+    parsed = _parse_region_edges(region)
+    if parsed is None:
+        return _wrap_text(_err(
+            "schema_invalid",
+            "region must be 'x0,y0,x1,y1' (the single feature to read)",
+            started_at=started, status_code=400,
+        ))
+    long_edge = parsed
+    READ_MAX_EDGE = 2000
+    if long_edge > READ_MAX_EDGE:
+        return _wrap_text(_err(
+            "region_too_large_for_read",
+            f"region long edge {long_edge}px > {READ_MAX_EDGE}px. read stays at "
+            "1:1 native to stay legible+cheap — crop tighter onto the one feature, "
+            "or use zoom_read_scene_region for higher-than-native detail.",
+            started_at=started, status_code=400,
+        ))
+    params: dict[str, Any] = {
+        "region": region, "format": "png", "grid": "none",
+        "max_dim": 8000, "background_opacity": 1.0,
+    }
+    if enhance:
+        params["enhance"] = enhance
+    try:
+        status, content, ctype = await mcp_server._api_get_bytes(f"/datasets/{key}/{file}/grid", params=params)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _wrap_text(_api_unreachable_error(started))
+        status, content, ctype = await mcp_server._api_get_bytes(f"/datasets/{key}/{file}/grid", params=params)
+    if status >= 400:
+        try:
+            err_body = json.loads(content) if content else {}
+        except json.JSONDecodeError:
+            err_body = {}
+        return _wrap_text(_http_status_to_error(status, err_body, started))
+    warning = _note_repeat(f"read|{file}|{region}|{enhance}")
+    return _image_delivery_payload(
+        content=content, ctype=ctype,
+        metadata={
+            "image_format": "PNG", "tier": "read", "lossless": True,
+            "region": region, "enhance": enhance or "none",
+            "evidence_pointer": {
+                "scene": file, "region_bbox": region, "dpi": "native",
+                "enhance": enhance or "none", "grid": "none", "fidelity": "read",
+            },
+            "legibility_warning": warning,
+        },
+        started_at=started, status_code=status, image_delivery=image_delivery,
+    )
+
+
+@mcp.tool()
+async def zoom_read_scene_region(
+    key: str,
+    file: str,
+    region: str,
+    dpi: int = 1000,
+    enhance: str | None = "threshold",
+    image_delivery: str = "auto",
+) -> list[ImageContent | TextContent]:
+    """ZOOM-READ tier: re-render a SMALL region from the PDF VECTOR source at
+    higher-than-native DPI. The escape hatch when `read_scene_region` (native)
+    is still marginal.
+
+    A scene raster is fixed at its extraction DPI — upscaling it adds no detail.
+    This rasterizes the underlying PDF for just your region at `dpi` (<=1200),
+    so faint dimension text / a thin wall edge resolves cleanly. NO OCR — you
+    still read the pixels; this only gives you more of them.
+
+    Bounded: input region long edge <= 1500 source px and the output is capped,
+    so a higher dpi forces a tighter crop (fidelity x area stays constant).
+
+    Args:
+      region:  REQUIRED 'x0,y0,x1,y1' source-pixel rect (one dim number / edge).
+      dpi:     render DPI, default 1000, max 1200.
+      enhance: none|auto|clahe|threshold (default 'threshold').
+
+    Returns lossless PNG. Record the read value with an evidence pointer
+    (region + this dpi) so it is reproducible and counts as high fidelity.
+    """
+    started = time.time()
+    if _parse_region_edges(region) is None:
+        return _wrap_text(_err(
+            "schema_invalid", "region must be 'x0,y0,x1,y1'",
+            started_at=started, status_code=400,
+        ))
+    params: dict[str, Any] = {"region": region, "dpi": dpi}
+    if enhance:
+        params["enhance"] = enhance
+    try:
+        status, content, ctype = await mcp_server._api_get_bytes(f"/datasets/{key}/{file}/zoom", params=params)
+    except (httpx.HTTPError, httpx.RequestError):
+        if not await _wait_for_api():
+            return _wrap_text(_api_unreachable_error(started))
+        status, content, ctype = await mcp_server._api_get_bytes(f"/datasets/{key}/{file}/zoom", params=params)
+    if status >= 400:
+        try:
+            err_body = json.loads(content) if content else {}
+        except json.JSONDecodeError:
+            err_body = {}
+        return _wrap_text(_http_status_to_error(status, err_body, started))
+    warning = _note_repeat(f"zoom|{file}|{region}|{dpi}|{enhance}")
+    return _image_delivery_payload(
+        content=content, ctype=ctype,
+        metadata={
+            "image_format": "PNG", "tier": "zoom_read", "lossless": True,
+            "region": region, "dpi": dpi, "enhance": enhance or "none",
+            "evidence_pointer": {
+                "scene": file, "region_bbox": region, "dpi": dpi,
+                "enhance": enhance or "none", "grid": "none", "fidelity": "zoom_read",
+            },
+            "legibility_warning": warning,
+        },
+        started_at=started, status_code=status, image_delivery=image_delivery,
     )
 
 

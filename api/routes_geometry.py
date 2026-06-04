@@ -184,6 +184,7 @@ def render_scene_grid(
     target_line: str | None = None,
     background_opacity: float | None = None,
     view_mode: str | None = None,
+    grid: str | None = None,
 ) -> Response:
     """Agent vision aid: scene image + coordinate-anchored grid overlay.
 
@@ -231,6 +232,12 @@ def render_scene_grid(
     parsed_target = _parse_target(target)
     parsed_target_line = _parse_target_line(target_line)
     parsed_opacity, opacity_explicit = _parse_background_opacity(background_opacity)
+    # WS-B (legibility-first tracker): grid="none" renders a clean read crop
+    # with no overlay mesh/labels/legend — the read verb uses it so a value is
+    # taken off untouched pixels rather than a grid-occluded composite.
+    draw_grid = (grid or "grid").lower() != "none"
+    if not draw_grid:
+        parsed_tiers = ()
 
     img_mtime = img_path.stat().st_mtime_ns
     cache_root = GRID_CACHE / "scene" / key
@@ -246,6 +253,7 @@ def render_scene_grid(
         f"-g{target or 'none'}"
         f"-gl{parsed_target_line}"
         f"-o{parsed_opacity:g}x{int(opacity_explicit)}"
+        f"-G{int(draw_grid)}"
         f"-f{parsed_format}.png"
     )
     out = cache_root / cache_name
@@ -273,9 +281,105 @@ def render_scene_grid(
                 style=parsed_style,
                 target=parsed_target,
                 target_line=parsed_target_line,  # type: ignore[arg-type]
+                draw_grid=draw_grid,
             )
         _save_grid_png(overlay, out, parsed_format)
         sentinel.write_text(str(img_mtime))
+    return FileResponse(str(out), media_type="image/png")
+
+
+@router.get("/datasets/{key}/{file}/zoom", tags=["pdfs"])
+def zoom_read_scene(
+    key: str,
+    file: str,
+    region: str,
+    dpi: int = 1000,
+    enhance: str | None = None,
+) -> Response:
+    """WS-B (legibility-first tracker): re-render a SMALL scene region from the
+    PDF VECTOR source at high DPI.
+
+    A scene raster is fixed at its extraction DPI, so upscaling it adds no
+    detail — this is the only path to *higher-than-native* legibility. The
+    requested source-pixel region is mapped back to PDF units via the scene's
+    `crop_from`, and just that rect is rasterized at `dpi` (<=1200). Lossless
+    PNG, no grid. Use to read a marginal dimension number / confirm a faint
+    wall edge. Bounded: small input region + bounded output so it can't bloat.
+    """
+    _safe_key(key)
+    if "/" in file or ".." in file:
+        raise HTTPException(status_code=400, detail="bad file")
+    from PIL import Image  # noqa: F401  (fitz pil_image needs PIL importable)
+
+    from .grid_render import _enhance_image
+    from .routes_pdf import MAX_EXTRACT_DPI, _consolidated_path, _render_crop
+    from .segment import scene_px_dims, scene_px_to_pdf, validate_region_px
+
+    if dpi <= 0 or dpi > MAX_EXTRACT_DPI:
+        raise HTTPException(status_code=400, detail=f"dpi must be in (0, {MAX_EXTRACT_DPI}]")
+    parsed_region = _parse_region(region)
+    if parsed_region is None:
+        raise HTTPException(status_code=400, detail="region 'x0,y0,x1,y1' required for zoom")
+    parsed_enhance = _parse_enhance(enhance)
+
+    manifest = _load_dataset_manifest(key)
+    crop_from: dict | None = None
+    for d in (manifest or {}).get("drawings") or []:
+        if d.get("file") == file:
+            crop_from = d.get("crop_from") or {}
+            break
+    if not crop_from or not crop_from.get("bbox_pdf_units") or not crop_from.get("page"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"scene {file!r} has no PDF crop_from — cannot zoom (re-extract it first)",
+        )
+    parent_bbox = crop_from["bbox_pdf_units"]
+    parent_dpi = int(crop_from.get("dpi") or 0)
+    page_n = int(crop_from["page"])
+    if parent_dpi <= 0:
+        raise HTTPException(status_code=400, detail=f"scene {file!r} crop_from missing dpi")
+
+    px0, py0, px1, py1 = parsed_region
+    parent_w, parent_h = scene_px_dims(parent_bbox, parent_dpi)
+    err = validate_region_px([px0, py0, px1, py1], (parent_w, parent_h))
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    long_edge = max(px1 - px0, py1 - py0)
+    ZOOM_MAX_SRC_EDGE = 1500
+    if long_edge > ZOOM_MAX_SRC_EDGE:
+        raise HTTPException(status_code=400, detail=(
+            f"zoom region long edge {int(long_edge)}px > {ZOOM_MAX_SRC_EDGE}px. "
+            "zoom_read magnifies a SMALL feature — crop to one dim number / wall edge "
+            "(use read for a larger native crop)."
+        ))
+    out_long = long_edge * (dpi / parent_dpi)
+    ZOOM_MAX_OUT_EDGE = 3500
+    if out_long > ZOOM_MAX_OUT_EDGE:
+        raise HTTPException(status_code=400, detail=(
+            f"zoom output would be ~{int(out_long)}px long edge (> {ZOOM_MAX_OUT_EDGE}). "
+            "lower dpi or crop tighter so the read stays bounded."
+        ))
+
+    pdf_bbox = scene_px_to_pdf([px0, py0, px1, py1], parent_bbox, parent_dpi)
+    pdf = _consolidated_path(key)
+    pdf_mtime = pdf.stat().st_mtime_ns
+    cache_root = GRID_CACHE / "zoom" / key
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cache_name = f"{Path(file).stem}-r{region}-d{dpi}-e{parsed_enhance}.png"
+    out = cache_root / cache_name
+    sentinel = out.with_suffix(".mtime")
+    if not out.exists() or not sentinel.exists() or sentinel.read_text() != str(pdf_mtime):
+        import fitz
+        with fitz.open(pdf) as doc:
+            if page_n < 1 or page_n > doc.page_count:
+                raise HTTPException(status_code=404, detail=f"page {page_n} out of range")
+            page = doc.load_page(page_n - 1)
+            img = _render_crop(page, pdf_bbox, dpi)
+        if parsed_enhance and parsed_enhance != "none":
+            img = _enhance_image(img, parsed_enhance)
+        img.save(str(out), format="PNG", optimize=True)
+        sentinel.write_text(str(pdf_mtime))
     return FileResponse(str(out), media_type="image/png")
 
 
