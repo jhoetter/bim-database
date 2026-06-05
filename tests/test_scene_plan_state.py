@@ -152,3 +152,39 @@ def test_grundriss_homography_health_clears_when_ok(tmp_path):
     create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
     res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=_grundriss_doc("ok"))
     assert "calibration_health" not in _open_categories(res)
+
+
+# ── F-14 stale label-frame guard ───────────────────────────────────────────
+
+
+def _write_png(path, size):
+    from PIL import Image
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, (255, 255, 255)).save(path)
+
+
+def test_stale_label_frame_blocks_on_size_mismatch(tmp_path):
+    # Scene PNG is 1200x800 but labels declare a different frame → blocker.
+    _write_png(tmp_path/"h"/"f.png", (1200, 800))
+    create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
+    doc = _grundriss_doc("ok")            # ok homography isolates the frame check
+    doc["image_size_px"] = [2980, 2230]   # stale frame
+    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=doc)
+    assert "stale_label_frame" in _open_categories(res)
+
+
+def test_stale_label_frame_clears_when_size_matches(tmp_path):
+    _write_png(tmp_path/"h"/"f.png", (1200, 800))
+    create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
+    doc = _grundriss_doc("ok")
+    doc["image_size_px"] = [1200, 800]    # matches the PNG
+    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=doc)
+    assert "stale_label_frame" not in _open_categories(res)
+
+
+def test_stale_label_frame_skips_when_no_png(tmp_path):
+    # No scene file on disk (e.g. intake-only) → check is skipped, no false block.
+    create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
+    doc = _grundriss_doc("ok"); doc["image_size_px"] = [2980, 2230]
+    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=doc)
+    assert "stale_label_frame" not in _open_categories(res)
