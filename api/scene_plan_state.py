@@ -2922,6 +2922,10 @@ def next_actions_from_state(state: dict[str, Any], limit: int = 3) -> list[dict[
 
 
 def _defect_category_rank(category: str, title: str = "") -> int:
+    # A stale label frame (F-14) invalidates every stored coordinate, so it must
+    # be resolved before any geometry/dimension work — rank it above all else.
+    if category == "stale_label_frame":
+        return 5
     wall_categories = {
         "wall_missing_region",
         "wall_off_ink",
@@ -2934,6 +2938,10 @@ def _defect_category_rank(category: str, title: str = "") -> int:
         return 10
     if category in {"dimension", "stale_evidence"} or "measurement" in title.lower() or "dimension" in title.lower():
         return 20
+    # Calibration health (F-09) needs reference dims placed first, so it sits in
+    # the dimension/calibration tier — after walls, before openings.
+    if category == "calibration_health":
+        return 25
     if category == "opening_relation" or "opening" in title.lower():
         return 30
     return 40
