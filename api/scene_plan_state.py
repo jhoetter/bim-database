@@ -2413,33 +2413,41 @@ def evaluate_gates(
                     expected_resolution="Normalize, move, or re-place the opening on its parent wall, then verify again.",
                     region=(op.get("geometry") or {}).get("quad"),
                 )
-        # F-09 — homography health gate. A floorplan's geometry is stored in
-        # pixel space; the homography is what positions/rectifies the label layer
-        # over the source. A scene can carry a reference dim (or transferred
-        # *scale*) yet still have a degenerate single-axis homography ("H fehlt")
-        # that silently mis-positions every label — the defect that shipped as
-        # "silver" on house-22. Once geometry exists, require a positionable
-        # homography: two reference dims (H+V) OR one reference dim +
-        # assume_isotropic, persisted via recompute_homography. Transferred
-        # *scale* alone does NOT position.
+        # F-09 — calibration-health gate. A floorplan's geometry is stored in
+        # pixel space; positioning/rectification needs a real per-scene homography.
+        # `recompute_homography` persists that into facts.calibration_per_scene
+        # ONLY when the rectification is status=='ok' (two H+V ref dims OR one ref
+        # dim + assume_isotropic). So a persisted calibration that is NOT merely
+        # `transferred` IS the positionable signal. Transferred *scale* alone (no
+        # in-scene reference) does NOT position — the EG/DG case that shipped as
+        # "silver" on house-22. Once geometry exists, require a direct calibration.
         if walls:
-            homo_status = (labels_doc.get("homography") or {}).get("status")
-            if homo_status != "ok":
+            cal = scene_calibration  # facts.calibration_per_scene[file], loaded above
+            positionable = (
+                bool(cal)
+                and not calibration_transferred
+                and cal.get("px_per_mm") is not None
+            )
+            if not positionable:
+                reason = (
+                    "calibration is transferred (scale only — no in-scene reference dim)"
+                    if calibration_transferred else
+                    "no positionable homography is persisted (single-axis / 'H fehlt' or none)"
+                )
                 _upsert_auto_defect(
                     state,
-                    title="Floorplan homography not positionable",
+                    title="Floorplan not positionable",
                     severity="blocker",
                     category="calibration_health",
                     description=(
-                        "Grundriss geometry is placed but the homography status is "
-                        f"'{homo_status or 'none'}' (not 'ok'), so labels cannot be "
-                        "positioned/rectified over the source (the single-axis 'H fehlt' "
-                        "failure). A reference dim or transferred scale alone is NOT enough."
+                        "Grundriss geometry is placed but " + reason + ", so labels cannot "
+                        "be positioned/rectified over the source."
                     ),
                     expected_resolution=(
                         "Read one reference dimension on EACH axis, or — for an axis-aligned "
                         "orthographic plan — one reference dim and call "
-                        "recompute_homography(assume_isotropic=true). Then re-evaluate gates."
+                        "recompute_homography(assume_isotropic=true). This persists an 'ok' "
+                        "calibration. Required even on transfer scenes. Then re-evaluate gates."
                     ),
                     fingerprint=f"grundriss_homography_health:{file}",
                 )
