@@ -188,3 +188,11 @@ def test_stale_label_frame_skips_when_no_png(tmp_path):
     doc = _grundriss_doc("ok"); doc["image_size_px"] = [2980, 2230]
     res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=doc)
     assert "stale_label_frame" not in _open_categories(res)
+
+
+def test_new_defect_categories_rank_sensibly():
+    from api.scene_plan_state import _defect_category_rank
+    # stale frame outranks everything; calibration sits in the dimension tier.
+    assert _defect_category_rank("stale_label_frame") < _defect_category_rank("wall_topology")
+    assert _defect_category_rank("wall_topology") < _defect_category_rank("calibration_health")
+    assert _defect_category_rank("calibration_health") < _defect_category_rank("opening_relation")
