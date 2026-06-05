@@ -348,3 +348,29 @@ def test_enhance_rejects_unknown_mode():
     src = _faint_scan()
     with pytest.raises(ValueError):
         render_grid_overlay(src, tiers=("broad",), enhance="sharpen")
+
+
+def test_image_source_region_maps_grid_to_source_frame():
+    """A pre-rendered higher-DPI base (e.g. PDF-vector zoom) is gridded in the
+    SOURCE pixel frame, not the zoomed-pixel frame. Regression guard for the
+    grid dpi-zoom path: region_origin must be the rect's (x0,y0)."""
+    from PIL import Image
+    from api.grid_render import render_grid_overlay
+    # 600x600 base representing source rect (1000,500)-(1300,800): a 300x300
+    # source region rendered at 2x.
+    base = Image.new("RGB", (600, 600), (255, 255, 255))
+    out = render_grid_overlay(
+        base, tiers=("broad",),
+        image_source_region=(1000, 500, 1300, 800),
+        target=(1150, 650), target_line="none", enhance="none",
+    ).convert("RGB")
+    # Full zoom resolution preserved (no max_dim downscale).
+    assert out.size == (600, 600)
+    px = out.load()
+    def amber(p):  # _TARGET_COLOR (255,190,0)
+        return p[0] > 200 and 150 < p[1] < 230 and p[2] < 90
+    # source (1150,650) -> output ((1150-1000)*2, (650-500)*2) = (300,300)
+    assert sum(1 for y in range(600) if amber(px[300, y])) > 50
+    assert sum(1 for x in range(600) if amber(px[x, 300])) > 50
+    # Negative control: a naive region=None mapping would place the target at
+    # output x=1150 (off a 600px canvas) → no crosshair at all.

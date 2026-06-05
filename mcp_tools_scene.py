@@ -81,6 +81,7 @@ async def get_scene_view(
     target_line: str = "none",
     background_opacity: float | None = None,
     view_mode: str | None = None,
+    dpi: int | None = None,
     image_delivery: str = "auto",
 ) -> list[ImageContent | TextContent]:
     """SURVEY-TIER scene view: image + three-tier coordinate grid overlay.
@@ -137,6 +138,15 @@ async def get_scene_view(
     back as 400×400, NOT scaled up. Small rotated dim text stays
     readable. Full-image renders (no region) still cap at `max_dim`.
 
+    dpi (PLACEMENT zoom): with a `region`, re-renders that region from the PDF
+    VECTOR at this DPI and draws the grid on the higher-res crop — higher-than-
+    native legibility PLUS the coordinate grid in one view, so you can place a
+    wall/dim on faint ink and read its exact SOURCE coordinates off the grid.
+    This is the combination `zoom_read_scene_region` (zoom, no grid) and the
+    native grid view (grid, no zoom) each lack. Crop large, then dpi-zoom each
+    feature to place it. Bounded: region ≤2000 src px, output ≤4000, dpi ≤ the
+    extractor max. Omit for cheap orientation.
+
     Returns: one ImageContent (PNG) and one TextContent with the image
     metadata (source dimensions, region applied, tier step sizes,
     image_bytes so you can see the payload cost). Grid labels show
@@ -158,6 +168,8 @@ async def get_scene_view(
         params["target"] = target
     if background_opacity is not None:
         params["background_opacity"] = background_opacity
+    if dpi is not None:
+        params["dpi"] = dpi
     try:
         status, content, ctype = await mcp_server._api_get_bytes(f"/datasets/{key}/{file}/grid", params=params)
     except (httpx.HTTPError, httpx.RequestError):

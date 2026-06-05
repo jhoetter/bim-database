@@ -218,6 +218,64 @@ def _view_mode_preset(view_mode: str | None) -> dict[str, Any]:
     return dict(VIEW_MODE_PRESETS[mode])
 
 
+def _pdf_rerender_region(key: str, file: str, region_px, dpi: int):
+    """Re-render a SOURCE-pixel region of a scene from the PDF vector at `dpi`.
+
+    Returns (PIL.Image, parent_dpi). The image is the region content only,
+    un-enhanced (callers enhance). Shares the scene-px→PDF mapping with the
+    /zoom route (api.segment). Raises HTTPException on bad input.
+    """
+    from .routes_pdf import MAX_EXTRACT_DPI, _consolidated_path, _render_crop
+    from .segment import scene_px_dims, scene_px_to_pdf, validate_region_px
+
+    if dpi <= 0 or dpi > MAX_EXTRACT_DPI:
+        raise HTTPException(status_code=400, detail=f"dpi must be in (0, {MAX_EXTRACT_DPI}]")
+    manifest = _load_dataset_manifest(key)
+    crop_from = None
+    for d in (manifest or {}).get("drawings") or []:
+        if d.get("file") == file:
+            crop_from = d.get("crop_from") or {}
+            break
+    if not crop_from or not crop_from.get("bbox_pdf_units") or not crop_from.get("page"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"scene {file!r} has no PDF crop_from — cannot dpi-zoom (re-extract it first)",
+        )
+    parent_bbox = crop_from["bbox_pdf_units"]
+    parent_dpi = int(crop_from.get("dpi") or 0)
+    page_n = int(crop_from["page"])
+    if parent_dpi <= 0:
+        raise HTTPException(status_code=400, detail=f"scene {file!r} crop_from missing dpi")
+    px0, py0, px1, py1 = region_px
+    parent_w, parent_h = scene_px_dims(parent_bbox, parent_dpi)
+    err = validate_region_px([px0, py0, px1, py1], (parent_w, parent_h))
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    long_edge = max(px1 - px0, py1 - py0)
+    GRID_ZOOM_MAX_SRC_EDGE = 2000
+    if long_edge > GRID_ZOOM_MAX_SRC_EDGE:
+        raise HTTPException(status_code=400, detail=(
+            f"grid dpi-zoom region long edge {int(long_edge)}px > {GRID_ZOOM_MAX_SRC_EDGE}px — "
+            "crop tighter onto the feature to zoom."
+        ))
+    out_long = long_edge * (dpi / parent_dpi)
+    GRID_ZOOM_MAX_OUT_EDGE = 4000
+    if out_long > GRID_ZOOM_MAX_OUT_EDGE:
+        raise HTTPException(status_code=400, detail=(
+            f"grid dpi-zoom output would be ~{int(out_long)}px (> {GRID_ZOOM_MAX_OUT_EDGE}) — "
+            "lower dpi or crop tighter."
+        ))
+    pdf_bbox = scene_px_to_pdf([px0, py0, px1, py1], parent_bbox, parent_dpi)
+    pdf = _consolidated_path(key)
+    import fitz
+    with fitz.open(pdf) as doc:
+        if page_n < 1 or page_n > doc.page_count:
+            raise HTTPException(status_code=404, detail=f"page {page_n} out of range")
+        page = doc.load_page(page_n - 1)
+        img = _render_crop(page, pdf_bbox, dpi)
+    return img, parent_dpi
+
+
 @router.get("/datasets/{key}/{file}/grid", tags=["pdfs"])
 def render_scene_grid(
     key: str,
@@ -233,8 +291,16 @@ def render_scene_grid(
     background_opacity: float | None = None,
     view_mode: str | None = None,
     grid: str | None = None,
+    dpi: int | None = None,
 ) -> Response:
     """Agent vision aid: scene image + coordinate-anchored grid overlay.
+
+    dpi (optional): when set WITH a `region`, re-render that region from the PDF
+    VECTOR source at this DPI before drawing the grid — higher-than-native
+    legibility for placing a wall/dim on faint ink, WITH the coordinate grid
+    (which `zoom_read`/`/zoom` lacks). Coordinate labels stay in the SOURCE
+    frame. Bounded like the read/zoom tiers (region ≤2000 src px, output ≤4000,
+    dpi ≤ MAX_EXTRACT_DPI). Omit for the native-raster crop (default).
 
     Query args:
       region   optional 'x0,y0,x1,y1' (source-pixel coords) — agent zoom
@@ -287,6 +353,12 @@ def render_scene_grid(
     if not draw_grid:
         parsed_tiers = ()
 
+    # dpi-zoom path: re-render the region from the PDF VECTOR at `dpi`, then grid
+    # it. You zoom a FEATURE, so a region is required.
+    dpi_zoom = dpi is not None
+    if dpi_zoom and parsed_region is None:
+        raise HTTPException(status_code=400, detail="dpi requires a region (the feature to zoom)")
+
     img_mtime = img_path.stat().st_mtime_ns
     cache_root = GRID_CACHE / "scene" / key
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -302,37 +374,62 @@ def render_scene_grid(
         f"-gl{parsed_target_line}"
         f"-o{parsed_opacity:g}x{int(opacity_explicit)}"
         f"-G{int(draw_grid)}"
+        f"-d{dpi if dpi_zoom else 'native'}"
         f"-f{parsed_format}.png"
     )
     out = cache_root / cache_name
     sentinel = out.with_suffix(".mtime")
-    if not out.exists() or not sentinel.exists() or sentinel.read_text() != str(img_mtime):
+    # dpi-zoom reads the PDF, so its freshness tracks the PDF mtime; the native
+    # path tracks the scene raster mtime.
+    if dpi_zoom:
+        from .routes_pdf import _consolidated_path
+        cache_mtime = str(_consolidated_path(key).stat().st_mtime_ns)
+    else:
+        cache_mtime = str(img_mtime)
+    if not out.exists() or not sentinel.exists() or sentinel.read_text() != cache_mtime:
         from PIL import Image as PILImage
         from .grid_render import render_grid_overlay
-        with PILImage.open(img_path) as src:
-            _m = _load_dataset_manifest(key)
-            _scene_dpi = next(
-                (d.get("crop_from", {}).get("dpi")
-                 for d in ((_m or {}).get("drawings") or [])
-                 if d.get("file") == file),
-                None,
-            )
+        _m = _load_dataset_manifest(key)
+        _scene_dpi = next(
+            (d.get("crop_from", {}).get("dpi")
+             for d in ((_m or {}).get("drawings") or [])
+             if d.get("file") == file),
+            None,
+        )
+        if dpi_zoom:
+            base, _parent_dpi = _pdf_rerender_region(key, file, parsed_region, dpi)
             overlay = render_grid_overlay(
-                src,
+                base,
                 tiers=parsed_tiers,
-                region=parsed_region,
+                image_source_region=parsed_region,
                 max_dim=max_dim,
                 enhance=parsed_enhance,
                 background_opacity=parsed_opacity,
                 background_opacity_explicit=opacity_explicit,
-                source_dpi=_scene_dpi,
+                source_dpi=dpi,
                 style=parsed_style,
                 target=parsed_target,
                 target_line=parsed_target_line,  # type: ignore[arg-type]
                 draw_grid=draw_grid,
             )
+        else:
+            with PILImage.open(img_path) as src:
+                overlay = render_grid_overlay(
+                    src,
+                    tiers=parsed_tiers,
+                    region=parsed_region,
+                    max_dim=max_dim,
+                    enhance=parsed_enhance,
+                    background_opacity=parsed_opacity,
+                    background_opacity_explicit=opacity_explicit,
+                    source_dpi=_scene_dpi,
+                    style=parsed_style,
+                    target=parsed_target,
+                    target_line=parsed_target_line,  # type: ignore[arg-type]
+                    draw_grid=draw_grid,
+                )
         _save_grid_png(overlay, out, parsed_format)
-        sentinel.write_text(str(img_mtime))
+        sentinel.write_text(cache_mtime)
     return FileResponse(str(out), media_type="image/png")
 
 
