@@ -211,6 +211,7 @@ async def get_scene_view(
             "region": region,
             "tiers": tiers.split(","),
             "max_dim": max_dim,
+            "dpi": dpi,
             "enhance": enhance or "none",
             "format": format,
             "style": style,
