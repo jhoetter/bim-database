@@ -108,9 +108,9 @@ def test_write_with_correct_version_succeeds(tmp_path):
 # ── F-09 homography-health gate for grundriss ──────────────────────────────
 
 
-def _grundriss_doc(homography_status):
-    """A floorplan labels_doc with one wall and an optional homography snapshot."""
-    doc = {
+def _grundriss_doc():
+    """A floorplan labels_doc with one wall."""
+    return {
         "scene_tag": "grundriss",
         "scene_level": "eg",
         "labels": [
@@ -123,34 +123,45 @@ def _grundriss_doc(homography_status):
             }
         ],
     }
-    if homography_status is not None:
-        doc["homography"] = {"status": homography_status}
-    return doc
+
+
+def _write_calibration(tmp_path, key, file, calib):
+    """Persist facts.calibration_per_scene[file] — the source the gate reads."""
+    import json
+    p = tmp_path / key / "house_facts.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"calibration_per_scene": {file: calib}} if calib is not None else {}
+    p.write_text(json.dumps(doc))
 
 
 def _open_categories(result):
     return {d.get("category") for d in result.get("open_defects", [])}
 
 
-def test_grundriss_homography_health_blocks_single_axis(tmp_path):
-    # Single-axis / "H fehlt" homography must raise a blocker (the house-22 bug).
+def test_grundriss_calibration_blocks_when_absent(tmp_path):
+    # No persisted calibration (single-axis / "H fehlt" never reached status ok).
     create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
-    res = evaluate_gates(tmp_path, "h", "f.png",
-                         labels_doc=_grundriss_doc("insufficient_references"))
+    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=_grundriss_doc())
     assert "calibration_health" in _open_categories(res)
 
 
-def test_grundriss_homography_health_blocks_when_absent(tmp_path):
-    # No persisted homography at all (transferred scale only) also blocks.
+def test_grundriss_calibration_blocks_when_transferred(tmp_path):
+    # Transferred *scale* is not a positioning anchor — must still block (fix #2).
     create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
-    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=_grundriss_doc(None))
+    _write_calibration(tmp_path, "h", "f.png",
+                       {"status": "transferred", "computed_from": "transferred",
+                        "px_per_mm": 0.1})
+    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=_grundriss_doc())
     assert "calibration_health" in _open_categories(res)
 
 
-def test_grundriss_homography_health_clears_when_ok(tmp_path):
-    # A positionable homography (status ok, via H+V refs or assume_isotropic) passes.
+def test_grundriss_calibration_clears_when_direct_isotropic(tmp_path):
+    # A direct per-scene calibration (incl. single-ref isotropic) positions → passes.
     create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
-    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=_grundriss_doc("ok"))
+    _write_calibration(tmp_path, "h", "f.png",
+                       {"px_per_mm": 0.1164, "computed_from": "M1-V-Bezug",
+                        "single_ref_assumed_isotropic": True})
+    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=_grundriss_doc())
     assert "calibration_health" not in _open_categories(res)
 
 
@@ -167,7 +178,7 @@ def test_stale_label_frame_blocks_on_size_mismatch(tmp_path):
     # Scene PNG is 1200x800 but labels declare a different frame → blocker.
     _write_png(tmp_path/"h"/"f.png", (1200, 800))
     create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
-    doc = _grundriss_doc("ok")            # ok homography isolates the frame check
+    doc = _grundriss_doc()            # ok homography isolates the frame check
     doc["image_size_px"] = [2980, 2230]   # stale frame
     res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=doc)
     assert "stale_label_frame" in _open_categories(res)
@@ -176,7 +187,7 @@ def test_stale_label_frame_blocks_on_size_mismatch(tmp_path):
 def test_stale_label_frame_clears_when_size_matches(tmp_path):
     _write_png(tmp_path/"h"/"f.png", (1200, 800))
     create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
-    doc = _grundriss_doc("ok")
+    doc = _grundriss_doc()
     doc["image_size_px"] = [1200, 800]    # matches the PNG
     res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=doc)
     assert "stale_label_frame" not in _open_categories(res)
@@ -185,7 +196,7 @@ def test_stale_label_frame_clears_when_size_matches(tmp_path):
 def test_stale_label_frame_skips_when_no_png(tmp_path):
     # No scene file on disk (e.g. intake-only) → check is skipped, no false block.
     create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
-    doc = _grundriss_doc("ok"); doc["image_size_px"] = [2980, 2230]
+    doc = _grundriss_doc(); doc["image_size_px"] = [2980, 2230]
     res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=doc)
     assert "stale_label_frame" not in _open_categories(res)
 
