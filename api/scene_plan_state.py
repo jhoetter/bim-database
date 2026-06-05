@@ -2372,6 +2372,36 @@ def evaluate_gates(
                     expected_resolution="Normalize, move, or re-place the opening on its parent wall, then verify again.",
                     region=(op.get("geometry") or {}).get("quad"),
                 )
+        # F-09 — homography health gate. A floorplan's geometry is stored in
+        # pixel space; the homography is what positions/rectifies the label layer
+        # over the source. A scene can carry a reference dim (or transferred
+        # *scale*) yet still have a degenerate single-axis homography ("H fehlt")
+        # that silently mis-positions every label — the defect that shipped as
+        # "silver" on house-22. Once geometry exists, require a positionable
+        # homography: two reference dims (H+V) OR one reference dim +
+        # assume_isotropic, persisted via recompute_homography. Transferred
+        # *scale* alone does NOT position.
+        if walls:
+            homo_status = (labels_doc.get("homography") or {}).get("status")
+            if homo_status != "ok":
+                _upsert_auto_defect(
+                    state,
+                    title="Floorplan homography not positionable",
+                    severity="blocker",
+                    category="calibration_health",
+                    description=(
+                        "Grundriss geometry is placed but the homography status is "
+                        f"'{homo_status or 'none'}' (not 'ok'), so labels cannot be "
+                        "positioned/rectified over the source (the single-axis 'H fehlt' "
+                        "failure). A reference dim or transferred scale alone is NOT enough."
+                    ),
+                    expected_resolution=(
+                        "Read one reference dimension on EACH axis, or — for an axis-aligned "
+                        "orthographic plan — one reference dim and call "
+                        "recompute_homography(assume_isotropic=true). Then re-evaluate gates."
+                    ),
+                    fingerprint=f"grundriss_homography_health:{file}",
+                )
     if latest_score_walls:
         if (
             isinstance(previous_score_walls, dict)
