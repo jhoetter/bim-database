@@ -19,6 +19,7 @@ from api.scene_plan_state import (  # noqa: E402
     PlanStateConflictError,
     create_plan_state_from_template,
     create_state_from_template,
+    evaluate_gates,
     next_actions_from_state,
     read_plan_state,
     version_for_state,
@@ -102,3 +103,52 @@ def test_write_with_correct_version_succeeds(tmp_path):
     out = write_plan_state(tmp_path, state, expected_version=loaded["version"])
     assert out["state"]["status"] == "in_progress"
     assert out["version"] != loaded["version"]
+
+
+# ── F-09 homography-health gate for grundriss ──────────────────────────────
+
+
+def _grundriss_doc(homography_status):
+    """A floorplan labels_doc with one wall and an optional homography snapshot."""
+    doc = {
+        "scene_tag": "grundriss",
+        "scene_level": "eg",
+        "labels": [
+            {
+                "id": "w1",
+                "type": "wall",
+                "status": "readable",
+                "geometry": {"start": [0.0, 0.0], "end": [100.0, 0.0]},
+                "attributes": {},
+            }
+        ],
+    }
+    if homography_status is not None:
+        doc["homography"] = {"status": homography_status}
+    return doc
+
+
+def _open_categories(result):
+    return {d.get("category") for d in result.get("open_defects", [])}
+
+
+def test_grundriss_homography_health_blocks_single_axis(tmp_path):
+    # Single-axis / "H fehlt" homography must raise a blocker (the house-22 bug).
+    create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
+    res = evaluate_gates(tmp_path, "h", "f.png",
+                         labels_doc=_grundriss_doc("insufficient_references"))
+    assert "calibration_health" in _open_categories(res)
+
+
+def test_grundriss_homography_health_blocks_when_absent(tmp_path):
+    # No persisted homography at all (transferred scale only) also blocks.
+    create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
+    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=_grundriss_doc(None))
+    assert "calibration_health" in _open_categories(res)
+
+
+def test_grundriss_homography_health_clears_when_ok(tmp_path):
+    # A positionable homography (status ok, via H+V refs or assume_isotropic) passes.
+    create_plan_state_from_template(tmp_path, "h", "f.png", scene_tag="grundriss")
+    res = evaluate_gates(tmp_path, "h", "f.png", labels_doc=_grundriss_doc("ok"))
+    assert "calibration_health" not in _open_categories(res)
