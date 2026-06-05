@@ -2090,6 +2090,17 @@ def _set_gate(task: dict[str, Any], gate_id: str, status: str, evidence_ids: lis
     gates.append({"id": gate_id, "status": status, "evidence_ids": evidence_ids or [], "waiver_reason": waiver_reason})
 
 
+def _scene_image_size(path: Path) -> tuple[int, int] | None:
+    """(w, h) of the scene image, or None if it can't be read. Header-only —
+    PIL reads dimensions without decoding the pixels."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            return (int(im.width), int(im.height))
+    except Exception:  # noqa: BLE001 — missing/unreadable file just skips the check
+        return None
+
+
 def evaluate_gates(
     dataset_root: Path,
     key: str,
@@ -2300,6 +2311,36 @@ def evaluate_gates(
     elif not evidence_stale:
         stale_tasks.clear()
     current_state["stale_evidence"] = sorted(stale_tasks)
+
+    # F-14 — stale label-frame guard (all scene types). Labels are source-pixel
+    # coords in the scene image's frame; `image_size_px` records that frame. If
+    # the scene was re-extracted to a different size after labels were authored
+    # (a re-crop/re-slug under preserved labels), the stored coords no longer
+    # match the displayed image — `preserveAspectRatio="none"` then stretches the
+    # base under the un-stretched labels and every label floats off the ink. This
+    # was the ORIGINAL house-22 symptom. Flag a definite mismatch loudly; equality
+    # is an invariant the pipeline must hold, so this cannot false-positive.
+    declared = labels_doc.get("image_size_px")
+    if labels and isinstance(declared, (list, tuple)) and len(declared) == 2:
+        actual = _scene_image_size(dataset_root / key / file)
+        if actual is not None and (int(declared[0]), int(declared[1])) != actual:
+            _upsert_auto_defect(
+                state,
+                title="Label frame does not match the scene image",
+                severity="blocker",
+                category="stale_label_frame",
+                description=(
+                    f"Labels were authored for image_size_px {list(declared)} but the "
+                    f"scene file is {list(actual)} px — the scene was re-extracted under "
+                    "preserved labels, so every label sits in a stale frame and floats "
+                    "off the ink."
+                ),
+                expected_resolution=(
+                    "Re-project the labels into the current frame, or re-label against the "
+                    "re-extracted scene; never keep coords from a replaced crop."
+                ),
+                fingerprint=f"stale_label_frame:{file}",
+            )
 
     if scene_tag == "grundriss":
         if not walls:
