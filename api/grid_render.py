@@ -138,6 +138,7 @@ def render_grid_overlay(
     background_opacity_explicit: bool = False,
     enhance: str | None = DEFAULT_ENHANCE,
     source_dpi: int | None = None,
+    image_source_region: tuple[int, int, int, int] | None = None,
     style: str = "standard",
     target: tuple[int, int] | None = None,
     target_line: TargetLine = "none",
@@ -189,7 +190,22 @@ def render_grid_overlay(
 
     src_w, src_h = image.size
 
-    if region is not None:
+    if image_source_region is not None:
+        # `image` is ALREADY the crop of this SOURCE rect, rendered externally
+        # at an arbitrary (higher) scale — e.g. a PDF-vector re-render at
+        # higher-than-native DPI. Do NOT crop again; anchor the grid to the
+        # SOURCE frame via this rect. The coordinate math maps source→output by
+        # out_w/crop_src_w, so the larger base just yields a larger scale factor
+        # and every printed coordinate stays an ABSOLUTE source pixel. NOTE:
+        # region_origin MUST be the rect's (x0,y0), not (0,0) — otherwise reads
+        # land in zoomed-pixel space and every placement is off.
+        x0, y0, x1, y1 = (int(v) for v in image_source_region)
+        cropped = image
+        region_origin = (x0, y0)
+        crop_src_w = x1 - x0
+        crop_src_h = y1 - y0
+        source_size: tuple[int, int] | None = None
+    elif region is not None:
         x0, y0, x1, y1 = (int(v) for v in region)
         if not (0 <= x0 < x1 <= src_w and 0 <= y0 < y1 <= src_h):
             raise ValueError(
@@ -199,7 +215,7 @@ def render_grid_overlay(
         region_origin = (x0, y0)
         crop_src_w = x1 - x0
         crop_src_h = y1 - y0
-        source_size: tuple[int, int] | None = (src_w, src_h)
+        source_size = (src_w, src_h)
     else:
         cropped = image
         region_origin = (0, 0)
@@ -229,9 +245,15 @@ def render_grid_overlay(
     # context. compute_output_size is shared with api.snap so the
     # local-crop → source coordinate mapping (issue #10) agrees with the
     # rendered image exactly.
-    out_w, out_h = compute_output_size(cw, ch, max_dim)
-    if (out_w, out_h) != (cw, ch):
-        cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
+    if image_source_region is not None:
+        # Keep the re-rendered zoom at full resolution — the route already bounds
+        # its size, and downscaling here would discard the legibility we zoomed
+        # in to gain.
+        out_w, out_h = cw, ch
+    else:
+        out_w, out_h = compute_output_size(cw, ch, max_dim)
+        if (out_w, out_h) != (cw, ch):
+            cropped = cropped.resize((out_w, out_h), Image.LANCZOS)
     cw, ch = cropped.size
 
     # Canvas == image dims; no margin. Grid + labels drawn ON the image.
